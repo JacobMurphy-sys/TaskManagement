@@ -480,13 +480,13 @@ async function renderLog() {
     <div class="kanban-tools"><h1 style="margin:0">Activity log</h1><div class="spacer"></div>
       <select id="log-project"><option value="">All projects</option>
         ${state.projects.map((p) => `<option value="${p.id}" ${String(p.id) === String(pid) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
-    <p class="muted small">Every insert, change and delete is recorded by the database itself — including edits made in pgAdmin, DBeaver or Access. Showing the latest 500.</p>
+    <p class="muted small">Every insert, change and delete is recorded by the database itself — including edits made directly in DBeaver. Showing the latest 500.</p>
     <div class="card" style="overflow-x:auto"><table class="log">
-      <thead><tr><th>When</th><th>Project</th><th>What</th><th>DB user</th></tr></thead>
+      <thead><tr><th>When</th><th>Project</th><th>What</th></tr></thead>
       <tbody>${rows.map((r) => `<tr>
         <td class="nowrap">${esc(fmtDateTime(r.changed_at))}</td>
         <td>${r.project_id ? (names[r.project_id] ? `<a href="#/project/${r.project_id}">${esc(names[r.project_id])}</a>` : `#${r.project_id}`) : ''}</td>
-        <td>${esc(r.summary)}</td><td class="muted">${esc(r.db_user)}</td></tr>`).join('')}</tbody>
+        <td>${esc(r.summary)}</td></tr>`).join('')}</tbody>
     </table>${rows.length ? '' : '<div class="empty">No activity yet.</div>'}</div>`;
   $('#log-project').addEventListener('change', (e) => { store.set('logProject', e.target.value); renderLog(); });
 }
@@ -499,9 +499,9 @@ async function renderBackups() {
       <button class="primary" data-action="backup-now">💾 Back up now</button></div>
     <div class="card stack">
       <p>Backups run automatically (at start-up and on the interval set in <code>.env</code>). Each backup is a
-        <b>JSON export</b> of every table, plus a native <b>pg_dump</b> file when <code>pg_dump</code> is available.</p>
-      <p class="small muted">Restore a JSON backup with <code>npm run restore -- backups/json/&lt;file&gt;.json</code>
-        (a safety backup of the current data is taken first). A <code>.dump</code> file can be restored from pgAdmin (Restore…) or with <code>pg_restore</code>.</p>
+        complete copy of the <b>database file</b> (<code>.db</code> — opens in DBeaver) plus a <b>JSON export</b> of every table.</p>
+      <p class="small muted">Restore with <code>npm run restore -- backups/db/&lt;file&gt;.db</code> (a <code>.json</code> file works too).
+        A safety backup of the current data is taken first.</p>
     </div>
     <div class="card" style="margin-top:16px"><table class="log">
       <thead><tr><th>Created</th><th>Type</th><th>File</th><th>Size</th></tr></thead>
@@ -814,7 +814,7 @@ const actions = {
     el.disabled = true;
     try {
       const r = await api.post('/backups');
-      toast(r.pgdump ? 'Backup done (JSON + pg_dump)' : 'Backup done (JSON)');
+      toast('Backup done');
       await renderBackups();
     } finally { el.disabled = false; }
   },

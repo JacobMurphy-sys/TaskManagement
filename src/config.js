@@ -24,18 +24,11 @@ module.exports = {
   ROOT,
   port: num(env.PORT, 3000),
   host: env.HOST || '127.0.0.1',
-  db: {
-    host: env.PGHOST || 'localhost',
-    port: num(env.PGPORT, 5432),
-    database: env.PGDATABASE || 'taskmgr',
-    user: env.PGUSER || 'postgres',
-    password: env.PGPASSWORD || '',
-  },
+  dbFile: resolve(env.DB_FILE || './data/taskmgr.db'),
   backup: {
     dir: resolve(env.BACKUP_DIR || './backups'),
     intervalHours: num(env.BACKUP_INTERVAL_HOURS, 24),
     keep: Math.max(1, num(env.BACKUP_KEEP, 30)),
-    pgDumpPath: env.PG_DUMP_PATH || '',
   },
   logDir: resolve(env.LOG_DIR || './logs'),
 };

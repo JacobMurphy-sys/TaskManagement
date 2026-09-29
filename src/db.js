@@ -1,36 +1,68 @@
+// SQLite access using Node's built-in node:sqlite module (no install needed).
 const fs = require('fs');
 const path = require('path');
-const { Pool, types } = require('pg');
 const config = require('./config');
+const { schemaSql } = require('./schema');
 
-// Return DATE columns as plain 'YYYY-MM-DD' strings instead of local-midnight Date objects.
-types.setTypeParser(1082, (v) => v);
+// node:sqlite prints an "experimental" warning on load; it's stable enough for this use.
+const emitWarning = process.emitWarning;
+process.emitWarning = (warning, ...rest) => {
+  if (String(warning).includes('SQLite')) return;
+  emitWarning.call(process, warning, ...rest);
+};
 
-const pool = new Pool(config.db);
-
-async function query(text, params) {
-  return pool.query(text, params);
+let sqlite;
+try {
+  sqlite = require('node:sqlite');
+} catch {
+  console.error(`\nThis app needs Node.js 22.13 or newer (it uses Node's built-in SQLite). You have ${process.version}.\n` +
+    'Install the current LTS version from https://nodejs.org and try again.\n');
+  process.exit(1);
 }
 
-// Runs fn(client) inside a transaction.
-async function tx(fn) {
-  const client = await pool.connect();
+function open(file) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const conn = new sqlite.DatabaseSync(file);
+  conn.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+  return conn;
+}
+
+const conn = open(config.dbFile);
+
+// node:sqlite accepts only null/number/bigint/string/buffer parameters.
+const param = (v) => {
+  if (v === undefined) return null;
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (v !== null && typeof v === 'object' && !Buffer.isBuffer(v)) return JSON.stringify(v);
+  return v;
+};
+
+const cache = new Map();
+function stmt(sql) {
+  let s = cache.get(sql);
+  if (!s) { s = conn.prepare(sql); cache.set(sql, s); }
+  return s;
+}
+
+const all = (sql, params = []) => stmt(sql).all(...params.map(param)).map((r) => ({ ...r }));
+const get = (sql, params = []) => { const r = stmt(sql).get(...params.map(param)); return r ? { ...r } : undefined; };
+const run = (sql, params = []) => stmt(sql).run(...params.map(param));
+
+// Runs fn() inside a transaction.
+function tx(fn) {
+  conn.exec('BEGIN IMMEDIATE');
   try {
-    await client.query('BEGIN');
-    const result = await fn(client);
-    await client.query('COMMIT');
+    const result = fn();
+    conn.exec('COMMIT');
     return result;
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    conn.exec('ROLLBACK');
     throw err;
-  } finally {
-    client.release();
   }
 }
 
-async function migrate() {
-  const sql = fs.readFileSync(path.join(config.ROOT, 'db', 'schema.sql'), 'utf8');
-  await pool.query(sql);
+function migrate() {
+  tx(() => conn.exec(schemaSql()));
 }
 
-module.exports = { pool, query, tx, migrate };
+module.exports = { conn, all, get, run, tx, migrate, open };

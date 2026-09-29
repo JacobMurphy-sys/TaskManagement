@@ -1,60 +1,68 @@
-// Restores ALL data from a JSON backup, replacing what is in the database.
+// Restores ALL data from a backup (.db or .json), replacing what is in the database.
 // A safety backup of the current data is taken first.
-// Usage: npm run restore -- backups/json/taskmgr-YYYYMMDD-HHMMSS.json
+// Usage: npm run restore -- backups/db/taskmgr-YYYYMMDD-HHMMSS.db
 const fs = require('fs');
-const path = require('path');
 const readline = require('readline');
 const db = require('../src/db');
 const backup = require('../src/backup');
+const { dropTriggersSql, TABLE_NAMES } = require('../src/schema');
+
+function readBackup(file) {
+  if (file.endsWith('.json')) {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return { created: data.created_at, tables: data.tables };
+  }
+  const { DatabaseSync } = require('node:sqlite');
+  const src = new DatabaseSync(file, { readOnly: true });
+  const tables = backup.exportTables(src);
+  src.close();
+  return { created: fs.statSync(file).mtime.toISOString(), tables };
+}
 
 async function main() {
   const file = process.argv[2];
   if (!file) {
-    console.log('Usage: npm run restore -- <backup.json>\n\nAvailable JSON backups:');
-    for (const b of backup.listBackups().filter((x) => x.kind === 'json')) {
-      console.log(`  ${path.join(backup.JSON_DIR, b.file)}`);
-    }
-    return db.pool.end();
+    console.log('Usage: npm run restore -- <backup file (.db or .json)>\n\nAvailable backups (newest first):');
+    for (const b of backup.listBackups()) console.log(`  ${b.path}`);
+    return;
   }
-  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-  const counts = backup.TABLES.map((t) => `${t}: ${(data.tables[t] || []).length}`).join(', ');
-  console.log(`Backup from ${data.created_at}\n  ${counts}`);
+  const data = readBackup(file);
+  console.log(`Backup from ${data.created}\n  ${TABLE_NAMES.map((t) => `${t}: ${(data.tables[t] || []).length}`).join(', ')}`);
 
   if (!process.argv.includes('--yes')) {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const answer = await new Promise((r) => rl.question('This REPLACES all current data. Type "restore" to continue: ', r));
     rl.close();
-    if (answer.trim() !== 'restore') { console.log('Cancelled.'); return db.pool.end(); }
+    if (answer.trim() !== 'restore') { console.log('Cancelled.'); return; }
   }
 
-  await db.migrate();
-  const safety = await backup.runBackup('pre-restore safety copy');
-  console.log('Safety backup of current data:', safety.json);
+  db.migrate();
+  const safety = backup.runBackup('pre-restore safety copy');
+  console.log('Safety backup of current data:', safety.db);
 
-  const triggerTables = ['projects', 'tasks', 'notes', 'reminders'];
-  await db.tx(async (c) => {
-    // User triggers are off during the restore so the original timestamps are kept
-    // and the restore itself does not flood the audit log.
-    for (const t of triggerTables) await c.query(`ALTER TABLE ${t} DISABLE TRIGGER USER`);
-    await c.query(`TRUNCATE ${backup.TABLES.join(', ')} RESTART IDENTITY CASCADE`);
-    for (const table of backup.TABLES) {
-      for (const row of data.tables[table] || []) {
-        // Subtask links are restored in a second pass so row order never matters.
-        const r = table === 'tasks' ? { ...row, parent_id: null } : row;
-        const cols = Object.keys(r);
-        const values = cols.map((k) => (r[k] !== null && typeof r[k] === 'object' ? JSON.stringify(r[k]) : r[k]));
-        await c.query(
-          `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')})`, values);
+  // Triggers are dropped during the load so original timestamps are kept and the
+  // restore doesn't flood the audit log; migrate() puts them back afterwards.
+  db.conn.exec('PRAGMA foreign_keys = OFF');
+  try {
+    db.tx(() => {
+      db.conn.exec(dropTriggersSql());
+      for (const table of TABLE_NAMES) db.run(`DELETE FROM ${table}`);
+      db.run(`DELETE FROM sqlite_sequence WHERE name IN (${TABLE_NAMES.map(() => '?').join(', ')})`, TABLE_NAMES);
+      for (const table of TABLE_NAMES) {
+        for (const row of data.tables[table] || []) {
+          const cols = Object.keys(row);
+          db.run(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+            cols.map((c) => row[c]));
+        }
       }
-      await c.query(`SELECT setval(pg_get_serial_sequence('${table}', 'id'), coalesce((SELECT max(id) FROM ${table}), 0) + 1, false)`);
-    }
-    for (const row of data.tables.tasks || []) {
-      if (row.parent_id) await c.query('UPDATE tasks SET parent_id = $2 WHERE id = $1', [row.id, row.parent_id]);
-    }
-    for (const t of triggerTables) await c.query(`ALTER TABLE ${t} ENABLE TRIGGER USER`);
-  });
+    });
+  } finally {
+    db.migrate();
+    db.conn.exec('PRAGMA foreign_keys = ON');
+  }
+  const problems = db.all('PRAGMA foreign_key_check');
+  if (problems.length) console.warn(`Warning: ${problems.length} row(s) reference missing records.`);
   console.log('Restore complete.');
-  await db.pool.end();
 }
 
 main().catch((err) => { console.error('Restore failed:', err.message); process.exit(1); });

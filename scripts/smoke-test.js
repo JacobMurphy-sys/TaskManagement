@@ -1,7 +1,8 @@
-// End-to-end smoke test against a real PostgreSQL database.
-// Starts the server on a spare port, exercises the API, then cleans up the
-// project it created. Usage: npm test
+// End-to-end smoke test. Starts the server on a spare port with a throw-away
+// database in a temp folder, and exercises the API. Usage: npm test
 const { spawn } = require('child_process');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const assert = require('assert/strict');
 
@@ -25,10 +26,14 @@ async function waitForServer() {
 }
 
 (async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'taskmgr-test-'));
   const server = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], {
-    env: { ...process.env, PORT: String(PORT), BACKUP_INTERVAL_HOURS: '0' }, stdio: 'inherit',
+    env: {
+      ...process.env, PORT: String(PORT), BACKUP_INTERVAL_HOURS: '0',
+      DB_FILE: path.join(tmp, 'test.db'), BACKUP_DIR: path.join(tmp, 'backups'), LOG_DIR: path.join(tmp, 'logs'),
+    },
+    stdio: 'inherit',
   });
-  let projectId;
   try {
     await waitForServer();
 
@@ -37,7 +42,6 @@ async function waitForServer() {
       due_at: new Date(Date.now() + 7 * 86400000).toISOString(),
       baseline_tasks: ['First baseline task', 'Second baseline task', ''], initial_note: 'Kick-off',
     });
-    projectId = p.id;
     let full = await call('GET', `/projects/${p.id}`);
     assert.equal(full.tasks.length, 2, 'baseline tasks created');
     assert.ok(full.baseline_set_at, 'baseline set on create');
@@ -93,15 +97,33 @@ async function waitForServer() {
     await assert.rejects(call('POST', '/tasks', { project_id: p.id, title: '' }), /400/);
     await assert.rejects(call('PATCH', `/tasks/${added.id}`, { priority: 9 }), /400/);
 
+    // Timestamps are canonical UTC ISO strings and completed_at is trigger-stamped.
+    assert.match(full.created_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    const later = await call('PATCH', `/tasks/${added.id}`, { title: 'Added later (renamed)' });
+    assert.ok(later.updated_at >= reopened.updated_at, 'updated_at bumped');
+    const doneOnCreate = await call('POST', '/tasks', { project_id: p.id, title: 'Already done', status: 'done' });
+    assert.ok(doneOnCreate.completed_at, 'completed_at stamped on insert');
+
+    // Search treats % and _ literally.
+    assert.equal((await call('GET', '/search?q=%25')).tasks.length, 0);
+
     const b = await call('POST', '/backups');
-    assert.ok(b.json.endsWith('.json'), 'JSON backup written');
+    assert.ok(b.json.endsWith('.json') && fs.existsSync(b.json), 'JSON backup written');
+    assert.ok(b.db.endsWith('.db') && fs.existsSync(b.db), 'database copy written');
+
+    // Deleting a project cascades and is audited.
+    await call('DELETE', `/projects/${p.id}`);
+    const log = await call('GET', `/audit?project_id=${p.id}`);
+    assert.ok(log.some((e) => e.action === 'DELETE' && e.table_name === 'projects'), 'project delete audited');
+    assert.equal((await call('GET', `/tasks?project_id=${p.id}`)).length, 0, 'tasks cascaded');
 
     console.log('\n✔ Smoke test passed');
   } catch (err) {
     console.error('\n✘ Smoke test failed:', err.message);
     process.exitCode = 1;
   } finally {
-    if (projectId) await call('DELETE', `/projects/${projectId}`).catch(() => {});
     server.kill();
+    await new Promise((r) => server.once('exit', r));
+    fs.rmSync(tmp, { recursive: true, force: true });
   }
 })();

@@ -5,252 +5,265 @@ const log = require('./logger');
 
 const router = express.Router();
 
-// Wraps async handlers so errors reach the error middleware.
-const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+// Wraps handlers so errors (sync or async) reach the error middleware.
+const h = (fn) => (req, res, next) => {
+  try { Promise.resolve(fn(req, res, next)).catch(next); } catch (err) { next(err); }
+};
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 const notFound = (what) => new HttpError(404, `${what} not found`);
 
-// Picks only allowed keys from a body, turning '' into null.
+const nowIso = (offsetMs = 0) => new Date(Date.now() + offsetMs).toISOString();
+
+// Normalises any date/time the client sends into canonical UTC ISO text.
+function toIso(v, field) {
+  if (v === null || v === undefined || v === '') return null;
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) throw new HttpError(400, `Invalid ${field}`);
+  return d.toISOString();
+}
+
+// Picks only allowed keys from a body, turning '' into null and normalising dates.
 function pick(body, keys) {
   const out = {};
   for (const k of keys) {
-    if (body[k] !== undefined) out[k] = body[k] === '' ? null : body[k];
+    if (body[k] === undefined) continue;
+    let v = body[k] === '' ? null : body[k];
+    if (k === 'due_at' || k === 'remind_at') v = toIso(v, k);
+    if (k === 'start_date' && v !== null && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new HttpError(400, 'Invalid start_date');
+    out[k] = v;
   }
   return out;
 }
 
-// Builds "UPDATE table SET a=$1, b=$2 WHERE id=$n RETURNING *".
-async function updateRow(client, table, id, fields) {
+function insertRow(table, fields) {
   const keys = Object.keys(fields);
-  if (!keys.length) return (await client.query(`SELECT * FROM ${table} WHERE id = $1`, [id])).rows[0];
-  const sets = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
-  const { rows } = await client.query(
-    `UPDATE ${table} SET ${sets} WHERE id = $${keys.length + 1} RETURNING *`,
+  return db.get(
+    `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')}) RETURNING *`,
+    keys.map((k) => fields[k]),
+  );
+}
+
+function updateRow(table, id, fields) {
+  const keys = Object.keys(fields);
+  if (!keys.length) return db.get(`SELECT * FROM ${table} WHERE id = ?`, [id]);
+  return db.get(
+    `UPDATE ${table} SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ? RETURNING *`,
     [...keys.map((k) => fields[k]), id],
   );
-  return rows[0];
 }
+
+// Triggers stamp updated_at/completed_at after the statement, so re-read to return them.
+const fresh = (table, row) => (row ? db.get(`SELECT * FROM ${table} WHERE id = ?`, [row.id]) : row);
+
+const parseJson = (v) => { try { return v ? JSON.parse(v) : null; } catch { return null; } };
+const normProject = (p) => p && { ...p, baseline_snapshot: parseJson(p.baseline_snapshot) };
+const normTask = (t) => t && { ...t, is_baseline: !!t.is_baseline };
+const normAudit = (e) => ({ ...e, old_data: parseJson(e.old_data), new_data: parseJson(e.new_data) });
 
 const PROJECT_FIELDS = ['name', 'description', 'status', 'priority', 'start_date', 'due_at'];
 const TASK_FIELDS = ['title', 'description', 'status', 'priority', 'due_at', 'sort_order', 'parent_id'];
 
 const TASK_SELECT = `
   SELECT t.*, p.name AS project_name,
-         (SELECT count(*)::int FROM tasks s WHERE s.parent_id = t.id) AS subtask_count,
-         (SELECT count(*)::int FROM tasks s WHERE s.parent_id = t.id AND s.status = 'done') AS subtask_done,
-         (SELECT count(*)::int FROM notes n WHERE n.task_id = t.id) AS note_count,
+         (SELECT count(*) FROM tasks s WHERE s.parent_id = t.id) AS subtask_count,
+         (SELECT count(*) FROM tasks s WHERE s.parent_id = t.id AND s.status = 'done') AS subtask_done,
+         (SELECT count(*) FROM notes n WHERE n.task_id = t.id) AS note_count,
          (SELECT min(r.remind_at) FROM reminders r WHERE r.task_id = t.id AND r.status = 'pending') AS next_reminder
   FROM tasks t JOIN projects p ON p.id = t.project_id`;
+const tasks = (where, params = []) => db.all(`${TASK_SELECT} ${where}`, params).map(normTask);
 
 // ------------------------------------------------------------------ projects
 
-router.get('/projects', h(async (req, res) => {
+router.get('/projects', h((req, res) => {
   const includeArchived = req.query.all === '1';
-  const { rows } = await db.query(`
+  const rows = db.all(`
     SELECT p.*,
-           count(t.id)::int                                       AS task_count,
-           count(t.id) FILTER (WHERE t.status = 'done')::int      AS done_count,
-           count(t.id) FILTER (WHERE t.status <> 'done' AND t.due_at < now())::int AS overdue_count,
+           count(t.id)                                                   AS task_count,
+           count(t.id) FILTER (WHERE t.status = 'done')                  AS done_count,
+           count(t.id) FILTER (WHERE t.status <> 'done' AND t.due_at < ?) AS overdue_count,
            (SELECT max(created_at) FROM notes n WHERE n.project_id = p.id) AS last_note_at
     FROM projects p LEFT JOIN tasks t ON t.project_id = p.id
     ${includeArchived ? '' : "WHERE p.status <> 'archived'"}
     GROUP BY p.id
-    ORDER BY (p.status = 'active') DESC, p.priority DESC, p.due_at NULLS LAST, p.name`);
-  res.json(rows);
+    ORDER BY (p.status = 'active') DESC, p.priority DESC, p.due_at IS NULL, p.due_at, p.name COLLATE NOCASE`,
+  [nowIso()]);
+  res.json(rows.map(normProject));
 }));
 
-router.post('/projects', h(async (req, res) => {
+router.post('/projects', h((req, res) => {
   const fields = pick(req.body, PROJECT_FIELDS);
   if (!fields.name || !String(fields.name).trim()) throw new HttpError(400, 'Project name is required');
   const baselineTasks = (req.body.baseline_tasks || []).map((s) => String(s).trim()).filter(Boolean);
+  const note = String(req.body.initial_note || '').trim();
+  const baseline = req.body.set_baseline !== false;
 
-  const project = await db.tx(async (c) => {
-    const keys = Object.keys(fields);
-    const { rows } = await c.query(
-      `INSERT INTO projects (${keys.join(', ')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,
-      keys.map((k) => fields[k]),
-    );
-    const p = rows[0];
-    for (const [i, title] of baselineTasks.entries()) {
-      await c.query('INSERT INTO tasks (project_id, title, sort_order) VALUES ($1, $2, $3)', [p.id, title, i]);
-    }
-    if (req.body.initial_note && String(req.body.initial_note).trim()) {
-      await c.query('INSERT INTO notes (project_id, body) VALUES ($1, $2)', [p.id, String(req.body.initial_note).trim()]);
-    }
-    if (req.body.set_baseline !== false) await setBaseline(c, p.id);
-    return p;
+  const project = db.tx(() => {
+    const p = insertRow('projects', fields);
+    baselineTasks.forEach((title, i) => insertRow('tasks', { project_id: p.id, title, sort_order: i, is_baseline: baseline }));
+    if (note) insertRow('notes', { project_id: p.id, body: note });
+    return baseline ? setBaseline(p.id) : p;
   });
-  res.status(201).json(project);
+  res.status(201).json(normProject(project));
 }));
 
-router.get('/projects/:id', h(async (req, res) => {
-  const { rows: [project] } = await db.query('SELECT * FROM projects WHERE id = $1', [req.params.id]);
+router.get('/projects/:id', h((req, res) => {
+  const project = db.get('SELECT * FROM projects WHERE id = ?', [req.params.id]);
   if (!project) throw notFound('Project');
-  const { rows: tasks } = await db.query(`${TASK_SELECT} WHERE t.project_id = $1 ORDER BY t.sort_order, t.id`, [project.id]);
-  res.json({ ...project, tasks });
+  res.json({ ...normProject(project), tasks: tasks('WHERE t.project_id = ? ORDER BY t.sort_order, t.id', [project.id]) });
 }));
 
-router.patch('/projects/:id', h(async (req, res) => {
-  const row = await updateRow(db, 'projects', req.params.id, pick(req.body, PROJECT_FIELDS));
+router.patch('/projects/:id', h((req, res) => {
+  const row = fresh('projects', updateRow('projects', req.params.id, pick(req.body, PROJECT_FIELDS)));
   if (!row) throw notFound('Project');
-  res.json(row);
+  res.json(normProject(row));
 }));
 
-router.delete('/projects/:id', h(async (req, res) => {
-  const { rowCount } = await db.query('DELETE FROM projects WHERE id = $1', [req.params.id]);
-  if (!rowCount) throw notFound('Project');
+router.delete('/projects/:id', h((req, res) => {
+  const { changes } = db.run('DELETE FROM projects WHERE id = ?', [req.params.id]);
+  if (!changes) throw notFound('Project');
   log.info(`Project ${req.params.id} deleted`);
   res.status(204).end();
 }));
 
 // Freezes the current plan: every existing task becomes a baseline task and
 // a snapshot of the project + tasks is stored for later comparison.
-async function setBaseline(client, projectId) {
-  const { rows: [p] } = await client.query('SELECT * FROM projects WHERE id = $1', [projectId]);
+function setBaseline(projectId) {
+  const p = db.get('SELECT * FROM projects WHERE id = ?', [projectId]);
   if (!p) throw notFound('Project');
-  await client.query('UPDATE tasks SET is_baseline = true WHERE project_id = $1', [projectId]);
-  const { rows: tasks } = await client.query(
-    'SELECT id, parent_id, title, status, priority, due_at FROM tasks WHERE project_id = $1 ORDER BY sort_order, id',
-    [projectId],
-  );
+  db.run('UPDATE tasks SET is_baseline = 1 WHERE project_id = ? AND is_baseline = 0', [projectId]);
+  const snapshotTasks = db.all(
+    'SELECT id, parent_id, title, status, priority, due_at FROM tasks WHERE project_id = ? ORDER BY sort_order, id',
+    [projectId]);
   const snapshot = {
     name: p.name, description: p.description, priority: p.priority,
-    start_date: p.start_date, due_at: p.due_at, tasks,
+    start_date: p.start_date, due_at: p.due_at, tasks: snapshotTasks,
   };
-  const { rows: [updated] } = await client.query(
-    `UPDATE projects SET baseline_set_at = now(), baseline_due_at = due_at, baseline_snapshot = $2
-     WHERE id = $1 RETURNING *`,
-    [projectId, snapshot],
-  );
-  return updated;
+  db.run('UPDATE projects SET baseline_set_at = ?, baseline_due_at = due_at, baseline_snapshot = ? WHERE id = ?',
+    [nowIso(), snapshot, projectId]);
+  return db.get('SELECT * FROM projects WHERE id = ?', [projectId]);
 }
 
-router.post('/projects/:id/baseline', h(async (req, res) => {
-  res.json(await db.tx((c) => setBaseline(c, req.params.id)));
+router.post('/projects/:id/baseline', h((req, res) => {
+  res.json(normProject(db.tx(() => setBaseline(req.params.id))));
 }));
 
 // Notes + audit events for a project, newest first.
-router.get('/projects/:id/timeline', h(async (req, res) => {
+router.get('/projects/:id/timeline', h((req, res) => {
   const limit = Math.min(Number(req.query.limit) || 300, 2000);
-  const { rows: notes } = await db.query(`
+  const notes = db.all(`
     SELECT n.id, n.task_id, n.body, n.created_at, n.updated_at, t.title AS task_title
     FROM notes n LEFT JOIN tasks t ON t.id = n.task_id
-    WHERE n.project_id = $1 ORDER BY n.created_at DESC LIMIT $2`, [req.params.id, limit]);
-  const { rows: events } = await db.query(`
-    SELECT * FROM audit_log WHERE project_id = $1 AND table_name <> 'notes'
-    ORDER BY changed_at DESC LIMIT $2`, [req.params.id, limit]);
+    WHERE n.project_id = ? ORDER BY n.created_at DESC LIMIT ?`, [req.params.id, limit]);
+  const events = db.all(`
+    SELECT * FROM audit_log WHERE project_id = ? AND table_name <> 'notes'
+    ORDER BY changed_at DESC, id DESC LIMIT ?`, [req.params.id, limit]).map(normAudit);
   const items = [
     ...notes.map((n) => ({ type: 'note', at: n.created_at, ...n })),
     ...events.map((e) => ({ type: 'event', at: e.changed_at, id: e.id, text: describeAudit(e) }))
       .filter((e) => e.text),
-  ].sort((a, b) => new Date(b.at) - new Date(a.at));
+  ].sort((a, b) => b.at.localeCompare(a.at));
   res.json(items.slice(0, limit));
 }));
 
 // ------------------------------------------------------------------ tasks
 
-router.get('/tasks', h(async (req, res) => {
-  const where = ["p.status NOT IN ('archived')"];
+router.get('/tasks', h((req, res) => {
+  const where = ["p.status <> 'archived'"];
   const params = [];
-  if (req.query.project_id) { params.push(req.query.project_id); where.push(`t.project_id = $${params.length}`); }
+  if (req.query.project_id) { params.push(req.query.project_id); where.push('t.project_id = ?'); }
   if (req.query.top_level === '1') where.push('t.parent_id IS NULL');
   if (req.query.open === '1') where.push("t.status <> 'done'");
-  const { rows } = await db.query(
-    `${TASK_SELECT} WHERE ${where.join(' AND ')}
-     ORDER BY t.priority DESC, t.due_at NULLS LAST, t.sort_order, t.id`, params);
-  res.json(rows);
+  res.json(tasks(`WHERE ${where.join(' AND ')}
+    ORDER BY t.priority DESC, t.due_at IS NULL, t.due_at, t.sort_order, t.id`, params));
 }));
 
-router.post('/tasks', h(async (req, res) => {
+router.post('/tasks', h((req, res) => {
   const fields = pick(req.body, TASK_FIELDS);
   if (!fields.title || !String(fields.title).trim()) throw new HttpError(400, 'Task title is required');
   let projectId = req.body.project_id;
   if (fields.parent_id) {
-    const { rows: [parent] } = await db.query('SELECT project_id FROM tasks WHERE id = $1', [fields.parent_id]);
+    const parent = db.get('SELECT project_id FROM tasks WHERE id = ?', [fields.parent_id]);
     if (!parent) throw notFound('Parent task');
     projectId = parent.project_id;
   }
   if (!projectId) throw new HttpError(400, 'project_id is required');
+  if (!db.get('SELECT 1 FROM projects WHERE id = ?', [projectId])) throw notFound('Project');
   if (fields.sort_order === undefined) {
-    const { rows: [m] } = await db.query('SELECT coalesce(max(sort_order), -1) + 1 AS n FROM tasks WHERE project_id = $1', [projectId]);
-    fields.sort_order = m.n;
+    fields.sort_order = db.get('SELECT coalesce(max(sort_order), -1) + 1 AS n FROM tasks WHERE project_id = ?', [projectId]).n;
   }
-  fields.project_id = projectId;
-  const keys = Object.keys(fields);
-  const { rows: [task] } = await db.query(
-    `INSERT INTO tasks (${keys.join(', ')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,
-    keys.map((k) => fields[k]),
-  );
-  res.status(201).json(task);
+  const task = fresh('tasks', insertRow('tasks', { ...fields, project_id: projectId }));
+  res.status(201).json(normTask(task));
 }));
 
-router.get('/tasks/:id', h(async (req, res) => {
-  const { rows: [task] } = await db.query(`${TASK_SELECT} WHERE t.id = $1`, [req.params.id]);
+router.get('/tasks/:id', h((req, res) => {
+  const [task] = tasks('WHERE t.id = ?', [req.params.id]);
   if (!task) throw notFound('Task');
-  const { rows: subtasks } = await db.query(`${TASK_SELECT} WHERE t.parent_id = $1 ORDER BY t.sort_order, t.id`, [task.id]);
-  const { rows: notes } = await db.query('SELECT * FROM notes WHERE task_id = $1 ORDER BY created_at DESC', [task.id]);
-  const { rows: reminders } = await db.query('SELECT * FROM reminders WHERE task_id = $1 ORDER BY remind_at', [task.id]);
-  const { rows: history } = await db.query(
-    "SELECT * FROM audit_log WHERE table_name = 'tasks' AND record_id = $1 ORDER BY changed_at DESC", [task.id]);
-  res.json({ ...task, subtasks, notes, reminders,
-    history: history.map((e) => ({ at: e.changed_at, text: describeAudit(e) })).filter((e) => e.text) });
+  const history = db.all(
+    "SELECT * FROM audit_log WHERE table_name = 'tasks' AND record_id = ? ORDER BY changed_at DESC, id DESC", [task.id])
+    .map(normAudit);
+  res.json({
+    ...task,
+    subtasks: tasks('WHERE t.parent_id = ? ORDER BY t.sort_order, t.id', [task.id]),
+    notes: db.all('SELECT * FROM notes WHERE task_id = ? ORDER BY created_at DESC', [task.id]),
+    reminders: db.all('SELECT * FROM reminders WHERE task_id = ? ORDER BY remind_at', [task.id]),
+    history: history.map((e) => ({ at: e.changed_at, text: describeAudit(e) })).filter((e) => e.text),
+  });
 }));
 
-router.patch('/tasks/:id', h(async (req, res) => {
+router.patch('/tasks/:id', h((req, res) => {
   const fields = pick(req.body, TASK_FIELDS);
-  const task = await db.tx(async (c) => {
-    const row = await updateRow(c, 'tasks', req.params.id, fields);
+  const task = db.tx(() => {
+    const row = updateRow('tasks', req.params.id, fields);
     if (!row) throw notFound('Task');
     // Optionally complete / reopen all subtasks along with the parent.
     if (req.body.cascade && fields.status) {
-      await c.query(`
-        WITH RECURSIVE sub AS (
-          SELECT id FROM tasks WHERE parent_id = $1
+      db.run(`
+        WITH RECURSIVE sub(id) AS (
+          SELECT id FROM tasks WHERE parent_id = ?
           UNION ALL SELECT t.id FROM tasks t JOIN sub ON t.parent_id = sub.id)
-        UPDATE tasks SET status = $2 WHERE id IN (SELECT id FROM sub) AND status <> $2`,
-      [row.id, fields.status]);
+        UPDATE tasks SET status = ? WHERE id IN (SELECT id FROM sub) AND status <> ?`,
+      [row.id, fields.status, fields.status]);
     }
-    return row;
+    return fresh('tasks', row);
   });
-  res.json(task);
+  res.json(normTask(task));
 }));
 
-router.delete('/tasks/:id', h(async (req, res) => {
-  const { rowCount } = await db.query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
-  if (!rowCount) throw notFound('Task');
+router.delete('/tasks/:id', h((req, res) => {
+  const { changes } = db.run('DELETE FROM tasks WHERE id = ?', [req.params.id]);
+  if (!changes) throw notFound('Task');
   res.status(204).end();
 }));
 
 // ------------------------------------------------------------------ notes
 
-router.post('/notes', h(async (req, res) => {
+router.post('/notes', h((req, res) => {
   const body = String(req.body.body || '').trim();
   if (!body) throw new HttpError(400, 'Note text is required');
   let projectId = req.body.project_id;
   const taskId = req.body.task_id || null;
   if (taskId) {
-    const { rows: [t] } = await db.query('SELECT project_id FROM tasks WHERE id = $1', [taskId]);
+    const t = db.get('SELECT project_id FROM tasks WHERE id = ?', [taskId]);
     if (!t) throw notFound('Task');
     projectId = t.project_id;
   }
   if (!projectId) throw new HttpError(400, 'project_id is required');
-  const { rows: [note] } = await db.query(
-    'INSERT INTO notes (project_id, task_id, body) VALUES ($1, $2, $3) RETURNING *', [projectId, taskId, body]);
-  res.status(201).json(note);
+  if (!db.get('SELECT 1 FROM projects WHERE id = ?', [projectId])) throw notFound('Project');
+  res.status(201).json(insertRow('notes', { project_id: projectId, task_id: taskId, body }));
 }));
 
-router.patch('/notes/:id', h(async (req, res) => {
-  const row = await updateRow(db, 'notes', req.params.id, pick(req.body, ['body']));
+router.patch('/notes/:id', h((req, res) => {
+  const row = fresh('notes', updateRow('notes', req.params.id, pick(req.body, ['body'])));
   if (!row) throw notFound('Note');
   res.json(row);
 }));
 
-router.delete('/notes/:id', h(async (req, res) => {
-  const { rowCount } = await db.query('DELETE FROM notes WHERE id = $1', [req.params.id]);
-  if (!rowCount) throw notFound('Note');
+router.delete('/notes/:id', h((req, res) => {
+  const { changes } = db.run('DELETE FROM notes WHERE id = ?', [req.params.id]);
+  if (!changes) throw notFound('Note');
   res.status(204).end();
 }));
 
@@ -263,111 +276,106 @@ const REMINDER_SELECT = `
   LEFT JOIN tasks t ON t.id = r.task_id
   LEFT JOIN projects p ON p.id = r.project_id`;
 
-router.get('/reminders', h(async (req, res) => {
-  const { rows } = await db.query(
-    `${REMINDER_SELECT} WHERE r.status = 'pending' ORDER BY r.remind_at`);
-  res.json(rows);
+router.get('/reminders', h((req, res) => {
+  res.json(db.all(`${REMINDER_SELECT} WHERE r.status = 'pending' ORDER BY r.remind_at`));
 }));
 
-router.post('/reminders', h(async (req, res) => {
-  if (!req.body.remind_at) throw new HttpError(400, 'remind_at is required');
+router.post('/reminders', h((req, res) => {
+  const remindAt = toIso(req.body.remind_at, 'remind_at');
+  if (!remindAt) throw new HttpError(400, 'remind_at is required');
   let projectId = req.body.project_id || null;
   const taskId = req.body.task_id || null;
   if (taskId) {
-    const { rows: [t] } = await db.query('SELECT project_id FROM tasks WHERE id = $1', [taskId]);
+    const t = db.get('SELECT project_id FROM tasks WHERE id = ?', [taskId]);
     if (!t) throw notFound('Task');
     projectId = t.project_id;
   }
-  const { rows: [r] } = await db.query(
-    'INSERT INTO reminders (project_id, task_id, remind_at, message) VALUES ($1, $2, $3, $4) RETURNING *',
-    [projectId, taskId, req.body.remind_at, req.body.message || null]);
-  res.status(201).json(r);
+  res.status(201).json(insertRow('reminders', {
+    project_id: projectId, task_id: taskId, remind_at: remindAt, message: req.body.message || null,
+  }));
 }));
 
 // Body: { action: 'dismiss' } or { action: 'snooze', minutes: 10 }
-router.patch('/reminders/:id', h(async (req, res) => {
+router.patch('/reminders/:id', h((req, res) => {
   let row;
   if (req.body.action === 'dismiss') {
-    row = await updateRow(db, 'reminders', req.params.id, { status: 'dismissed' });
+    row = updateRow('reminders', req.params.id, { status: 'dismissed' });
   } else if (req.body.action === 'snooze') {
     const minutes = Math.max(1, Number(req.body.minutes) || 10);
-    ({ rows: [row] } = await db.query(
-      `UPDATE reminders SET remind_at = now() + make_interval(mins => $2), snooze_count = snooze_count + 1,
-              status = 'pending'
-       WHERE id = $1 RETURNING *`, [req.params.id, minutes]));
+    row = db.get(`UPDATE reminders SET remind_at = ?, snooze_count = snooze_count + 1, status = 'pending'
+                  WHERE id = ? RETURNING *`, [nowIso(minutes * 60000), req.params.id]);
   } else {
-    row = await updateRow(db, 'reminders', req.params.id, pick(req.body, ['remind_at', 'message']));
+    row = updateRow('reminders', req.params.id, pick(req.body, ['remind_at', 'message']));
   }
   if (!row) throw notFound('Reminder');
-  res.json(row);
+  res.json(fresh('reminders', row));
 }));
 
-router.delete('/reminders/:id', h(async (req, res) => {
-  const { rowCount } = await db.query('DELETE FROM reminders WHERE id = $1', [req.params.id]);
-  if (!rowCount) throw notFound('Reminder');
+router.delete('/reminders/:id', h((req, res) => {
+  const { changes } = db.run('DELETE FROM reminders WHERE id = ?', [req.params.id]);
+  if (!changes) throw notFound('Reminder');
   res.status(204).end();
 }));
 
 // Polled by the browser: reminders that are due now, plus task due-date alerts.
-router.get('/alerts', h(async (req, res) => {
-  const { rows: reminders } = await db.query(
-    `${REMINDER_SELECT} WHERE r.status = 'pending' AND r.remind_at <= now() ORDER BY r.remind_at`);
-  const { rows: tasks } = await db.query(
-    `${TASK_SELECT} WHERE t.status <> 'done' AND p.status IN ('active', 'on_hold')
-       AND t.due_at IS NOT NULL AND t.due_at <= now() + interval '24 hours'
-     ORDER BY t.due_at`);
-  res.json({ now: new Date().toISOString(), reminders, due_tasks: tasks });
+router.get('/alerts', h((req, res) => {
+  const now = nowIso();
+  res.json({
+    now,
+    reminders: db.all(`${REMINDER_SELECT} WHERE r.status = 'pending' AND r.remind_at <= ? ORDER BY r.remind_at`, [now]),
+    due_tasks: tasks(`WHERE t.status <> 'done' AND p.status IN ('active', 'on_hold')
+      AND t.due_at IS NOT NULL AND t.due_at <= ? ORDER BY t.due_at`, [nowIso(24 * 3600 * 1000)]),
+  });
 }));
 
 // ------------------------------------------------------------------ dashboard
 
-router.get('/dashboard', h(async (req, res) => {
-  const base = `${TASK_SELECT} WHERE t.status <> 'done' AND p.status IN ('active', 'on_hold')`;
-  const [overdue, today, week, high, recentNotes, reminders] = await Promise.all([
-    db.query(`${base} AND t.due_at < now() ORDER BY t.due_at`),
-    db.query(`${base} AND t.due_at >= now() AND t.due_at < date_trunc('day', now()) + interval '1 day' ORDER BY t.due_at`),
-    db.query(`${base} AND t.due_at >= date_trunc('day', now()) + interval '1 day'
-              AND t.due_at < date_trunc('day', now()) + interval '8 days' ORDER BY t.due_at`),
-    db.query(`${base} AND t.priority >= 3 ORDER BY t.priority DESC, t.due_at NULLS LAST`),
-    db.query(`SELECT n.*, p.name AS project_name, t.title AS task_title FROM notes n
-              JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id
-              ORDER BY n.created_at DESC LIMIT 15`),
-    db.query(`${REMINDER_SELECT} WHERE r.status = 'pending' ORDER BY r.remind_at LIMIT 20`),
-  ]);
+router.get('/dashboard', h((req, res) => {
+  // Day boundaries in the PC's local time zone.
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dayStart = (n) => new Date(today.getTime() + n * 86400000).toISOString();
+  const now = nowIso();
+  const base = "WHERE t.status <> 'done' AND p.status IN ('active', 'on_hold')";
   res.json({
-    overdue: overdue.rows, today: today.rows, week: week.rows, high_priority: high.rows,
-    recent_notes: recentNotes.rows, reminders: reminders.rows,
+    overdue: tasks(`${base} AND t.due_at < ? ORDER BY t.due_at`, [now]),
+    today: tasks(`${base} AND t.due_at >= ? AND t.due_at < ? ORDER BY t.due_at`, [now, dayStart(1)]),
+    week: tasks(`${base} AND t.due_at >= ? AND t.due_at < ? ORDER BY t.due_at`, [dayStart(1), dayStart(8)]),
+    high_priority: tasks(`${base} AND t.priority >= 3 ORDER BY t.priority DESC, t.due_at IS NULL, t.due_at`),
+    recent_notes: db.all(`SELECT n.*, p.name AS project_name, t.title AS task_title FROM notes n
+      JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id
+      ORDER BY n.created_at DESC LIMIT 15`),
+    reminders: db.all(`${REMINDER_SELECT} WHERE r.status = 'pending' ORDER BY r.remind_at LIMIT 20`),
   });
 }));
 
 // ------------------------------------------------------------------ audit log
 
-router.get('/audit', h(async (req, res) => {
+router.get('/audit', h((req, res) => {
   const limit = Math.min(Number(req.query.limit) || 200, 5000);
-  const params = [limit];
-  let where = '';
-  if (req.query.project_id) { params.push(req.query.project_id); where = 'WHERE project_id = $2'; }
-  const { rows } = await db.query(`SELECT * FROM audit_log ${where} ORDER BY changed_at DESC LIMIT $1`, params);
-  res.json(rows.map((r) => ({ ...r, summary: describeAudit(r) || `${r.action} ${r.table_name} #${r.record_id}` })));
+  const rows = req.query.project_id
+    ? db.all('SELECT * FROM audit_log WHERE project_id = ? ORDER BY changed_at DESC, id DESC LIMIT ?', [req.query.project_id, limit])
+    : db.all('SELECT * FROM audit_log ORDER BY changed_at DESC, id DESC LIMIT ?', [limit]);
+  res.json(rows.map(normAudit).map((r) => ({ ...r, summary: describeAudit(r) || `${r.action} ${r.table_name} #${r.record_id}` })));
 }));
 
 // ------------------------------------------------------------------ backups
 
-router.get('/backups', h(async (req, res) => res.json(backup.listBackups())));
-router.post('/backups', h(async (req, res) => res.status(201).json(await backup.runBackup('manual (UI)'))));
+router.get('/backups', h((req, res) => res.json(backup.listBackups())));
+router.post('/backups', h((req, res) => res.status(201).json(backup.runBackup('manual (UI)'))));
 
 // ------------------------------------------------------------------ search
 
-router.get('/search', h(async (req, res) => {
-  const q = `%${String(req.query.q || '').trim()}%`;
-  if (q === '%%') return res.json({ projects: [], tasks: [], notes: [] });
-  const [projects, tasks, notes] = await Promise.all([
-    db.query('SELECT id, name, status FROM projects WHERE name ILIKE $1 OR description ILIKE $1 LIMIT 20', [q]),
-    db.query(`${TASK_SELECT} WHERE t.title ILIKE $1 OR t.description ILIKE $1 LIMIT 30`, [q]),
-    db.query(`SELECT n.*, p.name AS project_name FROM notes n JOIN projects p ON p.id = n.project_id
-              WHERE n.body ILIKE $1 ORDER BY n.created_at DESC LIMIT 30`, [q]),
-  ]);
-  res.json({ projects: projects.rows, tasks: tasks.rows, notes: notes.rows });
+router.get('/search', h((req, res) => {
+  const term = String(req.query.q || '').trim();
+  if (!term) return res.json({ projects: [], tasks: [], notes: [] });
+  const q = `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  const like = (col) => `${col} LIKE ? ESCAPE '\\'`;
+  res.json({
+    projects: db.all(`SELECT id, name, status FROM projects WHERE ${like('name')} OR ${like('description')} LIMIT 20`, [q, q]),
+    tasks: tasks(`WHERE ${like('t.title')} OR ${like('t.description')} LIMIT 30`, [q, q]),
+    notes: db.all(`SELECT n.*, p.name AS project_name FROM notes n JOIN projects p ON p.id = n.project_id
+      WHERE ${like('n.body')} ORDER BY n.created_at DESC LIMIT 30`, [q]),
+  });
 }));
 
 // ------------------------------------------------------------------ helpers
@@ -399,6 +407,10 @@ function describeAudit(e) {
     return `${label} created${named}`;
   }
   if (e.action === 'DELETE') return `${label} deleted${named}`;
+  if (e.table_name === 'reminders') {
+    if (e.old_data?.snooze_count !== e.new_data?.snooze_count) return `Reminder snoozed until ${fmtValue('remind_at', e.new_data.remind_at)}`;
+    if (e.new_data?.status === 'dismissed' && e.old_data?.status !== 'dismissed') return 'Reminder dismissed';
+  }
   const changes = [];
   for (const [field, text] of Object.entries(FIELD_LABEL)) {
     const a = e.old_data?.[field];
@@ -411,18 +423,17 @@ function describeAudit(e) {
   if (e.table_name === 'projects' && e.old_data?.baseline_set_at !== e.new_data?.baseline_set_at) {
     changes.push('baseline set');
   }
-  if (e.table_name === 'reminders' && e.old_data?.snooze_count !== e.new_data?.snooze_count) {
-    return `Reminder snoozed until ${fmtValue('remind_at', e.new_data.remind_at)}`;
+  if (e.table_name === 'tasks' && !e.old_data?.is_baseline && e.new_data?.is_baseline) {
+    changes.push('added to baseline');
   }
   if (!changes.length) return null;
-  if (e.table_name === 'reminders' && e.new_data?.status === 'dismissed') return 'Reminder dismissed';
   return `${label}${named}: ${changes.join('; ')}`;
 }
 
 // ------------------------------------------------------------------ errors
 
 router.use((err, req, res, _next) => {
-  const status = err.status || (err.code === '22P02' || err.code === '23514' || err.code === '22007' || err.code === '22008' ? 400 : 500);
+  const status = err.status || (/constraint failed|datatype mismatch/i.test(err.message) ? 400 : 500);
   if (status >= 500) log.error(`${req.method} ${req.originalUrl} failed`, err.stack || err.message);
   res.status(status).json({ error: err.message });
 });

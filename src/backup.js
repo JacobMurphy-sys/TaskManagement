@@ -1,15 +1,14 @@
-// Backups: a JSON export of every table (always), plus a native pg_dump
-// custom-format dump when pg_dump can be found. Old backups are pruned.
+// Backups: a complete copy of the SQLite database file (open it in DBeaver,
+// or restore it) plus a JSON export of every table. Old backups are pruned.
 const fs = require('fs');
 const path = require('path');
-const { execFile } = require('child_process');
 const config = require('./config');
 const db = require('./db');
 const log = require('./logger');
+const { TABLE_NAMES } = require('./schema');
 
-const TABLES = ['projects', 'tasks', 'notes', 'reminders', 'audit_log'];
 const JSON_DIR = path.join(config.backup.dir, 'json');
-const DUMP_DIR = path.join(config.backup.dir, 'pgdump');
+const DB_DIR = path.join(config.backup.dir, 'db');
 
 function stamp(d = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
@@ -24,62 +23,34 @@ function prune(dir, ext) {
   }
 }
 
-async function jsonBackup(name) {
+function exportTables(conn = db.conn) {
+  const tables = {};
+  for (const t of TABLE_NAMES) {
+    tables[t] = conn.prepare(`SELECT * FROM ${t} ORDER BY id`).all().map((r) => ({ ...r }));
+  }
+  return tables;
+}
+
+function runBackup(reason = 'manual') {
   fs.mkdirSync(JSON_DIR, { recursive: true });
-  const data = { created_at: new Date().toISOString(), format: 1, tables: {} };
-  for (const t of TABLES) {
-    data.tables[t] = (await db.query(`SELECT * FROM ${t} ORDER BY id`)).rows;
+  fs.mkdirSync(DB_DIR, { recursive: true });
+  // Never overwrite an existing backup (two in the same second get a suffix).
+  let name = `taskmgr-${stamp()}`;
+  for (let i = 2; fs.existsSync(path.join(DB_DIR, `${name}.db`)) || fs.existsSync(path.join(JSON_DIR, `${name}.json`)); i++) {
+    name = `taskmgr-${stamp()}-${i}`;
   }
-  const file = path.join(JSON_DIR, `${name}.json`);
-  fs.writeFileSync(file, JSON.stringify(data, null, 1));
+
+  // VACUUM INTO writes a consistent, compacted copy even while the app is in use.
+  const dbFile = path.join(DB_DIR, `${name}.db`);
+  db.conn.prepare('VACUUM INTO ?').run(dbFile);
+  prune(DB_DIR, '.db');
+
+  const jsonFile = path.join(JSON_DIR, `${name}.json`);
+  fs.writeFileSync(jsonFile, JSON.stringify({ created_at: new Date().toISOString(), format: 2, tables: exportTables() }, null, 1));
   prune(JSON_DIR, '.json');
-  return file;
-}
 
-function findPgDump() {
-  if (config.backup.pgDumpPath) return config.backup.pgDumpPath;
-  const exe = process.platform === 'win32' ? 'pg_dump.exe' : 'pg_dump';
-  const dirs = (process.env.PATH || '').split(path.delimiter);
-  if (process.platform === 'win32') {
-    dirs.push('C:\\Program Files\\pgAdmin 4\\runtime', 'C:\\Program Files\\pgAdmin 4\\v8\\runtime');
-    const pgRoot = 'C:\\Program Files\\PostgreSQL';
-    if (fs.existsSync(pgRoot)) {
-      for (const v of fs.readdirSync(pgRoot)) dirs.push(path.join(pgRoot, v, 'bin'));
-    }
-  }
-  for (const d of dirs) {
-    const candidate = path.join(d, exe);
-    if (d && fs.existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-
-function pgDumpBackup(name) {
-  const pgDump = findPgDump();
-  if (!pgDump) return Promise.resolve(null);
-  fs.mkdirSync(DUMP_DIR, { recursive: true });
-  const file = path.join(DUMP_DIR, `${name}.dump`);
-  const { host, port, user, password, database } = config.db;
-  const args = ['-h', host, '-p', String(port), '-U', user, '-F', 'c', '-f', file, database];
-  return new Promise((resolve) => {
-    execFile(pgDump, args, { env: { ...process.env, PGPASSWORD: password } }, (err, _out, stderr) => {
-      if (err) {
-        log.warn('pg_dump backup failed (JSON backup still taken)', (stderr || err.message).trim());
-        fs.rmSync(file, { force: true });
-        return resolve(null);
-      }
-      prune(DUMP_DIR, '.dump');
-      resolve(file);
-    });
-  });
-}
-
-async function runBackup(reason = 'manual') {
-  const name = `taskmgr-${stamp()}`;
-  const json = await jsonBackup(name);
-  const dump = await pgDumpBackup(name);
-  log.info(`Backup completed (${reason})`, { json, pgdump: dump || 'not available' });
-  return { json, pgdump: dump };
+  log.info(`Backup completed (${reason})`, { db: dbFile, json: jsonFile });
+  return { db: dbFile, json: jsonFile };
 }
 
 function listBackups() {
@@ -87,20 +58,20 @@ function listBackups() {
     .filter((f) => !f.startsWith('.'))
     .map((f) => {
       const st = fs.statSync(path.join(dir, f));
-      return { kind, file: f, size: st.size, created_at: st.mtime.toISOString() };
+      return { kind, file: f, path: path.join(dir, f), size: st.size, created_at: st.mtime.toISOString() };
     });
-  return [...list(JSON_DIR, 'json'), ...list(DUMP_DIR, 'pgdump')]
+  return [...list(DB_DIR, 'db'), ...list(JSON_DIR, 'json')]
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
-// Backs up now if the newest backup is older than the interval, then on a timer.
+// Backs up now if the newest backup is older than the interval, then keeps checking.
 function schedule() {
   const intervalMs = config.backup.intervalHours * 3600 * 1000;
   if (!(intervalMs > 0)) return;
-  const check = async () => {
-    const newest = listBackups().find((b) => b.kind === 'json');
+  const check = () => {
+    const newest = listBackups()[0];
     if (!newest || Date.now() - new Date(newest.created_at).getTime() >= intervalMs) {
-      await runBackup('scheduled').catch((err) => log.error('Scheduled backup failed', err.message));
+      try { runBackup('scheduled'); } catch (err) { log.error('Scheduled backup failed', err.message); }
     }
   };
   check();
@@ -108,4 +79,4 @@ function schedule() {
   setInterval(check, Math.min(intervalMs, 15 * 60 * 1000)).unref();
 }
 
-module.exports = { runBackup, listBackups, schedule, TABLES, JSON_DIR };
+module.exports = { runBackup, listBackups, schedule, exportTables, JSON_DIR, DB_DIR };

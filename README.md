@@ -1,14 +1,15 @@
 # Task Manager
 
 A personal project & task management system that runs on your own PC.
-It uses **Node.js** for the app and **PostgreSQL** for the data (you can browse and edit the data in pgAdmin or DBeaver).
+
+It needs nothing except **Node.js**. The data is kept in a single **SQLite** database file (`data/taskmgr.db`) using the SQLite engine built into Node, so there is no database server to install or run. You can open that file in **DBeaver** to browse, query or edit the data.
 
 | Spec item | How it's covered |
 |---|---|
 | Baseline + quick additive updates | New projects take a list of **baseline tasks**; the plan is frozen ("baseline") and anything added later is flagged **+ added**. The baseline panel shows tasks added/removed since then and how far the due date has slipped. A **quick-note bar** on every project (and a global **Quick note** button, key `N`) appends time-stamped notes as you go. |
 | Fully date & time stamped | Every record has `created_at` / `updated_at` / `completed_at` (with time zone), maintained by the database itself. |
-| Full logging | Every insert/update/delete on every table is written to `audit_log` **by database triggers**, including edits made directly in pgAdmin / DBeaver / Access. See it in **Activity log**, per project in the **Timeline**, and per task under **History**. The server also writes daily log files to `logs/`. |
-| Backups | Automatic backups at start-up and every 24h (configurable): a **JSON export** of every table, plus a native **pg_dump** file if `pg_dump` is available (pgAdmin includes one). Old backups are pruned (keeps 30). **Back up now** button in the app, and a restore script. |
+| Full logging | Every insert/update/delete on every table is written to `audit_log` **by database triggers**, so edits made directly in DBeaver are recorded too. See it in **Activity log**, per project in the **Timeline**, and per task under **History**. The server also writes daily log files to `logs/`. |
+| Backups | Automatic backups at start-up and every 24h (configurable): a complete copy of the **database file** (safe to take while the app is running) plus a **JSON export** of every table. Old backups are pruned (keeps 30). **Back up now** button in the app, and a restore script. |
 | Priority & due dates | Low / Medium / High / Critical, and due date + time on projects and tasks. Overdue and due-soon items are highlighted. |
 | Pop-up reminders & alerts | Set reminders on tasks or projects (quick buttons: 15 min, 1 h, next workday 9:00…). When one is due you get an in-app pop-up with a sound, plus a **Windows desktop notification** once enabled. Pop-ups offer Snooze / Dismiss / Open. Tasks that are overdue or due within 15 min also pop up automatically. |
 | Kanban view | To do / In progress / Blocked / Done columns with drag & drop, filter by project, optional subtasks. |
@@ -20,22 +21,17 @@ Also included: a dashboard (overdue, due today, next 7 days, high priority, remi
 
 ## 1. One-time setup (Windows)
 
-**Prerequisites:** Node.js 18 or newer, and a PostgreSQL server you can connect to. If pgAdmin already connects to a server (e.g. `localhost:5432`), use that one.
+**Prerequisite:** Node.js **22.13 or newer**. Check your version with `node -v`. If yours is older, install the current LTS from <https://nodejs.org> (the Windows installer doesn't need admin rights if you choose *Install for me only*). No database server is needed.
 
 1. **Get the code** into a folder, e.g. `C:\TaskManager`.
-2. **Configure:** copy `.env.example` to `.env` and set `PGUSER` / `PGPASSWORD` (and `PGHOST` / `PGPORT` if they aren't the defaults) to the login you use in pgAdmin.
-3. **Install and create the database.** Open a terminal in the folder (in VS Code: *Terminal → New Terminal*) and run:
+2. **Install and start:** double-click **`start.bat`**. It installs dependencies the first time, starts the app and opens <http://localhost:3000>. Or, from a terminal in the folder (in VS Code: *Terminal → New Terminal*):
    ```
    npm install
-   npm run init-db
-   ```
-   `init-db` creates a database called `taskmgr` and its tables. Running it again is safe.
-4. **Start the app:**
-   ```
    npm start
    ```
-   Then open <http://localhost:3000>. You can also double-click **`start.bat`**, which installs dependencies if needed, starts the server and opens the browser.
-5. **Enable desktop alerts:** click **🔔 Enable desktop alerts** in the top bar and allow notifications. Reminders only fire while the app is open in a browser tab, so keep it pinned in Edge or Chrome.
+   The database file `data\taskmgr.db` is created automatically on first start.
+3. **Enable desktop alerts:** click **🔔 Enable desktop alerts** in the top bar and allow notifications. Reminders only fire while the app is open in a browser tab, so keep it pinned in Edge or Chrome.
+4. *(Optional)* To change the port, database location or backup settings, copy `.env.example` to `.env` and edit it.
 
 ### Start automatically when you log in (optional)
 Press `Win+R`, type `shell:startup`, and put a shortcut to `start.bat` in the folder that opens.
@@ -61,48 +57,50 @@ Press `Win+R`, type `shell:startup`, and put a shortcut to `start.bat` in the fo
 
 ## 3. Backups & restore
 
-- Backups are written to `backups/json/` (always) and `backups/pgdump/` (when pg_dump is found). The server looks for pg_dump on PATH, in `C:\Program Files\PostgreSQL\*\bin` and in pgAdmin's `runtime` folder. You can also set `PG_DUMP_PATH` in `.env`.
+- Each backup writes a database copy to `backups/db/` and a JSON export to `backups/json/`.
 - **Take a backup now:** the **Backups** page, or `npm run backup`.
-- **Restore from JSON:** `npm run restore -- backups\json\taskmgr-YYYYMMDD-HHMMSS.json`. It asks you to confirm, then takes a safety backup of the current data before replacing it. Run `npm run restore` with no file to list the available backups.
-- **Restore a `.dump` file:** in pgAdmin, right-click the database and choose **Restore…**, or use `pg_restore`.
+- **Restore:** `npm run restore -- backups\db\taskmgr-YYYYMMDD-HHMMSS.db` (a `.json` backup works too). It asks you to confirm, then takes a safety backup of the current data before replacing it. Run `npm run restore` with no file to list the available backups. It's best to stop the app first.
+- A backup `.db` file is a normal database, so you can also just open it in DBeaver to look something up without restoring.
 - **Tip:** set `BACKUP_DIR` in `.env` to a OneDrive or network folder so the backups are kept off your PC.
 
-## 4. Working with the data directly
+## 4. Working with the data directly (DBeaver)
 
-The database is plain PostgreSQL, so pgAdmin and DBeaver work as normal:
+In DBeaver: *Database → New Database Connection → SQLite*, and pick `data\taskmgr.db` as the path. DBeaver offers to download the SQLite driver the first time. You can do this while the app is running.
 
 | Table | Contents |
 |---|---|
 | `projects` | Projects, including baseline date, baseline due date and a JSON `baseline_snapshot` |
-| `tasks` | Tasks; `parent_id` links subtasks, `is_baseline` marks original-plan tasks |
+| `tasks` | Tasks; `parent_id` links subtasks, `is_baseline` (1/0) marks original-plan tasks |
 | `notes` | The additive, time-stamped notes |
 | `reminders` | Pending and dismissed reminders |
-| `audit_log` | Every change: old and new values as JSON, when, and which DB user |
+| `audit_log` | Every change, with old and new values as JSON and when it happened |
 
-**Microsoft Access / Excel:** install the *psqlODBC* driver (available through the PostgreSQL *Stack Builder*), create an ODBC data source for `taskmgr`, then use *External Data → New Data Source → From Other Sources → ODBC* to link the tables for queries and reports. Edits made that way are captured in the audit log too.
+**Dates and times** are stored as UTC text in the form `2026-10-31T17:00:00.000Z` (note the trailing `Z`: UTC, not local time). The database rejects anything in another format, so hand edits can't break sorting or the due-date alerts. You don't need to set `updated_at`, `completed_at` or the audit log yourself; the triggers handle them.
+
+**Microsoft Access / Excel (optional):** install the free *SQLite ODBC driver* (by Christian Werner). Then use *External Data → New Data Source → From Other Sources → ODBC* and link the tables for queries and reports. Edits made that way are captured in the audit log too.
 
 ## 5. Configuration (`.env`)
 
 | Setting | Default | Meaning |
 |---|---|---|
 | `PORT` / `HOST` | `3000` / `127.0.0.1` | Where the app listens. Keeping `127.0.0.1` means only your own PC can reach it. |
-| `PGHOST` `PGPORT` `PGDATABASE` `PGUSER` `PGPASSWORD` | `localhost` `5432` `taskmgr` `postgres` – | Database connection |
+| `DB_FILE` | `./data/taskmgr.db` | The database file |
 | `BACKUP_DIR` | `./backups` | Where backups go |
 | `BACKUP_INTERVAL_HOURS` | `24` | Hours between automatic backups (`0` turns them off) |
 | `BACKUP_KEEP` | `30` | Number of backups of each type to keep |
-| `PG_DUMP_PATH` | auto-detect | Full path to `pg_dump.exe` |
 | `LOG_DIR` | `./logs` | Daily log files |
 
 ## 6. Project layout
 
 ```
-db/schema.sql        tables, timestamp and audit triggers (applied automatically at start-up)
+src/schema.js        tables, timestamp and audit triggers (applied automatically at start-up)
+src/db.js            SQLite connection (Node's built-in node:sqlite)
 src/server.js        web server entry point
 src/api.js           REST API (/api/...)
-src/backup.js        JSON + pg_dump backups and schedule
+src/backup.js        database-file + JSON backups and schedule
 public/              the web UI (plain HTML/CSS/JS, no build step)
 scripts/             init-db, backup, restore, smoke-test
 start.bat            double-click launcher for Windows
 ```
 
-`npm test` runs an end-to-end smoke test against the database configured in `.env`. It creates a temporary project and deletes it afterwards.
+`npm test` runs an end-to-end smoke test using a temporary database, so your real data is never touched.
