@@ -16,13 +16,29 @@ try {
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
-// Log every change request with a timestamp.
+// Lets the launcher check that the app is already up.
+app.get('/api/health', (req, res) => res.json({ app: 'taskmanager', ok: true }));
+
 app.use('/api', (req, res, next) => {
-  if (req.method !== 'GET') {
-    res.on('finish', () => log.info(`${req.method} ${req.originalUrl} -> ${res.statusCode}`));
+  if (req.method === 'GET') return next();
+  // Changes must carry this header. Browsers won't let other websites send it to
+  // localhost without permission, so a random web page can't edit or stop the app.
+  if (req.get('X-Requested-With') !== 'TaskManager') {
+    return res.status(403).json({ error: 'Missing X-Requested-With: TaskManager header' });
   }
+  // Log every change request with a timestamp.
+  res.on('finish', () => log.info(`${req.method} ${req.originalUrl} -> ${res.statusCode}`));
   next();
 });
+
+// Used by the "Stop server" button and stop-server.vbs (the app may have no console window).
+app.post('/api/shutdown', (req, res) => {
+  log.info('Shutdown requested');
+  res.json({ ok: true });
+  setTimeout(() => server.close(() => process.exit(0)), 200).unref();
+  setTimeout(() => process.exit(0), 3000).unref();
+});
+
 app.use('/api', api);
 app.use(express.static(path.join(config.ROOT, 'public')));
 

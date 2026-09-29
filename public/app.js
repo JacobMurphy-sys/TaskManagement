@@ -25,7 +25,7 @@ const store = {
 async function request(method, url, body) {
   const res = await fetch(`/api${url}`, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
+    headers: { 'X-Requested-With': 'TaskManager', ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (res.status === 204) return null;
@@ -819,6 +819,13 @@ const actions = {
     } finally { el.disabled = false; }
   },
   'enable-notifications': () => ensureNotificationPermission(true),
+  'stop-server': async () => {
+    if (!confirm('Stop the Task Manager? Reminders won\'t pop up until you start it again.')) return;
+    await api.post('/shutdown');
+    document.body.innerHTML = `<div class="card" style="margin:40px auto;max-width:480px">
+      <h2>Task Manager stopped</h2>
+      <p>Start it again by double-clicking <b>start-hidden.vbs</b> (or <b>start.bat</b>) in the app folder.</p></div>`;
+  },
 };
 
 async function runAction(el, e) {

@@ -24,7 +24,10 @@ Also included: a dashboard (overdue, due today, next 7 days, high priority, remi
 **Prerequisite:** Node.js **22.13 or newer**. Check your version with `node -v`. If yours is older, install the current LTS from <https://nodejs.org> (the Windows installer doesn't need admin rights if you choose *Install for me only*). No database server is needed.
 
 1. **Get the code** into a folder, e.g. `C:\TaskManager`.
-2. **Install and start:** double-click **`start.bat`**. It installs dependencies the first time, starts the app and opens <http://localhost:3000>. Or, from a terminal in the folder (in VS Code: *Terminal → New Terminal*):
+2. **Install and start:** double-click **`start-hidden.vbs`**. It installs dependencies the first time (you'll see a window for that), then starts the app in the background with **no console window** and opens <http://localhost:3000>. Double-clicking it again while the app is running just opens the browser.
+   - **To stop it:** click **⏻ Stop server** at the bottom of the sidebar, or double-click **`stop-server.vbs`**.
+   - **`start.bat`** does the same but keeps a console window open that shows the log. Use it if something isn't working. Closing that window stops the app.
+   - Or, from a terminal in the folder (in VS Code: *Terminal → New Terminal*):
    ```
    npm install
    npm start
@@ -34,7 +37,9 @@ Also included: a dashboard (overdue, due today, next 7 days, high priority, remi
 4. *(Optional)* To change the port, database location or backup settings, copy `.env.example` to `.env` and edit it.
 
 ### Start automatically when you log in (optional)
-Press `Win+R`, type `shell:startup`, and put a shortcut to `start.bat` in the folder that opens.
+Press `Win+R`, type `shell:startup`, and put a shortcut to **`start-hidden.vbs`** in the folder that opens (right-click the file → *Show more options* → *Create shortcut*, then move the shortcut). The app then starts silently at log-in and opens in your browser.
+
+> If Windows reports that VBScript isn't available (Microsoft is gradually retiring it; it's still installed by default on Windows 10 and 11), use `start.bat` instead.
 
 ---
 
@@ -100,7 +105,9 @@ src/api.js           REST API (/api/...)
 src/backup.js        database-file + JSON backups and schedule
 public/              the web UI (plain HTML/CSS/JS, no build step)
 scripts/             init-db, backup, restore, smoke-test
-start.bat            double-click launcher for Windows
+start-hidden.vbs     double-click launcher for Windows (no console window)
+stop-server.vbs      stops the background app
+start.bat            launcher that keeps a console window with the log
 ```
 
 `npm test` runs an end-to-end smoke test using a temporary database, so your real data is never touched.

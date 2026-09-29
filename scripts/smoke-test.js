@@ -11,7 +11,7 @@ const BASE = `http://127.0.0.1:${PORT}/api`;
 
 async function call(method, url, body) {
   const res = await fetch(BASE + url, {
-    method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
+    method, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' }, body: body ? JSON.stringify(body) : undefined,
   });
   const data = res.status === 204 ? null : await res.json();
   if (!res.ok) throw new Error(`${method} ${url} -> ${res.status} ${JSON.stringify(data)}`);
@@ -111,19 +111,30 @@ async function waitForServer() {
     assert.ok(b.json.endsWith('.json') && fs.existsSync(b.json), 'JSON backup written');
     assert.ok(b.db.endsWith('.db') && fs.existsSync(b.db), 'database copy written');
 
+    // Change requests without the app's header are refused (blocks other websites).
+    const bare = await fetch(`${BASE}/backups`, { method: 'POST' });
+    assert.equal(bare.status, 403, 'request without X-Requested-With refused');
+    assert.equal((await call('GET', '/health')).app, 'taskmanager');
+
     // Deleting a project cascades and is audited.
     await call('DELETE', `/projects/${p.id}`);
     const log = await call('GET', `/audit?project_id=${p.id}`);
     assert.ok(log.some((e) => e.action === 'DELETE' && e.table_name === 'projects'), 'project delete audited');
     assert.equal((await call('GET', `/tasks?project_id=${p.id}`)).length, 0, 'tasks cascaded');
 
+    await call('POST', '/shutdown');
+    const code = await new Promise((r) => server.once('exit', r));
+    assert.equal(code, 0, 'server exits cleanly on shutdown');
+
     console.log('\n✔ Smoke test passed');
   } catch (err) {
     console.error('\n✘ Smoke test failed:', err.message);
     process.exitCode = 1;
   } finally {
-    server.kill();
-    await new Promise((r) => server.once('exit', r));
+    if (server.exitCode === null) {
+      server.kill();
+      await new Promise((r) => server.once('exit', r));
+    }
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 })();
