@@ -41,6 +41,18 @@ Press `Win+R`, type `shell:startup`, and put a shortcut to **`start-hidden.vbs`*
 
 > If Windows reports that VBScript isn't available (Microsoft is gradually retiring it; it's still installed by default on Windows 10 and 11), use `start.bat` instead.
 
+### Getting updates (during development)
+Double-click **`update.bat`**. It:
+1. stops the running Task Manager (whether it was started hidden or with `start.bat`);
+2. takes a backup of your data;
+3. gets the latest code from GitHub: `git pull` if the folder is a Git clone and Git is installed, otherwise it downloads the latest ZIP (no Git needed);
+4. runs `npm install`;
+5. starts the app again and opens it in the browser.
+
+Your `data`, `logs` and `backups` folders and your `.env` are never touched by the update. If the download fails, it restarts the version you already had.
+
+If you have Git, the easiest start is `git clone https://github.com/JacobMurphy-sys/TaskManagement.git`. Without Git, download the ZIP from the GitHub page, unzip it, and `update.bat` keeps it up to date from then on.
+
 ---
 
 ## 2. Everyday use
@@ -107,6 +119,7 @@ public/              the web UI (plain HTML/CSS/JS, no build step)
 scripts/             init-db, backup, restore, smoke-test
 start-hidden.vbs     double-click launcher for Windows (no console window)
 stop-server.vbs      stops the background app
+update.bat           stop → back up → pull latest from GitHub → npm install → restart
 start.bat            launcher that keeps a console window with the log
 ```
 
