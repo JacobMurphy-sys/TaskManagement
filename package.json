@@ -1,0 +1,21 @@
+{
+  "name": "taskmanagement",
+  "version": "1.0.0",
+  "description": "Personal project & task management system: baselines, additive notes, reminders, kanban, full audit log and backups.",
+  "main": "src/server.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "init-db": "node scripts/init-db.js",
+    "backup": "node scripts/backup.js",
+    "restore": "node scripts/restore.js",
+    "test": "node scripts/smoke-test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
+  }
+}

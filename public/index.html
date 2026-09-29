@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Task Manager</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%232f6fdb'/><path d='M4 8.5l2.5 2.5L12 5' stroke='white' stroke-width='2' fill='none'/></svg>">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside id="sidebar">
+    <div class="brand">✔ Task Manager</div>
+    <input id="search" type="search" placeholder="Search…  ( / )" autocomplete="off">
+    <nav>
+      <a href="#/dashboard" data-nav="dashboard">📋 Dashboard</a>
+      <a href="#/kanban" data-nav="kanban">🗂 Kanban</a>
+      <a href="#/log" data-nav="log">🕘 Activity log</a>
+      <a href="#/backups" data-nav="backups">💾 Backups</a>
+    </nav>
+    <div class="side-head">
+      <span>Projects</span>
+      <button class="link" data-action="new-project" title="New project">+ New</button>
+    </div>
+    <ul id="project-list"></ul>
+    <label class="small muted show-archived"><input type="checkbox" id="show-archived"> Show archived</label>
+  </aside>
+
+  <div id="page">
+    <header id="topbar">
+      <button class="menu-toggle" data-action="toggle-sidebar" aria-label="Menu">☰</button>
+      <div id="clock" class="muted"></div>
+      <div class="spacer"></div>
+      <button data-action="quick-note" title="Quick note (N)">📝<span class="lbl"> Quick note</span></button>
+      <button id="notify-btn" data-action="enable-notifications" hidden>🔔<span class="lbl"> Enable desktop alerts</span></button>
+      <a id="bell" href="#/dashboard" title="Due / overdue tasks">🔔 <span id="bell-count" class="count" hidden>0</span></a>
+    </header>
+    <main id="main"></main>
+  </div>
+
+  <div id="popups" aria-live="assertive"></div>
+  <div id="toasts" aria-live="polite"></div>
+  <dialog id="modal"><div id="modal-body"></div></dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
