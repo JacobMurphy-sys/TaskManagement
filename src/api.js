@@ -3,6 +3,12 @@ const db = require('./db');
 const backup = require('./backup');
 const log = require('./logger');
 const config = require('./config');
+const { execFile, spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const { parseQuick, nextOccurrence, shiftKey, dateKey } = require('./dates');
+const { buildXlsx } = require('./xlsx');
+const { RECURRENCES } = require('./schema');
 
 const router = express.Router();
 
@@ -39,7 +45,18 @@ function toDueIso(v) {
   return toIso(v, 'due date');
 }
 
-// Picks only allowed keys from a body, turning '' into null and normalising dates.
+// Money typed as "1,250.50" or "£1250" -> 1250.5 (null when blank).
+function parseMoney(v, label) {
+  if (v === null || v === undefined || String(v).trim() === '') return null;
+  const n = Number(String(v).replace(/[^0-9.-]/g, ''));
+  if (Number.isNaN(n) || n < 0) throw new HttpError(400, `${label} must be a positive number`);
+  return Math.round(n * 100) / 100;
+}
+
+const MONEY_FIELDS = { cost: 'Cost', budget: 'Budget', amount: 'Amount' };
+const DATE_FIELDS = { start_date: 'start date', spent_on: 'date' };
+
+// Picks only allowed keys from a body, turning '' into null and normalising values.
 function pick(body, keys) {
   const out = {};
   for (const k of keys) {
@@ -47,14 +64,21 @@ function pick(body, keys) {
     let v = body[k] === '' ? null : body[k];
     if (k === 'due_at') v = toDueIso(v);
     if (k === 'remind_at') v = toIso(v, k);
-    if (k === 'start_date' && v !== null && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new HttpError(400, 'Invalid start_date');
+    if (k in DATE_FIELDS && v !== null && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new HttpError(400, `Invalid ${DATE_FIELDS[k]}`);
+    if (k in MONEY_FIELDS) v = parseMoney(v, MONEY_FIELDS[k]);
+    if ((k === 'impact' || k === 'effort') && v !== null) {
+      v = Number(v);
+      if (!Number.isInteger(v) || v < 1 || v > 5) throw new HttpError(400, `${k} must be 1 to 5`);
+    }
+    if (k === 'recurrence' && v !== null && !RECURRENCES.includes(v)) throw new HttpError(400, 'Invalid repeat setting');
+    if (k === 'waiting_on') v = v === null ? null : (String(v).trim() || null);
     out[k] = v;
   }
   return out;
 }
 
 function insertRow(table, fields) {
-  const keys = Object.keys(fields);
+  const keys = Object.keys(fields).filter((k) => fields[k] !== undefined); // unset -> column default
   return db.get(
     `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')}) RETURNING *`,
     keys.map((k) => fields[k]),
@@ -78,8 +102,9 @@ const normProject = (p) => p && { ...p, baseline_snapshot: parseJson(p.baseline_
 const normTask = (t) => t && { ...t, is_baseline: !!t.is_baseline };
 const normAudit = (e) => ({ ...e, old_data: parseJson(e.old_data), new_data: parseJson(e.new_data) });
 
-const PROJECT_FIELDS = ['name', 'description', 'status', 'priority', 'start_date', 'due_at'];
-const TASK_FIELDS = ['title', 'description', 'status', 'priority', 'due_at', 'sort_order', 'parent_id'];
+const PROJECT_FIELDS = ['name', 'description', 'status', 'priority', 'start_date', 'due_at', 'budget'];
+const TASK_FIELDS = ['title', 'description', 'status', 'priority', 'due_at', 'sort_order', 'parent_id',
+  'start_date', 'waiting_on', 'recurrence'];
 
 const TASK_SELECT = `
   SELECT t.*, p.name AS project_name,
@@ -103,7 +128,8 @@ router.get('/projects', h((req, res) => {
            count(t.id) FILTER (WHERE t.status = 'blocked')                AS blocked_count,
            (SELECT min(t2.due_at) FROM tasks t2 WHERE t2.project_id = p.id AND t2.status <> 'done') AS next_due_at,
            (SELECT max(created_at) FROM notes n WHERE n.project_id = p.id) AS last_note_at,
-           (SELECT max(changed_at) FROM audit_log a WHERE a.project_id = p.id) AS last_activity_at
+           (SELECT max(changed_at) FROM audit_log a WHERE a.project_id = p.id) AS last_activity_at,
+           (SELECT coalesce(sum(amount), 0) FROM project_costs c WHERE c.project_id = p.id) AS spent
     FROM projects p LEFT JOIN tasks t ON t.project_id = p.id
     ${includeArchived ? '' : "WHERE p.status <> 'archived'"}
     GROUP BY p.id
@@ -136,6 +162,9 @@ router.get('/projects/:id', h((req, res) => {
   res.json({
     ...normProject(project),
     tasks: tasks('WHERE t.project_id = ? ORDER BY t.sort_order, t.id', [project.id]),
+    links: db.all('SELECT id, task_id, depends_on_id FROM task_links WHERE project_id = ?', [project.id]),
+    costs: db.all('SELECT * FROM project_costs WHERE project_id = ? ORDER BY spent_on DESC, id DESC', [project.id]),
+    spent: db.get('SELECT coalesce(sum(amount), 0) AS n FROM project_costs WHERE project_id = ?', [project.id]).n,
     escalated_from: db.get('SELECT id, ref, title FROM ideas WHERE project_id = ?', [project.id]) || null,
   });
 }));
@@ -160,7 +189,7 @@ function setBaseline(projectId) {
   if (!p) throw notFound('Project');
   db.run('UPDATE tasks SET is_baseline = 1 WHERE project_id = ? AND is_baseline = 0', [projectId]);
   const snapshotTasks = db.all(
-    'SELECT id, parent_id, title, status, priority, due_at FROM tasks WHERE project_id = ? ORDER BY sort_order, id',
+    'SELECT id, parent_id, title, status, priority, start_date, due_at FROM tasks WHERE project_id = ? ORDER BY sort_order, id',
     [projectId]);
   const snapshot = {
     name: p.name, description: p.description, priority: p.priority,
@@ -205,8 +234,49 @@ router.get('/tasks', h((req, res) => {
     ORDER BY t.priority DESC, t.due_at IS NULL, t.due_at, t.sort_order, t.id`, params));
 }));
 
+// Keeps waiting_since in step with waiting_on, and start <= due.
+function applyTaskRules(current, fields) {
+  if ('waiting_on' in fields) {
+    if (!fields.waiting_on) fields.waiting_since = null;
+    else if (!current || current.waiting_on !== fields.waiting_on) fields.waiting_since = nowIso();
+  }
+  const start = 'start_date' in fields ? fields.start_date : current?.start_date;
+  const due = 'due_at' in fields ? fields.due_at : current?.due_at;
+  if (start && due && start > dateKey(new Date(due))) throw new HttpError(400, 'The start date is after the due date');
+}
+
+// When a repeating task is completed, create its next occurrence (with fresh copies
+// of its subtasks). Only once per task, however often it's ticked and unticked.
+function spawnNextOccurrence(taskId) {
+  const t = db.get('SELECT * FROM tasks WHERE id = ?', [taskId]);
+  if (!t || t.status !== 'done' || !t.recurrence || t.next_task_id) return null;
+  const { due, shiftDays } = nextOccurrence(t.due_at, t.recurrence);
+  const next = insertRow('tasks', {
+    project_id: t.project_id, parent_id: t.parent_id, title: t.title, description: t.description,
+    priority: t.priority, due_at: toDueIso(due), start_date: t.start_date ? shiftKey(t.start_date, shiftDays) : null,
+    recurrence: t.recurrence, is_baseline: t.is_baseline, sort_order: t.sort_order,
+  });
+  for (const sub of db.all('SELECT * FROM tasks WHERE parent_id = ? ORDER BY sort_order, id', [t.id])) {
+    insertRow('tasks', {
+      project_id: t.project_id, parent_id: next.id, title: sub.title, description: sub.description,
+      priority: sub.priority, is_baseline: t.is_baseline, sort_order: sub.sort_order,
+    });
+  }
+  db.run('UPDATE tasks SET next_task_id = ? WHERE id = ?', [next.id, t.id]);
+  return normTask(fresh('tasks', next));
+}
+
+const nextSortOrder = (projectId) =>
+  db.get('SELECT coalesce(max(sort_order), -1) + 1 AS n FROM tasks WHERE project_id = ?', [projectId]).n;
+
+router.get('/tasks/waiting-names', h((req, res) => {
+  res.json(db.all(`SELECT waiting_on AS name, max(coalesce(waiting_since, updated_at)) AS last FROM tasks
+    WHERE waiting_on IS NOT NULL GROUP BY waiting_on COLLATE NOCASE ORDER BY last DESC LIMIT 50`).map((r) => r.name));
+}));
+
 router.post('/tasks', h((req, res) => {
   const fields = pick(req.body, TASK_FIELDS);
+  applyTaskRules(null, fields);
   if (!fields.title || !String(fields.title).trim()) throw new HttpError(400, 'Task title is required');
   let projectId = req.body.project_id;
   if (fields.parent_id) {
@@ -216,9 +286,7 @@ router.post('/tasks', h((req, res) => {
   }
   if (!projectId) throw new HttpError(400, 'project_id is required');
   if (!db.get('SELECT 1 FROM projects WHERE id = ?', [projectId])) throw notFound('Project');
-  if (fields.sort_order === undefined) {
-    fields.sort_order = db.get('SELECT coalesce(max(sort_order), -1) + 1 AS n FROM tasks WHERE project_id = ?', [projectId]).n;
-  }
+  if (fields.sort_order === undefined) fields.sort_order = nextSortOrder(projectId);
   const task = fresh('tasks', insertRow('tasks', { ...fields, project_id: projectId }));
   res.status(201).json(normTask(task));
 }));
@@ -231,6 +299,10 @@ router.get('/tasks/:id', h((req, res) => {
     .map(normAudit);
   res.json({
     ...task,
+    depends_on: db.all(`SELECT l.id AS link_id, t.id, t.title, t.status, t.due_at FROM task_links l
+      JOIN tasks t ON t.id = l.depends_on_id WHERE l.task_id = ? ORDER BY t.sort_order, t.id`, [task.id]),
+    blocking: db.all(`SELECT l.id AS link_id, t.id, t.title, t.status, t.start_date FROM task_links l
+      JOIN tasks t ON t.id = l.task_id WHERE l.depends_on_id = ? ORDER BY t.sort_order, t.id`, [task.id]),
     subtasks: tasks('WHERE t.parent_id = ? ORDER BY t.sort_order, t.id', [task.id]),
     notes: db.all('SELECT * FROM notes WHERE task_id = ? ORDER BY created_at DESC', [task.id]),
     reminders: db.all('SELECT * FROM reminders WHERE task_id = ? ORDER BY remind_at', [task.id]),
@@ -240,9 +312,12 @@ router.get('/tasks/:id', h((req, res) => {
 
 router.patch('/tasks/:id', h((req, res) => {
   const fields = pick(req.body, TASK_FIELDS);
+  let nextOcc = null;
   const task = db.tx(() => {
+    const current = db.get('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
+    if (!current) throw notFound('Task');
+    applyTaskRules(current, fields);
     const row = updateRow('tasks', req.params.id, fields);
-    if (!row) throw notFound('Task');
     // Optionally complete / reopen all subtasks along with the parent.
     if (req.body.cascade && fields.status) {
       db.run(`
@@ -252,9 +327,42 @@ router.patch('/tasks/:id', h((req, res) => {
         UPDATE tasks SET status = ? WHERE id IN (SELECT id FROM sub) AND status <> ?`,
       [row.id, fields.status, fields.status]);
     }
+    if (fields.status === 'done') nextOcc = spawnNextOccurrence(row.id);
     return fresh('tasks', row);
   });
-  res.json(normTask(task));
+  res.json({ ...normTask(task), next_occurrence: nextOcc });
+}));
+
+// Dependencies (for the Gantt chart): task :id can't start until depends_on_id is done.
+router.post('/tasks/:id/dependencies', h((req, res) => {
+  const link = db.tx(() => {
+    const t = db.get('SELECT id, project_id FROM tasks WHERE id = ?', [req.params.id]);
+    const dep = db.get('SELECT id, project_id FROM tasks WHERE id = ?', [req.body.depends_on_id]);
+    if (!t || !dep) throw notFound('Task');
+    if (t.id === dep.id) throw new HttpError(400, 'A task can\'t depend on itself');
+    if (t.project_id !== dep.project_id) throw new HttpError(400, 'Dependencies must be in the same project');
+    // Refuse loops: walk everything `dep` already waits for.
+    const seen = new Set();
+    const queue = [dep.id];
+    while (queue.length) {
+      const id = queue.shift();
+      if (id === t.id) throw new HttpError(400, 'That would create a loop of dependencies');
+      if (seen.has(id)) continue;
+      seen.add(id);
+      for (const l of db.all('SELECT depends_on_id FROM task_links WHERE task_id = ?', [id])) queue.push(l.depends_on_id);
+    }
+    if (db.get('SELECT 1 FROM task_links WHERE task_id = ? AND depends_on_id = ?', [t.id, dep.id])) {
+      throw new HttpError(400, 'That dependency already exists');
+    }
+    return insertRow('task_links', { project_id: t.project_id, task_id: t.id, depends_on_id: dep.id });
+  });
+  res.status(201).json(link);
+}));
+
+router.delete('/task-links/:id', h((req, res) => {
+  const { changes } = db.run('DELETE FROM task_links WHERE id = ?', [req.params.id]);
+  if (!changes) throw notFound('Dependency');
+  res.status(204).end();
 }));
 
 router.delete('/tasks/:id', h((req, res) => {
@@ -277,8 +385,33 @@ router.post('/notes', h((req, res) => {
   }
   if (!projectId) throw new HttpError(400, 'project_id is required');
   if (!db.get('SELECT 1 FROM projects WHERE id = ?', [projectId])) throw notFound('Project');
-  res.status(201).json(insertRow('notes', { project_id: projectId, task_id: taskId, body }));
+  const result = db.tx(() => {
+    const { text, created } = tasksFromNote(body, projectId, taskId);
+    return { ...insertRow('notes', { project_id: projectId, task_id: taskId, body: text }), created_tasks: created };
+  });
+  res.status(201).json(result);
 }));
+
+// "[ ] Chase finance !high @fri" lines in a note become tasks (subtasks when the
+// note is on a task). The line is kept, marked "[→ task]" so it isn't re-created.
+const CHECKLIST_LINE = /^(\s*(?:[-*•]\s*)?)\[\s?\]\s+(.+?)\s*$/;
+function tasksFromNote(body, projectId, parentId) {
+  const created = [];
+  const today = new Date().toLocaleDateString(undefined, { dateStyle: 'medium' });
+  const lines = body.split(/\r?\n/).map((line) => {
+    const m = line.match(CHECKLIST_LINE);
+    if (!m) return line;
+    const q = parseQuick(m[2]);
+    if (!q.title) return line;
+    const t = insertRow('tasks', {
+      project_id: projectId, parent_id: parentId, title: q.title, priority: q.priority, recurrence: q.recurrence,
+      due_at: toDueIso(q.due_at), description: `Created from a note on ${today}.`, sort_order: nextSortOrder(projectId),
+    });
+    created.push(normTask(t));
+    return `${m[1]}[→ task] ${m[2]}`;
+  });
+  return { text: lines.join('\n'), created };
+}
 
 router.patch('/notes/:id', h((req, res) => {
   const row = fresh('notes', updateRow('notes', req.params.id, pick(req.body, ['body'])));
@@ -367,6 +500,7 @@ router.get('/dashboard', h((req, res) => {
     week: tasks(`${base} AND t.due_at >= ? AND t.due_at < ? ORDER BY t.due_at`, [dayStart(1), dayStart(8)]),
     high_priority: tasks(`${base} AND t.priority >= 3 ORDER BY t.priority DESC, t.due_at IS NULL, t.due_at`),
     blocked: tasks(`${base} AND t.status = 'blocked' ORDER BY t.priority DESC, t.due_at IS NULL, t.due_at`),
+    waiting: tasks(`${base} AND t.waiting_on IS NOT NULL ORDER BY t.waiting_on COLLATE NOCASE, t.waiting_since`),
     ideas: db.get(`SELECT count(*) AS open, coalesce(sum(cost), 0) AS cost FROM ideas
       WHERE status IN ('new', 'reviewing', 'approved')`),
     recent_notes: db.all(`SELECT n.*, p.name AS project_name, t.title AS task_title FROM notes n
@@ -378,7 +512,7 @@ router.get('/dashboard', h((req, res) => {
 
 // ------------------------------------------------------------------ ideation
 
-const IDEA_FIELDS = ['title', 'description', 'submitted_by', 'area_id', 'priority', 'due_at', 'cost', 'status'];
+const IDEA_FIELDS = ['title', 'description', 'submitted_by', 'area_id', 'priority', 'due_at', 'cost', 'status', 'impact', 'effort'];
 const IDEA_SELECT = `
   SELECT i.*, a.name AS area_name, p.name AS project_name,
          (SELECT count(*) FROM idea_notes n WHERE n.idea_id = i.id) AS note_count,
@@ -388,11 +522,6 @@ const OPEN_IDEA = "i.status IN ('new', 'reviewing', 'approved')";
 
 function ideaFields(body) {
   const f = pick(body, IDEA_FIELDS);
-  if (f.cost !== undefined && f.cost !== null) {
-    const n = Number(String(f.cost).replace(/[^0-9.-]/g, ''));
-    if (String(f.cost).trim() === '' || Number.isNaN(n) || n < 0) throw new HttpError(400, 'Cost must be a positive number');
-    f.cost = Math.round(n * 100) / 100;
-  }
   if (f.status === 'escalated') throw new HttpError(400, 'Use "Escalate to project" to escalate an idea');
   if (f.title !== undefined && !String(f.title || '').trim()) throw new HttpError(400, 'Idea name is required');
   return f;
@@ -487,6 +616,7 @@ router.post('/ideas/:id/escalate', h((req, res) => {
       description: req.body.description !== undefined ? req.body.description : idea.description,
       priority: req.body.priority || idea.priority,
       due_at: req.body.due_at !== undefined ? req.body.due_at : idea.due_at,
+      budget: req.body.budget !== undefined ? req.body.budget : idea.cost,
       start_date: req.body.start_date,
       baseline_tasks: req.body.baseline_tasks,
       set_baseline: req.body.set_baseline,
@@ -509,7 +639,7 @@ router.post('/ideas/:id/escalate', h((req, res) => {
 
 // ------------------------------------------------------------------ settings & areas
 
-const SETTING_DEFAULTS = { currency: '£' };
+const SETTING_DEFAULTS = { currency: '£', report_last_sent: '' };
 function getSettings() {
   const out = { ...SETTING_DEFAULTS };
   for (const r of db.all('SELECT key, value FROM settings')) if (r.key in SETTING_DEFAULTS) out[r.key] = r.value;
@@ -561,6 +691,226 @@ router.delete('/areas/:id', h((req, res) => {
   res.status(204).end();
 }));
 
+// ------------------------------------------------------------------ project costs
+
+router.post('/projects/:id/costs', h((req, res) => {
+  if (!db.get('SELECT 1 FROM projects WHERE id = ?', [req.params.id])) throw notFound('Project');
+  const f = pick(req.body, ['description', 'amount', 'spent_on']);
+  if (!f.description || !String(f.description).trim()) throw new HttpError(400, 'Description is required');
+  if (f.amount === null || f.amount === undefined) throw new HttpError(400, 'Amount is required');
+  res.status(201).json(insertRow('project_costs', { ...f, spent_on: f.spent_on || dateKey(new Date()), project_id: Number(req.params.id) }));
+}));
+
+router.patch('/costs/:id', h((req, res) => {
+  const row = fresh('project_costs', updateRow('project_costs', req.params.id, pick(req.body, ['description', 'amount', 'spent_on'])));
+  if (!row) throw notFound('Cost');
+  res.json(row);
+}));
+
+router.delete('/costs/:id', h((req, res) => {
+  const { changes } = db.run('DELETE FROM project_costs WHERE id = ?', [req.params.id]);
+  if (!changes) throw notFound('Cost');
+  res.status(204).end();
+}));
+
+// ------------------------------------------------------------------ open a file path
+
+// Shows a file or folder from a note in Windows File Explorer. Files are only ever
+// selected in their folder (/select), never opened or run.
+router.post('/open-path', h((req, res) => {
+  const p = String(req.body.path || '').trim();
+  if (!p || p.includes('"') || !path.win32.isAbsolute(p)) throw new HttpError(400, 'Not a full file or folder path');
+  if (process.platform !== 'win32') return res.json({ opened: false, reason: 'File Explorer is only available on Windows' });
+  let stat;
+  try { stat = fs.statSync(p); } catch { throw new HttpError(404, `Can't find ${p} (is the drive or network share available?)`); }
+  if (stat.isDirectory()) execFile('explorer.exe', [p], () => {});
+  else spawn('explorer.exe', [`/select,"${p}"`], { windowsVerbatimArguments: true, detached: true, stdio: 'ignore' }).unref();
+  res.json({ opened: true });
+}));
+
+// ------------------------------------------------------------------ Excel export
+
+const XL = {
+  projects: [
+    { header: 'Project', width: 32 }, { header: 'Status', width: 11 }, { header: 'Priority', width: 9 },
+    { header: 'Start', type: 'date', width: 11 }, { header: 'Due', type: 'date', width: 11 },
+    { header: 'Baseline due', type: 'date', width: 12 }, { header: 'Tasks', type: 'number', width: 7 },
+    { header: 'Done', type: 'number', width: 7 }, { header: 'Overdue', type: 'number', width: 8 },
+    { header: 'Budget', type: 'money', width: 11 }, { header: 'Spent', type: 'money', width: 11 },
+    { header: 'Created', type: 'datetime', width: 16 }, { header: 'Completed', type: 'datetime', width: 16 },
+    { header: 'Description', type: 'wrap', width: 50 },
+  ],
+  tasks: [
+    { header: 'Project', width: 26 }, { header: 'Task', width: 40 }, { header: 'Subtask of', width: 26 },
+    { header: 'Status', width: 11 }, { header: 'Priority', width: 9 }, { header: 'Start', type: 'date', width: 11 },
+    { header: 'Due', type: 'date', width: 11 }, { header: 'Waiting on', width: 16 },
+    { header: 'Waiting since', type: 'date', width: 12 }, { header: 'Repeats', width: 11 },
+    { header: 'In baseline', width: 10 }, { header: 'Created', type: 'datetime', width: 16 },
+    { header: 'Completed', type: 'datetime', width: 16 }, { header: 'Description', type: 'wrap', width: 50 },
+  ],
+  ideas: [
+    { header: 'Ref', width: 11 }, { header: 'Idea', width: 36 }, { header: 'Area', width: 14 },
+    { header: 'Submitted by', width: 16 }, { header: 'Priority', width: 9 }, { header: 'Impact', type: 'number', width: 8 },
+    { header: 'Effort', type: 'number', width: 8 }, { header: 'Value score', type: 'number', width: 11 },
+    { header: 'Due', type: 'date', width: 11 }, { header: 'Cost', type: 'money', width: 11 },
+    { header: 'Status', width: 14 }, { header: 'Project', width: 26 }, { header: 'Raised', type: 'datetime', width: 16 },
+    { header: 'Updated', type: 'datetime', width: 16 }, { header: 'Description', type: 'wrap', width: 50 },
+  ],
+  notes: [
+    { header: 'Date', type: 'datetime', width: 16 }, { header: 'Project / idea', width: 30 },
+    { header: 'Task', width: 30 }, { header: 'Note', type: 'wrap', width: 80 },
+  ],
+  costs: [
+    { header: 'Project', width: 30 }, { header: 'Date', type: 'date', width: 11 },
+    { header: 'Description', width: 40 }, { header: 'Amount', type: 'money', width: 12 },
+  ],
+};
+const label = (map, v) => map[v] || v || '';
+
+function exportSheets(scope, id) {
+  const sheets = [];
+  const projWhere = scope === 'project' ? 'WHERE p.id = ?' : '';
+  const projParams = scope === 'project' ? [id] : [];
+  if (scope !== 'ideas') {
+    const projects = db.all(`SELECT p.*,
+        (SELECT count(*) FROM tasks t WHERE t.project_id = p.id) AS task_count,
+        (SELECT count(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'done') AS done_count,
+        (SELECT count(*) FROM tasks t WHERE t.project_id = p.id AND t.status <> 'done' AND t.due_at < ?) AS overdue_count,
+        (SELECT coalesce(sum(amount), 0) FROM project_costs c WHERE c.project_id = p.id) AS spent
+      FROM projects p ${projWhere} ORDER BY p.status = 'archived', p.name COLLATE NOCASE`, [nowIso(), ...projParams]);
+    if (scope === 'project' && !projects.length) throw notFound('Project');
+    sheets.push({ name: 'Projects', columns: XL.projects, rows: projects.map((p) => [
+      p.name, label(STATUS_LABEL, p.status), PRIORITY_LABEL[p.priority], p.start_date, p.due_at, p.baseline_due_at,
+      p.task_count, p.done_count, p.overdue_count, p.budget, p.spent, p.created_at, p.completed_at, p.description]) });
+    const tRows = db.all(`SELECT t.*, p.name AS project_name, par.title AS parent_title FROM tasks t
+      JOIN projects p ON p.id = t.project_id LEFT JOIN tasks par ON par.id = t.parent_id
+      ${projWhere} ORDER BY p.name COLLATE NOCASE, t.sort_order, t.id`, projParams);
+    sheets.push({ name: 'Tasks', columns: XL.tasks, rows: tRows.map((t) => [
+      t.project_name, t.title, t.parent_title, label(STATUS_LABEL, t.status), PRIORITY_LABEL[t.priority], t.start_date,
+      t.due_at, t.waiting_on, t.waiting_since, label(REPEAT_LABEL, t.recurrence), t.is_baseline ? 'Yes' : 'No',
+      t.created_at, t.completed_at, t.description]) });
+  }
+  if (scope !== 'project') {
+    const ideas = db.all(`${IDEA_SELECT} ORDER BY i.id`);
+    sheets.push({ name: 'Ideas', columns: XL.ideas, rows: ideas.map((i) => [
+      i.ref, i.title, i.area_name, i.submitted_by, PRIORITY_LABEL[i.priority], i.impact, i.effort,
+      i.impact && i.effort ? i.impact * (6 - i.effort) : null, i.due_at, i.cost, label(STATUS_LABEL, i.status),
+      i.project_name, i.created_at, i.updated_at, i.description]) });
+  }
+  const notes = [];
+  if (scope !== 'ideas') {
+    notes.push(...db.all(`SELECT n.created_at, p.name AS owner, t.title AS task, n.body FROM notes n
+      JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id ${projWhere}`, projParams));
+  }
+  if (scope !== 'project') {
+    notes.push(...db.all(`SELECT n.created_at, i.ref || ' ' || i.title AS owner, NULL AS task, n.body
+      FROM idea_notes n JOIN ideas i ON i.id = n.idea_id`));
+  }
+  notes.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  sheets.push({ name: 'Notes', columns: XL.notes, rows: notes.map((n) => [n.created_at, n.owner, n.task, n.body]) });
+  if (scope !== 'ideas') {
+    const costs = db.all(`SELECT c.*, p.name AS project_name FROM project_costs c JOIN projects p ON p.id = c.project_id
+      ${projWhere} ORDER BY p.name COLLATE NOCASE, c.spent_on`, projParams);
+    sheets.push({ name: 'Costs', columns: XL.costs, rows: costs.map((c) => [c.project_name, c.spent_on, c.description, c.amount]) });
+  }
+  return sheets;
+}
+
+router.get('/export.xlsx', h((req, res) => {
+  const scope = ['project', 'ideas'].includes(req.query.scope) ? req.query.scope : 'all';
+  const sheets = exportSheets(scope, req.query.id);
+  let name = scope === 'ideas' ? 'Ideas' : 'All';
+  if (scope === 'project') {
+    const p = db.get('SELECT name FROM projects WHERE id = ?', [req.query.id]);
+    name = p.name.replace(/[^\w -]+/g, '').trim().slice(0, 40) || 'Project';
+  }
+  const file = `TaskManager - ${name} - ${dateKey(new Date())}.xlsx`;
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${file}"; filename*=UTF-8''${encodeURIComponent(file)}`);
+  res.send(buildXlsx(sheets));
+}));
+
+// ------------------------------------------------------------------ status report
+
+// Everything that happened between two dates (inclusive, local), per project.
+router.get('/report', h((req, res) => {
+  const day = /^\d{4}-\d{2}-\d{2}$/;
+  const today = dateKey(new Date());
+  const to = day.test(req.query.to || '') ? req.query.to : today;
+  const fromDefault = new Date(); fromDefault.setDate(fromDefault.getDate() - 6);
+  const from = day.test(req.query.from || '') ? req.query.from : dateKey(fromDefault);
+  if (from > to) throw new HttpError(400, 'The start of the period is after the end');
+  const [fy, fm, fd] = from.split('-').map(Number);
+  const [ty, tm, td] = to.split('-').map(Number);
+  const start = new Date(fy, fm - 1, fd).toISOString();
+  const end = new Date(ty, tm - 1, td, 23, 59, 59, 999).toISOString();
+  const now = nowIso();
+  const soon = new Date(ty, tm - 1, td + 14, 23, 59, 59, 999).toISOString();
+
+  const projectFilter = req.query.project_id ? 'AND p.id = ?' : '';
+  const pp = req.query.project_id ? [req.query.project_id] : [];
+  const projects = db.all(`SELECT p.*,
+      (SELECT count(*) FROM tasks t WHERE t.project_id = p.id) AS task_count,
+      (SELECT count(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'done') AS done_count,
+      (SELECT coalesce(sum(amount), 0) FROM project_costs c WHERE c.project_id = p.id) AS spent
+    FROM projects p
+    WHERE (p.status IN ('active', 'on_hold')
+       OR EXISTS (SELECT 1 FROM audit_log a WHERE a.project_id = p.id AND a.changed_at BETWEEN ? AND ?)) ${projectFilter}
+    ORDER BY p.status = 'completed', p.priority DESC, p.due_at IS NULL, p.due_at`, [start, end, ...pp]);
+
+  const out = projects.map((p) => {
+    const open = "t.project_id = ? AND t.status <> 'done'";
+    const events = db.all(`SELECT * FROM audit_log WHERE project_id = ? AND changed_at BETWEEN ? AND ?
+      AND table_name IN ('tasks', 'projects') AND action = 'UPDATE' ORDER BY changed_at, id`, [p.id, start, end]).map(normAudit);
+    // Net due-date change per task/project over the period.
+    const moves = new Map();
+    for (const e of events) {
+      if (e.old_data?.due_at === e.new_data?.due_at) continue;
+      const key = `${e.table_name}:${e.record_id}`;
+      const m = moves.get(key) || { what: e.table_name === 'projects' ? 'Project due date' : e.new_data.title, from: e.old_data.due_at };
+      m.to = e.new_data.due_at;
+      m.at = e.changed_at;
+      moves.set(key, m);
+    }
+    const started = new Map();
+    for (const e of events) {
+      if (e.table_name === 'tasks' && e.new_data?.status === 'in_progress' && e.old_data?.status !== 'in_progress') {
+        started.set(e.record_id, { title: e.new_data.title, at: e.changed_at });
+      }
+    }
+    return {
+      id: p.id, name: p.name, status: p.status, priority: p.priority, due_at: p.due_at,
+      baseline_due_at: p.baseline_due_at, baseline_set_at: p.baseline_set_at,
+      task_count: p.task_count, done_count: p.done_count, budget: p.budget, spent: p.spent,
+      completed: tasks('WHERE t.project_id = ? AND t.completed_at BETWEEN ? AND ? ORDER BY t.completed_at', [p.id, start, end]),
+      added: tasks('WHERE t.project_id = ? AND t.created_at BETWEEN ? AND ? ORDER BY t.created_at', [p.id, start, end]),
+      started: [...started.values()],
+      due_changes: [...moves.values()].filter((m) => m.from !== m.to),
+      notes: db.all(`SELECT n.*, t.title AS task_title FROM notes n LEFT JOIN tasks t ON t.id = n.task_id
+        WHERE n.project_id = ? AND n.created_at BETWEEN ? AND ? ORDER BY n.created_at`, [p.id, start, end]),
+      spent_in_period: db.get(`SELECT coalesce(sum(amount), 0) AS n FROM project_costs
+        WHERE project_id = ? AND spent_on BETWEEN ? AND ?`, [p.id, from, to]).n,
+      blocked: tasks(`WHERE ${open} AND t.status = 'blocked' ORDER BY t.due_at IS NULL, t.due_at`, [p.id]),
+      overdue: tasks(`WHERE ${open} AND t.due_at < ? ORDER BY t.due_at`, [p.id, now]),
+      waiting: tasks(`WHERE ${open} AND t.waiting_on IS NOT NULL ORDER BY t.waiting_since`, [p.id]),
+      upcoming: tasks(`WHERE ${open} AND t.due_at >= ? AND t.due_at <= ? ORDER BY t.due_at`, [p.id, now, soon]),
+    };
+  });
+
+  const ideaEvents = req.query.project_id ? [] : db.all(`SELECT * FROM audit_log WHERE table_name = 'ideas'
+    AND action = 'UPDATE' AND changed_at BETWEEN ? AND ? ORDER BY changed_at, id`, [start, end]).map(normAudit)
+    .filter((e) => e.old_data?.status !== e.new_data?.status)
+    .map((e) => ({ ref: e.new_data.ref, title: e.new_data.title, from: e.old_data.status, to: e.new_data.status, at: e.changed_at }));
+  res.json({
+    from, to, generated_at: now, currency: getSettings().currency,
+    projects: out,
+    ideas: req.query.project_id ? null : {
+      raised: db.all(`${IDEA_SELECT} WHERE i.created_at BETWEEN ? AND ? ORDER BY i.id`, [start, end]),
+      status_changes: ideaEvents,
+    },
+  });
+}));
+
 // ------------------------------------------------------------------ audit log
 
 router.get('/audit', h((req, res) => {
@@ -606,7 +956,11 @@ const PRIORITY_LABEL = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Critical' };
 const FIELD_LABEL = { title: 'title', name: 'name', description: 'description', status: 'status',
   priority: 'priority', due_at: 'due date', start_date: 'start date', parent_id: 'parent task',
   remind_at: 'reminder time', message: 'message', body: 'text',
-  submitted_by: 'submitted by', area_id: 'area', cost: 'cost', value: 'value', active: 'active' };
+  submitted_by: 'submitted by', area_id: 'area', cost: 'cost', value: 'value', active: 'active',
+  waiting_on: 'waiting on', recurrence: 'repeats', budget: 'budget', impact: 'impact', effort: 'effort',
+  amount: 'amount', spent_on: 'date' };
+const REPEAT_LABEL = { daily: 'Daily', weekdays: 'Weekdays', weekly: 'Weekly', fortnightly: 'Every 2 weeks',
+  monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' };
 
 function fmtValue(field, v) {
   if (v === null || v === undefined || v === '') return '(none)';
@@ -614,6 +968,8 @@ function fmtValue(field, v) {
   if (field === 'priority') return PRIORITY_LABEL[v] || v;
   if (field === 'area_id') return db.get('SELECT name FROM areas WHERE id = ?', [v])?.name || `#${v}`;
   if (field === 'active') return v ? 'yes' : 'no';
+  if (field === 'recurrence') return REPEAT_LABEL[v] || v;
+  if (field in MONEY_FIELDS) return `${getSettings().currency}${Number(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (field === 'due_at') return new Date(v).toLocaleDateString(undefined, { dateStyle: 'medium' });
   if (field === 'remind_at') return new Date(v).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   const s = String(v);
@@ -624,8 +980,17 @@ function fmtValue(field, v) {
 function describeAudit(e) {
   const d = e.new_data || e.old_data || {};
   const label = { projects: 'Project', tasks: d.parent_id ? 'Subtask' : 'Task', notes: 'Note', reminders: 'Reminder',
-    ideas: `Idea${d.ref ? ` ${d.ref}` : ''}`, idea_notes: 'Idea note', areas: 'Area', settings: 'Setting' }[e.table_name] || e.table_name;
-  const name = d.title || d.name || d.key || (d.body && fmtValue('body', d.body)) || '';
+    ideas: `Idea${d.ref ? ` ${d.ref}` : ''}`, idea_notes: 'Idea note', areas: 'Area', settings: 'Setting',
+    project_costs: 'Cost', task_links: 'Dependency' }[e.table_name] || e.table_name;
+  if (e.table_name === 'task_links') {
+    const title = (id) => db.get('SELECT title FROM tasks WHERE id = ?', [id])?.title || `task #${id}`;
+    const verb = e.action === 'DELETE' ? 'removed' : 'added';
+    return `Dependency ${verb}: "${title(d.task_id)}" waits for "${title(d.depends_on_id)}"`;
+  }
+  if (e.table_name === 'project_costs' && e.action !== 'UPDATE') {
+    return `Cost ${e.action === 'INSERT' ? 'added' : 'deleted'}: ${fmtValue('amount', d.amount)} ${d.description ? `"${d.description}"` : ''}`.trim();
+  }
+  const name = d.title || d.name || d.key || d.description || (d.body && fmtValue('body', d.body)) || '';
   const named = name ? ` "${name}"` : '';
   if (e.action === 'INSERT') {
     if (e.table_name === 'reminders') return `Reminder set for ${fmtValue('remind_at', d.remind_at)}`;

@@ -6,9 +6,15 @@
 // including edits made directly in DBeaver or any other SQLite tool.
 
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+// Columns added after the first release must be single-line definitions without
+// UNIQUE/PRIMARY KEY, so existing databases can gain them with ALTER TABLE ADD COLUMN.
+
 // Accepts only canonical UTC timestamps, so hand edits can't break date comparisons.
 // (`IS`, not `=`: an unparseable value makes strftime() NULL, which `=` would let through.)
 const isoCheck = (c) => `CHECK (${c} IS NULL OR strftime('%Y-%m-%dT%H:%M:%fZ', ${c}) IS ${c})`;
+const dateCheck = (c) => `CHECK (${c} IS NULL OR date(${c}) IS ${c})`;
+const moneyCheck = (c) => `CHECK (${c} IS NULL OR (typeof(${c}) IN ('integer', 'real') AND ${c} >= 0))`;
+const RECURRENCES = ['daily', 'weekdays', 'weekly', 'fortnightly', 'monthly', 'quarterly', 'yearly'];
 
 const TABLES = {
   projects: `
@@ -25,7 +31,8 @@ const TABLES = {
     baseline_snapshot TEXT,   -- JSON: the plan as it was when the baseline was set
     created_at        TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at        TEXT    NOT NULL DEFAULT (${NOW}),
-    completed_at      TEXT`,
+    completed_at      TEXT,
+    budget            REAL    ${moneyCheck('budget')}`,
 
   tasks: `
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +48,33 @@ const TABLES = {
     sort_order   INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at   TEXT    NOT NULL DEFAULT (${NOW}),
-    completed_at TEXT`,
+    completed_at TEXT,
+    start_date   TEXT    ${dateCheck('start_date')},
+    waiting_on   TEXT,
+    waiting_since TEXT,
+    recurrence   TEXT    CHECK (recurrence IS NULL OR recurrence IN (${RECURRENCES.map((r) => `'${r}'`).join(', ')})),
+    next_task_id INTEGER`,
+
+  // Gantt dependencies: task_id can't start until depends_on_id is finished.
+  task_links: `
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id    INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    task_id       INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    depends_on_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    created_at    TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at    TEXT    NOT NULL DEFAULT (${NOW}),
+    UNIQUE (task_id, depends_on_id),
+    CHECK (task_id <> depends_on_id)`,
+
+  // Actual spend against a project's budget.
+  project_costs: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    description TEXT    NOT NULL,
+    amount      REAL    NOT NULL ${moneyCheck('amount')},
+    spent_on    TEXT    ${dateCheck('spent_on')},
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
 
   // The additive "log as I go" notes on a project (optionally tied to a task).
   notes: `
@@ -87,7 +120,9 @@ const TABLES = {
                  CHECK (status IN ('new', 'reviewing', 'approved', 'rejected', 'implemented', 'escalated')),
     project_id   INTEGER REFERENCES projects(id) ON DELETE SET NULL,  -- set when escalated
     created_at   TEXT    NOT NULL DEFAULT (${NOW}),
-    updated_at   TEXT    NOT NULL DEFAULT (${NOW})`,
+    updated_at   TEXT    NOT NULL DEFAULT (${NOW}),
+    impact       INTEGER CHECK (impact IS NULL OR impact BETWEEN 1 AND 5),
+    effort       INTEGER CHECK (effort IS NULL OR effort BETWEEN 1 AND 5)`,
 
   idea_notes: `
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,6 +163,10 @@ const INDEXES = `
   CREATE INDEX IF NOT EXISTS ideas_status_idx  ON ideas(status);
   CREATE INDEX IF NOT EXISTS ideas_area_idx    ON ideas(area_id);
   CREATE INDEX IF NOT EXISTS idea_notes_idx    ON idea_notes(idea_id, created_at);
+  CREATE INDEX IF NOT EXISTS tasks_waiting_idx ON tasks(waiting_on) WHERE waiting_on IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS task_links_task_idx ON task_links(task_id);
+  CREATE INDEX IF NOT EXISTS task_links_dep_idx  ON task_links(depends_on_id);
+  CREATE INDEX IF NOT EXISTS project_costs_idx ON project_costs(project_id, spent_on);
 
   -- Gives every idea a permanent, human-friendly reference, even if added in DBeaver.
   DROP TRIGGER IF EXISTS ideas_ref;
@@ -145,11 +184,15 @@ const DONE = {
   tasks: ['done', 'completed_at'],
   reminders: ['dismissed', 'dismissed_at'],
 };
-const AUTO_COLUMNS = ['id', 'ref', 'created_at', 'updated_at', 'completed_at', 'dismissed_at'];
+const AUTO_COLUMNS = ['id', 'ref', 'created_at', 'updated_at', 'completed_at', 'dismissed_at', 'waiting_since', 'next_task_id'];
 const JSON_COLUMNS = ['baseline_snapshot'];
 
-const columnsOf = (table) => TABLES[table].split('\n')
-  .map((l) => l.trim().match(/^([a-z_]+)\s+[A-Z]/)).filter(Boolean).map((m) => m[1]);
+// Column definitions of a table: [{ name, sql }] (sql is the single-line definition).
+const columnDefs = (table) => TABLES[table].split('\n')
+  .map((l) => l.trim().replace(/\s*--.*$/, '').replace(/,$/, ''))
+  .filter((l) => /^[a-z_]+\s+[A-Z]/.test(l))
+  .map((l) => ({ name: l.split(/\s+/)[0], sql: l }));
+const columnsOf = (table) => columnDefs(table).map((c) => c.name);
 
 function triggerSql(table) {
   const cols = columnsOf(table);
@@ -192,14 +235,17 @@ function triggerSql(table) {
     BEGIN UPDATE ${table} SET ${doneCol} = ${NOW} WHERE id = NEW.id; END;` : ''}`;
 }
 
-const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings'];
+const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
+  'task_links', 'project_costs'];
 
-function schemaSql() {
-  return [
-    ...Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`),
-    ...DATA_TABLES.map(triggerSql),
-    INDEXES,
-  ].join('\n');
+const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
+const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');
+
+// ALTER TABLE statements for columns an older database doesn't have yet.
+function addColumnsSql(existing) {
+  return Object.keys(TABLES).flatMap((t) => columnDefs(t)
+    .filter((c) => existing[t] && !existing[t].includes(c.name))
+    .map((c) => `ALTER TABLE ${t} ADD COLUMN ${c.sql};`));
 }
 
 function dropTriggersSql() {
@@ -207,4 +253,6 @@ function dropTriggersSql() {
     .map((s) => `DROP TRIGGER IF EXISTS ${t}_${s};`)).concat('DROP TRIGGER IF EXISTS ideas_ref;').join('\n');
 }
 
-module.exports = { schemaSql, dropTriggersSql, TABLE_NAMES: Object.keys(TABLES), JSON_COLUMNS };
+module.exports = {
+  tablesSql, triggersSql, addColumnsSql, dropTriggersSql, TABLE_NAMES: Object.keys(TABLES), JSON_COLUMNS, RECURRENCES,
+};

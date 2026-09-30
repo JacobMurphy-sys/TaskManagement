@@ -173,6 +173,98 @@ async function waitForServer() {
     assert.equal((await call('GET', '/ideas?status=open')).length, 1, 'escalated idea no longer open');
     await call('DELETE', `/ideas/${idea2.id}`);
 
+    // ---- Notes create tasks from "[ ]" lines
+    const np = await call('POST', '/projects', { name: 'Features project', budget: '£2,000' });
+    assert.equal(np.budget, 2000, 'budget parsed');
+    const meeting = await call('POST', '/notes', { project_id: np.id,
+      body: 'Kick-off meeting\n[ ] Chase finance for data !high @2026-10-20\n- [ ] Book room *weekly\n[x] already done\nplain line' });
+    assert.equal(meeting.created_tasks.length, 2, 'two checklist lines became tasks');
+    assert.match(meeting.body, /\[→ task\] Chase finance/, 'line marked as converted');
+    const chase = meeting.created_tasks.find((t) => t.title === 'Chase finance for data');
+    assert.equal(chase.priority, 3);
+    assert.equal(new Date(chase.due_at).getDate(), 20);
+    const room = meeting.created_tasks.find((t) => t.title === 'Book room');
+    assert.equal(room.recurrence, 'weekly', '*weekly sets recurrence');
+    const subNote = await call('POST', '/notes', { task_id: chase.id, body: '[ ] Get Sept export' });
+    assert.equal(subNote.created_tasks[0].parent_id, chase.id, 'note on a task creates subtasks');
+
+    // ---- Waiting on
+    const w = await call('PATCH', `/tasks/${chase.id}`, { waiting_on: '  Finance ' });
+    assert.equal(w.waiting_on, 'Finance');
+    assert.ok(w.waiting_since, 'waiting_since stamped');
+    const w2 = await call('PATCH', `/tasks/${chase.id}`, { title: 'Chase finance for Sept data' });
+    assert.equal(w2.waiting_since, w.waiting_since, 'waiting_since kept while still waiting on the same person');
+    assert.ok((await call('GET', '/dashboard')).waiting.some((t) => t.id === chase.id), 'dashboard waiting list');
+    assert.deepEqual(await call('GET', '/tasks/waiting-names'), ['Finance']);
+    await assert.rejects(call('PATCH', `/tasks/${chase.id}`, { start_date: '2026-10-25' }), /start date is after/);
+
+    // ---- Recurring tasks
+    await call('PATCH', `/tasks/${room.id}`, { due_at: '2026-10-05' });
+    await call('POST', '/tasks', { parent_id: room.id, title: 'Send invite' });
+    const doneRoom = await call('PATCH', `/tasks/${room.id}`, { status: 'done' });
+    assert.ok(doneRoom.next_occurrence, 'next occurrence created');
+    const nextDue = new Date(doneRoom.next_occurrence.due_at);
+    assert.ok(nextDue > new Date(), 'next occurrence is in the future');
+    assert.equal(nextDue.getDay(), new Date(2026, 9, 5).getDay(), 'weekly keeps the weekday');
+    const nextDetail = await call('GET', `/tasks/${doneRoom.next_occurrence.id}`);
+    assert.equal(nextDetail.subtasks.length, 1, 'subtasks copied to next occurrence');
+    await call('PATCH', `/tasks/${room.id}`, { status: 'todo' });
+    const again = await call('PATCH', `/tasks/${room.id}`, { status: 'done' });
+    assert.equal(again.next_occurrence, null, 'ticking again does not create a duplicate');
+    const { nextOccurrence } = require('../src/dates');
+    const jan31 = new Date(2031, 0, 31, 23, 59).toISOString();
+    assert.equal(nextOccurrence(jan31, 'monthly').due, '2031-02-28', 'monthly clamps to month end');
+    const fri = new Date(2031, 0, 3, 23, 59).toISOString(); // a Friday
+    assert.equal(nextOccurrence(fri, 'weekdays').due, '2031-01-06', 'weekdays skips the weekend');
+
+    // ---- Dependencies
+    const taskA = await call('POST', '/tasks', { project_id: np.id, title: 'A', start_date: '2026-11-02', due_at: '2026-11-04' });
+    const taskB = await call('POST', '/tasks', { project_id: np.id, title: 'B' });
+    const link = await call('POST', `/tasks/${taskB.id}/dependencies`, { depends_on_id: taskA.id });
+    await assert.rejects(call('POST', `/tasks/${taskA.id}/dependencies`, { depends_on_id: taskB.id }), /loop/);
+    await assert.rejects(call('POST', `/tasks/${taskA.id}/dependencies`, { depends_on_id: taskA.id }), /400/);
+    assert.equal((await call('GET', `/tasks/${taskB.id}`)).depends_on[0].id, taskA.id);
+    assert.equal((await call('GET', `/projects/${np.id}`)).links.length, 1);
+    await call('DELETE', `/task-links/${link.id}`);
+
+    // ---- Costs
+    await call('POST', `/projects/${np.id}/costs`, { description: 'Room hire', amount: '350', spent_on: '2026-10-01' });
+    await call('POST', `/projects/${np.id}/costs`, { description: 'Catering', amount: 120.5 });
+    await assert.rejects(call('POST', `/projects/${np.id}/costs`, { description: 'x', amount: -1 }), /400/);
+    const npd = await call('GET', `/projects/${np.id}`);
+    assert.equal(npd.spent, 470.5);
+    assert.equal(npd.costs.length, 2);
+
+    // ---- Idea scores
+    const scored = await call('POST', '/ideas', { title: 'Scored idea', impact: 5, effort: 1, cost: 300 });
+    assert.equal(scored.impact, 5);
+    await assert.rejects(call('PATCH', `/ideas/${scored.id}`, { effort: 7 }), /1 to 5/);
+    const esc2 = await call('POST', `/ideas/${scored.id}/escalate`, {});
+    assert.equal(esc2.budget, 300, 'escalated project takes the idea cost as budget');
+
+    // ---- Report
+    const rep = await call('GET', `/report?from=${todayKey}&to=${todayKey}`);
+    const rp = rep.projects.find((x) => x.id === np.id);
+    assert.ok(rp, 'active project in report');
+    assert.ok(rp.added.length >= 4 && rp.notes.length === 2, 'report lists added tasks and notes');
+    assert.ok(rp.completed.some((t) => t.id === room.id), 'report lists completed tasks');
+    assert.ok(rp.waiting.some((t) => t.id === chase.id), 'report lists waiting items');
+    assert.ok(rep.ideas.raised.some((i) => i.id === scored.id), 'report lists new ideas');
+    await assert.rejects(call('GET', '/report?from=2026-10-10&to=2026-10-01'), /400/);
+
+    // ---- Excel export
+    for (const q of ['', `?scope=project&id=${np.id}`, '?scope=ideas']) {
+      const r = await fetch(`${BASE}/export.xlsx${q}`);
+      assert.equal(r.status, 200);
+      assert.match(r.headers.get('content-type'), /spreadsheetml/);
+      const buf = Buffer.from(await r.arrayBuffer());
+      assert.equal(buf.readUInt32LE(0), 0x04034b50, 'xlsx is a zip');
+      assert.ok(buf.includes('xl/worksheets/sheet1.xml'));
+    }
+
+    // ---- Opening a path is validated (and only works on Windows)
+    await assert.rejects(call('POST', '/open-path', { path: 'relative\\path' }), /400/);
+
     // Change requests without the app's header are refused (blocks other websites).
     const bare = await fetch(`${BASE}/backups`, { method: 'POST' });
     assert.equal(bare.status, 403, 'request without X-Requested-With refused');

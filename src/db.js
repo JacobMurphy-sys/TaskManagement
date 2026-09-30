@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const log = require('./logger');
-const { schemaSql, dropTriggersSql } = require('./schema');
+const { tablesSql, triggersSql, addColumnsSql, dropTriggersSql, TABLE_NAMES } = require('./schema');
 
 // node:sqlite prints an "experimental" warning on load; it's stable enough for this use.
 const emitWarning = process.emitWarning;
@@ -106,7 +106,13 @@ const DATA_MIGRATIONS = {
 
 function migrate() {
   tx(() => {
-    conn.exec(schemaSql());
+    conn.exec(tablesSql());
+    const existing = Object.fromEntries(TABLE_NAMES.map((t) => [t, all(`PRAGMA table_info(${t})`).map((c) => c.name)]));
+    for (const sql of addColumnsSql(existing)) {
+      conn.exec(sql);
+      log.info(`Database upgraded: ${sql}`);
+    }
+    conn.exec(triggersSql());
     const done = new Set(all("SELECT key FROM settings WHERE key LIKE 'migration:%'").map((r) => r.key));
     const pending = Object.keys(DATA_MIGRATIONS).filter((name) => !done.has(`migration:${name}`));
     if (!pending.length) return;
@@ -115,7 +121,7 @@ function migrate() {
       DATA_MIGRATIONS[name]();
       run("INSERT INTO settings (key, value) VALUES (?, datetime('now'))", [`migration:${name}`]);
     }
-    conn.exec(schemaSql());
+    conn.exec(triggersSql());
   });
 }
 
