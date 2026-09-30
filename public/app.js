@@ -112,17 +112,24 @@ function nextWorkdayAt9() {
   return d;
 }
 
-// Quick-add syntax:  "Call supplier !high @tomorrow"
+// Quick-add syntax:  "Call supplier !high @tomorrow *weekly"
 //   priority: !low !med !high !crit (or !1..!4)
 //   due date: @today @tomorrow @mon..@sun @2026-10-03
+//   repeats:  *daily *weekdays *weekly *fortnightly *monthly *quarterly *yearly
 function parseQuick(text) {
-  let priority; let due;
+  let priority; let due; let recurrence;
+  const repeatMap = { daily: 'daily', weekdays: 'weekdays', weekly: 'weekly', fortnightly: 'fortnightly', biweekly: 'fortnightly',
+    monthly: 'monthly', quarterly: 'quarterly', yearly: 'yearly', annually: 'yearly' };
   const prioMap = { low: 1, l: 1, 1: 1, med: 2, medium: 2, m: 2, 2: 2, high: 3, h: 3, 3: 3, crit: 4, critical: 4, c: 4, 4: 4 };
   const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
   const title = text.replace(/(^|\s)!(\w+)/g, (m, sp, w) => {
     const p = prioMap[w.toLowerCase()];
     if (!p) return m;
     priority = p; return sp;
+  }).replace(/(^|\s)\*(\w+)/g, (m, sp, w) => {
+    const r = repeatMap[w.toLowerCase()];
+    if (!r) return m;
+    recurrence = r; return sp;
   }).replace(/(^|\s)@([\w:-]+)/g, (m, sp, w) => {
     const lw = w.toLowerCase();
     let d;
@@ -139,7 +146,7 @@ function parseQuick(text) {
     if (!d || Number.isNaN(d.getTime())) return m;
     due = dateKey(d); return sp;
   }).replace(/\s+/g, ' ').trim();
-  return { title, priority, due_at: due };
+  return { title, priority, due_at: due, recurrence };
 }
 
 // ---- small renderers ---------------------------------------------------
@@ -160,7 +167,44 @@ function statusChip(s) {
   return s === 'in_progress' || s === 'blocked' ? `<span class="pill status-${s}">${STATUS[s]}</span>` : '';
 }
 const options = (map, selected) => Object.entries(map)
-  .map(([v, l]) => `<option value="${v}" ${String(v) === String(selected) ? 'selected' : ''}>${esc(l)}</option>`).join('');
+  .map(([v, l]) => `<option value="${v}" ${String(v) === String(selected ?? '') ? 'selected' : ''}>${esc(l)}</option>`).join('');
+
+const REPEAT = { '': 'Never', daily: 'Daily', weekdays: 'Every weekday', weekly: 'Weekly', fortnightly: 'Every 2 weeks',
+  monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' };
+const daysSince = (iso) => Math.max(0, Math.floor((Date.now() - new Date(iso)) / 86400000));
+function waitingChip(t) {
+  if (!t.waiting_on) return '';
+  const d = t.waiting_since ? daysSince(t.waiting_since) : null;
+  return `<span class="chip waiting" title="Waiting on ${esc(t.waiting_on)}${t.waiting_since ? ` since ${esc(fmtDate(t.waiting_since))}` : ''}">⏳ ${esc(t.waiting_on)}${d !== null ? ` · ${d}d` : ''}</span>`;
+}
+const repeatChip = (t) => (t.recurrence ? `<span class="small muted" title="Repeats: ${REPEAT[t.recurrence]}">🔁</span>` : '');
+const SHORTCUTS_HELP = 'Shortcuts: <code>!high</code> <code>!crit</code> · <code>@today</code> <code>@fri</code> <code>@2026-10-31</code> · <code>*weekly</code> <code>*monthly</code>';
+
+// Web links and Windows paths in text become clickable. Paths (C:\… or \\server\…;
+// wrap in "quotes" if they contain spaces) open in File Explorer via the server.
+const LINK_RE = /(https?:\/\/[^\s<>"']*[^\s<>"'.,;:!?)\]]|mailto:[^\s<>"']+|onenote:[^\s<>"']+|"(?:[A-Za-z]:\\|\\\\)[^"\r\n]+"|(?:[A-Za-z]:\\|\\\\)[^\s<>"']+)/g;
+function linkHtml(raw) {
+  if (/^(https?|mailto|onenote):/i.test(raw)) {
+    return `<a href="${esc(raw)}" target="_blank" rel="noopener noreferrer">${esc(raw)}</a>`;
+  }
+  const p = raw.replace(/^"|"$/g, '');
+  return `<a href="#" class="path-link" data-action="open-path" data-path="${esc(p)}" title="Show in File Explorer">📁 ${esc(p)}</a>`;
+}
+function linkify(text) {
+  const str = String(text ?? '');
+  let out = '';
+  let last = 0;
+  for (const m of str.matchAll(LINK_RE)) {
+    out += esc(str.slice(last, m.index)) + linkHtml(m[0]);
+    last = m.index + m[0].length;
+  }
+  return out + esc(str.slice(last));
+}
+// Links found in an editable description, shown under the text box.
+function linkList(text) {
+  const found = [...String(text ?? '').matchAll(LINK_RE)].map((m) => linkHtml(m[0]));
+  return found.length ? `<div class="link-list small">🔗 ${found.join(' · ')}</div>` : '';
+}
 
 // ======================================================================
 // State, routing & sidebar
@@ -202,6 +246,7 @@ async function route() {
     else if (view === 'ideas') await renderIdeas();
     else if (view === 'idea') await renderIdea(rest[0]);
     else if (view === 'settings') await renderSettings();
+    else if (view === 'report') await renderReport(rest[0]);
     else if (view === 'log') await renderLog();
     else if (view === 'backups') await renderBackups();
     else if (view === 'search') await renderSearch(decodeURIComponent(rest.join('/')));
@@ -228,7 +273,7 @@ function miniTask(t) {
     <input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${t.subtask_count - t.subtask_done}" ${t.status === 'done' ? 'checked' : ''}>
     <span class="t" data-action="open-task" data-id="${t.id}">${esc(t.title)}</span>
     <a class="small" href="#/project/${t.project_id}">${esc(t.project_name)}</a>
-    ${prioPill(t.priority)} ${dueChip(t)}
+    ${prioPill(t.priority)} ${dueChip(t)} ${waitingChip(t)} ${repeatChip(t)}
   </li>`;
 }
 
@@ -288,7 +333,9 @@ async function renderDashboard() {
 
   main().innerHTML = `
     <div class="row" style="margin-bottom:14px"><h1 style="margin:0">Dashboard</h1><div class="spacer"></div>
-      <span class="muted">${esc(fmtDate(new Date()))}</span></div>
+      <span class="muted">${esc(fmtDate(new Date()))}</span>
+      <a class="button" href="#/report">📰 Status report</a>
+      <a class="button" href="/api/export.xlsx" title="Download everything as an Excel workbook">⬇ Export to Excel</a></div>
 
     <div class="kpis">
       ${kpi('Active projects', active.length, [onHold && `${onHold} on hold`, recentlyDone && `${recentlyDone} completed this month`].filter(Boolean).join(' · '), 'dash-projects')}
@@ -296,6 +343,7 @@ async function renderDashboard() {
       ${kpi(`${d.overdue.length ? '⚠ ' : ''}Overdue tasks`, d.overdue.length, '', 'dash-overdue')}
       ${kpi('Due in the next 7 days', d.today.length + d.week.length, `${d.today.length} today`, 'dash-today')}
       ${kpi('Blocked tasks', d.blocked.length, '', 'dash-blocked')}
+      ${kpi('Waiting on others', d.waiting.length, d.waiting.length ? `oldest ${Math.max(...d.waiting.map((t) => daysSince(t.waiting_since || t.updated_at)))}d` : '', 'dash-waiting')}
       ${kpi('Open ideas', d.ideas.open, d.ideas.cost ? `${money(d.ideas.cost)} total cost` : '', 'ideas')}
     </div>
 
@@ -314,6 +362,7 @@ async function renderDashboard() {
       ${section('dash-today', '📅 Due today', d.today, miniTask, 'Nothing else due today')}
       ${section('dash-week', '🗓 Next 7 days', d.week, miniTask, 'Nothing due this week')}
       ${section('dash-blocked', '⛔ Blocked', d.blocked, miniTask, 'Nothing blocked')}
+      ${section('dash-waiting', '⏳ Waiting on others', d.waiting, miniTask, 'Not waiting on anyone')}
       ${section('dash-high', '🔥 High-priority tasks', d.high_priority, miniTask, 'No open high-priority tasks')}
       ${section('dash-reminders', '🔔 Upcoming reminders', d.reminders, (r) => `<li>
           <span class="t" ${r.task_id ? `data-action="open-task" data-id="${r.task_id}"` : ''}>${esc(r.message || r.task_title || 'Reminder')}</span>
@@ -323,7 +372,7 @@ async function renderDashboard() {
         </li>`, 'No reminders set')}
       ${section('dash-notes', '📝 Latest notes', d.recent_notes, (n) => `<li style="display:block">
           <div class="small muted">${esc(fmtDateTime(n.created_at))} · <a href="#/project/${n.project_id}">${esc(n.project_name)}</a>${n.task_title ? ` · ${esc(n.task_title)}` : ''}</div>
-          <div class="pre">${esc(n.body)}</div></li>`, 'No notes yet')}
+          <div class="pre">${linkify(n.body)}</div></li>`, 'No notes yet')}
     </div>`;
 }
 
@@ -355,7 +404,7 @@ function taskRow(t, p, hideDone) {
     <div class="task-line">
       <input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${open}" ${done ? 'checked' : ''} title="${done ? `Completed ${esc(fmtDateTime(t.completed_at))}` : 'Mark done'}">
       <span class="task-title" data-action="open-task" data-id="${t.id}">${esc(t.title)}</span>
-      ${statusChip(t.status)} ${t.priority !== 2 ? prioPill(t.priority) : ''} ${dueChip(t)}
+      ${statusChip(t.status)} ${t.priority !== 2 ? prioPill(t.priority) : ''} ${dueChip(t)} ${waitingChip(t)} ${repeatChip(t)}
       ${added ? `<span class="badge added" title="Added ${esc(fmtDateTime(t.created_at))}, after the baseline">+ added</span>` : ''}
       ${t.children.length ? `<span class="small muted" title="Subtasks done">☑ ${t.children.length - open}/${t.children.length}</span>` : ''}
       ${t.next_reminder ? `<span class="small" title="Reminder ${esc(fmtDateTime(t.next_reminder))}">🔔</span>` : ''}
@@ -400,7 +449,7 @@ function timelineItem(i) {
     return `<li class="note"><div class="when">🕘 ${esc(fmtDateTime(i.created_at))}
         ${i.task_title ? `<span class="badge baseline" data-action="open-task" data-id="${i.task_id}" style="cursor:pointer">${esc(i.task_title)}</span>` : ''}
         <span class="spacer"></span><button class="icon" data-action="delete-note" data-id="${i.id}" title="Delete note">✕</button></div>
-      <div class="note-body pre">${esc(i.body)}</div></li>`;
+      <div class="note-body pre">${linkify(i.body)}</div></li>`;
   }
   return `<li class="event"><span title="${esc(fmtDateTime(i.at))}">${esc(fmtDateTime(i.at, { weekday: false }))}</span> — ${esc(i.text)}</li>`;
 }
@@ -409,7 +458,9 @@ async function renderProject(id) {
   const [p, timeline] = await Promise.all([api.get(`/projects/${id}`), api.get(`/projects/${id}/timeline`)]);
   state.project = p;
   const hideDone = store.get('hideDone', false);
-  const board = store.get('tasksView', 'list') === 'board';
+  const view = store.get('tasksView', 'list');
+  const board = view === 'board';
+  const gantt = view === 'gantt';
   const notesOnly = store.get('notesOnly', false);
   const tree = buildTree(p.tasks);
   const shown = hideDone ? tree.filter((t) => t.status !== 'done') : tree;
@@ -421,7 +472,7 @@ async function renderProject(id) {
       <div class="title">
         <h1>${esc(p.name)}</h1>
         ${p.escalated_from ? `<div class="small" style="margin-bottom:4px"><a href="#/idea/${p.escalated_from.id}">💡 Escalated from ${esc(p.escalated_from.ref)}</a></div>` : ''}
-        ${p.description ? `<div class="pre muted">${esc(p.description)}</div>` : ''}
+        ${p.description ? `<div class="pre muted">${linkify(p.description)}</div>` : ''}
         <div class="small muted" style="margin-top:4px">Created ${esc(fmtDateTime(p.created_at))} · Updated ${esc(fmtDateTime(p.updated_at))}
           ${p.completed_at ? ` · Completed ${esc(fmtDateTime(p.completed_at))}` : ''}</div>
       </div>
@@ -431,35 +482,39 @@ async function renderProject(id) {
         ${p.due_at ? dueChip({ ...p, status: p.status === 'completed' ? 'done' : '' }) : ''}
         <button data-action="edit-project">✎ Edit</button>
         <button data-action="remind-project" title="Project reminder">🔔</button>
+        <a class="button" href="#/report/${p.id}" title="Status report for this project">📰 Report</a>
+        <a class="button" href="/api/export.xlsx?scope=project&id=${p.id}" title="Download this project as an Excel workbook">⬇ Excel</a>
       </div>
     </div>
     ${baselineBox(p)}
+    ${budgetBox(p)}
     <div class="quick-note">
-      <textarea id="note-input" placeholder="Add a note to this project… (Enter to save, Shift+Enter for a new line)"></textarea>
+      <textarea id="note-input" placeholder="Add a note to this project… (Enter to save, Shift+Enter for a new line; lines starting [ ] become tasks)"></textarea>
       <select id="note-task" title="Attach note to a task (optional)">
         <option value="">Whole project</option>
         ${p.tasks.filter((t) => t.status !== 'done').map((t) => `<option value="${t.id}">${esc(t.title)}</option>`).join('')}
       </select>
       <button class="primary" data-action="save-note">Add note</button>
     </div>
-    <div class="grid ${board ? 'one' : 'two'}">
+    <div class="grid ${board || gantt ? 'one' : 'two'}">
       <div class="card">
         <div class="list-tools">
           <h2 style="margin:0">Tasks <span class="muted small">${done}/${p.tasks.length} done</span></h2>
           <div class="row">
             ${board ? '' : `<label class="small muted row"><input type="checkbox" data-action="toggle-hide-done" ${hideDone ? 'checked' : ''}> Hide completed</label>`}
             <div class="seg" role="group" aria-label="Task view">
-              <button data-action="tasks-view" data-view="list" class="${board ? '' : 'on'}" title="Checklist">☰ List</button>
+              <button data-action="tasks-view" data-view="list" class="${view === 'list' ? 'on' : ''}" title="Checklist">☰ List</button>
               <button data-action="tasks-view" data-view="board" class="${board ? 'on' : ''}" title="Mini Kanban">▦ Board</button>
+              <button data-action="tasks-view" data-view="gantt" class="${gantt ? 'on' : ''}" title="Gantt chart">▤ Gantt</button>
             </div>
           </div>
         </div>
-        ${board ? taskBoardHtml(p.tasks.filter((t) => !t.parent_id)) : `
+        ${gantt ? '<div id="gantt-root"></div>' : board ? taskBoardHtml(p.tasks.filter((t) => !t.parent_id)) : `
         ${shown.length ? `<ul class="tasks">${shown.map((t) => taskRow(t, p, hideDone)).join('')}</ul>` : '<div class="empty">No tasks yet — add one below.</div>'}
         <div class="add-task">
           <input type="text" id="add-task-input" placeholder="Add a task… (Enter)   e.g. Send report !high @fri" autocomplete="off">
         </div>`}
-        <div class="small muted" style="margin-top:4px">Shortcuts when adding: <code>!low</code> <code>!high</code> <code>!crit</code> · <code>@today</code> <code>@tomorrow</code> <code>@mon</code> <code>@2026-10-31</code></div>
+        ${gantt ? '' : `<div class="small muted" style="margin-top:4px">${SHORTCUTS_HELP}</div>`}
       </div>
       <div class="card">
         <div class="list-tools">
@@ -483,6 +538,7 @@ async function renderProject(id) {
       $(id)?.focus();
     });
   }
+  if (gantt) renderProjectGantt($('#gantt-root'), p, hideDone);
   if (board) {
     wireDrag(main(), async (id, status) => {
       const t = p.tasks.find((x) => String(x.id) === id);
@@ -492,13 +548,66 @@ async function renderProject(id) {
   }
 }
 
+const noteToast = (note) => (note.created_tasks?.length
+  ? `Note added · ${note.created_tasks.length} task${note.created_tasks.length === 1 ? '' : 's'} created from [ ] lines`
+  : 'Note added');
+
+function budgetBox(p) {
+  const spent = p.spent || 0;
+  const budget = p.budget;
+  const pct = budget ? Math.round((spent / budget) * 100) : null;
+  const over = budget !== null && budget !== undefined && spent > budget;
+  const level = over ? 'over' : pct !== null && pct >= 90 ? 'near' : '';
+  const showCosts = store.get('showCosts', false);
+  return `<div class="baseline-box budget-box">
+    <span>💰 Budget: <b>${budget !== null && budget !== undefined ? money(budget) : '—'}</b></span>
+    <span>Spent: <b>${money(spent)}</b>${pct !== null ? ` <span class="muted">(${pct}%)</span>` : ''}</span>
+    ${budget !== null && budget !== undefined ? `
+      <span class="meter wide ${level}" title="${pct}% of the budget spent"><span style="width:${Math.min(pct, 100)}%"></span></span>
+      <span>${over ? `<span class="chip overdue">⚠ Over budget by ${money(spent - budget)}</span>` : `Remaining: <b>${money(budget - spent)}</b>`}</span>`
+      : '<button class="link" data-action="edit-project">Set a budget</button>'}
+    <button class="link" data-action="log-cost">＋ Log a cost</button>
+    ${p.costs.length ? `<button class="link" data-action="toggle-costs">${showCosts ? 'Hide' : 'Show'} ${p.costs.length} cost${p.costs.length === 1 ? '' : 's'}</button>` : ''}
+  </div>
+  ${p.costs.length && showCosts ? `<div class="card costs-card"><table class="log">
+    <thead><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th></th></tr></thead>
+    <tbody>${p.costs.map((c) => `<tr><td class="nowrap">${esc(c.spent_on ? fmtShortDate(`${c.spent_on}T12:00`) : '')}</td>
+      <td>${linkify(c.description)}</td><td class="num nowrap">${money(c.amount)}</td>
+      <td><button class="icon" data-action="delete-cost" data-id="${c.id}" title="Delete">✕</button></td></tr>`).join('')}</tbody>
+    <tfoot><tr><th colspan="2">Total</th><th class="num">${money(spent)}</th><th></th></tr></tfoot></table></div>` : ''}`;
+}
+
+function costDialog(p) {
+  openModal(`
+    <div class="modal-head"><h2 style="margin:0">💰 Log a cost — ${esc(p.name)}</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <form id="cost-form" class="form-grid">
+      <label class="f full">Description<input type="text" name="description" required placeholder="e.g. Movers deposit, PO 4411"></label>
+      <label class="f">Amount (${esc(state.settings.currency)})<input type="number" name="amount" min="0" step="0.01" required></label>
+      <label class="f">Date<input type="date" name="spent_on" value="${dateKey(new Date())}"></label>
+      <div class="full row"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button>
+        <button class="primary" type="submit">Add cost</button></div>
+    </form>`);
+  $('#cost-form [name=description]').focus();
+  $('#cost-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.target));
+    try {
+      await api.post(`/projects/${p.id}/costs`, f);
+      closeModal();
+      toast('Cost logged');
+      store.set('showCosts', true);
+      await refresh();
+    } catch (err) { toast(err.message, 'error'); }
+  });
+}
+
 async function saveProjectNote() {
   const input = $('#note-input');
   const body = input.value.trim();
   if (!body) return;
-  await api.post('/notes', { project_id: state.project.id, task_id: $('#note-task').value || null, body });
+  const note = await api.post('/notes', { project_id: state.project.id, task_id: $('#note-task').value || null, body });
   input.value = '';
-  toast('Note added');
+  toast(noteToast(note));
   await refresh();
   $('#note-input')?.focus();
 }
@@ -529,6 +638,7 @@ function wireDrag(root, onDrop) {
 // Main Kanban: every ongoing project as a card, by project status.
 async function renderKanban() {
   await loadProjects();
+  const timeline = store.get('projectsView', 'board') === 'timeline';
   const doneLimit = 20;
   const byStatus = Object.fromEntries(Object.keys(PROJECT_COLUMNS).map((st) => [st, state.projects.filter((p) => p.status === st)]));
   byStatus.completed.sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)));
@@ -558,10 +668,14 @@ async function renderKanban() {
   main().innerHTML = `
     <div class="kanban-tools">
       <h1 style="margin:0">Projects board</h1><div class="spacer"></div>
-      <span class="small muted">Drag a project to change its status · open a project for its own task board</span>
+      <span class="small muted">${timeline ? 'Drag a bar to change a project\'s dates' : 'Drag a project to change its status'} · open a project for its own tasks</span>
+      <div class="seg" role="group" aria-label="Projects view">
+        <button data-action="projects-view" data-view="board" class="${timeline ? '' : 'on'}">▦ Board</button>
+        <button data-action="projects-view" data-view="timeline" class="${timeline ? 'on' : ''}">▤ Timeline</button>
+      </div>
       <button class="primary" data-action="new-project">+ New project</button>
     </div>
-    <div class="kanban projects">
+    ${timeline ? '<div class="card"><div id="gantt-root"></div></div>' : `<div class="kanban projects">
       ${Object.entries(PROJECT_COLUMNS).map(([st, label]) => {
         const list = st === 'completed' ? byStatus.completed.slice(0, doneLimit) : byStatus[st];
         return `<div class="column" data-status="${st}">
@@ -570,8 +684,9 @@ async function renderKanban() {
           ${st === 'completed' && byStatus.completed.length > doneLimit ? `<div class="small muted">Showing latest ${doneLimit}</div>` : ''}
         </div>`;
       }).join('')}
-    </div>`;
+    </div>`}`;
 
+  if (timeline) return renderPortfolioGantt($('#gantt-root'), state.projects.filter((p) => p.status === 'active' || p.status === 'on_hold'));
   wireDrag(main(), async (id, status) => {
     const p = state.projects.find((x) => String(x.id) === id);
     if (!p || p.status === status) return;
@@ -612,6 +727,13 @@ function taskBoardHtml(tasks) {
 
 const IDEA_STATUS = { new: 'New', reviewing: 'Under review', approved: 'Approved', rejected: 'Rejected', implemented: 'Implemented', escalated: 'Escalated' };
 const OPEN_IDEA_STATUSES = ['new', 'reviewing', 'approved'];
+const IMPACT = { '': '—', 1: '1 · minimal', 2: '2 · minor', 3: '3 · moderate', 4: '4 · significant', 5: '5 · major' };
+const EFFORT = { '': '—', 1: '1 · trivial', 2: '2 · small', 3: '3 · medium', 4: '4 · large', 5: '5 · huge' };
+// Value score 1–25: high impact and low effort score highest.
+const ideaScore = (i) => (i.impact && i.effort ? i.impact * (6 - i.effort) : null);
+const scoreTitle = (i) => (ideaScore(i) === null ? 'Set impact and effort to score this idea'
+  : `Impact ${i.impact} × (6 − effort ${i.effort}) = ${ideaScore(i)}`);
+const IDEA_SORTS = { newest: 'Newest first', value: 'Best value first', due: 'Due date', cost: 'Cost (highest first)' };
 
 const money = (v) => (v === null || v === undefined || v === '' ? ''
   : `${state.settings.currency}${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
@@ -636,50 +758,91 @@ function ideaValue(name, value) {
   if (name === 'priority') return Number(value);
   if (name === 'area_id') return value ? Number(value) : null;
   if (name === 'cost') return value === '' ? null : value;
+  if (name === 'impact' || name === 'effort') return value ? Number(value) : null;
   return value;
 }
 
 async function renderIdeas() {
-  const f = { status: 'open', area: '', q: '', ...store.get('ideaFilter', {}) };
+  const f = { status: 'open', area: '', q: '', sort: 'newest', view: 'list', ...store.get('ideaFilter', {}) };
   const qs = new URLSearchParams({ status: f.status });
   if (f.area) qs.set('area_id', f.area);
   if (f.q) qs.set('q', f.q);
   const [ideas] = await Promise.all([api.get(`/ideas?${qs}`), loadAreas()]);
+  const sorters = {
+    newest: (a, b) => b.id - a.id,
+    value: (a, b) => (ideaScore(b) ?? -1) - (ideaScore(a) ?? -1) || b.id - a.id,
+    due: (a, b) => String(a.due_at || '9').localeCompare(String(b.due_at || '9')),
+    cost: (a, b) => (b.cost ?? -1) - (a.cost ?? -1),
+  };
+  ideas.sort(sorters[f.sort] || sorters.newest);
   const total = ideas.reduce((sum, i) => sum + (i.cost || 0), 0);
   const filtered = f.status !== 'open' || f.area || f.q;
 
   main().innerHTML = `
     <div class="kanban-tools"><h1 style="margin:0">💡 Ideation</h1><div class="spacer"></div>
+      <div class="seg" role="group" aria-label="Ideas view">
+        <button data-action="ideas-view" data-view="list" class="${f.view === 'matrix' ? '' : 'on'}">☰ List</button>
+        <button data-action="ideas-view" data-view="matrix" class="${f.view === 'matrix' ? 'on' : ''}" title="Impact vs effort">▦ Quick wins</button>
+      </div>
+      <a class="button" href="/api/export.xlsx?scope=ideas" title="Download all ideas as an Excel workbook">⬇ Excel</a>
       <button class="primary" data-action="new-idea">+ New idea</button></div>
     <div class="kanban-tools">
       <input type="search" id="idea-q" placeholder="Filter by name, ref or submitter… (Enter)" value="${esc(f.q)}" style="max-width:300px">
       <select id="idea-status">${options({ open: 'Open (new, under review, approved)', all: 'All statuses', ...IDEA_STATUS }, f.status)}</select>
+      <select id="idea-sort" title="Sort">${options(IDEA_SORTS, f.sort)}</select>
       <select id="idea-area"><option value="">All areas</option>
         ${state.areas.map((a) => `<option value="${a.id}" ${String(a.id) === String(f.area) ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>
       <span class="muted small">${ideas.length} idea${ideas.length === 1 ? '' : 's'}${total ? ` · total cost ${money(total)}` : ''}</span>
     </div>
-    <div class="card" style="overflow-x:auto">
+    ${f.view === 'matrix' ? ideaMatrix(ideas) : `<div class="card" style="overflow-x:auto">
       ${ideas.length ? `<table class="log ideas">
-        <thead><tr><th>Ref</th><th>Idea</th><th>Area</th><th>Submitted by</th><th>Priority</th><th>Due</th><th class="num">Cost</th><th>Status</th><th>Raised</th></tr></thead>
+        <thead><tr><th>Ref</th><th>Idea</th><th>Area</th><th>Submitted by</th><th>Priority</th><th class="num" title="Impact × (6 − effort), 1–25">Score</th><th>Due</th><th class="num">Cost</th><th>Status</th><th>Raised</th></tr></thead>
         <tbody>${ideas.map((i) => `<tr class="clickable" data-action="open-idea" data-id="${i.id}">
           <td class="nowrap"><b>${esc(i.ref)}</b></td>
           <td>${esc(i.title)}${i.note_count ? ` <span class="small muted" title="Notes">📝 ${i.note_count}</span>` : ''}</td>
           <td>${esc(i.area_name || '')}</td>
           <td>${esc(i.submitted_by || '')}</td>
           <td>${prioPill(i.priority)}</td>
+          <td class="num" title="${esc(scoreTitle(i))}">${ideaScore(i) ?? '<span class="muted">—</span>'}</td>
           <td class="nowrap">${ideaDue(i)}</td>
           <td class="num nowrap">${money(i.cost)}</td>
           <td class="nowrap">${ideaStatusPill(i.status)}${i.project_id ? ` <a class="small" href="#/project/${i.project_id}">→ ${esc(i.project_name)}</a>` : ''}</td>
           <td class="nowrap small muted">${esc(fmtDateTime(i.created_at, { weekday: false }))}</td>
         </tr>`).join('')}</tbody></table>`
         : `<div class="empty">${filtered ? 'No ideas match these filters.' : 'No open ideas yet — click “+ New idea” to log one.'}</div>`}
-    </div>`;
+    </div>`}`;
 
   const save = (patch) => { store.set('ideaFilter', { ...f, ...patch }); renderIdeas(); };
   $('#idea-status').addEventListener('change', (e) => save({ status: e.target.value }));
   $('#idea-area').addEventListener('change', (e) => save({ area: e.target.value }));
+  $('#idea-sort').addEventListener('change', (e) => save({ sort: e.target.value }));
   $('#idea-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') save({ q: e.target.value.trim() }); });
   $('#idea-q').addEventListener('search', (e) => { if (!e.target.value && f.q) save({ q: '' }); });
+}
+
+// 2×2 impact/effort grid. High = 3 or more on the 1–5 scale.
+function ideaMatrix(ideas) {
+  const card = (i) => `<div class="icard" data-action="open-idea" data-id="${i.id}" title="${esc(scoreTitle(i))}">
+      <b>${esc(i.ref)}</b> ${esc(i.title)}
+      <div class="small muted">Impact ${i.impact} · Effort ${i.effort} · score ${ideaScore(i)}${i.cost !== null ? ` · ${money(i.cost)}` : ''}</div></div>`;
+  const scored = ideas.filter((i) => ideaScore(i) !== null);
+  const quad = (hiImpact, hiEffort) => scored
+    .filter((i) => (i.impact >= 3) === hiImpact && (i.effort >= 3) === hiEffort)
+    .sort((a, b) => ideaScore(b) - ideaScore(a));
+  const box = (title, hint, list, cls) => `<div class="quad ${cls}"><h3>${title} <span class="muted small">${list.length}</span></h3>
+    <div class="small muted" style="margin-bottom:6px">${hint}</div>${list.map(card).join('') || '<div class="empty small">None</div>'}</div>`;
+  const unscored = ideas.filter((i) => ideaScore(i) === null);
+  return `<div class="matrix">
+      <div class="axis-y">Impact →</div>
+      ${box('⭐ Quick wins', 'High impact, low effort: do these first', quad(true, false), 'q-win')}
+      ${box('🏗 Big projects', 'High impact, high effort: plan and consider escalating', quad(true, true), 'q-big')}
+      ${box('🧩 Fill-ins', 'Low impact, low effort: when there is spare time', quad(false, false), 'q-fill')}
+      ${box('🤔 Reconsider', 'Low impact, high effort: probably not worth it', quad(false, true), 'q-no')}
+      <div class="axis-x">Effort →</div>
+    </div>
+    ${unscored.length ? `<div class="card" style="margin-top:14px"><h3>Not scored yet <span class="muted small">${unscored.length}</span></h3>
+      <div class="small muted" style="margin-bottom:6px">Open an idea and set its impact and effort to place it on the grid.</div>
+      <ul class="mini">${unscored.map((i) => `<li><span class="t" data-action="open-idea" data-id="${i.id}"><b>${esc(i.ref)}</b> ${esc(i.title)}</span> ${ideaStatusPill(i.status)}</li>`).join('')}</ul></div>` : ''}`;
 }
 
 async function ideaForm() {
@@ -694,6 +857,8 @@ async function ideaForm() {
       <label class="f">Priority<select name="priority">${options(PRIORITY, 2)}</select></label>
       <label class="f">Due date<input type="date" name="due_at"></label>
       <label class="f">Cost (${esc(state.settings.currency)})<input type="number" name="cost" min="0" step="0.01" inputmode="decimal"></label>
+      <label class="f">Impact<select name="impact">${options(IMPACT, '')}</select></label>
+      <label class="f">Effort<select name="effort">${options(EFFORT, '')}</select></label>
       <div class="f" style="justify-content:flex-end"><button type="button" class="link small" data-action="goto-settings">Manage areas…</button></div>
       ${submitterList(submitters)}
       <div class="full row"><div class="spacer"></div>
@@ -743,13 +908,16 @@ async function renderIdea(id) {
         <div class="list-tools"><h2 style="margin:0">Details</h2><span class="saved-flag" id="saved-flag">✓ Saved</span></div>
         <div class="form-grid" id="idea-edit">
           <label class="f full">Name<input type="text" name="title" value="${esc(i.title)}"></label>
-          <label class="f full">Description<textarea name="description" rows="4">${esc(i.description)}</textarea></label>
+          <label class="f full">Description<textarea name="description" rows="4">${esc(i.description)}</textarea>${linkList(i.description)}</label>
           <label class="f">Status<select name="status" ${locked ? 'disabled' : ''}>${options(statusOpts, i.status)}</select></label>
           <label class="f">Priority<select name="priority">${options(PRIORITY, i.priority)}</select></label>
           <label class="f">Area<select name="area_id">${areaOptions(i.area_id)}</select></label>
           <label class="f">Submitted by<input type="text" name="submitted_by" list="submitters" autocomplete="off" value="${esc(i.submitted_by)}"></label>
           <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(i.due_at)}"></label>
           <label class="f">Cost (${esc(state.settings.currency)})<input type="number" name="cost" min="0" step="0.01" inputmode="decimal" value="${i.cost ?? ''}"></label>
+          <label class="f">Impact<select name="impact">${options(IMPACT, i.impact)}</select></label>
+          <label class="f">Effort<select name="effort">${options(EFFORT, i.effort)}</select></label>
+          <div class="f"><span>Value score</span><b title="${esc(scoreTitle(i))}">${ideaScore(i) ?? '—'} <span class="small muted">/ 25</span></b></div>
           ${submitterList(submitters)}
         </div>
       </div>
@@ -760,7 +928,7 @@ async function renderIdea(id) {
         ${i.notes.length ? `<ul class="timeline">${i.notes.map((n) => `<li class="note">
           <div class="when">🕘 ${esc(fmtDateTime(n.created_at))}<span class="spacer"></span>
             <button class="icon" data-action="delete-idea-note" data-id="${n.id}" title="Delete note">✕</button></div>
-          <div class="note-body pre">${esc(n.body)}</div></li>`).join('')}</ul>` : '<div class="empty">No notes yet.</div>'}
+          <div class="note-body pre">${linkify(n.body)}</div></li>`).join('')}</ul>` : '<div class="empty">No notes yet.</div>'}
         <details class="section"><summary class="muted">History (${i.history.length})</summary>
           <ul class="timeline" style="margin-top:8px">${i.history.map((e) => timelineItem({ type: 'event', ...e })).join('')}</ul></details>
       </div>
@@ -772,7 +940,7 @@ async function renderIdea(id) {
     try {
       await api.patch(`/ideas/${i.id}`, { [el.name]: ideaValue(el.name, el.value) });
       if (el.name === 'submitted_by' && el.value) store.set('lastSubmitter', el.value);
-      if (['status', 'title', 'submitted_by'].includes(el.name)) return renderIdea(i.id);
+      if (['status', 'title', 'submitted_by', 'impact', 'effort', 'description'].includes(el.name)) return renderIdea(i.id);
       const flag = $('#saved-flag');
       flag.classList.add('show');
       setTimeout(() => flag.classList.remove('show'), 1200);
@@ -965,6 +1133,7 @@ function projectForm(p = {}) {
       <label class="f">Priority<select name="priority">${options(PRIORITY, p.priority || 2)}</select></label>
       <label class="f">Start date<input type="date" name="start_date" value="${esc(p.start_date || (isNew ? new Date().toLocaleDateString('sv') : ''))}"></label>
       <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(p.due_at)}"></label>
+      <label class="f">Budget (${esc(state.settings.currency)})<input type="number" name="budget" min="0" step="0.01" value="${p.budget ?? ''}" placeholder="optional"></label>
       ${isNew ? `
         <label class="f full">Baseline tasks — one per line (you can add more at any time)
           <textarea name="baseline_tasks" rows="5" placeholder="Gather requirements&#10;Draft proposal&#10;Review with manager"></textarea></label>
@@ -1000,6 +1169,16 @@ function projectForm(p = {}) {
 
 async function taskModal(id) {
   const t = await api.get(`/tasks/${id}`);
+  const [siblings, waitingNames] = await Promise.all([api.get(`/tasks?project_id=${t.project_id}`), api.get('/tasks/waiting-names')]);
+  // Tasks this one could depend on: same project, not itself, its subtasks, or ones already linked.
+  const below = new Set([t.id]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const s of siblings) if (s.parent_id && below.has(s.parent_id) && !below.has(s.id)) { below.add(s.id); grew = true; }
+  }
+  const linked = new Set(t.depends_on.map((d) => d.id));
+  const candidates = siblings.filter((s) => !below.has(s.id) && !linked.has(s.id))
+    .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
   const p = state.projects.find((x) => x.id === t.project_id);
   const baselineText = t.is_baseline ? '<span class="badge baseline">Baseline task</span>'
     : (p && p.baseline_set_at ? '<span class="badge added">Added after baseline</span>' : '');
@@ -1010,11 +1189,17 @@ async function taskModal(id) {
     </div>
     <div class="form-grid" id="task-form" data-id="${t.id}">
       <label class="f full">Title<input type="text" name="title" value="${esc(t.title)}"></label>
-      <label class="f full">Description<textarea name="description" rows="3">${esc(t.description)}</textarea></label>
+      <label class="f full">Description<textarea name="description" rows="3">${esc(t.description)}</textarea>${linkList(t.description)}</label>
       <label class="f">Status<select name="status">${options(STATUS, t.status)}</select></label>
       <label class="f">Priority<select name="priority">${options(PRIORITY, t.priority)}</select></label>
+      <label class="f">Repeats<select name="recurrence">${options(REPEAT, t.recurrence)}</select></label>
+      <label class="f">Start date<input type="date" name="start_date" value="${esc(t.start_date || '')}"></label>
       <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(t.due_at)}"></label>
+      <label class="f">Waiting on<input type="text" name="waiting_on" list="waiting-names" autocomplete="off" placeholder="person or team" value="${esc(t.waiting_on)}"></label>
+      <datalist id="waiting-names">${waitingNames.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
     </div>
+    ${t.waiting_on && t.waiting_since ? `<div class="small muted" style="margin-top:6px">⏳ Waiting on <b>${esc(t.waiting_on)}</b> since ${esc(fmtDate(t.waiting_since))} (${daysSince(t.waiting_since)} days)</div>` : ''}
+    ${t.recurrence ? `<div class="small muted" style="margin-top:6px">🔁 Repeats ${esc(REPEAT[t.recurrence].toLowerCase())}: ticking it off creates the next one${t.next_task_id ? ' (next occurrence already created)' : ''}.</div>` : ''}
     <div class="small muted" style="margin-top:8px">Created ${esc(fmtDateTime(t.created_at))} · Updated ${esc(fmtDateTime(t.updated_at))}
       ${t.completed_at ? ` · Completed ${esc(fmtDateTime(t.completed_at))}` : ''}</div>
 
@@ -1028,6 +1213,17 @@ async function taskModal(id) {
     </div>
 
     <div class="section">
+      <h3>Depends on <span class="muted small">— can't start until these are finished (shown as arrows on the Gantt chart)</span></h3>
+      <ul class="mini">${t.depends_on.map((d) => `<li>
+        <span class="t" data-action="open-task" data-id="${d.id}">${d.status === 'done' ? '✅' : '⏳'} ${esc(d.title)}</span> ${dueChip(d)}
+        <button class="icon" data-action="remove-dep" data-id="${d.link_id}" title="Remove dependency">✕</button></li>`).join('') || '<li class="empty">Nothing</li>'}</ul>
+      ${candidates.length ? `<select id="dep-add" style="margin-top:6px"><option value="">+ Add a task this depends on…</option>
+        ${candidates.map((c) => `<option value="${c.id}">${c.parent_id ? '↳ ' : ''}${esc(c.title)}</option>`).join('')}</select>` : ''}
+      ${t.blocking.length ? `<div class="small muted" style="margin-top:6px">Waiting for this task: ${t.blocking.map((b) =>
+        `<a href="#" data-action="open-task" data-id="${b.id}">${esc(b.title)}</a>`).join(', ')}</div>` : ''}
+    </div>
+
+    <div class="section">
       <h3>Reminders</h3>
       <ul class="mini">${t.reminders.filter((r) => r.status === 'pending').map((r) => `<li>
         <span class="t">⏰ ${esc(fmtDateTime(r.remind_at))} <span class="muted small">(${fmtRelative(r.remind_at)})</span> ${r.message ? `— ${esc(r.message)}` : ''}</span>
@@ -1037,7 +1233,7 @@ async function taskModal(id) {
 
     <div class="section">
       <h3>Notes</h3>
-      <div class="quick-note"><textarea id="modal-note" placeholder="Add a note to this task… (Enter to save)"></textarea>
+      <div class="quick-note"><textarea id="modal-note" placeholder="Add a note to this task… (Enter to save; [ ] lines become subtasks)"></textarea>
         <button class="primary" data-action="save-task-note" data-id="${t.id}">Add</button></div>
       <ul class="timeline">${t.notes.map((n) => timelineItem({ type: 'note', ...n })).join('')}</ul>
     </div>
@@ -1057,15 +1253,30 @@ async function taskModal(id) {
   // Auto-save each field as it changes.
   $$('#task-form [name]').forEach((el) => el.addEventListener('change', async () => {
     let value = el.value;
-    if (el.name === 'due_at') value = value || null;
+    if (['due_at', 'start_date', 'recurrence', 'waiting_on'].includes(el.name)) value = value || null;
     if (el.name === 'priority') value = Number(value);
     if (el.name === 'title' && !value.trim()) { el.value = t.title; return; }
-    await api.patch(`/tasks/${t.id}`, { [el.name]: value });
-    state.modalDirty = true;
+    try {
+      const saved = await api.patch(`/tasks/${t.id}`, { [el.name]: value });
+      state.modalDirty = true;
+      if (saved.next_occurrence) toast(`🔁 Next one created, due ${fmtDate(saved.next_occurrence.due_at)}`);
+      if (['waiting_on', 'recurrence', 'status', 'description'].includes(el.name)) return taskModal(t.id);
+    } catch (err) {
+      toast(err.message, 'error');
+      return taskModal(t.id);
+    }
     const flag = $('#saved-flag');
     flag.classList.add('show');
     setTimeout(() => flag.classList.remove('show'), 1200);
   }));
+  $('#dep-add')?.addEventListener('change', async (e) => {
+    if (!e.target.value) return;
+    try {
+      await api.post(`/tasks/${t.id}/dependencies`, { depends_on_id: Number(e.target.value) });
+      state.modalDirty = true;
+    } catch (err) { toast(err.message, 'error'); }
+    await taskModal(t.id);
+  });
   $('#modal-add-sub').addEventListener('keydown', async (e) => {
     if (e.key !== 'Enter') return;
     const q = parseQuick(e.target.value);
@@ -1083,7 +1294,8 @@ async function taskModal(id) {
 async function saveTaskNote(taskId) {
   const body = $('#modal-note').value.trim();
   if (!body) return;
-  await api.post('/notes', { task_id: taskId, body });
+  const note = await api.post('/notes', { task_id: taskId, body });
+  if (note.created_tasks?.length) toast(noteToast(note).replace('tasks', 'subtasks').replace('task created', 'subtask created'));
   state.modalDirty = true;
   await taskModal(taskId);
   $('#modal-note').focus();
@@ -1125,16 +1337,16 @@ function quickNoteDialog() {
   openModal(`
     <div class="modal-head"><h2 style="margin:0">📝 Quick note</h2><button class="icon" data-action="close-modal">✕</button></div>
     <label class="f">Project<select id="qn-project">${active.map((p) => `<option value="${p.id}" ${p.id === current ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
-    <label class="f" style="margin-top:10px">Note — time-stamped automatically<textarea id="qn-body" rows="5" placeholder="What happened? (Ctrl+Enter to save)"></textarea></label>
+    <label class="f" style="margin-top:10px">Note — time-stamped automatically<textarea id="qn-body" rows="5" placeholder="What happened? (Ctrl+Enter to save; lines starting [ ] become tasks)"></textarea></label>
     <div class="row" style="margin-top:12px"><div class="spacer"></div><button data-action="close-modal">Cancel</button>
       <button class="primary" id="qn-save">Save note</button></div>`);
   const save = async () => {
     const body = $('#qn-body').value.trim();
     if (!body) return;
     const projectId = Number($('#qn-project').value);
-    await api.post('/notes', { project_id: projectId, body });
+    const note = await api.post('/notes', { project_id: projectId, body });
     store.set('lastNoteProject', projectId);
-    toast('Note saved');
+    toast(noteToast(note));
     closeModal();
     await refresh();
   };
@@ -1152,7 +1364,8 @@ async function setTaskStatus(id, status, openSubtasks = 0) {
   if (status === 'done' && openSubtasks > 0) {
     cascade = confirm(`This task has ${openSubtasks} open subtask(s). Mark them done too?`);
   }
-  await api.patch(`/tasks/${id}`, { status, cascade });
+  const saved = await api.patch(`/tasks/${id}`, { status, cascade });
+  if (saved.next_occurrence) toast(`🔁 Repeating task — next one due ${fmtDate(saved.next_occurrence.due_at)}`);
   if (modal().open) { state.modalDirty = true; await taskModal($('#task-form')?.dataset.id || id); } else await refresh();
 }
 
@@ -1168,6 +1381,28 @@ const actions = {
   'toggle-task': (el) => setTaskStatus(el.dataset.id, el.checked ? 'done' : 'todo', Number(el.dataset.subs || 0)),
   'toggle-hide-done': (el) => { store.set('hideDone', el.checked); route(); },
   'tasks-view': (el) => { store.set('tasksView', el.dataset.view); route(); },
+  'projects-view': (el) => { store.set('projectsView', el.dataset.view); route(); },
+  'ideas-view': (el) => { store.set('ideaFilter', { ...store.get('ideaFilter', {}), view: el.dataset.view }); route(); },
+  'log-cost': () => costDialog(state.project),
+  'toggle-costs': () => { store.set('showCosts', !store.get('showCosts', false)); route(); },
+  'delete-cost': async (el) => {
+    if (!confirm('Delete this cost? (The activity log keeps a record.)')) return;
+    await api.del(`/costs/${el.dataset.id}`);
+    await refresh();
+  },
+  'remove-dep': async (el) => {
+    await api.del(`/task-links/${el.dataset.id}`);
+    state.modalDirty = true;
+    await taskModal($('#task-form').dataset.id);
+  },
+  'open-path': async (el) => {
+    const p = el.dataset.path;
+    try {
+      const r = await api.post('/open-path', { path: p });
+      if (r.opened) { toast('Opened in File Explorer'); return; }
+    } catch (err) { toast(err.message, 'error'); }
+    try { await navigator.clipboard.writeText(p); toast('Path copied — paste it into File Explorer'); } catch { /* clipboard unavailable */ }
+  },
   'dash-jump': (el) => {
     if (el.dataset.target === 'ideas') { location.hash = '#/ideas'; return; }
     $(`#${el.dataset.target}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });

@@ -16,7 +16,15 @@ It needs nothing except **Node.js**. The data is kept in a single **SQLite** dat
 | Pop-up reminders & alerts | Set reminders on tasks or projects (quick buttons: 15 min, 1 h, next workday 9:00…). When one is due you get an in-app pop-up with a sound, plus a **Windows desktop notification** once enabled. Pop-ups offer Snooze / Dismiss / Open. Tasks that are overdue or due within 15 min also pop up automatically. |
 | Kanban view | **Projects board**: every ongoing project as a card (Active / On hold / Completed) showing progress, blocked and overdue counts and due dates; drag to change status. Each project page also has its own **mini board** of its tasks (To do / In progress / Blocked / Done) via the **List / Board** switch. |
 | Tick-box tasks & subtasks | Checklist with unlimited nested subtasks. Ticking a parent offers to tick its open subtasks too. |
-| Ideation (lightweight tickets) | Log ideas with a permanent reference (`IDEA-0001`…), name, submitter, area, priority, due date and cost. Add time-stamped notes later, move them through a status, and **escalate** one to a full project in one step. Areas are managed on the **Settings** page. |
+| Ideation (lightweight tickets) | Log ideas with a permanent reference (`IDEA-0001`…), name, submitter, area, priority, due date, cost and an **impact / effort score**. Add time-stamped notes later, move them through a status, see them on a **quick-wins grid**, and **escalate** one to a full project in one step. Areas are managed on the **Settings** page. |
+| Gantt chart | Each project has a **▤ Gantt** view: bars from start to due date, the **baseline plan** as a grey bar underneath with the slip (`+3d`), **dependencies** as arrows (red ⚠ when a task starts before what it depends on is due), today and due-date lines, day / week / month zoom. **Drag** a bar to move it or its ends to change the dates. The Projects board has a **▤ Timeline** of all projects too. |
+| Status report | **📰 Report** summarises a period (last 7 days, this / last week, since the last report, or custom) per project: completed, started, added and re-dated tasks, notes, blocked / waiting / overdue items, what's coming up, budget, plus new ideas. **Copy as text** for an email, download for **Word**, or **print / PDF**. |
+| Meeting notes → tasks | In any project note, lines starting `[ ]` become tasks when you save (on a task's note they become subtasks). Shortcuts work on those lines, e.g. `[ ] Chase finance !high @fri`. |
+| Waiting on | Record who a task is waiting on; the app tracks for how long. Shown on the task, in the dashboard's **Waiting on others** card and in the report. |
+| Recurring tasks | Set a task to repeat (daily, weekdays, weekly, every 2 weeks, monthly, quarterly, yearly). Ticking it off creates the next one, with fresh copies of its subtasks. |
+| Budget vs actual | Give a project a budget (escalated ideas bring their cost across) and log costs against it; the project shows spent, remaining and a warning when over. |
+| Excel export | Download everything, one project, or all ideas as a real `.xlsx` workbook (Projects, Tasks, Ideas, Notes and Costs sheets, with filters and proper dates). |
+| Links | Web links and file paths in notes and descriptions become clickable. A path such as `\\server\share\file.xlsx` opens File Explorer with the file selected (wrap paths containing spaces in "quotes"). |
 
 Also included: a **dashboard** in two parts, **Projects** (headline counts plus a table of every ongoing project with a health rating (⚠ At risk / ◐ Watch / ✓ On track), progress, open issues, next due task and last activity) and **Tasks & notes** (overdue, due today, next 7 days, blocked, high-priority, reminders and latest notes), plus search across projects, tasks, notes and ideas, and a layout that works on narrow screens.
 
@@ -71,12 +79,19 @@ This needs Git installed and the app running from a `git clone` of the repositor
 - **Due-date alerts:** a pop-up appears once on the day a task is due, and again once it becomes overdue.
 - **Re-baseline:** use this after an agreed change of scope. All current tasks become the new baseline.
 - **Keyboard:** `N` quick note, `T` add task (in a project), `/` search.
+- **Repeating tasks:** add `*weekly` (or `*daily`, `*weekdays`, `*fortnightly`, `*monthly`, `*quarterly`, `*yearly`) when adding a task, or set *Repeats* in the task window.
+- **Waiting on someone:** fill in *Waiting on* in the task window (names you've used are suggested). Clear it when they've replied.
+- **Gantt:** give tasks a *Start date* and *Due date* in the task window, or drag on the chart. A task with only a due date shows as a ◆ milestone. Add dependencies under *Depends on* in the task window.
+- **Costs:** use *＋ Log a cost* under the project heading; *Show costs* lists them. Set the budget with ✎ Edit.
+- **Report:** open **📰 Report**, pick the period, then *Copy as text* and paste into your email. Use *✓ Mark as sent* so *Since last report* starts from there next time.
+- **Excel:** *⬇ Export to Excel* on the dashboard (everything), *⬇ Excel* on a project page (that project) or on Ideation (all ideas).
 - **Archive rather than delete:** set a finished project's status to *Archived* to hide it. **Show archived** in the sidebar brings it back.
 
 ### Ideation
 - **💡 Ideation** in the sidebar lists open ideas (*New*, *Under review*, *Approved*). You can filter by status or area, or search by name, reference or submitter. The header shows the total cost of the ideas listed.
 - **+ New idea:** give it a name, who submitted it (earlier names are suggested as you type), an area, a priority, a due date and a cost. It gets the next reference number, e.g. `IDEA-0007`. The reference never changes or gets reused.
 - **Open an idea** by clicking its row. Edit any field (changes save automatically), change its status (*Rejected* and *Implemented* close it), add time-stamped notes, and see its full history.
+- **Impact and effort** (1–5 each) give a **value score** out of 25 (impact × (6 − effort)). Sort the list by *Best value first*, or switch to **▦ Quick wins** to see ideas in a 2×2 grid: quick wins, big projects, fill-ins and ones to reconsider.
 - **🚀 Escalate to project** creates a project from the idea. You confirm the name, description, priority and dates, and can list the first (baseline) tasks. The project's timeline gets a summary note (submitter, area, cost) and, optionally, copies of the idea's notes. The idea is marked *Escalated* and the two link to each other.
 - **⚙ Settings** manages the *Area* list. Add areas, rename them, or untick *Active* to hide one without affecting ideas that already use it. You can also set the currency symbol used for costs here (default £).
 
@@ -103,7 +118,9 @@ In DBeaver: *Database → New Database Connection → SQLite*, and pick `%LOCALA
 | `ideas` | Ideation tickets; `ref` (`IDEA-0001`…) is assigned automatically, `project_id` is set when escalated |
 | `idea_notes` | Notes on ideas |
 | `areas` | The *Area* list for ideas |
-| `settings` | App settings (e.g. currency symbol) |
+| `settings` | App settings (e.g. currency symbol, when the report was last sent) |
+| `task_links` | Gantt dependencies: `task_id` waits for `depends_on_id` |
+| `project_costs` | Costs logged against a project's budget |
 | `audit_log` | Every change, with old and new values as JSON and when it happened |
 
 **Dates and times** are stored as UTC text in the form `2026-10-31T17:00:00.000Z` (note the trailing `Z`: UTC, not local time). The database rejects anything in another format, so hand edits can't break sorting or the due-date alerts. Due dates (`due_at`) are whole days, stored as the last moment of that day in local time (e.g. `2026-10-31T23:59:59.999Z` in winter in the UK). You don't need to set `updated_at`, `completed_at` or the audit log yourself; the triggers handle them.
@@ -130,6 +147,10 @@ src/db.js            SQLite connection (Node's built-in node:sqlite)
 src/server.js        web server entry point
 src/api.js           REST API (/api/...)
 src/backup.js        database-file + JSON backups and schedule
+src/dates.js         quick-add syntax and repeating-task dates
+src/xlsx.js          Excel (.xlsx) writer used for exports
+public/gantt.js      Gantt chart
+public/report.js     status report page
 public/              the web UI (plain HTML/CSS/JS, no build step)
 scripts/             init-db, backup, restore, smoke-test
 start-hidden.vbs     double-click launcher for Windows (no console window)

@@ -971,6 +971,7 @@ function fmtValue(field, v) {
   if (field === 'recurrence') return REPEAT_LABEL[v] || v;
   if (field in MONEY_FIELDS) return `${getSettings().currency}${Number(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (field === 'due_at') return new Date(v).toLocaleDateString(undefined, { dateStyle: 'medium' });
+  if (field === 'start_date' || field === 'spent_on') return new Date(`${v}T12:00`).toLocaleDateString(undefined, { dateStyle: 'medium' });
   if (field === 'remind_at') return new Date(v).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   const s = String(v);
   return s.length > 60 ? `${s.slice(0, 57)}…` : s;
