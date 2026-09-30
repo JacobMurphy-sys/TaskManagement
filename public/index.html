@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Task Manager</title>
+  <title>CI Manager</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%232f6fdb'/><path d='M4 8.5l2.5 2.5L12 5' stroke='white' stroke-width='2' fill='none'/></svg>">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <aside id="sidebar">
-    <div class="brand">✔ Task Manager</div>
+    <div class="brand">✔ CI Manager</div>
     <input id="search" type="search" placeholder="Search…  ( / )" autocomplete="off">
     <nav>
       <a href="#/dashboard" data-nav="dashboard">📋 Dashboard</a>
@@ -27,7 +27,7 @@
     </div>
     <ul id="project-list"></ul>
     <label class="small muted show-archived"><input type="checkbox" id="show-archived"> Show archived</label>
-    <button class="link small stop-server" data-action="stop-server" title="Shut down the Task Manager">⏻ Stop server</button>
+    <button class="link small stop-server" data-action="stop-server" title="Shut down the CI Manager">⏻ Stop server</button>
   </aside>
 
   <div id="page">

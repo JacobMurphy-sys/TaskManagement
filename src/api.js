@@ -1094,7 +1094,7 @@ router.get('/export.xlsx', h((req, res) => {
     const p = db.get('SELECT name FROM projects WHERE id = ?', [req.query.id]);
     name = p.name.replace(/[^\w -]+/g, '').trim().slice(0, 40) || 'Project';
   }
-  const file = `TaskManager - ${name} - ${dateKey(new Date())}.xlsx`;
+  const file = `CI Manager - ${name} - ${dateKey(new Date())}.xlsx`;
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${file}"; filename*=UTF-8''${encodeURIComponent(file)}`);
   res.send(buildXlsx(sheets));

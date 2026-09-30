@@ -1,5 +1,5 @@
 @echo off
-REM Development helper: stops the running Task Manager, backs up your data,
+REM Development helper: stops the running CI Manager, backs up your data,
 REM runs "git pull" in this folder (the same as AutoPull.bat), installs any
 REM new dependencies and restarts the app.
 REM Your data lives in %LOCALAPPDATA%\TaskManager, outside this folder, so the pull never touches it.
@@ -12,7 +12,7 @@ copy /y "%~f0" "%TEMP%\taskmgr-update.bat" >nul
 "%TEMP%\taskmgr-update.bat" --run "%~dp0"
 
 :main
-title Task Manager - update
+title CI Manager - update
 cd /d "%~2"
 set "FAILED="
 set "PORT=3000"
@@ -37,7 +37,7 @@ if not exist ".git\" (
 )
 
 echo.
-echo [1/5] Stopping any running Task Manager on port %PORT%...
+echo [1/5] Stopping any running CI Manager on port %PORT%...
 call :is_listening
 if errorlevel 1 (
   echo       Not running.
@@ -89,11 +89,11 @@ if errorlevel 1 (
 )
 
 echo.
-echo [5/5] Starting the Task Manager...
+echo [5/5] Starting the CI Manager...
 if exist "start-hidden.vbs" (
   wscript "%CD%\start-hidden.vbs"
 ) else (
-  start "Task Manager" "%CD%\start.bat"
+  start "CI Manager" "%CD%\start.bat"
 )
 
 echo.

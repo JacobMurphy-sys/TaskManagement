@@ -1,5 +1,5 @@
 @echo off
-REM Double-click to start the Task Manager, then open http://localhost:3000
+REM Double-click to start the CI Manager, then open http://localhost:3000
 cd /d "%~dp0"
 if not exist node_modules (
   echo Installing dependencies...

@@ -1,4 +1,4 @@
-' Stops the Task Manager when it's running in the background (started by start-hidden.vbs).
+' Stops the CI Manager when it's running in the background (started by start-hidden.vbs).
 ' You can also use the "Stop server" button at the bottom of the app's sidebar.
 Option Explicit
 
@@ -20,9 +20,9 @@ If Err.Number = 0 Then stopped = (http.status = 200)
 On Error GoTo 0
 
 If stopped Then
-  MsgBox "Task Manager stopped.", vbInformation, "Task Manager"
+  MsgBox "CI Manager stopped.", vbInformation, "CI Manager"
 Else
-  MsgBox "The Task Manager doesn't seem to be running (nothing answered on port " & port & ").", vbInformation, "Task Manager"
+  MsgBox "The CI Manager doesn't seem to be running (nothing answered on port " & port & ").", vbInformation, "CI Manager"
 End If
 
 ' PORT from .env, or 3000.

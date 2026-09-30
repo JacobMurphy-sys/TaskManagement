@@ -1603,10 +1603,10 @@ const actions = {
     await renderSettings();
   },
   'stop-server': async () => {
-    if (!confirm('Stop the Task Manager? Reminders won\'t pop up until you start it again.')) return;
+    if (!confirm('Stop the CI Manager? Reminders won\'t pop up until you start it again.')) return;
     await api.post('/shutdown');
     document.body.innerHTML = `<div class="card" style="margin:40px auto;max-width:480px">
-      <h2>Task Manager stopped</h2>
+      <h2>CI Manager stopped</h2>
       <p>Start it again by double-clicking <b>start-hidden.vbs</b> (or <b>start.bat</b>) in the app folder.</p></div>`;
   },
 };
@@ -1764,7 +1764,7 @@ async function pollAlerts() {
   const count = a.due_tasks.filter((t) => new Date(t.due_at) < new Date()).length + a.reminders.length;
   $('#bell-count').hidden = !count;
   $('#bell-count').textContent = count;
-  document.title = count ? `(${count}) Task Manager` : 'Task Manager';
+  document.title = count ? `(${count}) CI Manager` : 'CI Manager';
 }
 
 // ======================================================================

@@ -43,7 +43,7 @@ app.use('/api', api);
 app.use(express.static(path.join(config.ROOT, 'public')));
 
 const server = app.listen(config.port, config.host, () => {
-  log.info(`Task Manager running at http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);
+  log.info(`CI Manager running at http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);
   log.info(`Database file: ${config.dbFile}`);
   const inside = (p) => !path.relative(config.ROOT, p).startsWith('..') && !path.isAbsolute(path.relative(config.ROOT, p));
   if (inside(config.dbFile) || inside(config.backup.dir)) {
@@ -53,7 +53,7 @@ const server = app.listen(config.port, config.host, () => {
 });
 server.on('error', (err) => {
   log.error(err.code === 'EADDRINUSE'
-    ? `Port ${config.port} is already in use — is the Task Manager already running? (Or set PORT in .env.)`
+    ? `Port ${config.port} is already in use — is the CI Manager already running? (Or set PORT in .env.)`
     : err.message);
   process.exit(1);
 });

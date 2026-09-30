@@ -378,7 +378,7 @@ function fillGrid(xml, grid, list, startYear, styles, cache) {
   let items = list;
   if (list.length > grid.rows.length) {
     items = list.slice(0, grid.rows.length - 1);
-    items.push({ title: `+ ${list.length - items.length} more in the Task Manager`, more: true });
+    items.push({ title: `+ ${list.length - items.length} more in the CI Manager`, more: true });
   }
   grid.rows.forEach((r, i) => {
     const t = items[i];

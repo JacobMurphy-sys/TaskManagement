@@ -1,10 +1,10 @@
-# Task Manager
+# CI Manager
 
 A personal project & task management system that runs on your own PC.
 
 It needs nothing except **Node.js**. The data is kept in a single **SQLite** database file using the SQLite engine built into Node, so there is no database server to install or run. You can open that file in **DBeaver** to browse, query or edit the data.
 
-**Your data lives outside the app folder**, in `%LOCALAPPDATA%\TaskManager` (i.e. `C:\Users\<you>\AppData\Local\TaskManager`), which holds `taskmgr.db`, `backups\` and `logs\`. Updating, re-cloning or deleting the app folder never touches it. The **Backups** page in the app shows the exact path.
+**Your data lives outside the app folder**, in `%LOCALAPPDATA%\TaskManager` (the folder keeps its original name from before the app was renamed to CI Manager, so existing data carries on) (i.e. `C:\Users\<you>\AppData\Local\TaskManager`), which holds `taskmgr.db`, `backups\` and `logs\`. Updating, re-cloning or deleting the app folder never touches it. The **Backups** page in the app shows the exact path.
 
 | Spec item | How it's covered |
 |---|---|
@@ -56,7 +56,7 @@ Press `Win+R`, type `shell:startup`, and put a shortcut to **`start-hidden.vbs`*
 
 ### Getting updates (during development)
 Double-click **`update.bat`** in your clone of the repository. It:
-1. stops the running Task Manager (whether it was started hidden or with `start.bat`);
+1. stops the running CI Manager (whether it was started hidden or with `start.bat`);
 2. takes a backup of your data;
 3. runs `git pull --ff-only` and lists the new changes;
 4. runs `npm install` in case dependencies changed;

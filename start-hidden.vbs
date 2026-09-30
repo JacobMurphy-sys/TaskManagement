@@ -1,4 +1,4 @@
-' Starts the Task Manager in the background (no console window) and opens it
+' Starts the CI Manager in the background (no console window) and opens it
 ' in your browser. If it's already running, it just opens the browser.
 ' Put a shortcut to this file in shell:startup to start it when you log in.
 Option Explicit
@@ -12,14 +12,14 @@ url = "http://localhost:" & ReadPort() & "/"
 
 If Not IsRunning() Then
   If sh.Run("cmd /c where node", 0, True) <> 0 Then
-    MsgBox "Node.js was not found. Install it from https://nodejs.org and try again.", vbExclamation, "Task Manager"
+    MsgBox "Node.js was not found. Install it from https://nodejs.org and try again.", vbExclamation, "CI Manager"
     WScript.Quit 1
   End If
 
   ' First run: install dependencies (this window is visible so you can see progress).
   If Not fso.FolderExists(dir & "\node_modules") Then
-    If sh.Run("cmd /c echo Installing Task Manager dependencies... && npm install", 1, True) <> 0 Then
-      MsgBox "'npm install' failed. Try running start.bat to see the error.", vbExclamation, "Task Manager"
+    If sh.Run("cmd /c echo Installing CI Manager dependencies... && npm install", 1, True) <> 0 Then
+      MsgBox "'npm install' failed. Try running start.bat to see the error.", vbExclamation, "CI Manager"
       WScript.Quit 1
     End If
   End If
@@ -32,15 +32,15 @@ If Not IsRunning() Then
     If IsRunning() Then Exit For
   Next
   If Not IsRunning() Then
-    MsgBox "The Task Manager didn't start." & vbCrLf & vbCrLf & _
-      "Run start.bat to see the error, or check the newest file in the 'logs' folder.", vbExclamation, "Task Manager"
+    MsgBox "The CI Manager didn't start." & vbCrLf & vbCrLf & _
+      "Run start.bat to see the error, or check the newest file in the 'logs' folder.", vbExclamation, "CI Manager"
     WScript.Quit 1
   End If
 End If
 
 sh.Run url
 
-' True if the Task Manager answers on its port.
+' True if the CI Manager answers on its port.
 Function IsRunning()
   Dim http
   IsRunning = False
