@@ -241,7 +241,8 @@ async function route() {
   state.projectId = view === 'project' ? rest[0] : null;
   renderSidebar();
   try {
-    if (view === 'project') await renderProject(rest[0]);
+    if (view === 'project') await renderProject(rest[0], rest[1]);
+    else if (view === 'tasks') await renderTasks();
     else if (view === 'kanban') await renderKanban();
     else if (view === 'ideas') await renderIdeas();
     else if (view === 'idea') await renderIdea(rest[0]);
@@ -272,7 +273,7 @@ function miniTask(t) {
   return `<li class="${t.status === 'done' ? 'done' : ''}">
     <input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${t.subtask_count - t.subtask_done}" ${t.status === 'done' ? 'checked' : ''}>
     <span class="t" data-action="open-task" data-id="${t.id}">${esc(t.title)}</span>
-    <a class="small" href="#/project/${t.project_id}">${esc(t.project_name)}</a>
+    ${t.project_id ? `<a class="small" href="#/project/${t.project_id}">${esc(t.project_name)}</a>` : '<a class="small muted" href="#/tasks">✅ Tasks</a>'}
     ${prioPill(t.priority)} ${dueChip(t)} ${waitingChip(t)} ${repeatChip(t)}
   </li>`;
 }
@@ -327,6 +328,7 @@ async function renderDashboard() {
       <td>${issues || '<span class="small muted">—</span>'}</td>
       <td class="nowrap small">${p.next_due_at ? `${esc(fmtShortDate(p.next_due_at))} <span class="muted">(${dueLabel(p.next_due_at)})</span>` : '<span class="muted">—</span>'}</td>
       <td class="nowrap">${p.due_at ? dueChip({ ...p, status: '' }) : '<span class="small muted">—</span>'}</td>
+      <td class="nowrap small"><a href="#/project/${p.id}/charter" title="Open the charter">${p.charter_pct === 100 ? '✓ 100%' : `${p.charter_pct}%`}</a></td>
       <td class="nowrap small muted" title="${esc(fmtDateTime(p.last_activity_at))}">${p.last_activity_at ? fmtRelative(p.last_activity_at) : '—'}</td>
     </tr>`;
   };
@@ -350,7 +352,7 @@ async function renderDashboard() {
     <h2 class="dash-heading">Projects</h2>
     <div class="card" id="dash-projects" style="overflow-x:auto">
       ${ongoing.length ? `<table class="log dash-projects">
-        <thead><tr><th>Project</th><th>Health</th><th>Priority</th><th>Progress</th><th>Open issues</th><th>Next task due</th><th>Project due</th><th>Last activity</th></tr></thead>
+        <thead><tr><th>Project</th><th>Health</th><th>Priority</th><th>Progress</th><th>Open issues</th><th>Next task due</th><th>Project due</th><th title="How much of the project charter is filled in">Charter</th><th>Last activity</th></tr></thead>
         <tbody>${ongoing.map(projectRow).join('')}</tbody></table>
         <div class="small muted" style="margin-top:8px">⚠ At risk = overdue tasks or past its due date · ◐ Watch = blocked tasks or due within 7 days · ✓ On track = neither</div>`
         : '<div class="empty">No ongoing projects. <button class="link" data-action="new-project">Create one</button></div>'}
@@ -371,7 +373,7 @@ async function renderDashboard() {
           <button class="icon" data-action="delete-reminder" data-id="${r.id}" title="Delete reminder">✕</button>
         </li>`, 'No reminders set')}
       ${section('dash-notes', '📝 Latest notes', d.recent_notes, (n) => `<li style="display:block">
-          <div class="small muted">${esc(fmtDateTime(n.created_at))} · <a href="#/project/${n.project_id}">${esc(n.project_name)}</a>${n.task_title ? ` · ${esc(n.task_title)}` : ''}</div>
+          <div class="small muted">${esc(fmtDateTime(n.created_at))} · ${n.project_id ? `<a href="#/project/${n.project_id}">${esc(n.project_name)}</a>` : '<a href="#/tasks">✅ Tasks</a>'}${n.task_title ? ` · ${esc(n.task_title)}` : ''}</div>
           <div class="pre">${linkify(n.body)}</div></li>`, 'No notes yet')}
     </div>`;
 }
@@ -454,9 +456,11 @@ function timelineItem(i) {
   return `<li class="event"><span title="${esc(fmtDateTime(i.at))}">${esc(fmtDateTime(i.at, { weekday: false }))}</span> — ${esc(i.text)}</li>`;
 }
 
-async function renderProject(id) {
-  const [p, timeline] = await Promise.all([api.get(`/projects/${id}`), api.get(`/projects/${id}/timeline`)]);
+async function renderProject(id, tab) {
+  const [p, timeline] = await Promise.all([api.get(`/projects/${id}`), api.get(`/projects/${id}/timeline`), loadLookups()]);
   state.project = p;
+  const tabs = `<div class="tabs"><a href="#/project/${p.id}" class="${tab === 'charter' ? '' : 'on'}">Overview</a>
+    <a href="#/project/${p.id}/charter" class="${tab === 'charter' ? 'on' : ''}">📋 Charter <span class="small muted">${p.charter.completeness.pct}%</span></a></div>`;
   const hideDone = store.get('hideDone', false);
   const view = store.get('tasksView', 'list');
   const board = view === 'board';
@@ -470,7 +474,8 @@ async function renderProject(id) {
   main().innerHTML = `
     <div class="project-head">
       <div class="title">
-        <h1>${esc(p.name)}</h1>
+        <h1>${esc(p.name)} <span class="muted small">${esc(p.project_code || '')}</span></h1>
+        ${p.sponsor || p.leader ? `<div class="small muted">${p.leader ? `Leader: <b>${esc(p.leader)}</b>` : ''}${p.sponsor ? ` · Sponsor: <b>${esc(p.sponsor)}</b>` : ''}${p.category ? ` · ${esc(p.category)}` : ''}</div>` : ''}
         ${p.escalated_from ? `<div class="small" style="margin-bottom:4px"><a href="#/idea/${p.escalated_from.id}">💡 Escalated from ${esc(p.escalated_from.ref)}</a></div>` : ''}
         ${p.description ? `<div class="pre muted">${linkify(p.description)}</div>` : ''}
         <div class="small muted" style="margin-top:4px">Created ${esc(fmtDateTime(p.created_at))} · Updated ${esc(fmtDateTime(p.updated_at))}
@@ -486,6 +491,9 @@ async function renderProject(id) {
         <a class="button" href="/api/export.xlsx?scope=project&id=${p.id}" title="Download this project as an Excel workbook">⬇ Excel</a>
       </div>
     </div>
+    ${tabs}
+    ${tab === 'charter' ? '<div id="charter-root"></div>' : `
+    ${charterNudge(p)}
     ${baselineBox(p)}
     ${budgetBox(p)}
     <div class="quick-note">
@@ -523,8 +531,9 @@ async function renderProject(id) {
         </div>
         ${items.length ? `<ul class="timeline">${items.map(timelineItem).join('')}</ul>` : '<div class="empty">Nothing yet.</div>'}
       </div>
-    </div>`;
+    </div>`}`;
 
+  if (tab === 'charter') { renderCharterTab($('#charter-root'), p); return; }
   $('#note-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveProjectNote(); }
   });
@@ -963,15 +972,15 @@ async function saveIdeaNote() {
   $('#idea-note').focus();
 }
 
-function escalateDialog(i) {
+async function escalateDialog(i) {
+  await loadLookups();
   openModal(`
     <div class="modal-head"><h2 style="margin:0">🚀 Escalate ${esc(i.ref)} to a project</h2>
       <button class="icon" data-action="close-modal">✕</button></div>
     <p class="muted">Creates a new project from this idea. The idea is marked <b>Escalated</b> and linked to the project,
       and a summary (submitter, area, cost) is added to the project's timeline.</p>
     <form id="escalate-form" class="form-grid">
-      <label class="f full">Project name<input type="text" name="name" required value="${esc(i.title)}"></label>
-      <label class="f full">Description / goal<textarea name="description" rows="3">${esc(i.description)}</textarea></label>
+      ${charterFieldsHtml({ name: i.title, problem: i.description })}
       <label class="f">Priority<select name="priority">${options(PRIORITY, i.priority)}</select></label>
       <label class="f">Start date<input type="date" name="start_date" value="${new Date().toLocaleDateString('sv')}"></label>
       <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(i.due_at)}"></label>
@@ -982,13 +991,14 @@ function escalateDialog(i) {
       <div class="full row"><div class="spacer"></div>
         <button type="button" data-action="close-modal">Cancel</button>
         <button class="primary" type="submit">Create project</button></div>
-    </form>`);
+    </form>`, { wide: true });
   $('#escalate-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target));
     try {
       const project = await api.post(`/ideas/${i.id}/escalate`, {
-        name: f.name, description: f.description, priority: Number(f.priority), start_date: f.start_date || null,
+        ...Object.fromEntries(CHARTER_FORM_KEYS.map((k) => [k, f[k]])),
+        name: f.name, priority: Number(f.priority), start_date: f.start_date || null,
         due_at: f.due_at || null, baseline_tasks: f.baseline_tasks.split('\n'), copy_notes: f.copy_notes === 'on',
       });
       closeModal();
@@ -1047,6 +1057,9 @@ async function renderSettings() {
     state.settings = await api.patch('/settings', { currency: e.target.value || '£' });
     toast('Currency saved');
   });
+  const extra = document.createElement('div');
+  main().append(extra);
+  await renderCharterSettings(extra);
 }
 
 // ======================================================================
@@ -1115,21 +1128,24 @@ async function renderSearch(q) {
 // ======================================================================
 
 const modal = () => $('#modal');
-function openModal(html) {
+function openModal(html, opts = {}) {
+  modal().classList.toggle('wide', !!opts.wide);
   $('#modal-body').innerHTML = html;
   if (!modal().open) modal().showModal();
 }
 function closeModal() { modal().close(); }
 modal().addEventListener('close', () => { if (state.modalDirty) { state.modalDirty = false; refresh(); } });
 
-function projectForm(p = {}) {
+async function projectForm(p = {}) {
   const isNew = !p.id;
+  if (isNew) await loadLookups();
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">${isNew ? 'New project' : 'Edit project'}</h2>
+    <div class="modal-head"><h2 style="margin:0">${isNew ? '📋 New project — charter' : 'Edit project'}</h2>
       <button class="icon" data-action="close-modal">✕</button></div>
+    ${isNew ? '<p class="muted small" style="margin-top:0">Fields marked <span class="req">*</span> are needed to create the project; complete the rest of the charter (team, KPIs, scope, benefits) on its Charter tab.</p>' : ''}
     <form id="project-form" class="form-grid">
-      <label class="f full">Name<input type="text" name="name" required value="${esc(p.name)}"></label>
-      <label class="f full">Description / goal<textarea name="description" rows="3">${esc(p.description)}</textarea></label>
+      ${isNew ? charterFieldsHtml() : `<label class="f full">Name<input type="text" name="name" required value="${esc(p.name)}"></label>`}
+      <label class="f full">${isNew ? 'Notes / description (optional)' : 'Description'}<textarea name="description" rows="2">${esc(p.description)}</textarea></label>
       <label class="f">Priority<select name="priority">${options(PRIORITY, p.priority || 2)}</select></label>
       <label class="f">Start date<input type="date" name="start_date" value="${esc(p.start_date || (isNew ? new Date().toLocaleDateString('sv') : ''))}"></label>
       <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(p.due_at)}"></label>
@@ -1138,14 +1154,15 @@ function projectForm(p = {}) {
         <label class="f full">Baseline tasks — one per line (you can add more at any time)
           <textarea name="baseline_tasks" rows="5" placeholder="Gather requirements&#10;Draft proposal&#10;Review with manager"></textarea></label>
         <label class="f full">First note (optional)<textarea name="initial_note" rows="2"></textarea></label>` : `
-        <label class="f">Status<select name="status">${options(PSTATUS, p.status)}</select></label>`}
+        <label class="f">Status<select name="status">${options(PSTATUS, p.status)}</select></label>
+        <div class="f full small muted">Charter fields (problem, goals, sponsor, team, KPIs…) are edited on the project's <a href="#/project/${p.id}/charter" data-action="close-modal-go">📋 Charter</a> tab.</div>`}
       <div class="full row">
         ${isNew ? '' : '<button type="button" class="danger" data-action="delete-project">Delete project…</button>'}
         <div class="spacer"></div>
         <button type="button" data-action="close-modal">Cancel</button>
         <button class="primary" type="submit">${isNew ? 'Create project' : 'Save'}</button>
       </div>
-    </form>`);
+    </form>`, { wide: isNew });
   $('#project-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target));
@@ -1153,7 +1170,8 @@ function projectForm(p = {}) {
     f.priority = Number(f.priority);
     if (isNew) {
       f.baseline_tasks = f.baseline_tasks.split('\n');
-      const created = await api.post('/projects', f);
+      let created;
+      try { created = await api.post('/projects', f); } catch (err) { toast(err.message, 'error'); return; }
       closeModal();
       toast('Project created — baseline set');
       location.hash = `#/project/${created.id}`;
@@ -1169,7 +1187,9 @@ function projectForm(p = {}) {
 
 async function taskModal(id) {
   const t = await api.get(`/tasks/${id}`);
-  const [siblings, waitingNames] = await Promise.all([api.get(`/tasks?project_id=${t.project_id}`), api.get('/tasks/waiting-names')]);
+  const [siblings, waitingNames] = await Promise.all([
+    t.project_id ? api.get(`/tasks?project_id=${t.project_id}`) : Promise.resolve([]), api.get('/tasks/waiting-names')]);
+  const projectChoices = state.projects.filter((x) => x.status !== 'archived' && x.status !== 'completed' || x.id === t.project_id);
   // Tasks this one could depend on: same project, not itself, its subtasks, or ones already linked.
   const below = new Set([t.id]);
   for (let grew = true; grew;) {
@@ -1184,7 +1204,7 @@ async function taskModal(id) {
     : (p && p.baseline_set_at ? '<span class="badge added">Added after baseline</span>' : '');
   openModal(`
     <div class="modal-head">
-      <div class="small muted">${esc(t.project_name)}${t.parent_id ? ' · subtask' : ''} ${baselineText}</div>
+      <div class="small muted">${t.project_id ? esc(t.project_name) : '✅ Tasks (no project)'}${t.parent_id ? ' · subtask' : ''} ${baselineText}</div>
       <div class="row"><span class="saved-flag" id="saved-flag">✓ Saved</span><button class="icon" data-action="close-modal">✕</button></div>
     </div>
     <div class="form-grid" id="task-form" data-id="${t.id}">
@@ -1196,6 +1216,8 @@ async function taskModal(id) {
       <label class="f">Start date<input type="date" name="start_date" value="${esc(t.start_date || '')}"></label>
       <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(t.due_at)}"></label>
       <label class="f">Waiting on<input type="text" name="waiting_on" list="waiting-names" autocomplete="off" placeholder="person or team" value="${esc(t.waiting_on)}"></label>
+      ${t.parent_id ? '' : `<label class="f">Project<select name="project_id" title="Move this task (and its subtasks) to another project">
+        <option value="">✅ Tasks (no project)</option>${projectChoices.map((x) => `<option value="${x.id}" ${x.id === t.project_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>`}
       <datalist id="waiting-names">${waitingNames.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
     </div>
     ${t.waiting_on && t.waiting_since ? `<div class="small muted" style="margin-top:6px">⏳ Waiting on <b>${esc(t.waiting_on)}</b> since ${esc(fmtDate(t.waiting_since))} (${daysSince(t.waiting_since)} days)</div>` : ''}
@@ -1212,7 +1234,9 @@ async function taskModal(id) {
       <input type="text" id="modal-add-sub" placeholder="+ Add subtask… (Enter)" autocomplete="off">
     </div>
 
-    <div class="section">
+    ${t.project_id ? '' : `<div class="section row"><span class="small muted">Growing into something bigger?</span>
+      <button data-action="promote-task" data-id="${t.id}">🚀 Promote to a project</button></div>`}
+    ${!t.project_id ? '' : `<div class="section">
       <h3>Depends on <span class="muted small">— can't start until these are finished (shown as arrows on the Gantt chart)</span></h3>
       <ul class="mini">${t.depends_on.map((d) => `<li>
         <span class="t" data-action="open-task" data-id="${d.id}">${d.status === 'done' ? '✅' : '⏳'} ${esc(d.title)}</span> ${dueChip(d)}
@@ -1221,7 +1245,7 @@ async function taskModal(id) {
         ${candidates.map((c) => `<option value="${c.id}">${c.parent_id ? '↳ ' : ''}${esc(c.title)}</option>`).join('')}</select>` : ''}
       ${t.blocking.length ? `<div class="small muted" style="margin-top:6px">Waiting for this task: ${t.blocking.map((b) =>
         `<a href="#" data-action="open-task" data-id="${b.id}">${esc(b.title)}</a>`).join(', ')}</div>` : ''}
-    </div>
+    </div>`}
 
     <div class="section">
       <h3>Reminders</h3>
@@ -1253,14 +1277,16 @@ async function taskModal(id) {
   // Auto-save each field as it changes.
   $$('#task-form [name]').forEach((el) => el.addEventListener('change', async () => {
     let value = el.value;
-    if (['due_at', 'start_date', 'recurrence', 'waiting_on'].includes(el.name)) value = value || null;
+    if (['due_at', 'start_date', 'recurrence', 'waiting_on', 'project_id'].includes(el.name)) value = value || null;
+    if (el.name === 'project_id' && value) value = Number(value);
     if (el.name === 'priority') value = Number(value);
     if (el.name === 'title' && !value.trim()) { el.value = t.title; return; }
     try {
       const saved = await api.patch(`/tasks/${t.id}`, { [el.name]: value });
       state.modalDirty = true;
       if (saved.next_occurrence) toast(`🔁 Next one created, due ${fmtDate(saved.next_occurrence.due_at)}`);
-      if (['waiting_on', 'recurrence', 'status', 'description'].includes(el.name)) return taskModal(t.id);
+      if (el.name === 'project_id') toast(value ? 'Moved to the project (counts as new scope there)' : 'Moved to ✅ Tasks');
+      if (['waiting_on', 'recurrence', 'status', 'description', 'project_id'].includes(el.name)) return taskModal(t.id);
     } catch (err) {
       toast(err.message, 'error');
       return taskModal(t.id);
@@ -1381,6 +1407,13 @@ const actions = {
   'toggle-task': (el) => setTaskStatus(el.dataset.id, el.checked ? 'done' : 'todo', Number(el.dataset.subs || 0)),
   'toggle-hide-done': (el) => { store.set('hideDone', el.checked); route(); },
   'tasks-view': (el) => { store.set('tasksView', el.dataset.view); route(); },
+  'standalone-view': (el) => { store.set('standaloneView', el.dataset.view); route(); },
+  'toggle-hide-done-standalone': (el) => { store.set('hideDoneStandalone', el.checked); route(); },
+  'promote-task': async (el) => { const t = await api.get(`/tasks/${el.dataset.id}`); promoteDialog(t); },
+  'print-charter': () => printCharter(),
+  'close-modal-go': (el) => { closeModal(); location.hash = el.getAttribute('href'); },
+  'del-team': async (el) => { await api.del(`/team/${el.dataset.id}`); route(); },
+  'del-kpi': async (el) => { await api.del(`/kpis/${el.dataset.id}`); route(); },
   'projects-view': (el) => { store.set('projectsView', el.dataset.view); route(); },
   'ideas-view': (el) => { store.set('ideaFilter', { ...store.get('ideaFilter', {}), view: el.dataset.view }); route(); },
   'log-cost': () => costDialog(state.project),

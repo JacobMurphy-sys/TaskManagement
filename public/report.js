@@ -54,6 +54,23 @@ function reportModel(r) {
     ['💡 New ideas', r.ideas.raised.map((i) => `${i.ref} ${i.title}${i.submitted_by ? ` (from ${i.submitted_by})` : ''}${i.cost !== null ? ` — ${rMoney(i.cost, r.currency)}` : ''}`)],
     ['🔄 Idea status changes', r.ideas.status_changes.map((c) => `${c.ref} ${c.title}: ${IDEA_STATUS[c.from] || c.from} → ${IDEA_STATUS[c.to] || c.to}`)],
   ].filter(([, items]) => items.length) : [];
+  // Standalone tasks shown like a project section, when there's anything to say.
+  if (r.standalone) {
+    const sa = r.standalone;
+    const sections = [
+      ['✅ Completed', sa.completed.map((x) => `${x.title} — ${fmtDate(x.completed_at)}`)],
+      ['➕ Added', sa.added.map((x) => x.title)],
+      ['⛔ Blocked', sa.blocked.map((x) => x.title)],
+      ['⏳ Waiting on others', sa.waiting.map((x) => `${x.title} — waiting on ${x.waiting_on}${x.waiting_since ? ` for ${daysSince(x.waiting_since)} days` : ''}`)],
+      ['⚠ Overdue', sa.overdue.map((x) => `${x.title} — was due ${fmtDate(x.due_at)}`)],
+      ['🔜 Coming up (next 14 days)', sa.upcoming.map((x) => `${x.title} — due ${fmtDate(x.due_at)}`)],
+      ['📝 Notes', sa.notes.map((n) => `${fmtDate(n.created_at)} [${n.task_title}]: ${n.body}`)],
+    ].filter(([, items]) => items.length);
+    if (sections.length) {
+      projects.push({ id: null, name: '✅ Other tasks (no project)', status: 'active', facts: [],
+        health: { key: 'hold', icon: '', label: '', why: '' }, sections, quiet: false, standalone: true });
+    }
+  }
   const count = (k) => r.projects.reduce((n, p) => n + p[k].length, 0);
   const summary = `${r.projects.length} project${r.projects.length === 1 ? '' : 's'} · ${count('completed')} tasks completed · `
     + `${count('added')} added · ${count('overdue')} overdue · ${count('blocked')} blocked · ${count('waiting')} waiting on others`;
@@ -66,7 +83,7 @@ function reportHtml(m) {
   return `<h1>${esc(m.title)}</h1>
     <p class="muted">${esc(m.summary)}<br><span class="small">Generated ${esc(m.generated)}</span></p>
     ${m.projects.map((p) => `<section class="r-project">
-      <h2>${esc(p.name)} <span class="health health-${p.health.key}" title="${esc(p.health.why)}">${p.health.icon} ${p.health.label}</span>
+      <h2>${esc(p.name)} ${p.standalone ? '' : `<span class="health health-${p.health.key}" title="${esc(p.health.why)}">${p.health.icon} ${p.health.label}</span>`}
         ${p.status !== 'active' ? `<span class="small muted">${esc(PSTATUS[p.status])}</span>` : ''}</h2>
       <p class="small muted">${esc(p.facts.join(' · '))}</p>
       ${p.quiet ? '<p class="small muted"><i>No new activity in this period.</i></p>' : ''}
@@ -78,8 +95,8 @@ function reportHtml(m) {
 function reportText(m) {
   const lines = [m.title, m.summary, ''];
   for (const p of m.projects) {
-    lines.push(`■ ${p.name} — ${p.health.label}${p.status !== 'active' ? ` (${PSTATUS[p.status]})` : ''}`);
-    lines.push(`  ${p.facts.join(' · ')}`);
+    lines.push(p.standalone ? `■ ${p.name.replace(/^✅ /, '')}` : `■ ${p.name} — ${p.health.label}${p.status !== 'active' ? ` (${PSTATUS[p.status]})` : ''}`);
+    if (p.facts.length) lines.push(`  ${p.facts.join(' · ')}`);
     if (p.quiet) lines.push('  No new activity in this period.');
     for (const [head, items] of p.sections) {
       lines.push(`  ${head}`);

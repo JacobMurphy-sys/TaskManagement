@@ -390,3 +390,51 @@ table.log tfoot th { border-bottom: 0; color: var(--text); }
   #main { overflow: visible; padding: 0; }
   .card { box-shadow: none; border: 0; }
 }
+
+/* ---------- tabs, wide dialogs, required marks */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 0 0 14px; }
+.tabs a { padding: 7px 14px; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; color: var(--muted); text-decoration: none; margin-bottom: -1px; }
+.tabs a.on { background: var(--panel); border-color: var(--border); color: var(--text); font-weight: 600; }
+.tabs a:hover { color: var(--accent); }
+dialog#modal.wide { width: min(980px, calc(100vw - 32px)); }
+dialog#modal.wide .form-grid { grid-template-columns: repeat(4, 1fr); }
+dialog#modal.wide .form-grid .full { grid-column: 1 / -1; }
+.req { color: var(--danger); margin-left: 2px; }
+label.button { cursor: pointer; }
+.charter-nudge { border-color: var(--warn); }
+
+/* ---------- charter (laid out like the standard project template) */
+.charter-bar { margin-bottom: 10px; }
+.charter { padding: 0; overflow: hidden; }
+.ch-title { display: flex; align-items: baseline; gap: 12px; padding: 12px 14px; border-bottom: 2px solid var(--text); }
+.ch-title label { font-size: 1.3rem; font-weight: 700; white-space: nowrap; }
+.ch-title input { font-size: 1.2rem; font-weight: 600; border: 0; border-bottom: 1px dashed var(--border); border-radius: 0; background: transparent; }
+.ch-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
+.ch-col { display: flex; flex-direction: column; }
+.ch-col + .ch-col { border-left: 2px solid var(--text); }
+.ch-box { border-bottom: 1px solid var(--text); padding: 6px 10px 8px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ch-box > label { font-size: 12px; font-weight: 700; }
+.ch-box textarea, .ch-box input[type=text] { border: 1px solid transparent; background: var(--panel-2); resize: vertical; min-height: 0; }
+.ch-box textarea:hover, .ch-box input[type=text]:hover { border-color: var(--border); }
+.ch-row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ch-row3 > .ch-box + .ch-box { border-left: 1px solid var(--text); }
+.ch-static { padding: 6px 2px; }
+.ch-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ch-table th { text-align: left; font-size: 11px; color: var(--muted); font-weight: 600; padding: 2px 4px; }
+.ch-table td { padding: 2px; vertical-align: middle; }
+.ch-table input[type=text] { padding: 4px 6px; font-size: 13px; }
+.ch-table tr.ch-add input { background: transparent; border: 1px dashed var(--border); }
+.ch-table.ro td { padding: 4px; border-top: 1px solid var(--border); }
+@media (max-width: 900px) {
+  .ch-grid { grid-template-columns: 1fr; }
+  .ch-col + .ch-col { border-left: 0; border-top: 2px solid var(--text); }
+  dialog#modal.wide .form-grid { grid-template-columns: 1fr 1fr; }
+}
+
+@media print {
+  body.printing-charter #main > *:not(#charter-root) { display: none !important; }
+  body.printing-charter .charter-bar { display: none !important; }
+  body.printing-charter .charter { border: 1px solid #000; font-size: 11px; }
+  body.printing-charter .ch-box textarea, body.printing-charter .ch-box input { background: none; border: 0; resize: none; font-size: 11px; }
+  body.printing-charter .ch-table tr.ch-add, body.printing-charter .ch-table button { display: none; }
+}

@@ -8,6 +8,8 @@ It needs nothing except **Node.js**. The data is kept in a single **SQLite** dat
 
 | Spec item | How it's covered |
 |---|---|
+| Projects with a charter | Every project has a **📋 Charter** tab laid out like the standard project template: problem definition, goals, team (with capacity), in / out of scope, quantified and non-quantified benefits, sponsor, leader, current date, policy deployment, category, gross margin effect, project ID, improvement KPIs and a milestone plan (the project's top-level tasks with baseline, planned and actual dates). Title, problem, goals, sponsor and leader are required to create a project; a **% complete** indicator nudges you to finish the rest. **⬇ Charter (Excel)** fills in your own Excel template. |
+| Standalone tasks | **✅ Tasks** holds ad-hoc work that doesn't need a project: quick add, subtasks, notes, due dates, reminders, repeats, waiting-on, list or board. Move a task into a project from its task window, or **🚀 promote** it to a project of its own (which asks for the charter). |
 | Baseline + quick additive updates | New projects take a list of **baseline tasks**; the plan is frozen ("baseline") and anything added later is flagged **+ added**. The baseline panel shows tasks added/removed since then and how far the due date has slipped. A **quick-note bar** on every project (and a global **Quick note** button, key `N`) appends time-stamped notes as you go. |
 | Fully date & time stamped | Every record has `created_at` / `updated_at` / `completed_at` (with time zone), maintained by the database itself. |
 | Full logging | Every insert/update/delete on every table is written to `audit_log` **by database triggers**, so edits made directly in DBeaver are recorded too. See it in **Activity log**, per project in the **Timeline**, and per task under **History**. The server also writes daily log files to the `logs` folder in your data folder. |
@@ -62,6 +64,8 @@ Double-click **`update.bat`** in your clone of the repository. It:
 
 This needs Git installed and the app running from a `git clone` of the repository. Your data is in `%LOCALAPPDATA%\TaskManager`, outside the repository, so pulling never touches it (and `.env` is git-ignored). If the pull fails (for example, because you've edited a tracked file), the script says so and restarts the version you already had.
 
+When an update changes how data is stored, the app upgrades your database automatically on its next start. Before any structural change it saves a copy of the database as `backups\db\pre-upgrade-<date>.db` in your data folder, and it checks every link between records afterwards; if anything doesn't add up, the upgrade is undone and nothing is changed.
+
 ---
 
 ## 2. Everyday use
@@ -86,6 +90,19 @@ This needs Git installed and the app running from a `git clone` of the repositor
 - **Report:** open **📰 Report**, pick the period, then *Copy as text* and paste into your email. Use *✓ Mark as sent* so *Since last report* starts from there next time.
 - **Excel:** *⬇ Export to Excel* on the dashboard (everything), *⬇ Excel* on a project page (that project) or on Ideation (all ideas).
 - **Archive rather than delete:** set a finished project's status to *Archived* to hide it. **Show archived** in the sidebar brings it back.
+
+### Project charter
+- **New project** opens the charter form. Fill in the fields marked \* (title, problem definition, goals, sponsor, leader); category, policy deployment, gross margin effect and project ID are optional, and scope / benefits can be added now or later. If you leave *Project ID* blank it's numbered automatically (`PRJ-0001`, …) and you can change it at any time.
+- The project's **📋 Charter** tab shows the whole template. Edit any box in place (it saves as you go). Add team members (name, role, capacity) and KPIs (unit, baseline, target, current) in their tables; press **Enter** on the last row to add one. The milestone plan lists the project's top-level tasks, so give those tasks dates (in the task window or on the Gantt).
+- **⬇ Charter (Excel)** downloads the charter. **🖨 Print** prints just the charter, landscape.
+- **Your Excel template:** on **⚙ Settings → Project charter Excel template**, upload your standard template (.xlsx) once. The app finds each label (*Problem definition*, *Management Sponsor*, *Project ID*, …) and shows which cell each value will go into: the box below or beside the label, or *under the label* when the label is at the top of a box. Correct any cell that's wrong (use the top-left cell of a merged box) and **Save cell mapping**. Everything else in your template (formatting, logos, other sheets) is left as it is. Until a template is uploaded, a plain one-sheet charter is produced.
+- The **Category** and **Policy deployment** suggestions are managed on the Settings page too.
+- The dashboard's project table shows each charter's completeness.
+
+### Standalone tasks
+- **✅ Tasks** in the sidebar: type a task and press Enter (the usual shortcuts work). Tasks can have subtasks, notes (with `[ ]` checklists), reminders, repeats and *Waiting on*, and appear on the dashboard, in alerts and in the status report under *Other tasks*.
+- To file a task under a project, open it and pick the **Project**. It moves with its subtasks and notes, and counts as new scope against that project's baseline. Pick *✅ Tasks (no project)* to move it back.
+- **🚀 Promote to a project** (in the task window) turns a task that has grown into a project: you fill in the charter, its subtasks become the project's tasks and its notes move across.
 
 ### Ideation
 - **💡 Ideation** in the sidebar lists open ideas (*New*, *Under review*, *Approved*). You can filter by status or area, or search by name, reference or submitter. The header shows the total cost of the ideas listed.
@@ -112,7 +129,7 @@ In DBeaver: *Database → New Database Connection → SQLite*, and pick `%LOCALA
 | Table | Contents |
 |---|---|
 | `projects` | Projects, including baseline date, baseline due date and a JSON `baseline_snapshot` |
-| `tasks` | Tasks; `parent_id` links subtasks, `is_baseline` (1/0) marks original-plan tasks |
+| `tasks` | Tasks; `project_id` is empty for standalone tasks, `parent_id` links subtasks, `is_baseline` (1/0) marks original-plan tasks |
 | `notes` | The additive, time-stamped notes |
 | `reminders` | Pending and dismissed reminders |
 | `ideas` | Ideation tickets; `ref` (`IDEA-0001`…) is assigned automatically, `project_id` is set when escalated |
@@ -121,6 +138,8 @@ In DBeaver: *Database → New Database Connection → SQLite*, and pick `%LOCALA
 | `settings` | App settings (e.g. currency symbol, when the report was last sent) |
 | `task_links` | Gantt dependencies: `task_id` waits for `depends_on_id` |
 | `project_costs` | Costs logged against a project's budget |
+| `project_team`, `project_kpis` | The charter's team members and improvement KPIs |
+| `lookups` | The Category and Policy deployment pick-lists |
 | `audit_log` | Every change, with old and new values as JSON and when it happened |
 
 **Dates and times** are stored as UTC text in the form `2026-10-31T17:00:00.000Z` (note the trailing `Z`: UTC, not local time). The database rejects anything in another format, so hand edits can't break sorting or the due-date alerts. Due dates (`due_at`) are whole days, stored as the last moment of that day in local time (e.g. `2026-10-31T23:59:59.999Z` in winter in the UK). You don't need to set `updated_at`, `completed_at` or the audit log yourself; the triggers handle them.
@@ -148,7 +167,9 @@ src/server.js        web server entry point
 src/api.js           REST API (/api/...)
 src/backup.js        database-file + JSON backups and schedule
 src/dates.js         quick-add syntax and repeating-task dates
-src/xlsx.js          Excel (.xlsx) writer used for exports
+src/xlsx.js          Excel (.xlsx) reader/writer used for exports
+src/charter.js       project charter fields, completeness and filling your Excel template
+public/charter.js    Charter tab, Tasks page and charter settings
 public/gantt.js      Gantt chart
 public/report.js     status report page
 public/              the web UI (plain HTML/CSS/JS, no build step)
