@@ -467,6 +467,82 @@ function timelineItem(i) {
   return `<li class="event"><span title="${esc(fmtDateTime(i.at))}">${esc(fmtDateTime(i.at, { weekday: false }))}</span> — ${esc(i.text)}</li>`;
 }
 
+// ---- Project team ------------------------------------------------------------------
+
+const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+const contactLink = (c) => (!c ? '' : /^[^\s@]+@[^\s@]+$/.test(c.trim())
+  ? `<a href="mailto:${esc(c.trim())}" onclick="event.stopPropagation()">${esc(c)}</a>` : esc(c));
+
+// Leader and sponsor (from the charter), then the team, each with the open tasks they own.
+function teamCard(p) {
+  const open = p.tasks.filter((t) => t.status !== 'done');
+  const load = (name) => {
+    const mine = open.filter((t) => sameName(t.owner, name));
+    const late = mine.filter((t) => t.due_at && dayDiff(t.due_at) < 0).length;
+    if (!mine.length) return '<span class="small muted">no open tasks</span>';
+    return `<span class="small" title="${esc(mine.map((t) => t.title).join('\n'))}">☑ ${mine.length} open</span>${late ? ` <span class="chip overdue">⚠ ${late} overdue</span>` : ''}`;
+  };
+  const team = p.charter.team;
+  const known = [p.leader, p.sponsor, ...team.map((m) => m.name)];
+  const others = [...new Set(open.map((t) => t.owner).filter((o) => o && !known.some((k) => sameName(k, o))))];
+  const fixed = (name, role) => (name ? `<li class="team-row"><div><b>${esc(name)}</b> <span class="small muted">${role}</span></div>
+    <div>${load(name)}</div></li>` : '');
+  return `<div class="card team-card">
+    <div class="list-tools"><h2 style="margin:0">👥 Project team <span class="muted small">${team.length + [p.leader, p.sponsor].filter(Boolean).length}</span></h2>
+      <button data-action="add-member">＋ Add person</button></div>
+    <ul class="team-list">
+      ${fixed(p.leader, 'Project leader')}${fixed(p.sponsor, 'Management sponsor')}
+      ${team.map((m) => `<li class="team-row clickable" data-action="edit-member" data-id="${m.id}" title="Edit">
+        <div><b>${esc(m.name)}</b>${m.role ? ` <span class="small muted">${esc(m.role)}</span>` : ''}
+          <div class="small muted">${[m.capacity && `⏱ ${esc(m.capacity)}`, contactLink(m.contact)].filter(Boolean).join(' · ')}</div></div>
+        <div class="row">${load(m.name)}<button class="icon" data-action="del-member" data-id="${m.id}" title="Remove from the team">✕</button></div>
+      </li>`).join('')}
+    </ul>
+    ${team.length ? '' : '<div class="small muted">Add the people working on this project. Their names are offered as task owners, and appear in the charter.</div>'}
+    ${others.length ? `<div class="small muted" style="margin-top:8px">Also own tasks here: ${others.map((o) =>
+      `<button class="link small" data-action="add-member" data-name="${esc(o)}" title="Add to the team">＋ ${esc(o)}</button>`).join(' ')}</div>` : ''}
+    <div class="small muted" style="margin-top:6px">Leader and sponsor are set in <a href="#/project/${p.id}/charter">📋 Charter</a>.</div>
+  </div>`;
+}
+
+function memberDialog(p, m, presetName = '') {
+  const people = [...new Set([...state.projects.flatMap((x) => [x.sponsor, x.leader]), ...p.tasks.map((t) => t.owner)].filter(Boolean))];
+  openModal(`
+    <div class="modal-head"><h2 style="margin:0">👥 ${m ? 'Team member' : 'Add to the team'} — ${esc(p.name)}</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <form id="member-form" class="form-grid">
+      <label class="f">Name<input type="text" name="name" required list="member-people" autocomplete="off" value="${esc(m?.name || presetName)}"></label>
+      <label class="f">Role<input type="text" name="role" value="${esc(m?.role || '')}" placeholder="e.g. Quality engineer"></label>
+      <label class="f">Capacity<input type="text" name="capacity" value="${esc(m?.capacity || '')}" placeholder="e.g. 20% / 1 day a week"></label>
+      <label class="f">Contact<input type="text" name="contact" value="${esc(m?.contact || '')}" placeholder="email, phone or extension"></label>
+      <datalist id="member-people">${people.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
+      ${m ? `<div class="full small muted">Added ${esc(fmtDateTime(m.created_at))}. Renaming here doesn't change the owner name on existing tasks.</div>` : ''}
+      <div class="full row">${m ? '<button type="button" class="danger" data-member-del>Remove from team</button>' : ''}
+        <div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button>
+        <button class="primary" type="submit">${m ? 'Save' : 'Add'}</button></div>
+    </form>`);
+  const form = $('#member-form');
+  form.querySelector(presetName ? '[name=role]' : '[name=name]').focus();
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(form));
+    try {
+      if (m) await api.patch(`/team/${m.id}`, body); else await api.post(`/projects/${p.id}/team`, body);
+      closeModal();
+      toast(m ? 'Saved' : `${body.name} added to the team`);
+      await refresh();
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  $('[data-member-del]', form)?.addEventListener('click', () => removeMember(m));
+}
+
+async function removeMember(m) {
+  if (!confirm(`Remove ${m.name} from the team? Tasks they own keep their owner.`)) return;
+  await api.del(`/team/${m.id}`);
+  closeModal();
+  toast(`${m.name} removed from the team`);
+  await refresh();
+}
+
 // ---- Phases: a project's internal split into milestones ----------------------------
 
 const phaseDates = (ph) => [ph.start_date && fmtShortDate(`${ph.start_date}T12:00`), ph.due_at && fmtShortDate(ph.due_at)]
@@ -658,13 +734,14 @@ async function renderProject(id, tab) {
         </div>`}
         ${gantt ? '' : `<div class="small muted" style="margin-top:4px">${SHORTCUTS_HELP}</div>`}
       </div>
+      <div class="stack">${teamCard(p)}
       <div class="card">
         <div class="list-tools">
           <h2 style="margin:0">Timeline</h2>
           <label class="small muted row"><input type="checkbox" data-action="toggle-notes-only" ${notesOnly ? 'checked' : ''}> Notes only</label>
         </div>
         ${items.length ? `<ul class="timeline">${items.map(timelineItem).join('')}</ul>` : '<div class="empty">Nothing yet.</div>'}
-      </div>
+      </div></div>
     </div>`}`;
 
   if (tab === 'charter') { renderCharterTab($('#charter-root'), p); return; }
@@ -1330,7 +1407,7 @@ async function projectForm(p = {}) {
   openModal(`
     <div class="modal-head"><h2 style="margin:0">${isNew ? '📋 New project — charter' : 'Edit project'}</h2>
       <button class="icon" data-action="close-modal">✕</button></div>
-    ${isNew ? '<p class="muted small" style="margin-top:0">Fields marked <span class="req">*</span> are needed to create the project; complete the rest of the charter (team, KPIs, scope, benefits) on its Charter tab.</p>' : ''}
+    ${isNew ? '<p class="muted small" style="margin-top:0">Fields marked <span class="req">*</span> are needed to create the project; complete the rest of the charter (KPIs, scope, benefits) on its Charter tab.</p>' : ''}
     <form id="project-form" class="form-grid">
       ${isNew ? charterFieldsHtml() : `<label class="f full">Name<input type="text" name="name" required value="${esc(p.name)}"></label>`}
       <label class="f full">${isNew ? 'Notes / description (optional)' : 'Description'}<textarea name="description" rows="2">${esc(p.description)}</textarea></label>
@@ -1341,6 +1418,8 @@ async function projectForm(p = {}) {
       ${isNew ? `
         <label class="f full">Baseline tasks — one per line (you can add more at any time)
           <textarea name="baseline_tasks" rows="5" placeholder="Gather requirements&#10;Draft proposal&#10;Review with manager"></textarea></label>
+        <label class="f full">Project team — one per line, <i>Name, role</i> (optional; leader and sponsor are above)
+          <textarea name="team" rows="3" placeholder="Sam Patel, Quality engineer&#10;Alex Jones, Maintenance"></textarea></label>
         <label class="f full">First note (optional)<textarea name="initial_note" rows="2"></textarea></label>` : `
         <label class="f">Status<select name="status">${options(PSTATUS, p.status)}</select></label>
         <div class="f full small muted">Charter fields (problem, goals, sponsor, team, KPIs…) are edited on the project's <a href="#/project/${p.id}/charter" data-action="close-modal-go">📋 Charter</a> tab.</div>`}
@@ -1651,6 +1730,9 @@ const actions = {
   'new-project': () => projectForm(),
   'edit-project': () => projectForm(state.project),
   'add-phase': () => phaseDialog(state.project, null),
+  'add-member': (el) => memberDialog(state.project, null, el.dataset.name || ''),
+  'edit-member': (el, e) => { if (!e?.target.closest('button, a')) memberDialog(state.project, state.project.charter.team.find((m) => String(m.id) === el.dataset.id)); },
+  'del-member': (el) => removeMember(state.project.charter.team.find((m) => String(m.id) === el.dataset.id)),
   'edit-phase': (el) => phaseDialog(state.project, state.project.charter.phases.find((ph) => String(ph.id) === el.dataset.id)),
   'close-modal': () => closeModal(),
   'quick-note': () => quickNoteDialog(),

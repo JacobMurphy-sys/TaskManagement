@@ -200,9 +200,16 @@ function createProject(body) {
   const baselineTasks = (body.baseline_tasks || []).map((s) => String(s).trim()).filter(Boolean);
   const note = String(body.initial_note || '').trim();
   const baseline = body.set_baseline !== false;
+  // Team as lines of "Name, role" (or objects { name, role, capacity, contact }).
+  const team = (Array.isArray(body.team) ? body.team : String(body.team || '').split(/\r?\n/)).map((m) => {
+    if (m && typeof m === 'object') return pick(m, ['name', 'role', 'capacity', 'contact']);
+    const [name, ...role] = String(m).split(/\s*,\s*|\s+[-–]\s+/);
+    return { name, role: role.join(', ').trim() || null };
+  }).filter((m) => String(m.name || '').trim());
 
   const p = insertRow('projects', fields);
   baselineTasks.forEach((title, i) => insertRow('tasks', { project_id: p.id, title, sort_order: i, is_baseline: baseline }));
+  team.forEach((m, i) => insertRow('project_team', { ...m, name: String(m.name).trim(), project_id: p.id, sort_order: i }));
   if (note) insertRow('notes', { project_id: p.id, body: note });
   return baseline ? setBaseline(p.id) : p;
 }
@@ -911,7 +918,7 @@ router.delete('/areas/:id', h((req, res) => {
 
 // ------------------------------------------------------------------ charter: team, KPIs, lists
 
-const TEAM_FIELDS = ['name', 'role', 'capacity', 'sort_order'];
+const TEAM_FIELDS = ['name', 'role', 'capacity', 'contact', 'sort_order'];
 const KPI_FIELDS = ['name', 'unit', 'baseline', 'target', 'current', 'sort_order'];
 for (const [path_, table, fieldsList, what] of [['team', 'project_team', TEAM_FIELDS, 'Team member'], ['kpis', 'project_kpis', KPI_FIELDS, 'KPI']]) {
   router.post(`/projects/:id/${path_}`, h((req, res) => {
@@ -1134,6 +1141,11 @@ const XL = {
     { header: 'In baseline', width: 10 }, { header: 'Created', type: 'datetime', width: 16 },
     { header: 'Completed', type: 'datetime', width: 16 }, { header: 'Description', type: 'wrap', width: 50 },
   ],
+  team: [
+    { header: 'Project', width: 26 }, { header: 'Name', width: 22 }, { header: 'Role', width: 22 },
+    { header: 'Capacity', width: 16 }, { header: 'Contact', width: 28 },
+    { header: 'Open tasks', type: 'number', width: 10 }, { header: 'Overdue', type: 'number', width: 8 },
+  ],
   phases: [
     { header: 'Project', width: 26 }, { header: '#', type: 'number', width: 5 }, { header: 'Phase', width: 30 },
     { header: 'Status', width: 10 }, { header: 'Start', type: 'date', width: 11 }, { header: 'End', type: 'date', width: 11 },
@@ -1189,6 +1201,13 @@ function exportSheets(scope, id) {
     const phases = projects.flatMap((p) => projectPhases(p.id).map((ph, i) => [p.name, i + 1, ph.name, label(STATUS_LABEL, ph.status),
       ph.start_date, ph.due_at, ph.baseline_due_at, ph.task_count, ph.done_count, ph.overdue_count, ph.completed_at, ph.description]));
     if (phases.length) sheets.push({ name: 'Phases', columns: XL.phases, rows: phases });
+    const ownedBy = `t.project_id = m.project_id AND t.status <> 'done' AND lower(trim(t.owner)) = lower(trim(m.name))`;
+    const team = projects.flatMap((p) => db.all(`SELECT m.*,
+        (SELECT count(*) FROM tasks t WHERE ${ownedBy}) AS open_count,
+        (SELECT count(*) FROM tasks t WHERE ${ownedBy} AND t.due_at < ?) AS overdue_count
+      FROM project_team m WHERE m.project_id = ? ORDER BY m.sort_order, m.id`, [nowIso(), p.id])
+      .map((m) => [p.name, m.name, m.role, m.capacity, m.contact, m.open_count, m.overdue_count]));
+    if (team.length) sheets.push({ name: 'Team', columns: XL.team, rows: team });
   }
   if (scope !== 'project') {
     const ideas = db.all(`${IDEA_SELECT} ORDER BY i.id`);
@@ -1402,7 +1421,7 @@ const FIELD_LABEL = { title: 'title', name: 'name', description: 'description', 
   policy_deployment: 'policy deployment', category: 'category', gm_effect: 'gross margin effect',
   problem: 'problem definition', goals: 'goals', in_scope: 'in scope', out_scope: 'out of scope',
   benefits_quantified: 'quantified benefits', benefits_other: 'other benefits', role: 'role', capacity: 'capacity',
-  unit: 'unit', baseline: 'baseline', target: 'target', current: 'current value', owner: 'owner', phase_id: 'phase' };
+  contact: 'contact', unit: 'unit', baseline: 'baseline', target: 'target', current: 'current value', owner: 'owner', phase_id: 'phase' };
 const LONG_TEXT = ['description', 'body', 'problem', 'goals', 'in_scope', 'out_scope', 'benefits_quantified', 'benefits_other'];
 const REPEAT_LABEL = { daily: 'Daily', weekdays: 'Weekdays', weekly: 'Weekly', fortnightly: 'Every 2 weeks',
   monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' };

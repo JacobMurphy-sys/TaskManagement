@@ -333,8 +333,26 @@ async function waitForServer() {
     assert.ok(ptl.some((i) => i.type === 'note' && /Form is on the intranet/.test(i.body)), 'task notes moved');
     assert.equal((await fetch(`${BASE}/tasks/${st.id}`)).status, 404, 'the promoted task is gone');
 
-    // ---- Phases: a project split into milestones
     const { buildXlsx, readZip } = require('../src/xlsx');
+    // ---- Project team: entered with the new project, contact details, Team sheet in the export
+    const tp = await call('POST', '/projects', { name: 'Team test', ...CHARTER,
+      team: 'Sam Patel, Quality engineer\nAlex Jones - Maintenance\n\nRiya' });
+    let tdet = await call('GET', `/projects/${tp.id}`);
+    assert.deepEqual(tdet.charter.team.map((m) => [m.name, m.role]),
+      [['Sam Patel', 'Quality engineer'], ['Alex Jones', 'Maintenance'], ['Riya', null]], 'team lines parsed');
+    await call('PATCH', `/team/${tdet.charter.team[0].id}`, { contact: 'sam@example.com', capacity: '20%' });
+    await call('POST', '/tasks', { project_id: tp.id, title: 'Measure', owner: 'sam patel' });
+    tdet = await call('GET', `/projects/${tp.id}`);
+    assert.equal(tdet.charter.team[0].contact, 'sam@example.com');
+    const txl = readZip(Buffer.from(await (await fetch(`${BASE}/export.xlsx?scope=project&id=${tp.id}`)).arrayBuffer()));
+    assert.match(txl['xl/workbook.xml'].toString(), /name="Team"/, 'Team sheet in the export');
+    const teamSheet = Object.entries(txl).find(([k, v]) => /worksheets\/sheet\d+\.xml$/.test(k) && v.toString().includes('sam@example.com'));
+    assert.ok(teamSheet, 'contact in the Team sheet');
+    assert.match(teamSheet[1].toString(), /<c r="F2"[^>]*><v>1<\/v>/, 'open tasks counted by owner name (any case)');
+    assert.ok((await call('GET', `/tasks/owner-names?project_id=${tp.id}`)).slice(0, 3).includes('Riya'), 'team offered as owners');
+    await call('DELETE', `/projects/${tp.id}`);
+
+    // ---- Phases: a project split into milestones
     const pp = await call('POST', '/projects', { name: 'Line upgrade', ...CHARTER });
     const ph1 = await call('POST', `/projects/${pp.id}/phases`, { name: 'Pilot', start_date: '2026-10-01', due_at: '2026-11-30' });
     const ph2 = await call('POST', `/projects/${pp.id}/phases`, { name: 'Roll-out', due_at: '2027-02-28' });

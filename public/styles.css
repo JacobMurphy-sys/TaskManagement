@@ -468,3 +468,11 @@ label.button { cursor: pointer; }
 .g-bar.g-phase { background: var(--text); opacity: .75; color: var(--panel); border-radius: 3px; }
 .g-bar.g-phase.g-done { background: var(--ok); }
 .g-ms.g-phase { background: var(--text); }
+
+/* ---- project team */
+.team-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.team-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid var(--border); }
+.team-row:last-child { border-bottom: 0; }
+.team-row.clickable { cursor: pointer; }
+.team-row.clickable:hover { background: var(--panel-2); }
+.team-row .row { gap: 6px; flex-wrap: nowrap; white-space: nowrap; }
