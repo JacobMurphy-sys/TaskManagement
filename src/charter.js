@@ -43,7 +43,8 @@ function completeness(p, extras) {
     name: p.name, problem: p.problem, goals: p.goals, sponsor: p.sponsor, leader: p.leader,
     project_code: p.project_code, policy_deployment: p.policy_deployment, category: p.category, gm_effect: p.gm_effect,
     in_scope: p.in_scope, out_scope: p.out_scope, benefits_quantified: p.benefits_quantified, benefits_other: p.benefits_other,
-    team: extras.team.length, kpis: extras.kpis.length, milestones: extras.milestones.some((m) => m.due_at),
+    team: extras.team.length, kpis: extras.kpis.length,
+    milestones: (extras.phases || []).some((ph) => ph.due_at) || extras.milestones.some((m) => m.due_at),
   };
   const missing = Object.entries(checks).filter(([, v]) => !(typeof v === 'string' ? v.trim() : v)).map(([k]) => k);
   const total = Object.keys(checks).length;
@@ -69,6 +70,15 @@ function ragStatus(t, today = localKey(new Date())) {
   return 'Green';
 }
 
+// A phase: Red when it's past its end or holds overdue tasks, Yellow when something in it
+// is blocked or it ends within a week without having started, otherwise Green.
+function phaseRag(ph, today) {
+  if (ph.status === 'done') return 'Green';
+  if (ph.overdue_count) return 'Red';
+  const status = ph.blocked_count ? 'blocked' : ph.started_count ? 'in_progress' : 'todo';
+  return ragStatus({ status, due_at: ph.due_at }, today);
+}
+
 // ---- values written into the template ------------------------------------------
 
 const d = (iso) => (iso ? new Date(iso.length === 10 ? `${iso}T12:00` : iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
@@ -81,11 +91,24 @@ function values(p, extras) {
     actual_start: dayKey(t.actual_start), completed: dayKey(t.completed_at), status: ragStatus(t), done: t.status === 'done',
   });
   const all = extras.tasks || [];
+  const phases = extras.phases || [];
   const top = all.filter((t) => !t.parent_id);
   const topIds = new Set(top.map((t) => t.id));
-  // Actions: subtasks, open ones first by due date, then the most recently finished.
-  const actions = all.filter((t) => t.parent_id && topIds.has(t.parent_id)).sort((a, b) => (a.status === 'done') - (b.status === 'done')
-    || String(a.due_at || '9').localeCompare(String(b.due_at || '9')) || String(b.completed_at || '').localeCompare(String(a.completed_at || '')));
+  // Open ones first by due date, then the most recently finished.
+  const openFirst = (a, b) => (a.status === 'done') - (b.status === 'done')
+    || String(a.due_at || '9').localeCompare(String(b.due_at || '9')) || String(b.completed_at || '').localeCompare(String(a.completed_at || ''));
+  // With phases, the phases are the sub projects and the project's tasks the actions;
+  // without, top-level tasks are the sub projects and their subtasks the actions.
+  const sub = phases.length
+    ? phases.map((ph) => ({ title: ph.name, owner: '', due: dayKey(ph.due_at), start: ph.start_date || null,
+      actual_start: dayKey(ph.actual_start), completed: dayKey(ph.completed_at), status: phaseRag(ph), done: ph.status === 'done' }))
+    : top.map(row);
+  const actions = (phases.length ? top : all.filter((t) => t.parent_id && topIds.has(t.parent_id))).sort(openFirst);
+  const phaseLine = (ph, i) => {
+    const b = ph.baseline_due_at && ph.due_at && d(ph.baseline_due_at) !== d(ph.due_at) ? `, baseline ${d(ph.baseline_due_at)}` : '';
+    const state = ph.status === 'done' ? `done ${d(ph.completed_at)}` : `${ph.done_count}/${ph.task_count} tasks done`;
+    return `${i + 1}. ${ph.name}: ${ph.start_date ? `${d(ph.start_date)} – ` : ''}${ph.due_at ? `due ${d(ph.due_at)}` : 'no date'}${b}, ${state}`;
+  };
   return {
     name: p.name,
     problem: p.problem || '',
@@ -103,7 +126,7 @@ function values(p, extras) {
     gm_effect: p.gm_effect || '',
     project_code: p.project_code || '',
     kpis: extras.kpis.map((k) => `${k.name}${k.unit ? ` (${k.unit})` : ''}: ${k.baseline || '?'} → ${k.target || '?'}${k.current ? ` (now ${k.current})` : ''}`).join('\n'),
-    milestones: extras.milestones.map((m) => {
+    milestones: phases.length ? phases.map(phaseLine).join('\n') : extras.milestones.map((m) => {
       const b = baseline.get(m.id);
       const parts = [m.due_at ? `due ${d(m.due_at)}` : 'no date'];
       if (m.owner) parts.unshift(m.owner);
@@ -112,9 +135,10 @@ function values(p, extras) {
       return `${m.title}: ${parts.join(', ')}`;
     }).join('\n'),
     timeline: {
-      sub: top.map(row),
+      sub,
       actions: actions.map(row),
-      start_year: Number((p.start_date || [...all.map((t) => t.start_date || dayKey(t.due_at))].filter(Boolean).sort()[0] || localKey(new Date())).slice(0, 4)),
+      start_year: Number((p.start_date || [...all.map((t) => t.start_date || dayKey(t.due_at)), ...sub.map((x) => x.start || x.due)]
+        .filter(Boolean).sort()[0] || localKey(new Date())).slice(0, 4)),
     },
   };
 }
@@ -547,5 +571,5 @@ function fillTemplate(buf, mapping, vals) {
 
 module.exports = {
   FIELDS, FIELD_LIST, REQUIRED, completeness, values, plainWorkbook, readTemplate, detectMapping, detectTimelines,
-  validationList, fillTemplate, outputSheets, ragStatus,
+  validationList, fillTemplate, outputSheets, ragStatus, phaseRag,
 };

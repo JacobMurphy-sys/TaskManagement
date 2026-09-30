@@ -244,11 +244,25 @@ function renderProjectGantt(root, p, hideDone) {
     flat.push({ t, depth });
     walk(t.children, depth + 1);
   });
-  walk(buildTree(p.tasks), 0);
+  // With phases: each phase as a summary bar, its tasks indented under it, then tasks without a phase.
+  const phases = p.charter?.phases || [];
+  const tree = buildTree(p.tasks);
+  if (phases.length) {
+    const known = new Set(phases.map((ph) => ph.id));
+    phases.forEach((ph, i) => {
+      if (hideDone && ph.status === 'done') return;
+      flat.push({ phase: ph, n: i + 1 });
+      walk(tree.filter((t) => t.phase_id === ph.id), 1);
+    });
+    walk(tree.filter((t) => !known.has(t.phase_id)), 0);
+  } else walk(tree, 0);
 
   const rows = [];
   const unscheduled = [];
-  for (const { t, depth } of flat) {
+  const phaseBaseline = new Map(((p.baseline_snapshot || {}).phases || []).map((ph) => [ph.id, ph]));
+  for (const item of flat) {
+    if (item.phase) { const r = phaseRow(item.phase, item.n, p, phaseBaseline); if (r) rows.push(r); continue; }
+    const { t, depth } = item;
     const end = t.due_at ? toDateInput(t.due_at) : t.start_date;
     if (!end) { unscheduled.push(t); continue; }
     const start = t.start_date || null;
@@ -285,13 +299,46 @@ function renderProjectGantt(root, p, hideDone) {
     markers,
     legend: GANTT_STATUS_LEGEND,
     footer: unscheduledHtml(unscheduled),
-    onOpen: (r) => taskModal(r.id),
+    onOpen: (r) => (r.phase ? phaseDialog(p, r.phase) : taskModal(r.id)),
     onMove: async (r, start, end) => {
+      if (r.phase) {
+        await api.patch(`/phases/${r.phase.id}`, { start_date: start || null, due_at: end });
+        toast(`${r.phase.name}: ${start ? `${gFmt(start)} → ` : 'ends '}${gFmt(end)}`);
+        return refresh();
+      }
       await api.patch(`/tasks/${r.id}`, { start_date: start || null, due_at: end });
       toast(`"${r.task.title}": ${start ? `${gFmt(start)} → ` : 'due '}${gFmt(end)}`);
       await refresh();
     },
   });
+}
+
+// A phase's bar: its own dates, or else the span of its tasks (then it can't be dragged).
+function phaseRow(ph, n, p, baselineMap) {
+  const tasks = p.tasks.filter((t) => t.phase_id === ph.id);
+  const starts = tasks.map((t) => t.start_date || (t.due_at && toDateInput(t.due_at))).filter(Boolean).sort();
+  const ends = tasks.map((t) => (t.due_at ? toDateInput(t.due_at) : t.start_date)).filter(Boolean).sort();
+  const own = !!ph.due_at;
+  const end = ph.due_at ? toDateInput(ph.due_at) : ends[ends.length - 1];
+  if (!end) return null;
+  // No start date: begin at its earliest task (or show just the end as a milestone).
+  let start = ph.start_date || starts[0] || null;
+  if (start && start > end) start = end;
+  const b = baselineMap.get(ph.id);
+  const base = ph.baseline_due_at ? { start: b?.start_date || null, end: toDateInput(ph.baseline_due_at) } : null;
+  const slip = base ? gDiff(base.end, end) : 0;
+  const pct = ph.task_count ? ph.done_count / ph.task_count : 0;
+  return {
+    id: `phase-${ph.id}`, phase: ph, indent: 0, start, end, draggable: own,
+    cls: `g-phase ${ph.status === 'done' ? 'g-done' : ''}`, progress: ph.status === 'done' ? null : pct, baseline: base,
+    label: `<b>🧭 ${n}. ${esc(ph.name)}</b>`,
+    barText: esc(ph.name),
+    tip: `<b>Phase ${n}: ${esc(ph.name)}</b><br>${ph.status === 'done' ? `Complete${ph.completed_at ? ` ${esc(gFmt(toDateInput(ph.completed_at)))}` : ''}` : `${ph.done_count}/${ph.task_count} tasks done`}<br>`
+      + (start ? `${esc(gFmt(start))} → ${esc(gFmt(end))}` : `Ends ${esc(gFmt(end))}`)
+      + (own ? '' : ' <span class="muted">(from its tasks; set dates on the phase to fix them)</span>')
+      + (base ? `<br>Baseline end: ${esc(gFmt(base.end))}${slip ? ` · <b>${slip > 0 ? '+' : ''}${slip}d</b>` : ' · on plan'}` : '')
+      + `<br><span class="muted">${own ? 'Drag to move · drag the ends to change dates · ' : ''}click to edit</span>`,
+  };
 }
 
 function unscheduledHtml(list) {

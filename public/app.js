@@ -270,6 +270,16 @@ async function refresh() {
 // Dashboard
 // ======================================================================
 
+// "🧭 Phase 2/3: Roll-out · ends 12 Dec" for projects split into phases.
+function phaseLine(p) {
+  if (!p.phase_count) return '';
+  if (!p.current_phase) return `🧭 All ${p.phase_count} phases complete`;
+  const ph = p.current_phase;
+  const late = ph.due_at && p.status !== 'completed' && dayDiff(ph.due_at) < 0;
+  return `🧭 Phase ${ph.position}/${p.phase_count}: ${esc(ph.name)}${ph.due_at
+    ? ` · <span class="${late ? 'status-blocked' : ''}">${late ? 'was due' : 'ends'} ${esc(fmtShortDate(ph.due_at))}</span>` : ''}`;
+}
+
 function miniTask(t) {
   return `<li class="${t.status === 'done' ? 'done' : ''}">
     <input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${t.subtask_count - t.subtask_done}" ${t.status === 'done' ? 'checked' : ''}>
@@ -321,7 +331,7 @@ async function renderDashboard() {
       p.in_progress_count && `<span class="small muted">▶ ${p.in_progress_count} in progress</span>`,
     ].filter(Boolean).join(' ');
     return `<tr class="clickable" data-action="open-project" data-id="${p.id}">
-      <td><b>${esc(p.name)}</b></td>
+      <td><b>${esc(p.name)}</b>${phaseLine(p) ? `<div class="small muted">${phaseLine(p)}</div>` : ''}</td>
       <td class="nowrap"><span class="health health-${p.health.key}" title="${esc(p.health.why)}">${p.health.icon} ${p.health.label}</span></td>
       <td>${prioPill(p.priority)}</td>
       <td class="nowrap"><div class="meter" title="${p.done_count} of ${p.task_count} tasks done (${pct}%)"><div style="width:${pct}%"></div></div>
@@ -457,6 +467,126 @@ function timelineItem(i) {
   return `<li class="event"><span title="${esc(fmtDateTime(i.at))}">${esc(fmtDateTime(i.at, { weekday: false }))}</span> — ${esc(i.text)}</li>`;
 }
 
+// ---- Phases: a project's internal split into milestones ----------------------------
+
+const phaseDates = (ph) => [ph.start_date && fmtShortDate(`${ph.start_date}T12:00`), ph.due_at && fmtShortDate(ph.due_at)]
+  .filter(Boolean).join(' → ');
+
+function phaseSlip(ph) {
+  if (!ph.baseline_due_at || !ph.due_at || ph.baseline_due_at === ph.due_at) return '';
+  const days = Math.round((new Date(ph.due_at) - new Date(ph.baseline_due_at)) / 86400000);
+  return days ? ` <span class="chip ${days > 0 ? 'overdue' : ''}" title="Baseline end ${esc(fmtDate(ph.baseline_due_at))}">${days > 0 ? '+' : ''}${days}d vs baseline</span>` : '';
+}
+
+function phasesBox(p) {
+  const phases = p.charter.phases;
+  if (!phases.length) {
+    return `<div class="baseline-box"><span>🧭 Bigger project? Split it into phases or milestones (e.g. <i>Phase 1: pilot</i>, <i>Phase 2: roll-out</i>)
+      and group its tasks under them.</span><button class="link" data-action="add-phase">＋ Add a phase</button></div>`;
+  }
+  const current = phases.find((ph) => ph.status !== 'done');
+  const card = (ph, i) => {
+    const pct = ph.task_count ? Math.round((ph.done_count / ph.task_count) * 100) : 0;
+    const rag = phaseRag(ph);
+    const where = ph.status === 'done' ? `✓ Complete${ph.completed_at ? ` ${esc(fmtShortDate(ph.completed_at))}` : ''}`
+      : ph === current ? '▶ Current' : 'Upcoming';
+    return `<div class="phase-card ${ph.status === 'done' ? 'done' : ''} ${ph === current ? 'current' : ''}" data-action="edit-phase" data-id="${ph.id}" title="Edit phase">
+      <div class="ph-name"><span class="ph-num">${i + 1}</span>${esc(ph.name)}</div>
+      <div class="small muted">${phaseDates(ph) || 'No dates yet'}${phaseSlip(ph)}</div>
+      <div class="progress" title="${pct}% of its tasks done"><div style="width:${pct}%"></div></div>
+      <div class="small">${where} · ${ph.done_count}/${ph.task_count} tasks
+        ${ph.status === 'done' ? '' : `<span title="Red: overdue tasks or past its end · Yellow: blocked, or ends within a week without starting">${RAG_ICON[rag]}</span>`}</div>
+    </div>`;
+  };
+  return `<div class="phase-strip">${phases.map(card).join('<span class="ph-arrow">›</span>')}
+    <button class="phase-add" data-action="add-phase" title="Add a phase">＋ Phase</button></div>`;
+}
+
+// Add (no phase) or edit a phase. New phases can take over existing tasks that have no phase yet.
+function phaseDialog(p, phase) {
+  const phases = p.charter.phases;
+  const idx = phase ? phases.findIndex((x) => x.id === phase.id) : -1;
+  const free = p.tasks.filter((t) => !t.parent_id && !t.phase_id);
+  openModal(`
+    <div class="modal-head"><h2 style="margin:0">🧭 ${phase ? `Phase ${idx + 1}` : 'New phase'} — ${esc(p.name)}</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <form id="phase-form" class="form-grid">
+      <label class="f full">Name<input type="text" name="name" required value="${esc(phase?.name || '')}" placeholder="e.g. Phase ${phases.length + 1}: roll-out to site B"></label>
+      <label class="f">Start<input type="date" name="start_date" value="${esc(phase?.start_date || '')}"></label>
+      <label class="f">End / milestone date<input type="date" name="due_at" value="${phase?.due_at ? toDateInput(phase.due_at) : ''}"></label>
+      <label class="f full">What this phase delivers — optional<textarea name="description" rows="2">${esc(phase?.description || '')}</textarea></label>
+      ${!phase && free.length ? `<div class="f full"><span>Move these tasks into it <span class="muted small">(tasks without a phase; subtasks come along)</span></span>
+        <div class="phase-pick">${free.map((t) => `<label class="row small"><input type="checkbox" name="task_ids" value="${t.id}"> ${esc(t.title)}
+          ${t.status === 'done' ? '<span class="muted">✓</span>' : ''}</label>`).join('')}</div></div>` : ''}
+      ${phase ? `<div class="full small muted">${phase.done_count}/${phase.task_count} tasks done${phase.baseline_due_at ? ` · baseline end ${esc(fmtDate(phase.baseline_due_at))}` : ''}
+        · created ${esc(fmtDateTime(phase.created_at))}${phase.completed_at ? ` · completed ${esc(fmtDateTime(phase.completed_at))}` : ''}</div>` : ''}
+      <div class="full row">
+        ${phase ? `<button type="button" class="danger" data-phase-act="delete">Delete</button>
+          <button type="button" data-phase-act="up" ${idx === 0 ? 'disabled' : ''} title="Move earlier">◀</button>
+          <button type="button" data-phase-act="down" ${idx === phases.length - 1 ? 'disabled' : ''} title="Move later">▶</button>
+          <button type="button" data-phase-act="toggle">${phase.status === 'done' ? '↺ Reopen phase' : '✓ Mark phase complete'}</button>` : ''}
+        <div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button>
+        <button class="primary" type="submit">${phase ? 'Save' : 'Add phase'}</button></div>
+    </form>`);
+  const form = $('#phase-form');
+  form.querySelector('[name=name]').focus();
+  const done = async (msg) => { closeModal(); if (msg) toast(msg); await refresh(); };
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const body = { name: fd.get('name'), start_date: fd.get('start_date') || null, due_at: fd.get('due_at') || null, description: fd.get('description') || null };
+    try {
+      if (phase) await api.patch(`/phases/${phase.id}`, body);
+      else await api.post(`/projects/${p.id}/phases`, { ...body, task_ids: fd.getAll('task_ids').map(Number) });
+      await done(phase ? 'Phase saved' : 'Phase added');
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  $$('[data-phase-act]', form).forEach((b) => b.addEventListener('click', async () => {
+    try {
+      if (b.dataset.phaseAct === 'delete') {
+        if (!confirm(`Delete the phase "${phase.name}"? Its ${phase.task_count} task(s) are kept, just without a phase.`)) return;
+        await api.del(`/phases/${phase.id}`);
+        return done('Phase deleted');
+      }
+      if (b.dataset.phaseAct === 'toggle') {
+        const open = phase.task_count - phase.done_count;
+        if (phase.status !== 'done' && open && !confirm(`${open} task(s) in this phase aren't done yet. Mark the phase complete anyway?`)) return;
+        await api.patch(`/phases/${phase.id}`, { status: phase.status === 'done' ? 'open' : 'done' });
+        return done(phase.status === 'done' ? 'Phase reopened' : `✓ ${phase.name} complete`);
+      }
+      const ids = phases.map((x) => x.id);
+      const j = idx + (b.dataset.phaseAct === 'up' ? -1 : 1);
+      [ids[idx], ids[j]] = [ids[j], ids[idx]];
+      await api.post(`/projects/${p.id}/phases/order`, { ids });
+      await done();
+    } catch (err) { toast(err.message, 'error'); }
+  }));
+}
+
+// Which phase new tasks go into: the last one picked, else the current (first unfinished) phase.
+function phaseSelect(p) {
+  const phases = p.charter.phases;
+  if (!phases.length) return '';
+  const remembered = store.get(`addPhase:${p.id}`);
+  const pick = phases.some((ph) => ph.id === remembered) || remembered === null ? remembered : phases.find((ph) => ph.status !== 'done')?.id;
+  return `<select id="add-phase" title="Phase for new tasks">${phases.map((ph, i) => `<option value="${ph.id}" ${ph.id === pick ? 'selected' : ''}>${i + 1}. ${esc(ph.name)}</option>`).join('')}
+    <option value="" ${pick === null ? 'selected' : ''}>No phase</option></select>`;
+}
+
+// The checklist, grouped under each phase (finished phases start collapsed).
+function phasedTaskList(p, shown, hideDone) {
+  const phases = p.charter.phases;
+  const known = new Set(phases.map((ph) => ph.id));
+  const groups = phases.map((ph, i) => ({ ph, i, list: shown.filter((t) => t.phase_id === ph.id) }));
+  const loose = shown.filter((t) => !known.has(t.phase_id));
+  const block = (list, empty) => (list.length ? `<ul class="tasks">${list.map((t) => taskRow(t, p, hideDone)).join('')}</ul>` : `<div class="empty small">${empty}</div>`);
+  return groups.map(({ ph, i, list }) => `<details class="phase-group" ${ph.status === 'done' ? '' : 'open'}>
+      <summary><span class="ph-num">${i + 1}</span><b>${esc(ph.name)}</b>
+        <span class="small muted">${ph.done_count}/${ph.task_count} done${phaseDates(ph) ? ` · ${phaseDates(ph)}` : ''}</span>
+        ${ph.status === 'done' ? '<span class="small" style="color:var(--ok)">✓ Complete</span>' : ''}</summary>
+      ${block(list, hideDone && ph.task_count ? 'All done' : 'No tasks in this phase yet')}</details>`).join('')
+    + (loose.length ? `<details class="phase-group" open><summary><b>No phase</b> <span class="small muted">${loose.length}</span></summary>${block(loose, '')}</details>` : '');
+}
+
 async function renderProject(id, tab) {
   const [p, timeline] = await Promise.all([api.get(`/projects/${id}`), api.get(`/projects/${id}/timeline`), loadLookups()]);
   state.project = p;
@@ -497,6 +627,7 @@ async function renderProject(id, tab) {
     ${charterNudge(p)}
     ${baselineBox(p)}
     ${budgetBox(p)}
+    ${phasesBox(p)}
     <div class="quick-note">
       <textarea id="note-input" placeholder="Add a note to this project… (Enter to save, Shift+Enter for a new line; lines starting [ ] become tasks)"></textarea>
       <select id="note-task" title="Attach note to a task (optional)">
@@ -519,9 +650,11 @@ async function renderProject(id, tab) {
           </div>
         </div>
         ${gantt ? '<div id="gantt-root"></div>' : board ? taskBoardHtml(p.tasks.filter((t) => !t.parent_id)) : `
-        ${shown.length ? `<ul class="tasks">${shown.map((t) => taskRow(t, p, hideDone)).join('')}</ul>` : '<div class="empty">No tasks yet — add one below.</div>'}
-        <div class="add-task">
-          <input type="text" id="add-task-input" placeholder="Add a task… (Enter)   e.g. Send report !high @fri" autocomplete="off">
+        ${p.charter.phases.length ? phasedTaskList(p, shown, hideDone)
+          : shown.length ? `<ul class="tasks">${shown.map((t) => taskRow(t, p, hideDone)).join('')}</ul>` : '<div class="empty">No tasks yet — add one below.</div>'}
+        <div class="add-task row">
+          <input type="text" id="add-task-input" placeholder="Add a task… (Enter)   e.g. Send report !high @fri" autocomplete="off" style="flex:1">
+          ${phaseSelect(p)}
         </div>`}
         ${gantt ? '' : `<div class="small muted" style="margin-top:4px">${SHORTCUTS_HELP}</div>`}
       </div>
@@ -543,7 +676,11 @@ async function renderProject(id, tab) {
       if (e.key !== 'Enter') return;
       const q = parseQuick(e.target.value);
       if (!q.title) return;
-      await api.post('/tasks', { project_id: p.id, ...q });
+      // The list view has a phase picker; the board adds to the current phase.
+      const phaseId = $('#add-phase') ? Number($('#add-phase').value) || null
+        : p.charter.phases.find((ph) => ph.status !== 'done')?.id ?? null;
+      if ($('#add-phase')) store.set(`addPhase:${p.id}`, phaseId);
+      await api.post('/tasks', { project_id: p.id, ...q, phase_id: phaseId });
       await refresh();
       $(id)?.focus();
     });
@@ -665,6 +802,7 @@ async function renderKanban() {
         data-action="open-project" title="Open project">
       <div class="ktitle"><span>${esc(p.name)}</span></div>
       <div class="kmeta">${prioPill(p.priority)} ${p.due_at ? dueChip({ ...p, status: p.status === 'completed' ? 'done' : '' }) : ''}</div>
+      ${phaseLine(p) ? `<div class="small" style="margin-top:6px">${phaseLine(p)}</div>` : ''}
       <div class="small muted" style="margin-top:6px">${stats}</div>
       ${p.task_count ? `<div class="progress" title="${pct}% done"><div style="width:${pct}%"></div></div>` : ''}
       <div class="small muted" style="margin-top:6px">
@@ -715,6 +853,7 @@ function taskBoardHtml(tasks) {
   const card = (t) => `<div class="kcard p${t.priority} ${t.status === 'done' ? 'done' : ''}" draggable="true" data-id="${t.id}">
       <div class="ktitle"><input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${t.subtask_count - t.subtask_done}" ${t.status === 'done' ? 'checked' : ''}>
         <span data-action="open-task" data-id="${t.id}" style="cursor:pointer">${esc(t.title)}</span></div>
+      ${t.phase_name ? `<div class="small muted" title="Phase">🧭 ${esc(t.phase_name)}</div>` : ''}
       <div class="kmeta">${t.priority !== 2 ? prioPill(t.priority) : ''} ${dueChip(t)} ${ownerChip(t)}
         ${t.subtask_count ? `<span class="small muted">☑ ${t.subtask_done}/${t.subtask_count}</span>` : ''}
         ${t.next_reminder ? '<span class="small">🔔</span>' : ''}${t.note_count ? `<span class="small muted">📝 ${t.note_count}</span>` : ''}</div>
@@ -1236,9 +1375,10 @@ async function projectForm(p = {}) {
 
 async function taskModal(id) {
   const t = await api.get(`/tasks/${id}`);
-  const [siblings, waitingNames, ownerNames] = await Promise.all([
+  const [siblings, waitingNames, ownerNames, phases] = await Promise.all([
     t.project_id ? api.get(`/tasks?project_id=${t.project_id}`) : Promise.resolve([]), api.get('/tasks/waiting-names'),
-    api.get(`/tasks/owner-names${t.project_id ? `?project_id=${t.project_id}` : ''}`)]);
+    api.get(`/tasks/owner-names${t.project_id ? `?project_id=${t.project_id}` : ''}`),
+    t.project_id ? api.get(`/projects/${t.project_id}/phases`) : Promise.resolve([])]);
   const projectChoices = state.projects.filter((x) => x.status !== 'archived' && x.status !== 'completed' || x.id === t.project_id);
   // Tasks this one could depend on: same project, not itself, its subtasks, or ones already linked.
   const below = new Set([t.id]);
@@ -1270,6 +1410,9 @@ async function taskModal(id) {
       <label class="f">Waiting on<input type="text" name="waiting_on" list="waiting-names" autocomplete="off" placeholder="person or team" value="${esc(t.waiting_on)}"></label>
       ${t.parent_id ? '' : `<label class="f">Project<select name="project_id" title="Move this task (and its subtasks) to another project">
         <option value="">✅ Tasks (no project)</option>${projectChoices.map((x) => `<option value="${x.id}" ${x.id === t.project_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>`}
+      ${phases.length && !t.parent_id ? `<label class="f">Phase<select name="phase_id" title="Which phase of the project this task (and its subtasks) belongs to">
+        <option value="">— No phase —</option>${phases.map((ph, i) => `<option value="${ph.id}" ${ph.id === t.phase_id ? 'selected' : ''}>${i + 1}. ${esc(ph.name)}${ph.status === 'done' ? ' ✓' : ''}</option>`).join('')}</select></label>` : ''}
+      ${t.parent_id && t.phase_name ? `<div class="f small muted" style="align-self:end">🧭 Phase: <b>${esc(t.phase_name)}</b> (from its parent task)</div>` : ''}
       <datalist id="waiting-names">${waitingNames.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
     </div>
     ${t.waiting_on && t.waiting_since ? `<div class="small muted" style="margin-top:6px">⏳ Waiting on <b>${esc(t.waiting_on)}</b> since ${esc(fmtDate(t.waiting_since))} (${daysSince(t.waiting_since)} days)</div>` : ''}
@@ -1329,8 +1472,8 @@ async function taskModal(id) {
   // Auto-save each field as it changes.
   $$('#task-form [name]').forEach((el) => el.addEventListener('change', async () => {
     let value = el.value;
-    if (['due_at', 'start_date', 'recurrence', 'waiting_on', 'project_id', 'owner'].includes(el.name)) value = value || null;
-    if (el.name === 'project_id' && value) value = Number(value);
+    if (['due_at', 'start_date', 'recurrence', 'waiting_on', 'project_id', 'owner', 'phase_id'].includes(el.name)) value = value || null;
+    if ((el.name === 'project_id' || el.name === 'phase_id') && value) value = Number(value);
     if (el.name === 'priority') value = Number(value);
     if (el.name === 'title' && !value.trim()) { el.value = t.title; return; }
     try {
@@ -1507,6 +1650,8 @@ const actions = {
   'toggle-sidebar': () => document.body.classList.toggle('sidebar-open'),
   'new-project': () => projectForm(),
   'edit-project': () => projectForm(state.project),
+  'add-phase': () => phaseDialog(state.project, null),
+  'edit-phase': (el) => phaseDialog(state.project, state.project.charter.phases.find((ph) => String(ph.id) === el.dataset.id)),
   'close-modal': () => closeModal(),
   'quick-note': () => quickNoteDialog(),
   'save-note': () => saveProjectNote(),

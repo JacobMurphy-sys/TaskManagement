@@ -29,7 +29,15 @@ function reportModel(r) {
     const health = projectHealth({ ...p, overdue_count: p.overdue.length, blocked_count: p.blocked.length });
     const slip = p.baseline_due_at && p.due_at && p.baseline_due_at !== p.due_at
       ? Math.round((new Date(p.due_at) - new Date(p.baseline_due_at)) / 86400000) : 0;
+    const phases = p.phases || [];
+    const currentIdx = phases.findIndex((ph) => ph.status !== 'done');
+    const cur = phases[currentIdx];
+    const phaseFact = !phases.length ? null : cur
+      ? `phase ${currentIdx + 1}/${phases.length}: ${cur.name}${cur.due_at ? ` (ends ${fmtDate(cur.due_at)})` : ''}`
+      : `all ${phases.length} phases complete`;
+    const inPeriod = (iso) => iso && dateKey(new Date(iso)) >= r.from && dateKey(new Date(iso)) <= r.to;
     const facts = [
+      phaseFact,
       `${p.done_count}/${p.task_count} tasks done${p.task_count ? ` (${Math.round((p.done_count / p.task_count) * 100)}%)` : ''}`,
       p.due_at ? `due ${fmtDate(p.due_at)}${slip ? ` (${slip > 0 ? '+' : ''}${slip} days vs baseline)` : ''}` : null,
       p.budget !== null && p.budget !== undefined ? `spent ${rMoney(p.spent, r.currency)} of ${rMoney(p.budget, r.currency)} budget` : (p.spent ? `spent ${rMoney(p.spent, r.currency)}` : null),
@@ -37,6 +45,10 @@ function reportModel(r) {
     ].filter(Boolean);
     const t = (x) => x.title + (x.parent_id ? ' (subtask)' : '') + (x.owner ? ` [${x.owner}]` : '');
     const sections = [
+      ['🏁 Phases completed', phases.filter((ph) => ph.status === 'done' && inPeriod(ph.completed_at)).map((ph) => {
+        const late = ph.due_at && dateKey(new Date(ph.completed_at)) > dateKey(new Date(ph.due_at));
+        return `${ph.name} — ${fmtDate(ph.completed_at)}${ph.due_at ? (late ? ` (planned ${fmtDate(ph.due_at)})` : ' (on time)') : ''}`;
+      })],
       ['✅ Completed', p.completed.map((x) => `${t(x)} — ${fmtDate(x.completed_at)}`)],
       ['▶ Started', p.started.map((x) => x.title)],
       ['➕ Added', p.added.map((x) => `${t(x)}${p.baseline_set_at && !x.is_baseline ? ' (new scope)' : ''}`)],
@@ -47,7 +59,7 @@ function reportModel(r) {
       ['🔜 Coming up (next 14 days)', p.upcoming.map((x) => `${t(x)} — due ${fmtDate(x.due_at)}`)],
       ['📝 Notes', p.notes.map((n) => `${fmtDate(n.created_at)}${n.task_title ? ` [${n.task_title}]` : ''}: ${n.body}`)],
     ].filter(([, items]) => items.length);
-    const quiet = !p.completed.length && !p.added.length && !p.notes.length && !p.due_changes.length && !p.started.length;
+    const quiet = !phases.some((ph) => ph.status === 'done' && inPeriod(ph.completed_at)) && !p.completed.length && !p.added.length && !p.notes.length && !p.due_changes.length && !p.started.length;
     return { id: p.id, name: p.name, status: p.status, health, facts, sections, quiet };
   }).sort((a, b) => a.quiet - b.quiet); // projects with news first
   const ideas = r.ideas ? [

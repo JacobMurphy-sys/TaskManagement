@@ -81,6 +81,22 @@ const TABLES = {
     UNIQUE (list, name)`,
 
   // project_id is empty for standalone tasks (the "Tasks" area).
+  // A project's internal split into phases / milestones (e.g. "Phase 1: pilot line").
+  // Top-level tasks belong to at most one phase; subtasks follow their parent.
+  project_phases: `
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id      INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name            TEXT    NOT NULL,
+    description     TEXT,
+    status          TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'done')),
+    start_date      TEXT    ${dateCheck('start_date')},
+    due_at          TEXT    ${isoCheck('due_at')},
+    baseline_due_at TEXT    ${isoCheck('baseline_due_at')},
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at      TEXT    NOT NULL DEFAULT (${NOW}),
+    completed_at    TEXT`,
+
   tasks: `
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id   INTEGER REFERENCES projects(id) ON DELETE CASCADE,
@@ -101,7 +117,8 @@ const TABLES = {
     waiting_since TEXT,
     recurrence   TEXT    CHECK (recurrence IS NULL OR recurrence IN (${RECURRENCES.map((r) => `'${r}'`).join(', ')})),
     next_task_id INTEGER,
-    owner        TEXT`,
+    owner        TEXT,
+    phase_id     INTEGER REFERENCES project_phases(id) ON DELETE SET NULL`,
 
   // Gantt dependencies: task_id can't start until depends_on_id is finished.
   task_links: `
@@ -218,6 +235,8 @@ const INDEXES = `
 
   CREATE INDEX IF NOT EXISTS project_team_idx  ON project_team(project_id, sort_order);
   CREATE INDEX IF NOT EXISTS project_kpis_idx  ON project_kpis(project_id, sort_order);
+  CREATE INDEX IF NOT EXISTS project_phases_idx ON project_phases(project_id, sort_order);
+  CREATE INDEX IF NOT EXISTS tasks_phase_idx   ON tasks(phase_id);
 
   -- Default project ID (editable), like ideas' references.
   DROP TRIGGER IF EXISTS projects_code;
@@ -238,6 +257,7 @@ const INDEXES = `
 const DONE = {
   projects: ['completed', 'completed_at'],
   tasks: ['done', 'completed_at'],
+  project_phases: ['done', 'completed_at'],
   reminders: ['dismissed', 'dismissed_at'],
 };
 const AUTO_COLUMNS = ['id', 'ref', 'created_at', 'updated_at', 'completed_at', 'dismissed_at', 'waiting_since', 'next_task_id'];
@@ -292,7 +312,7 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');

@@ -51,6 +51,26 @@ function ragStatus(t) {
   return 'Green';
 }
 const RAG_ICON = { Green: '🟢', Yellow: '🟡', Red: '🔴' };
+// A phase: Red with overdue tasks or past its end, Yellow when something is blocked or it ends soon without starting.
+function phaseRag(ph) {
+  if (ph.status === 'done') return 'Green';
+  if (ph.overdue_count) return 'Red';
+  return ragStatus({ status: ph.blocked_count ? 'blocked' : ph.started_count ? 'in_progress' : 'todo', due_at: ph.due_at });
+}
+
+function phaseTimelineBox(phases) {
+  return `<div class="ch-box"><label>Timeline — sub projects <span class="small muted">— the project's phases; dates are set on the Overview tab</span></label>
+    <table class="ch-table ro"><thead><tr><th>Phase</th><th>Tasks</th><th>Baseline</th><th>Planned complete</th><th>Actual start</th><th>Completed</th><th>Status</th></tr></thead><tbody>
+    ${phases.map((ph, i) => {
+      const rag = phaseRag(ph);
+      return `<tr><td>${i + 1}. ${esc(ph.name)}</td><td class="nowrap">${ph.done_count}/${ph.task_count}</td>
+        <td class="nowrap">${ph.baseline_due_at ? esc(fmtShortDate(ph.baseline_due_at)) : '—'}</td>
+        <td class="nowrap">${ph.due_at ? dueChip({ ...ph, status: ph.status === 'done' ? 'done' : 'todo' }) : '—'}</td>
+        <td class="nowrap">${ph.actual_start ? esc(fmtShortDate(ph.actual_start)) : ''}</td>
+        <td class="nowrap">${ph.completed_at ? esc(fmtShortDate(ph.completed_at)) : ''}</td>
+        <td class="nowrap">${RAG_ICON[rag]} ${ph.status === 'done' ? 'Complete' : rag}</td></tr>`;
+    }).join('')}</tbody></table></div>`;
+}
 
 function timelineBox(title, what, list, baseline) {
   return `<div class="ch-box"><label>${title} <span class="small muted">— ${what}; owners and dates are set in each task</span></label>
@@ -139,8 +159,10 @@ function renderCharterTab(root, p) {
               <td><input type="text" name="unit" placeholder="Unit"></td><td><input type="text" name="baseline" placeholder="Baseline"></td>
               <td><input type="text" name="target" placeholder="Target"></td><td><input type="text" name="current" placeholder="Current"></td><td></td></tr>
             </tbody></table></div>
-          ${timelineBox('Timeline — sub projects', 'the project\'s top-level tasks', p.charter.tasks.filter((t) => !t.parent_id), baseline)}
-          ${timelineBox('Timeline — actions agreed', 'subtasks of those tasks', p.charter.tasks.filter((t) => t.parent_id), baseline)}
+          ${p.charter.phases.length ? `${phaseTimelineBox(p.charter.phases)}
+          ${timelineBox('Timeline — actions agreed', 'the project\'s tasks', p.charter.tasks.filter((t) => !t.parent_id), baseline)}` : `
+          ${timelineBox('Timeline — sub projects', 'the project\'s top-level tasks (or add phases on the Overview tab)', p.charter.tasks.filter((t) => !t.parent_id), baseline)}
+          ${timelineBox('Timeline — actions agreed', 'subtasks of those tasks', p.charter.tasks.filter((t) => t.parent_id), baseline)}`}
         </div>
       </div>
       ${lookupList('lk-policy', 'policy_deployment')}${lookupList('lk-category', 'category')}

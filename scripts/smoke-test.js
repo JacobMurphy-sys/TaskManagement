@@ -333,8 +333,72 @@ async function waitForServer() {
     assert.ok(ptl.some((i) => i.type === 'note' && /Form is on the intranet/.test(i.body)), 'task notes moved');
     assert.equal((await fetch(`${BASE}/tasks/${st.id}`)).status, 404, 'the promoted task is gone');
 
-    // ---- Charter Excel: plain workbook without a template, filled template with one
+    // ---- Phases: a project split into milestones
     const { buildXlsx, readZip } = require('../src/xlsx');
+    const pp = await call('POST', '/projects', { name: 'Line upgrade', ...CHARTER });
+    const ph1 = await call('POST', `/projects/${pp.id}/phases`, { name: 'Pilot', start_date: '2026-10-01', due_at: '2026-11-30' });
+    const ph2 = await call('POST', `/projects/${pp.id}/phases`, { name: 'Roll-out', due_at: '2027-02-28' });
+    assert.equal(ph1.sort_order, 0); assert.equal(ph2.sort_order, 1);
+    assert.match(ph1.due_at, /^2026-11-30T/, 'phase end stored like a due date');
+    await assert.rejects(call('POST', `/projects/${pp.id}/phases`, { name: ' ' }), /name is required/);
+    await assert.rejects(call('POST', `/projects/${pp.id}/phases`, { name: 'Bad', start_date: '2026-12-01', due_at: '2026-11-01' }), /starts after/);
+    const pt1 = await call('POST', '/tasks', { project_id: pp.id, title: 'Trial run', phase_id: ph1.id });
+    const pt2 = await call('POST', '/tasks', { project_id: pp.id, title: 'Train operators' });
+    const psub = await call('POST', '/tasks', { parent_id: pt1.id, title: 'Book the line' });
+    assert.equal(psub.phase_id, ph1.id, 'subtasks follow their parent\'s phase');
+    await assert.rejects(call('PATCH', `/tasks/${psub.id}`, { phase_id: ph2.id }), /follow their parent/);
+    await assert.rejects(call('POST', '/tasks', { project_id: cp.id, title: 'x', phase_id: ph1.id }), /different project/);
+    await assert.rejects(call('POST', '/tasks', { title: 'x', phase_id: ph1.id }), /different project/);
+    await call('PATCH', `/tasks/${pt1.id}`, { phase_id: ph2.id });
+    assert.equal((await call('GET', `/tasks/${psub.id}`)).phase_id, ph2.id, 'subtree moves with its task');
+    assert.equal((await call('GET', `/tasks/${psub.id}`)).phase_name, 'Roll-out');
+    await call('PATCH', `/tasks/${pt1.id}`, { phase_id: ph1.id });
+    // a new phase can take over tasks without a phase
+    const ph3 = await call('POST', `/projects/${pp.id}/phases`, { name: 'Handover', task_ids: [pt2.id, psub.id] });
+    assert.equal(ph3.task_count, 1, 'only top-level tasks are taken over');
+    assert.equal((await call('GET', `/tasks/${pt2.id}`)).phase_id, ph3.id);
+    await call('POST', `/projects/${pp.id}/phases/order`, { ids: [ph1.id, ph3.id, ph2.id] });
+    await assert.rejects(call('POST', `/projects/${pp.id}/phases/order`, { ids: [ph1.id] }), /every phase/);
+    let pdet = await call('GET', `/projects/${pp.id}`);
+    assert.deepEqual(pdet.charter.phases.map((x) => x.name), ['Pilot', 'Handover', 'Roll-out'], 'reordered');
+    assert.equal(pdet.charter.phases[0].task_count, 2, 'phase counts include subtasks');
+    // baseline records each phase's end; progress and completion
+    await call('POST', `/projects/${pp.id}/baseline`);
+    await call('PATCH', `/phases/${ph1.id}`, { due_at: '2026-12-15' });
+    pdet = await call('GET', `/projects/${pp.id}`);
+    assert.match(pdet.charter.phases[0].baseline_due_at, /^2026-11-30T/, 'baseline end kept when the phase moves');
+    assert.equal(pdet.baseline_snapshot.phases.length, 3);
+    await call('PATCH', `/tasks/${pt1.id}`, { status: 'done', cascade: true });
+    const closed = await call('PATCH', `/phases/${ph1.id}`, { status: 'done' });
+    assert.ok(closed.completed_at, 'completion stamped');
+    assert.equal(closed.done_count, 2);
+    await assert.rejects(call('PATCH', `/phases/${ph1.id}`, { status: 'finished' }), /Invalid phase status/);
+    const plist = (await call('GET', '/projects')).find((x) => x.id === pp.id);
+    assert.equal(plist.phase_count, 3); assert.equal(plist.phases_done, 1);
+    assert.equal(plist.current_phase.name, 'Handover'); assert.equal(plist.current_phase.position, 2);
+    const phTimeline = await call('GET', `/projects/${pp.id}/timeline`);
+    assert.ok(phTimeline.some((i) => i.text === 'Phase "Pilot" completed ✓'), 'phase completion in the timeline');
+    const prep = await call('GET', `/report?project_id=${pp.id}`);
+    assert.equal(prep.projects[0].phases.length, 3, 'report includes phases');
+    assert.ok(prep.projects[0].due_changes.some((m) => /Phase "Pilot"/.test(m.what)), 'phase date change reported');
+    // charter: phases become the sub projects, tasks the actions
+    const pwb = readZip(Buffer.from(await (await fetch(`${BASE}/projects/${pp.id}/charter.xlsx`)).arrayBuffer()));
+    assert.match(pwb['xl/worksheets/sheet2.xml'].toString(), /Pilot[\s\S]*Handover[\s\S]*Roll-out/, 'phases as sub projects');
+    assert.match(pwb['xl/worksheets/sheet3.xml'].toString(), /Train operators/, 'tasks as actions');
+    const pxl = readZip(Buffer.from(await (await fetch(`${BASE}/export.xlsx?scope=project&id=${pp.id}`)).arrayBuffer()));
+    assert.match(pxl['xl/workbook.xml'].toString(), /name="Phases"/, 'Phases sheet in the export');
+    // moving a task to another project drops its phase; deleting a phase keeps its tasks
+    await call('PATCH', `/tasks/${pt2.id}`, { project_id: cp.id });
+    assert.equal((await call('GET', `/tasks/${pt2.id}`)).phase_id, null, 'phase cleared on move');
+    await call('DELETE', `/phases/${ph2.id}`);
+    assert.equal((await call('GET', `/tasks/${psub.id}`)).phase_id, ph1.id, 'other phases untouched');
+    await call('DELETE', `/phases/${ph1.id}`);
+    assert.equal((await call('GET', `/tasks/${pt1.id}`)).phase_id, null, 'tasks kept without a phase');
+    await call('DELETE', `/tasks/${pt2.id}`);
+    await call('DELETE', `/projects/${pp.id}`);
+    assert.equal((await call('GET', `/projects/${cp.id}/phases`)).length, 0);
+
+    // ---- Charter Excel: plain workbook without a template, filled template with one
     let cx = await fetch(`${BASE}/projects/${cp.id}/charter.xlsx`);
     assert.equal(cx.status, 200);
     const plain = readZip(Buffer.from(await cx.arrayBuffer()));

@@ -442,3 +442,29 @@ label.button { cursor: pointer; }
 }
 
 .restore-warn { border: 1px solid var(--danger); border-radius: 6px; padding: 8px 10px; color: var(--danger); white-space: normal; }
+
+/* ---- project phases */
+.phase-strip { display: flex; align-items: stretch; gap: 6px; overflow-x: auto; margin: 0 0 14px; padding-bottom: 2px; }
+.phase-card { flex: 0 0 210px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px;
+  cursor: pointer; display: flex; flex-direction: column; gap: 5px; }
+.phase-card:hover { border-color: var(--accent); }
+.phase-card.current { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.phase-card.done { opacity: .75; }
+.phase-card .progress { margin: 0; }
+.ph-name { font-weight: 600; display: flex; gap: 6px; align-items: baseline; }
+.ph-num { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; border-radius: 10px;
+  background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700; margin-right: 6px; flex: none; }
+.phase-card.done .ph-num { background: var(--ok-soft); color: var(--ok); }
+.ph-arrow { align-self: center; color: var(--muted); font-size: 18px; }
+.phase-add { flex: 0 0 auto; border-style: dashed; align-self: center; }
+.phase-group { margin: 4px 0 10px; }
+.phase-group > summary { cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border);
+  list-style: none; }
+.phase-group > summary::-webkit-details-marker { display: none; }
+.phase-group > summary::before { content: '▸'; color: var(--muted); }
+.phase-group[open] > summary::before { content: '▾'; }
+.phase-group > .tasks, .phase-group > .empty { margin-top: 6px; }
+.phase-pick { max-height: 180px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin-top: 4px; }
+.g-bar.g-phase { background: var(--text); opacity: .75; color: var(--panel); border-radius: 3px; }
+.g-bar.g-phase.g-done { background: var(--ok); }
+.g-ms.g-phase { background: var(--text); }

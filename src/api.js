@@ -100,7 +100,8 @@ function updateRow(table, id, fields) {
 const fresh = (table, row) => (row ? db.get(`SELECT * FROM ${table} WHERE id = ?`, [row.id]) : row);
 
 const parseJson = (v) => { try { return v ? JSON.parse(v) : null; } catch { return null; } };
-const normProject = (p) => p && { ...p, baseline_snapshot: parseJson(p.baseline_snapshot) };
+const normProject = (p) => p && { ...p, baseline_snapshot: parseJson(p.baseline_snapshot),
+  ...('current_phase' in p ? { current_phase: parseJson(p.current_phase) } : {}) };
 const normTask = (t) => t && { ...t, is_baseline: !!t.is_baseline };
 const normAudit = (e) => ({ ...e, old_data: parseJson(e.old_data), new_data: parseJson(e.new_data) });
 
@@ -116,15 +117,16 @@ function checkCharter(fields, creating) {
   }
 }
 const TASK_FIELDS = ['title', 'description', 'status', 'priority', 'due_at', 'sort_order', 'parent_id',
-  'start_date', 'waiting_on', 'recurrence', 'owner'];
+  'start_date', 'waiting_on', 'recurrence', 'owner', 'phase_id'];
+const PHASE_FIELDS = ['name', 'description', 'status', 'start_date', 'due_at'];
 
 const TASK_SELECT = `
-  SELECT t.*, p.name AS project_name,
+  SELECT t.*, p.name AS project_name, ph.name AS phase_name,
          (SELECT count(*) FROM tasks s WHERE s.parent_id = t.id) AS subtask_count,
          (SELECT count(*) FROM tasks s WHERE s.parent_id = t.id AND s.status = 'done') AS subtask_done,
          (SELECT count(*) FROM notes n WHERE n.task_id = t.id) AS note_count,
          (SELECT min(r.remind_at) FROM reminders r WHERE r.task_id = t.id AND r.status = 'pending') AS next_reminder
-  FROM tasks t LEFT JOIN projects p ON p.id = t.project_id`;
+  FROM tasks t LEFT JOIN projects p ON p.id = t.project_id LEFT JOIN project_phases ph ON ph.id = t.phase_id`;
 const tasks = (where, params = []) => db.all(`${TASK_SELECT} ${where}`, params).map(normTask);
 
 // ------------------------------------------------------------------ projects
@@ -141,7 +143,14 @@ router.get('/projects', h((req, res) => {
            (SELECT min(t2.due_at) FROM tasks t2 WHERE t2.project_id = p.id AND t2.status <> 'done') AS next_due_at,
            (SELECT max(created_at) FROM notes n WHERE n.project_id = p.id) AS last_note_at,
            (SELECT max(changed_at) FROM audit_log a WHERE a.project_id = p.id) AS last_activity_at,
-           (SELECT coalesce(sum(amount), 0) FROM project_costs c WHERE c.project_id = p.id) AS spent
+           (SELECT coalesce(sum(amount), 0) FROM project_costs c WHERE c.project_id = p.id) AS spent,
+           (SELECT count(*) FROM project_phases ph WHERE ph.project_id = p.id) AS phase_count,
+           (SELECT count(*) FROM project_phases ph WHERE ph.project_id = p.id AND ph.status = 'done') AS phases_done,
+           (SELECT json_object('id', ph.id, 'name', ph.name, 'due_at', ph.due_at, 'position',
+              (SELECT count(*) FROM project_phases x WHERE x.project_id = p.id
+                 AND (x.sort_order < ph.sort_order OR (x.sort_order = ph.sort_order AND x.id <= ph.id))))
+            FROM project_phases ph WHERE ph.project_id = p.id AND ph.status = 'open'
+            ORDER BY ph.sort_order, ph.id LIMIT 1) AS current_phase
     FROM projects p LEFT JOIN tasks t ON t.project_id = p.id
     ${includeArchived ? '' : "WHERE p.status <> 'archived'"}
     GROUP BY p.id
@@ -157,12 +166,31 @@ function charterExtras(projectId) {
     kpis: db.all('SELECT * FROM project_kpis WHERE project_id = ? ORDER BY sort_order, id', [projectId]),
     milestones: db.all(`SELECT id, title, status, owner, start_date, due_at, completed_at FROM tasks
       WHERE project_id = ? AND parent_id IS NULL ORDER BY sort_order, id`, [projectId]),
+    phases: projectPhases(projectId),
     // All tasks, with when work actually started (first move to In progress / Done).
     tasks: db.all(`SELECT t.id, t.parent_id, t.title, t.status, t.owner, t.start_date, t.due_at, t.completed_at,
         (SELECT min(a.changed_at) FROM audit_log a WHERE a.table_name = 'tasks' AND a.record_id = t.id
           AND json_extract(a.new_data, '$.status') IN ('in_progress', 'done')) AS actual_start
       FROM tasks t WHERE t.project_id = ? ORDER BY t.sort_order, t.id`, [projectId]),
   };
+}
+
+// A project's phases in order, with progress worked out from their tasks (subtasks included).
+function projectPhases(projectId) {
+  return db.all(`
+    SELECT ph.*,
+      count(t.id) AS task_count,
+      count(t.id) FILTER (WHERE t.status = 'done') AS done_count,
+      count(t.id) FILTER (WHERE t.status = 'blocked') AS blocked_count,
+      count(t.id) FILTER (WHERE t.status <> 'done' AND t.due_at < ?) AS overdue_count,
+      count(t.id) FILTER (WHERE t.status IN ('in_progress', 'done')) AS started_count,
+      min(t.start_date) AS first_task_start,
+      max(t.due_at) AS last_task_due,
+      (SELECT min(a.changed_at) FROM audit_log a JOIN tasks t2 ON t2.id = a.record_id
+        WHERE a.table_name = 'tasks' AND t2.phase_id = ph.id
+          AND json_extract(a.new_data, '$.status') IN ('in_progress', 'done')) AS actual_start
+    FROM project_phases ph LEFT JOIN tasks t ON t.phase_id = ph.id
+    WHERE ph.project_id = ? GROUP BY ph.id ORDER BY ph.sort_order, ph.id`, [nowIso(), projectId]);
 }
 
 // Creates a project with optional baseline tasks and first note. Call inside a transaction.
@@ -219,12 +247,14 @@ function setBaseline(projectId) {
   const p = db.get('SELECT * FROM projects WHERE id = ?', [projectId]);
   if (!p) throw notFound('Project');
   db.run('UPDATE tasks SET is_baseline = 1 WHERE project_id = ? AND is_baseline = 0', [projectId]);
+  db.run('UPDATE project_phases SET baseline_due_at = due_at WHERE project_id = ?', [projectId]);
   const snapshotTasks = db.all(
-    'SELECT id, parent_id, title, status, priority, start_date, due_at FROM tasks WHERE project_id = ? ORDER BY sort_order, id',
+    'SELECT id, parent_id, phase_id, title, status, priority, start_date, due_at FROM tasks WHERE project_id = ? ORDER BY sort_order, id',
     [projectId]);
+  const snapshotPhases = db.all('SELECT id, name, start_date, due_at FROM project_phases WHERE project_id = ? ORDER BY sort_order, id', [projectId]);
   const snapshot = {
     name: p.name, description: p.description, priority: p.priority,
-    start_date: p.start_date, due_at: p.due_at, tasks: snapshotTasks,
+    start_date: p.start_date, due_at: p.due_at, tasks: snapshotTasks, phases: snapshotPhases,
   };
   db.run('UPDATE projects SET baseline_set_at = ?, baseline_due_at = due_at, baseline_snapshot = ? WHERE id = ?',
     [nowIso(), snapshot, projectId]);
@@ -251,6 +281,76 @@ router.get('/projects/:id/timeline', h((req, res) => {
       .filter((e) => e.text),
   ].sort((a, b) => b.at.localeCompare(a.at));
   res.json(items.slice(0, limit));
+}));
+
+// ------------------------------------------------------------------ phases
+
+// A task's phase must be one of its own project's phases.
+function checkPhase(phaseId, projectId) {
+  if (phaseId === undefined || phaseId === null) return;
+  const ph = db.get('SELECT project_id FROM project_phases WHERE id = ?', [phaseId]);
+  if (!ph) throw notFound('Phase');
+  if (Number(ph.project_id) !== Number(projectId)) throw new HttpError(400, 'That phase belongs to a different project');
+}
+
+function checkPhaseDates(current, fields) {
+  const start = 'start_date' in fields ? fields.start_date : current?.start_date;
+  const due = 'due_at' in fields ? fields.due_at : current?.due_at;
+  if (start && due && start > dateKey(new Date(due))) throw new HttpError(400, 'The phase starts after its end date');
+  if ('name' in fields && !String(fields.name ?? '').trim()) throw new HttpError(400, 'Phase name is required');
+  if ('status' in fields && !['open', 'done'].includes(fields.status)) throw new HttpError(400, 'Invalid phase status');
+}
+
+router.get('/projects/:id/phases', h((req, res) => res.json(projectPhases(req.params.id))));
+
+router.post('/projects/:id/phases', h((req, res) => {
+  if (!db.get('SELECT 1 FROM projects WHERE id = ?', [req.params.id])) throw notFound('Project');
+  const fields = pick(req.body, PHASE_FIELDS);
+  checkPhaseDates(null, { name: fields.name ?? '', ...fields });
+  fields.name = String(fields.name).trim();
+  const sort = db.get('SELECT coalesce(max(sort_order), -1) + 1 AS n FROM project_phases WHERE project_id = ?', [req.params.id]).n;
+  const phase = db.tx(() => {
+    const ph = insertRow('project_phases', { ...fields, project_id: Number(req.params.id), sort_order: sort });
+    // Optionally put existing top-level tasks (with their subtasks) into the new phase.
+    for (const id of Array.isArray(req.body.task_ids) ? req.body.task_ids : []) {
+      const t = db.get('SELECT id, project_id, parent_id FROM tasks WHERE id = ?', [id]);
+      if (!t || t.project_id !== ph.project_id || t.parent_id) continue;
+      const ids = subtreeIds(t.id);
+      db.run(`UPDATE tasks SET phase_id = ? WHERE id IN (${ids.map(() => '?').join(', ')})`, [ph.id, ...ids]);
+    }
+    return ph;
+  });
+  res.status(201).json(projectPhases(req.params.id).find((x) => x.id === phase.id));
+}));
+
+router.patch('/phases/:id', h((req, res) => {
+  const current = db.get('SELECT * FROM project_phases WHERE id = ?', [req.params.id]);
+  if (!current) throw notFound('Phase');
+  const fields = pick(req.body, PHASE_FIELDS);
+  checkPhaseDates(current, fields);
+  if (fields.name) fields.name = String(fields.name).trim();
+  updateRow('project_phases', current.id, fields);
+  res.json(projectPhases(current.project_id).find((x) => x.id === current.id));
+}));
+
+// New order for a project's phases: { ids: [phaseId, ...] }.
+router.post('/projects/:id/phases/order', h((req, res) => {
+  const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(Number);
+  const mine = db.all('SELECT id FROM project_phases WHERE project_id = ?', [req.params.id]).map((r) => r.id);
+  if (ids.length !== mine.length || !mine.every((id) => ids.includes(id))) throw new HttpError(400, 'Give every phase of the project, in the new order');
+  db.tx(() => ids.forEach((id, i) => db.run('UPDATE project_phases SET sort_order = ? WHERE id = ? AND sort_order IS NOT ?', [i, id, i])));
+  res.json(projectPhases(req.params.id));
+}));
+
+// Deleting a phase keeps its tasks (they just have no phase afterwards).
+router.delete('/phases/:id', h((req, res) => {
+  const ph = db.get('SELECT * FROM project_phases WHERE id = ?', [req.params.id]);
+  if (!ph) throw notFound('Phase');
+  db.tx(() => {
+    db.run('UPDATE tasks SET phase_id = NULL WHERE phase_id = ?', [ph.id]);
+    db.run('DELETE FROM project_phases WHERE id = ?', [ph.id]);
+  });
+  res.status(204).end();
 }));
 
 // ------------------------------------------------------------------ tasks
@@ -284,13 +384,13 @@ function spawnNextOccurrence(taskId) {
   if (!t || t.status !== 'done' || !t.recurrence || t.next_task_id) return null;
   const { due, shiftDays } = nextOccurrence(t.due_at, t.recurrence);
   const next = insertRow('tasks', {
-    project_id: t.project_id, parent_id: t.parent_id, title: t.title, description: t.description,
+    project_id: t.project_id, parent_id: t.parent_id, phase_id: t.phase_id, title: t.title, description: t.description,
     priority: t.priority, due_at: toDueIso(due), start_date: t.start_date ? shiftKey(t.start_date, shiftDays) : null,
     recurrence: t.recurrence, is_baseline: t.is_baseline, sort_order: t.sort_order,
   });
   for (const sub of db.all('SELECT * FROM tasks WHERE parent_id = ? ORDER BY sort_order, id', [t.id])) {
     insertRow('tasks', {
-      project_id: t.project_id, parent_id: next.id, title: sub.title, description: sub.description,
+      project_id: t.project_id, parent_id: next.id, phase_id: t.phase_id, title: sub.title, description: sub.description,
       priority: sub.priority, is_baseline: t.is_baseline, sort_order: sub.sort_order,
     });
   }
@@ -317,7 +417,7 @@ function moveTask(taskId, projectId) {
   if (projectId) db.run(`UPDATE task_links SET project_id = ? WHERE task_id IN (${inList})`, [projectId, ...ids]);
   else db.run(`DELETE FROM task_links WHERE task_id IN (${inList})`, ids);
   // Work moved into a project is new scope compared with its baseline.
-  db.run(`UPDATE tasks SET project_id = ?, is_baseline = 0 WHERE id IN (${inList})`, [projectId ?? null, ...ids]);
+  db.run(`UPDATE tasks SET project_id = ?, is_baseline = 0, phase_id = NULL WHERE id IN (${inList})`, [projectId ?? null, ...ids]);
   db.run('UPDATE tasks SET parent_id = NULL, sort_order = ? WHERE id = ?', [nextSortOrder(projectId), t.id]);
   db.run(`UPDATE notes SET project_id = ? WHERE task_id IN (${inList})`, [projectId ?? null, ...ids]);
   db.run(`UPDATE reminders SET project_id = ? WHERE task_id IN (${inList})`, [projectId ?? null, ...ids]);
@@ -344,11 +444,13 @@ router.post('/tasks', h((req, res) => {
   // No project = a standalone task in the Tasks list.
   let projectId = req.body.project_id || null;
   if (fields.parent_id) {
-    const parent = db.get('SELECT project_id FROM tasks WHERE id = ?', [fields.parent_id]);
+    const parent = db.get('SELECT project_id, phase_id FROM tasks WHERE id = ?', [fields.parent_id]);
     if (!parent) throw notFound('Parent task');
     projectId = parent.project_id;
+    fields.phase_id = parent.phase_id; // subtasks follow their parent's phase
   }
   if (projectId && !db.get('SELECT 1 FROM projects WHERE id = ?', [projectId])) throw notFound('Project');
+  checkPhase(fields.phase_id, projectId);
   if (fields.sort_order === undefined) fields.sort_order = nextSortOrder(projectId);
   const task = fresh('tasks', insertRow('tasks', { ...fields, project_id: projectId }));
   res.status(201).json(normTask(task));
@@ -381,7 +483,18 @@ router.patch('/tasks/:id', h((req, res) => {
     if (!current) throw notFound('Task');
     applyTaskRules(current, fields);
     if ('project_id' in req.body) moveTask(current.id, req.body.project_id || null);
+    const projectId = db.get('SELECT project_id FROM tasks WHERE id = ?', [current.id]).project_id;
+    if (fields.parent_id) fields.phase_id = db.get('SELECT phase_id FROM tasks WHERE id = ?', [fields.parent_id])?.phase_id ?? null;
+    else if ('phase_id' in fields && current.parent_id && !('parent_id' in fields)) {
+      throw new HttpError(400, 'Subtasks follow their parent task\'s phase; change the parent task instead');
+    }
+    checkPhase(fields.phase_id, projectId);
     const row = updateRow('tasks', req.params.id, fields);
+    // The whole subtree moves with a task's phase.
+    if ('phase_id' in fields) {
+      const ids = subtreeIds(row.id).filter((x) => x !== row.id);
+      if (ids.length) db.run(`UPDATE tasks SET phase_id = ? WHERE id IN (${ids.map(() => '?').join(', ')})`, [fields.phase_id, ...ids]);
+    }
     // Optionally complete / reopen all subtasks along with the parent.
     if (req.body.cascade && fields.status) {
       db.run(`
@@ -1014,11 +1127,18 @@ const XL = {
     { header: 'Charter complete', width: 10 },
   ],
   tasks: [
-    { header: 'Project', width: 26 }, { header: 'Task', width: 40 }, { header: 'Subtask of', width: 26 },
+    { header: 'Project', width: 26 }, { header: 'Phase', width: 20 }, { header: 'Task', width: 40 }, { header: 'Subtask of', width: 26 },
     { header: 'Owner', width: 16 }, { header: 'Status', width: 11 }, { header: 'Priority', width: 9 }, { header: 'Start', type: 'date', width: 11 },
     { header: 'Due', type: 'date', width: 11 }, { header: 'Waiting on', width: 16 },
     { header: 'Waiting since', type: 'date', width: 12 }, { header: 'Repeats', width: 11 },
     { header: 'In baseline', width: 10 }, { header: 'Created', type: 'datetime', width: 16 },
+    { header: 'Completed', type: 'datetime', width: 16 }, { header: 'Description', type: 'wrap', width: 50 },
+  ],
+  phases: [
+    { header: 'Project', width: 26 }, { header: '#', type: 'number', width: 5 }, { header: 'Phase', width: 30 },
+    { header: 'Status', width: 10 }, { header: 'Start', type: 'date', width: 11 }, { header: 'End', type: 'date', width: 11 },
+    { header: 'Baseline end', type: 'date', width: 12 }, { header: 'Tasks', type: 'number', width: 7 },
+    { header: 'Done', type: 'number', width: 7 }, { header: 'Overdue', type: 'number', width: 8 },
     { header: 'Completed', type: 'datetime', width: 16 }, { header: 'Description', type: 'wrap', width: 50 },
   ],
   ideas: [
@@ -1058,13 +1178,17 @@ function exportSheets(scope, id) {
       p.project_code, p.sponsor, p.leader, p.policy_deployment, p.category, p.gm_effect, p.problem, p.goals,
       p.in_scope, p.out_scope, p.benefits_quantified, p.benefits_other,
       `${charter.completeness(p, charterExtras(p.id)).pct}%`]) });
-    const tRows = db.all(`SELECT t.*, p.name AS project_name, par.title AS parent_title FROM tasks t
+    const tRows = db.all(`SELECT t.*, p.name AS project_name, par.title AS parent_title, ph.name AS phase_name FROM tasks t
       LEFT JOIN projects p ON p.id = t.project_id LEFT JOIN tasks par ON par.id = t.parent_id
+      LEFT JOIN project_phases ph ON ph.id = t.phase_id
       ${projWhere} ORDER BY p.name IS NULL, p.name COLLATE NOCASE, t.sort_order, t.id`, projParams);
     sheets.push({ name: 'Tasks', columns: XL.tasks, rows: tRows.map((t) => [
-      t.project_name || '(standalone task)', t.title, t.parent_title, t.owner, label(STATUS_LABEL, t.status), PRIORITY_LABEL[t.priority], t.start_date,
+      t.project_name || '(standalone task)', t.phase_name, t.title, t.parent_title, t.owner, label(STATUS_LABEL, t.status), PRIORITY_LABEL[t.priority], t.start_date,
       t.due_at, t.waiting_on, t.waiting_since, label(REPEAT_LABEL, t.recurrence), t.is_baseline ? 'Yes' : 'No',
       t.created_at, t.completed_at, t.description]) });
+    const phases = projects.flatMap((p) => projectPhases(p.id).map((ph, i) => [p.name, i + 1, ph.name, label(STATUS_LABEL, ph.status),
+      ph.start_date, ph.due_at, ph.baseline_due_at, ph.task_count, ph.done_count, ph.overdue_count, ph.completed_at, ph.description]));
+    if (phases.length) sheets.push({ name: 'Phases', columns: XL.phases, rows: phases });
   }
   if (scope !== 'project') {
     const ideas = db.all(`${IDEA_SELECT} ORDER BY i.id`);
@@ -1137,13 +1261,14 @@ router.get('/report', h((req, res) => {
   const out = projects.map((p) => {
     const open = "t.project_id = ? AND t.status <> 'done'";
     const events = db.all(`SELECT * FROM audit_log WHERE project_id = ? AND changed_at BETWEEN ? AND ?
-      AND table_name IN ('tasks', 'projects') AND action = 'UPDATE' ORDER BY changed_at, id`, [p.id, start, end]).map(normAudit);
+      AND table_name IN ('tasks', 'projects', 'project_phases') AND action = 'UPDATE' ORDER BY changed_at, id`, [p.id, start, end]).map(normAudit);
     // Net due-date change per task/project over the period.
     const moves = new Map();
     for (const e of events) {
       if (e.old_data?.due_at === e.new_data?.due_at) continue;
       const key = `${e.table_name}:${e.record_id}`;
-      const m = moves.get(key) || { what: e.table_name === 'projects' ? 'Project due date' : e.new_data.title, from: e.old_data.due_at };
+      const what = { projects: 'Project due date', project_phases: `Phase "${e.new_data.name}" end date` }[e.table_name] || e.new_data.title;
+      const m = moves.get(key) || { what, from: e.old_data.due_at };
       m.to = e.new_data.due_at;
       m.at = e.changed_at;
       moves.set(key, m);
@@ -1158,6 +1283,8 @@ router.get('/report', h((req, res) => {
       id: p.id, name: p.name, status: p.status, priority: p.priority, due_at: p.due_at,
       baseline_due_at: p.baseline_due_at, baseline_set_at: p.baseline_set_at,
       task_count: p.task_count, done_count: p.done_count, budget: p.budget, spent: p.spent,
+      phases: projectPhases(p.id).map((ph) => ({ id: ph.id, name: ph.name, status: ph.status, due_at: ph.due_at,
+        baseline_due_at: ph.baseline_due_at, completed_at: ph.completed_at, task_count: ph.task_count, done_count: ph.done_count })),
       completed: tasks('WHERE t.project_id = ? AND t.completed_at BETWEEN ? AND ? ORDER BY t.completed_at', [p.id, start, end]),
       added: tasks('WHERE t.project_id = ? AND t.created_at BETWEEN ? AND ? ORDER BY t.created_at', [p.id, start, end]),
       started: [...started.values()],
@@ -1263,7 +1390,7 @@ router.get('/search', h((req, res) => {
 
 const STATUS_LABEL = { todo: 'To do', in_progress: 'In progress', blocked: 'Blocked', done: 'Done',
   active: 'Active', on_hold: 'On hold', completed: 'Completed', archived: 'Archived',
-  new: 'New', reviewing: 'Under review', approved: 'Approved', rejected: 'Rejected',
+  open: 'Open', new: 'New', reviewing: 'Under review', approved: 'Approved', rejected: 'Rejected',
   implemented: 'Implemented', escalated: 'Escalated to project' };
 const PRIORITY_LABEL = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Critical' };
 const FIELD_LABEL = { title: 'title', name: 'name', description: 'description', status: 'status',
@@ -1275,7 +1402,7 @@ const FIELD_LABEL = { title: 'title', name: 'name', description: 'description', 
   policy_deployment: 'policy deployment', category: 'category', gm_effect: 'gross margin effect',
   problem: 'problem definition', goals: 'goals', in_scope: 'in scope', out_scope: 'out of scope',
   benefits_quantified: 'quantified benefits', benefits_other: 'other benefits', role: 'role', capacity: 'capacity',
-  unit: 'unit', baseline: 'baseline', target: 'target', current: 'current value', owner: 'owner' };
+  unit: 'unit', baseline: 'baseline', target: 'target', current: 'current value', owner: 'owner', phase_id: 'phase' };
 const LONG_TEXT = ['description', 'body', 'problem', 'goals', 'in_scope', 'out_scope', 'benefits_quantified', 'benefits_other'];
 const REPEAT_LABEL = { daily: 'Daily', weekdays: 'Weekdays', weekly: 'Weekly', fortnightly: 'Every 2 weeks',
   monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' };
@@ -1287,6 +1414,7 @@ function fmtValue(field, v) {
   if (field === 'area_id') return db.get('SELECT name FROM areas WHERE id = ?', [v])?.name || `#${v}`;
   if (field === 'active') return v ? 'yes' : 'no';
   if (field === 'recurrence') return REPEAT_LABEL[v] || v;
+  if (field === 'phase_id') return db.get('SELECT name FROM project_phases WHERE id = ?', [v])?.name || `phase #${v}`;
   if (field in MONEY_FIELDS) return `${getSettings().currency}${Number(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (field === 'due_at') return new Date(v).toLocaleDateString(undefined, { dateStyle: 'medium' });
   if (field === 'start_date' || field === 'spent_on') return new Date(`${v}T12:00`).toLocaleDateString(undefined, { dateStyle: 'medium' });
@@ -1301,7 +1429,10 @@ function describeAudit(e) {
   const label = { projects: 'Project', tasks: d.parent_id ? 'Subtask' : 'Task', notes: 'Note', reminders: 'Reminder',
     ideas: `Idea${d.ref ? ` ${d.ref}` : ''}`, idea_notes: 'Idea note', areas: 'Area', settings: 'Setting',
     project_costs: 'Cost', task_links: 'Dependency', project_team: 'Team member', project_kpis: 'KPI',
-    lookups: 'List item' }[e.table_name] || e.table_name;
+    lookups: 'List item', project_phases: 'Phase' }[e.table_name] || e.table_name;
+  if (e.table_name === 'project_phases' && e.action === 'UPDATE' && e.old_data?.status !== e.new_data?.status) {
+    return `Phase "${d.name}" ${e.new_data.status === 'done' ? 'completed ✓' : 'reopened'}`;
+  }
   if (e.table_name === 'task_links') {
     const title = (id) => db.get('SELECT title FROM tasks WHERE id = ?', [id])?.title || `task #${id}`;
     const verb = e.action === 'DELETE' ? 'removed' : 'added';
