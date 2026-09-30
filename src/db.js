@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const log = require('./logger');
 const { schemaSql } = require('./schema');
 
 // node:sqlite prints an "experimental" warning on load; it's stable enough for this use.
@@ -26,6 +27,27 @@ function open(file) {
   conn.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   return conn;
 }
+
+// One-off move of a database from the old location inside the app folder.
+function migrateLegacyData() {
+  const { legacy, dbFile, backup } = config;
+  if (legacy.dbFile && !fs.existsSync(dbFile) && fs.existsSync(legacy.dbFile)) {
+    fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+    // VACUUM INTO also folds in anything still in the -wal file.
+    const old = new sqlite.DatabaseSync(legacy.dbFile);
+    old.prepare('VACUUM INTO ?').run(dbFile);
+    old.close();
+    for (const suffix of ['', '-wal', '-shm']) {
+      if (fs.existsSync(legacy.dbFile + suffix)) fs.renameSync(legacy.dbFile + suffix, `${legacy.dbFile}${suffix}.migrated`);
+    }
+    log.info(`Moved database from ${legacy.dbFile} to ${dbFile}`);
+  }
+  if (legacy.backupDir && !fs.existsSync(backup.dir) && fs.existsSync(legacy.backupDir)) {
+    fs.cpSync(legacy.backupDir, backup.dir, { recursive: true });
+    log.info(`Copied backups from ${legacy.backupDir} to ${backup.dir}`);
+  }
+}
+migrateLegacyData();
 
 const conn = open(config.dbFile);
 

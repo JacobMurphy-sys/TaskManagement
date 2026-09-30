@@ -492,15 +492,19 @@ async function renderLog() {
 }
 
 async function renderBackups() {
-  const list = await api.get('/backups');
+  const [list, info] = await Promise.all([api.get('/backups'), api.get('/info')]);
   const size = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
   main().innerHTML = `
     <div class="kanban-tools"><h1 style="margin:0">Backups</h1><div class="spacer"></div>
       <button class="primary" data-action="backup-now">💾 Back up now</button></div>
     <div class="card stack">
+      <p><b>Your data folder:</b> <code>${esc(info.data_dir)}</code><br>
+        <span class="small muted">Database: <code>${esc(info.db_file)}</code> (open this in DBeaver) ·
+        Backups: <code>${esc(info.backup_dir)}</code> · Logs: <code>${esc(info.log_dir)}</code><br>
+        This is outside the app folder, so updating the app never touches it.</span></p>
       <p>Backups run automatically (at start-up and on the interval set in <code>.env</code>). Each backup is a
         complete copy of the <b>database file</b> (<code>.db</code> — opens in DBeaver) plus a <b>JSON export</b> of every table.</p>
-      <p class="small muted">Restore with <code>npm run restore -- backups/db/&lt;file&gt;.db</code> (a <code>.json</code> file works too).
+      <p class="small muted">Restore with <code>npm run restore -- "&lt;backup file&gt;.db"</code> (a <code>.json</code> file works too).
         A safety backup of the current data is taken first.</p>
     </div>
     <div class="card" style="margin-top:16px"><table class="log">

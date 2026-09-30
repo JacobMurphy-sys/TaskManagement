@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('./db');
 const backup = require('./backup');
 const log = require('./logger');
+const config = require('./config');
 
 const router = express.Router();
 
@@ -360,6 +361,9 @@ router.get('/audit', h((req, res) => {
 
 // ------------------------------------------------------------------ backups
 
+router.get('/info', h((req, res) => res.json({
+  data_dir: config.dataDir, db_file: config.dbFile, backup_dir: config.backup.dir, log_dir: config.logDir,
+})));
 router.get('/backups', h((req, res) => res.json(backup.listBackups())));
 router.post('/backups', h((req, res) => res.status(201).json(backup.runBackup('manual (UI)'))));
 

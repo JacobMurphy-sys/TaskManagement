@@ -45,6 +45,11 @@ app.use(express.static(path.join(config.ROOT, 'public')));
 const server = app.listen(config.port, config.host, () => {
   log.info(`Task Manager running at http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);
   log.info(`Database file: ${config.dbFile}`);
+  const inside = (p) => !path.relative(config.ROOT, p).startsWith('..') && !path.isAbsolute(path.relative(config.ROOT, p));
+  if (inside(config.dbFile) || inside(config.backup.dir)) {
+    log.warn('Your database or backups are inside the app folder, where replacing or re-cloning the code could '
+      + 'remove them. Remove DB_FILE / BACKUP_DIR / LOG_DIR from .env to use the default data folder.');
+  }
 });
 server.on('error', (err) => {
   log.error(err.code === 'EADDRINUSE'

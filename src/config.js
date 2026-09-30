@@ -1,5 +1,6 @@
 // Loads settings from .env (if present) and the environment. No dependencies.
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -20,15 +21,30 @@ const env = process.env;
 const resolve = (p) => path.resolve(ROOT, p);
 const num = (v, fallback) => (v === undefined || v === '' || Number.isNaN(Number(v)) ? fallback : Number(v));
 
+// Data lives outside the app folder so updating, re-cloning or replacing the
+// code can never touch it. Windows: %LOCALAPPDATA%\TaskManager.
+const defaultDataDir = env.LOCALAPPDATA
+  ? path.join(env.LOCALAPPDATA, 'TaskManager')
+  : path.join(os.homedir(), '.taskmanager');
+const dataDir = env.DATA_DIR ? resolve(env.DATA_DIR) : defaultDataDir;
+const inData = (setting, name) => (setting ? resolve(setting) : path.join(dataDir, name));
+
 module.exports = {
   ROOT,
   port: num(env.PORT, 3000),
   host: env.HOST || '127.0.0.1',
-  dbFile: resolve(env.DB_FILE || './data/taskmgr.db'),
+  dataDir,
+  dbFile: inData(env.DB_FILE, 'taskmgr.db'),
+  // Where older versions kept their data (inside the app folder); migrated on start-up.
+  // Only when the location isn't set explicitly (so e.g. the test run never touches real data).
+  legacy: {
+    dbFile: env.DB_FILE ? null : path.join(ROOT, 'data', 'taskmgr.db'),
+    backupDir: env.BACKUP_DIR ? null : path.join(ROOT, 'backups'),
+  },
   backup: {
-    dir: resolve(env.BACKUP_DIR || './backups'),
+    dir: inData(env.BACKUP_DIR, 'backups'),
     intervalHours: num(env.BACKUP_INTERVAL_HOURS, 24),
     keep: Math.max(1, num(env.BACKUP_KEEP, 30)),
   },
-  logDir: resolve(env.LOG_DIR || './logs'),
+  logDir: inData(env.LOG_DIR, 'logs'),
 };

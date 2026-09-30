@@ -2,13 +2,15 @@
 
 A personal project & task management system that runs on your own PC.
 
-It needs nothing except **Node.js**. The data is kept in a single **SQLite** database file (`data/taskmgr.db`) using the SQLite engine built into Node, so there is no database server to install or run. You can open that file in **DBeaver** to browse, query or edit the data.
+It needs nothing except **Node.js**. The data is kept in a single **SQLite** database file using the SQLite engine built into Node, so there is no database server to install or run. You can open that file in **DBeaver** to browse, query or edit the data.
+
+**Your data lives outside the app folder**, in `%LOCALAPPDATA%\TaskManager` (i.e. `C:\Users\<you>\AppData\Local\TaskManager`), which holds `taskmgr.db`, `backups\` and `logs\`. Updating, re-cloning or deleting the app folder never touches it. The **Backups** page in the app shows the exact path.
 
 | Spec item | How it's covered |
 |---|---|
 | Baseline + quick additive updates | New projects take a list of **baseline tasks**; the plan is frozen ("baseline") and anything added later is flagged **+ added**. The baseline panel shows tasks added/removed since then and how far the due date has slipped. A **quick-note bar** on every project (and a global **Quick note** button, key `N`) appends time-stamped notes as you go. |
 | Fully date & time stamped | Every record has `created_at` / `updated_at` / `completed_at` (with time zone), maintained by the database itself. |
-| Full logging | Every insert/update/delete on every table is written to `audit_log` **by database triggers**, so edits made directly in DBeaver are recorded too. See it in **Activity log**, per project in the **Timeline**, and per task under **History**. The server also writes daily log files to `logs/`. |
+| Full logging | Every insert/update/delete on every table is written to `audit_log` **by database triggers**, so edits made directly in DBeaver are recorded too. See it in **Activity log**, per project in the **Timeline**, and per task under **History**. The server also writes daily log files to the `logs` folder in your data folder. |
 | Backups | Automatic backups at start-up and every 24h (configurable): a complete copy of the **database file** (safe to take while the app is running) plus a **JSON export** of every table. Old backups are pruned (keeps 30). **Back up now** button in the app, and a restore script. |
 | Priority & due dates | Low / Medium / High / Critical, and due date + time on projects and tasks. Overdue and due-soon items are highlighted. |
 | Pop-up reminders & alerts | Set reminders on tasks or projects (quick buttons: 15 min, 1 h, next workday 9:00…). When one is due you get an in-app pop-up with a sound, plus a **Windows desktop notification** once enabled. Pop-ups offer Snooze / Dismiss / Open. Tasks that are overdue or due within 15 min also pop up automatically. |
@@ -32,7 +34,7 @@ Also included: a dashboard (overdue, due today, next 7 days, high priority, remi
    npm install
    npm start
    ```
-   The database file `data\taskmgr.db` is created automatically on first start.
+   The database is created automatically on first start in `%LOCALAPPDATA%\TaskManager`. If you used an earlier version that kept `data\taskmgr.db` inside the app folder, it's moved across automatically on first start (the old file is renamed to `taskmgr.db.migrated`), and old backups are copied too.
 3. **Enable desktop alerts:** click **🔔 Enable desktop alerts** in the top bar and allow notifications. Reminders only fire while the app is open in a browser tab, so keep it pinned in Edge or Chrome.
 4. *(Optional)* To change the port, database location or backup settings, copy `.env.example` to `.env` and edit it.
 
@@ -49,7 +51,7 @@ Double-click **`update.bat`** in your clone of the repository. It:
 4. runs `npm install` in case dependencies changed;
 5. starts the app again and opens it in the browser.
 
-This needs Git installed and the app running from a `git clone` of the repository. Your `data`, `logs` and `backups` folders and your `.env` are git-ignored, so pulling never touches them. If the pull fails (for example, because you've edited a tracked file), the script says so and restarts the version you already had.
+This needs Git installed and the app running from a `git clone` of the repository. Your data is in `%LOCALAPPDATA%\TaskManager`, outside the repository, so pulling never touches it (and `.env` is git-ignored). If the pull fails (for example, because you've edited a tracked file), the script says so and restarts the version you already had.
 
 ---
 
@@ -72,15 +74,15 @@ This needs Git installed and the app running from a `git clone` of the repositor
 
 ## 3. Backups & restore
 
-- Each backup writes a database copy to `backups/db/` and a JSON export to `backups/json/`.
+- Each backup writes a database copy to `backups\db\` and a JSON export to `backups\json\`, inside your data folder (`%LOCALAPPDATA%\TaskManager\backups`).
 - **Take a backup now:** the **Backups** page, or `npm run backup`.
-- **Restore:** `npm run restore -- backups\db\taskmgr-YYYYMMDD-HHMMSS.db` (a `.json` backup works too). It asks you to confirm, then takes a safety backup of the current data before replacing it. Run `npm run restore` with no file to list the available backups. It's best to stop the app first.
+- **Restore:** `npm run restore -- "%LOCALAPPDATA%\TaskManager\backups\db\taskmgr-YYYYMMDD-HHMMSS.db"` (a `.json` backup works too). It asks you to confirm, then takes a safety backup of the current data before replacing it. Run `npm run restore` with no file to list the available backups. It's best to stop the app first.
 - A backup `.db` file is a normal database, so you can also just open it in DBeaver to look something up without restoring.
 - **Tip:** set `BACKUP_DIR` in `.env` to a OneDrive or network folder so the backups are kept off your PC.
 
 ## 4. Working with the data directly (DBeaver)
 
-In DBeaver: *Database → New Database Connection → SQLite*, and pick `data\taskmgr.db` as the path. DBeaver offers to download the SQLite driver the first time. You can do this while the app is running.
+In DBeaver: *Database → New Database Connection → SQLite*, and pick `%LOCALAPPDATA%\TaskManager\taskmgr.db` as the path (paste `%LOCALAPPDATA%\TaskManager` into the file dialog's address bar to get there). DBeaver offers to download the SQLite driver the first time. You can do this while the app is running.
 
 | Table | Contents |
 |---|---|
@@ -99,11 +101,12 @@ In DBeaver: *Database → New Database Connection → SQLite*, and pick `data\ta
 | Setting | Default | Meaning |
 |---|---|---|
 | `PORT` / `HOST` | `3000` / `127.0.0.1` | Where the app listens. Keeping `127.0.0.1` means only your own PC can reach it. |
-| `DB_FILE` | `./data/taskmgr.db` | The database file |
-| `BACKUP_DIR` | `./backups` | Where backups go |
+| `DATA_DIR` | `%LOCALAPPDATA%\TaskManager` | Folder for the database, backups and logs. Avoid OneDrive-synced folders for the live database. |
+| `DB_FILE` | `DATA_DIR\taskmgr.db` | The database file |
+| `BACKUP_DIR` | `DATA_DIR\backups` | Where backups go (a OneDrive or network folder is a good choice) |
 | `BACKUP_INTERVAL_HOURS` | `24` | Hours between automatic backups (`0` turns them off) |
 | `BACKUP_KEEP` | `30` | Number of backups of each type to keep |
-| `LOG_DIR` | `./logs` | Daily log files |
+| `LOG_DIR` | `DATA_DIR\logs` | Daily log files |
 
 ## 6. Project layout
 

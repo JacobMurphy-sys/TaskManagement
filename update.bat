@@ -2,7 +2,7 @@
 REM Development helper: stops the running Task Manager, backs up your data,
 REM runs "git pull" in this folder (the same as AutoPull.bat), installs any
 REM new dependencies and restarts the app.
-REM Your data, logs, backups and .env are git-ignored, so the pull never touches them.
+REM Your data lives in %LOCALAPPDATA%\TaskManager, outside this folder, so the pull never touches it.
 setlocal EnableExtensions
 
 REM This file may itself be replaced by the update, and cmd reads batch files
