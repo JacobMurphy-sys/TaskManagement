@@ -296,6 +296,22 @@ async function waitForServer() {
     const stNote = await call('POST', '/notes', { task_id: st.id, body: 'Form is on the intranet\n[ ] Print form' });
     assert.equal(stNote.created_tasks[0].parent_id, st.id, 'subtask from a note on a standalone task');
     assert.ok((await call('GET', '/tasks?standalone=1')).some((t) => t.id === st.id));
+    // Quick note that starts a new task: standalone, or inside a project.
+    const nn = await call('POST', '/notes', { new_task: { title: 'Book van hire !high @tomorrow' }, body: 'Quote from Hertz\n[ ] Confirm dates' });
+    assert.equal(nn.task.title, 'Book van hire');
+    assert.equal(nn.task.priority, 3);
+    assert.ok(nn.task.due_at, 'due date from quick syntax');
+    assert.equal(nn.task.project_id, null, 'new task from a note needs no project');
+    assert.equal(nn.task_id, nn.task.id, 'note sits on the new task');
+    assert.equal(nn.created_tasks[0].parent_id, nn.task.id, '[ ] lines become its subtasks');
+    assert.equal((await call('GET', `/tasks/${nn.task.id}`)).notes[0].body.split('\n')[0], 'Quote from Hertz');
+    const np2 = await call('POST', '/notes', { new_task: { title: 'Ask IT for access', project_id: cp.id }, body: 'Ticket raised' });
+    assert.equal(np2.task.project_id, cp.id);
+    assert.equal(np2.project_id, cp.id);
+    await assert.rejects(call('POST', '/notes', { new_task: { title: '  ' }, body: 'x' }), /needs a title/);
+    await assert.rejects(call('POST', '/notes', { body: 'nowhere' }), /Choose a task/);
+    assert.ok((await call('GET', '/dashboard')).recent_notes.some((n) => n.task_id === nn.task.id && n.project_id === null));
+    await call('DELETE', `/tasks/${np2.task.id}`);
     assert.ok((await call('GET', '/dashboard')).today.some((t) => t.id === st.id), 'standalone tasks on the dashboard');
     assert.ok((await call('GET', `/report?from=${todayKey}&to=${todayKey}`)).standalone.added.some((t) => t.id === st.id));
     await assert.rejects(call('POST', `/tasks/${st.id}/dependencies`, { depends_on_id: taskA.id }), /tasks in projects/);

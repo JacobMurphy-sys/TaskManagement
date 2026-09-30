@@ -374,7 +374,7 @@ async function renderDashboard() {
           <button class="icon" data-action="delete-reminder" data-id="${r.id}" title="Delete reminder">✕</button>
         </li>`, 'No reminders set')}
       ${section('dash-notes', '📝 Latest notes', d.recent_notes, (n) => `<li style="display:block">
-          <div class="small muted">${esc(fmtDateTime(n.created_at))} · ${n.project_id ? `<a href="#/project/${n.project_id}">${esc(n.project_name)}</a>` : '<a href="#/tasks">✅ Tasks</a>'}${n.task_title ? ` · ${esc(n.task_title)}` : ''}</div>
+          <div class="small muted">${esc(fmtDateTime(n.created_at))} · ${n.project_id ? `<a href="#/project/${n.project_id}">${esc(n.project_name)}</a>` : '<a href="#/tasks">✅ Tasks</a>'}${n.task_title ? ` · <a href="javascript:void 0" data-action="open-task" data-id="${n.task_id}">${esc(n.task_title)}</a>` : ''}</div>
           <div class="pre">${linkify(n.body)}</div></li>`, 'No notes yet')}
     </div>`;
 }
@@ -1360,23 +1360,79 @@ function reminderDialog({ taskId, projectId, label, returnToTask }) {
   ensureNotificationPermission();
 }
 
-function quickNoteDialog() {
+// Quick note: goes onto an existing task, starts a new task (standalone or in a
+// project), or onto a project as before. No project is needed.
+async function quickNoteDialog() {
   const active = state.projects.filter((p) => p.status !== 'archived');
-  if (!active.length) { toast('Create a project first'); return projectForm(); }
-  const current = state.view === 'project' ? Number(state.projectId) : store.get('lastNoteProject');
+  const open = await api.get('/tasks?open=1');
+  const byId = new Map(open.map((t) => [t.id, t]));
+  const onProject = state.view === 'project' ? Number(state.projectId) : null;
+  let mode = onProject ? 'project' : store.get('lastNoteMode', open.length ? 'task' : 'new');
+  if (mode === 'task' && !open.length) mode = 'new';
+  if (mode === 'project' && !active.length) mode = 'new';
+  const lastTask = store.get('lastNoteTask');
+  const taskLabel = (t) => `${t.parent_id && byId.get(t.parent_id) ? `↳ ${byId.get(t.parent_id).title} › ` : ''}${t.title}${t.due_at ? ` · due ${fmtDate(t.due_at)}` : ''}`;
+  const taskOptions = (filter = '') => {
+    const f = filter.trim().toLowerCase();
+    const match = (t) => !f || taskLabel(t).toLowerCase().includes(f) || (t.project_name || '').toLowerCase().includes(f);
+    const group = (label, list) => (list.length ? `<optgroup label="${esc(label)}">${list.map((t) =>
+      `<option value="${t.id}" ${t.id === lastTask ? 'selected' : ''}>${esc(taskLabel(t))}</option>`).join('')}</optgroup>` : '');
+    return group('Standalone tasks', open.filter((t) => !t.project_id && match(t)))
+      + active.map((p) => group(p.name, open.filter((t) => t.project_id === p.id && match(t)))).join('');
+  };
+  const projectOptions = (selected) => active.map((p) => `<option value="${p.id}" ${p.id === selected ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
   openModal(`
     <div class="modal-head"><h2 style="margin:0">📝 Quick note</h2><button class="icon" data-action="close-modal">✕</button></div>
-    <label class="f">Project<select id="qn-project">${active.map((p) => `<option value="${p.id}" ${p.id === current ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+    <div class="row"><span class="small muted">Add to</span><div class="seg" id="qn-mode">
+      <button type="button" data-mode="task" ${open.length ? '' : 'disabled'}>Existing task</button>
+      <button type="button" data-mode="new">New task</button>
+      <button type="button" data-mode="project" ${active.length ? '' : 'disabled'}>Project</button></div></div>
+    <div data-pane="task" style="margin-top:10px">
+      <input id="qn-filter" placeholder="Filter tasks…" autocomplete="off" style="width:100%">
+      <select id="qn-task" size="7" style="width:100%;margin-top:6px">${taskOptions()}</select></div>
+    <div data-pane="new" style="margin-top:10px">
+      <label class="f">New task title<input id="qn-title" placeholder="Blank = first line of the note · e.g. Call supplier !high @fri"></label>
+      <label class="f" style="margin-top:8px">Project<select id="qn-new-project"><option value="">— None (standalone task) —</option>${projectOptions(onProject)}</select></label></div>
+    <div data-pane="project" style="margin-top:10px">
+      <label class="f">Project<select id="qn-project">${projectOptions(onProject || store.get('lastNoteProject'))}</select></label></div>
     <label class="f" style="margin-top:10px">Note — time-stamped automatically<textarea id="qn-body" rows="5" placeholder="What happened? (Ctrl+Enter to save; lines starting [ ] become tasks)"></textarea></label>
     <div class="row" style="margin-top:12px"><div class="spacer"></div><button data-action="close-modal">Cancel</button>
       <button class="primary" id="qn-save">Save note</button></div>`);
+  const setMode = (m) => {
+    mode = m;
+    $$('#qn-mode button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
+    $$('[data-pane]').forEach((el) => { el.hidden = el.dataset.pane !== m; });
+    const hint = { task: '[ ] lines become subtasks', new: '[ ] lines become subtasks of the new task', project: '[ ] lines become tasks' }[m];
+    $('#qn-body').placeholder = `What happened? (Ctrl+Enter to save; ${hint})`;
+  };
+  setMode(mode);
+  if (!$('#qn-task').value && $('#qn-task').options.length) $('#qn-task').selectedIndex = 0;
+  $('#qn-mode').addEventListener('click', (e) => { const b = e.target.closest('button[data-mode]'); if (b && !b.disabled) setMode(b.dataset.mode); });
+  $('#qn-filter').addEventListener('input', (e) => {
+    const keep = $('#qn-task').value;
+    $('#qn-task').innerHTML = taskOptions(e.target.value);
+    $('#qn-task').value = keep;
+    if (!$('#qn-task').value && $('#qn-task').options.length) $('#qn-task').selectedIndex = 0;
+  });
   const save = async () => {
     const body = $('#qn-body').value.trim();
-    if (!body) return;
-    const projectId = Number($('#qn-project').value);
-    const note = await api.post('/notes', { project_id: projectId, body });
-    store.set('lastNoteProject', projectId);
-    toast(noteToast(note));
+    if (!body) { $('#qn-body').focus(); return; }
+    let payload;
+    if (mode === 'task') {
+      const taskId = Number($('#qn-task').value);
+      if (!taskId) { toast('Pick a task'); return; }
+      payload = { task_id: taskId };
+      store.set('lastNoteTask', taskId);
+    } else if (mode === 'new') {
+      const title = $('#qn-title').value.trim() || body.split(/\r?\n/)[0].replace(/^\s*[-*•]?\s*\[\s?\]\s*/, '').slice(0, 120);
+      payload = { new_task: { title, project_id: Number($('#qn-new-project').value) || null } };
+    } else {
+      payload = { project_id: Number($('#qn-project').value) };
+      store.set('lastNoteProject', payload.project_id);
+    }
+    const note = await api.post('/notes', { ...payload, body });
+    if (!onProject) store.set('lastNoteMode', mode);
+    toast(note.task ? `Task “${note.task.title}” created with the note` : noteToast(note));
     closeModal();
     await refresh();
   };

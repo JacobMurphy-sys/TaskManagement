@@ -462,14 +462,30 @@ router.delete('/tasks/:id', h((req, res) => {
 router.post('/notes', h((req, res) => {
   const body = String(req.body.body || '').trim();
   if (!body) throw new HttpError(400, 'Note text is required');
-  let projectId = req.body.project_id;
+  let projectId = req.body.project_id || null;
   const taskId = req.body.task_id || null;
+  // A note can start a new task: { new_task: { title: 'Call supplier !high @fri', project_id } }.
+  const newTask = req.body.new_task && typeof req.body.new_task === 'object' ? req.body.new_task : null;
+  if (newTask) {
+    const q = parseQuick(String(newTask.title || '').trim());
+    if (!q.title) throw new HttpError(400, 'The new task needs a title');
+    projectId = newTask.project_id || null;
+    if (projectId && !db.get('SELECT 1 FROM projects WHERE id = ?', [projectId])) throw notFound('Project');
+    const result = db.tx(() => {
+      const task = insertRow('tasks', { project_id: projectId, title: q.title, priority: q.priority, recurrence: q.recurrence,
+        due_at: toDueIso(q.due_at), sort_order: nextSortOrder(projectId) });
+      const { text, created } = tasksFromNote(body, projectId, task.id);
+      const note = insertRow('notes', { project_id: projectId, task_id: task.id, body: text });
+      return { ...note, created_tasks: created, task: normTask(fresh('tasks', task)) };
+    });
+    return res.status(201).json(result);
+  }
   if (taskId) {
     const t = db.get('SELECT project_id FROM tasks WHERE id = ?', [taskId]);
     if (!t) throw notFound('Task');
     projectId = t.project_id;
   }
-  if (!projectId && !taskId) throw new HttpError(400, 'project_id or task_id is required');
+  if (!projectId && !taskId) throw new HttpError(400, 'Choose a task, a new task or a project for the note');
   if (projectId && !db.get('SELECT 1 FROM projects WHERE id = ?', [projectId])) throw notFound('Project');
   const result = db.tx(() => {
     const { text, created } = tasksFromNote(body, projectId, taskId);
