@@ -1091,6 +1091,8 @@ async function renderBackups() {
   const size = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
   main().innerHTML = `
     <div class="kanban-tools"><h1 style="margin:0">Backups</h1><div class="spacer"></div>
+      <button data-action="restore-pick" title="Replace all data with a backup file (.db or .json)">⤺ Restore from file…</button>
+      <input type="file" id="restore-file" accept=".db,.json" hidden>
       <button class="primary" data-action="backup-now">💾 Back up now</button></div>
     <div class="card stack">
       <p><b>Your data folder:</b> <code>${esc(info.data_dir)}</code><br>
@@ -1099,14 +1101,60 @@ async function renderBackups() {
         This is outside the app folder, so updating the app never touches it.</span></p>
       <p>Backups run automatically (at start-up and on the interval set in <code>.env</code>). Each backup is a
         complete copy of the <b>database file</b> (<code>.db</code> — opens in DBeaver) plus a <b>JSON export</b> of every table.</p>
-      <p class="small muted">Restore with <code>npm run restore -- "&lt;backup file&gt;.db"</code> (a <code>.json</code> file works too).
-        A safety backup of the current data is taken first.</p>
+      <p class="small muted"><b>Restore</b> replaces <i>all</i> current data with a backup: use <b>Restore</b> on a row below, or
+        <b>Restore from file…</b> for a backup kept somewhere else (e.g. a copy on OneDrive). You'll see what's in the backup
+        and confirm first, and a safety backup of the current data is always taken, so a restore can itself be undone.</p>
     </div>
     <div class="card" style="margin-top:16px"><table class="log">
-      <thead><tr><th>Created</th><th>Type</th><th>File</th><th>Size</th></tr></thead>
+      <thead><tr><th>Created</th><th>Type</th><th>File</th><th>Size</th><th></th></tr></thead>
       <tbody>${list.map((b) => `<tr><td class="nowrap">${esc(fmtDateTime(b.created_at))}</td><td>${b.kind}</td>
-        <td>${esc(b.file)}</td><td>${size(b.size)}</td></tr>`).join('')}</tbody></table>
+        <td>${esc(b.file)}</td><td>${size(b.size)}</td>
+        <td><button class="small" data-action="restore-listed" data-kind="${esc(b.kind)}" data-file="${esc(b.file)}">⤺ Restore</button></td></tr>`).join('')}</tbody></table>
       ${list.length ? '' : '<div class="empty">No backups yet.</div>'}</div>`;
+}
+
+// Restore: read the backup first (?check=1), show what's in it, and only replace
+// the data once confirmed. `send(check)` posts the file or names the listed backup.
+async function restoreFlow(label, send) {
+  let info;
+  try { info = await send(true); } catch (err) { toast(err.message, 'error'); return; }
+  const c = info.counts;
+  const line = (n, word) => `<b>${n}</b> ${word}${n === 1 ? '' : 's'}`;
+  openModal(`
+    <div class="modal-head"><h2 style="margin:0">⤺ Restore backup?</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <p><b>${esc(label)}</b>${info.created ? `<br><span class="small muted">Backup taken ${esc(fmtDateTime(info.created))}</span>` : ''}</p>
+    <p>It contains ${line(c.projects, 'project')}, ${line(c.tasks, 'task')}, ${line(c.notes, 'note')} and ${line(c.ideas, 'idea')}.</p>
+    <p class="restore-warn">⚠ This <b>replaces all current data</b> with the backup's.
+      A safety backup of the current data is taken first, so you can restore that if needed.</p>
+    <div class="row" style="margin-top:12px"><div class="spacer"></div><button data-action="close-modal">Cancel</button>
+      <button class="danger" id="restore-go">Replace all data</button></div>`);
+  $('#restore-go').addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = 'Restoring…';
+    try {
+      const r = await send(false);
+      closeModal();
+      toast(r.problems ? `Restored, but ${r.problems} item(s) point at missing records` : 'Backup restored', r.problems ? 'error' : '');
+      await loadProjects();
+      await renderBackups();
+      renderSidebar();
+      pollAlerts();
+    } catch (err) {
+      toast(`Restore failed: ${err.message}`, 'error');
+      e.target.disabled = false;
+      e.target.textContent = 'Replace all data';
+    }
+  });
+}
+
+async function restoreUpload(file) {
+  await restoreFlow(file.name, async (check) => {
+    const res = await fetch(`/api/backups/restore${check ? '?check=1' : ''}`, { method: 'POST', body: file,
+      headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(file.name) } });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `${res.status} ${res.statusText}`);
+    return check && !data.created ? { ...data, created: new Date(file.lastModified).toISOString() } : data;
+  });
 }
 
 async function renderSearch(q) {
@@ -1563,6 +1611,14 @@ const actions = {
     await api.del(`/reminders/${el.dataset.id}`);
     if (modal().open) { state.modalDirty = true; await taskModal($('#task-form').dataset.id); } else await refresh();
   },
+  'restore-pick': () => {
+    const input = $('#restore-file');
+    input.value = '';
+    input.onchange = () => { if (input.files[0]) restoreUpload(input.files[0]); };
+    input.click();
+  },
+  'restore-listed': (el) => restoreFlow(el.dataset.file, (check) =>
+    api.post(`/backups/${encodeURIComponent(el.dataset.kind)}/${encodeURIComponent(el.dataset.file)}/restore${check ? '?check=1' : ''}`)),
   'backup-now': async (el) => {
     el.disabled = true;
     try {

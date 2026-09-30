@@ -401,6 +401,31 @@ async function waitForServer() {
     assert.ok(log.some((e) => e.action === 'DELETE' && e.table_name === 'projects'), 'project delete audited');
     assert.equal((await call('GET', `/tasks?project_id=${p.id}`)).length, 0, 'tasks cascaded');
 
+    // ---- Restore from the Backups page: a listed backup, and an uploaded file.
+    const before = (await call('GET', '/backups')).length;
+    const listedUrl = `/backups/db/${encodeURIComponent(path.basename(b.db))}/restore`;
+    const peek = await call('POST', `${listedUrl}?check=1`);
+    assert.ok(peek.counts.projects >= 1 && peek.counts.tasks >= 1, 'check reports what the backup holds');
+    assert.equal((await call('GET', `/projects/${p.id}`).catch(() => null)), null, 'check alone changes nothing');
+    const restored = await call('POST', listedUrl);
+    assert.ok(fs.existsSync(restored.safety), 'safety backup taken before restoring');
+    assert.equal((await call('GET', `/projects/${p.id}`)).name, p.name, 'deleted project is back');
+    assert.ok((await call('GET', '/backups')).length > before);
+    const afterRestore = await call('POST', '/tasks', { title: 'After restore' });
+    assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'tasks' && e.record_id === afterRestore.id), 'audit triggers back after restore');
+    await assert.rejects(call('POST', '/backups/db/nope.db/restore'), /not found/i);
+    const upload = (body, name, q = '') => fetch(`${BASE}/backups/restore${q}`, { method: 'POST', body,
+      headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(name) } });
+    let up2 = await upload(fs.readFileSync(b.json), 'copy é.json', '?check=1');
+    assert.equal(up2.status, 200);
+    assert.equal((await up2.json()).counts.projects, peek.counts.projects, 'JSON and .db backups agree');
+    up2 = await upload(fs.readFileSync(b.json), 'copy é.json');
+    assert.equal(up2.status, 200, 'uploaded JSON backup restored');
+    assert.equal((await call('GET', `/tasks/${afterRestore.id}`).catch(() => null)), null, 'data since the backup replaced');
+    up2 = await upload(Buffer.from('hello'), 'notes.txt', '?check=1');
+    assert.equal(up2.status, 400, 'a non-backup file is refused');
+    assert.match((await up2.json()).error, /not a CI Manager backup/);
+
     await call('POST', '/shutdown');
     const code = await new Promise((r) => server.once('exit', r));
     assert.equal(code, 0, 'server exits cleanly on shutdown');

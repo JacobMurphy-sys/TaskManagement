@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('./db');
 const backup = require('./backup');
+const { readBackup, restoreData, BadBackup } = require('./restore');
 const log = require('./logger');
 const config = require('./config');
 const { execFile, spawn } = require('child_process');
@@ -859,6 +860,11 @@ router.delete('/lookups/:id', h((req, res) => {
 
 // ---- charter Excel template: upload once, map fields to cells, fill per project
 
+// Uploads send their file name URI-encoded (headers can't carry e.g. "é" as is).
+const fileNameHeader = (req, fallback) => {
+  const raw = String(req.get('X-File-Name') || '');
+  try { return decodeURIComponent(raw) || fallback; } catch { return raw || fallback; }
+};
 const TEMPLATE_FILE = path.join(config.dataDir, 'charter-template.xlsx');
 const setSetting = (key, value) => db.run(`INSERT INTO settings (key, value) VALUES (?, ?)
   ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [key, value]);
@@ -905,7 +911,7 @@ router.post('/charter-template', express.raw({ type: '*/*', limit: '15mb' }), h(
   }
   fs.mkdirSync(path.dirname(TEMPLATE_FILE), { recursive: true });
   fs.writeFileSync(TEMPLATE_FILE, buf);
-  setSetting('charter_template_name', String(req.get('X-File-Name') || 'template.xlsx').slice(0, 200));
+  setSetting('charter_template_name', fileNameHeader(req, 'template.xlsx').slice(0, 200));
   setSetting('charter_map', JSON.stringify(detected));
   log.info('Charter template uploaded', { fields_found: Object.keys(detected).length });
   res.status(201).json(templateInfo());
@@ -1214,6 +1220,26 @@ router.get('/info', h((req, res) => res.json({
 })));
 router.get('/backups', h((req, res) => res.json(backup.listBackups())));
 router.post('/backups', h((req, res) => res.status(201).json(backup.runBackup('manual (UI)'))));
+
+// Restore from an uploaded backup file (?check=1 only reads it and reports what's in it).
+const loadBackup = (fn) => {
+  try { return fn(); } catch (err) { if (err instanceof BadBackup) throw new HttpError(400, err.message); throw err; }
+};
+const restoreReply = (req, res, data, label) => {
+  if (req.query.check === '1') return res.json({ created: data.created, counts: data.counts });
+  res.json(restoreData(data, `restore from ${label}`));
+};
+router.post('/backups/restore', express.raw({ type: '*/*', limit: '500mb' }), h((req, res) => {
+  if (!Buffer.isBuffer(req.body) || !req.body.length) throw new HttpError(400, 'No file received');
+  const name = path.basename(fileNameHeader(req, 'upload'));
+  restoreReply(req, res, loadBackup(() => readBackup(req.body, name)), name);
+}));
+// Restore one of the backups listed on the Backups page.
+router.post('/backups/:kind/:file/restore', h((req, res) => {
+  const b = backup.listBackups().find((x) => x.kind === req.params.kind && x.file === req.params.file);
+  if (!b) throw notFound('Backup');
+  restoreReply(req, res, loadBackup(() => readBackup(b.path)), b.file);
+}));
 
 // ------------------------------------------------------------------ search
 

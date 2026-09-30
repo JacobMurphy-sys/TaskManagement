@@ -440,3 +440,5 @@ label.button { cursor: pointer; }
   body.printing-charter .ch-box textarea, body.printing-charter .ch-box input { background: none; border: 0; resize: none; font-size: 11px; }
   body.printing-charter .ch-table tr.ch-add, body.printing-charter .ch-table button { display: none; }
 }
+
+.restore-warn { border: 1px solid var(--danger); border-radius: 6px; padding: 8px 10px; color: var(--danger); white-space: normal; }

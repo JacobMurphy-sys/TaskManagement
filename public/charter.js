@@ -330,7 +330,7 @@ async function renderCharterSettings(root) {
     const file = e.target.files[0];
     if (!file) return;
     const res = await fetch('/api/charter-template', { method: 'POST', body: file,
-      headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': file.name } });
+      headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(file.name) } });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { toast(data.error || 'Upload failed', 'error'); return; }
     const found = Object.keys(data.mapping).length;
