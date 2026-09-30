@@ -856,7 +856,8 @@ function templateInfo() {
     try {
       const t = charter.readTemplate(fs.readFileSync(TEMPLATE_FILE));
       info.sheets = t.sheets.filter((sh) => !sh.hidden).map((sh) => sh.name);
-      info.hidden_sheets = t.sheets.filter((sh) => sh.hidden).map((sh) => sh.name);
+      info.output_sheets = charter.outputSheets(t, info.mapping);
+      info.dropped_sheets = t.sheets.map((sh) => sh.name).filter((n) => !info.output_sheets.includes(n));
       info.timelines = t.sheets.filter((sh) => !sh.hidden).flatMap((sh) => charter.detectTimelines(sh)).map((g) => ({
         title: g.title, kind: g.kind, sheet: g.sheet, first_row: g.rows[0], last_row: g.rows.at(-1), rows: g.rows.length,
         months: g.months.length, has_owner: !!g.owner_col, has_planned: !!g.planned_col, has_status: !!g.status_col,

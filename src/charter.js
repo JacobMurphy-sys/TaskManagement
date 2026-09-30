@@ -6,8 +6,9 @@
 // the box beside or beneath it, or under the label when the label sits at the top
 // of its box. Timeline grids ("Sub projects" / "Action agreed" with month columns)
 // are filled from the project's tasks. The user can correct any cell on the
-// Settings page. Everything else in the workbook (styles, merges, other sheets,
-// formulas) is left untouched.
+// Settings page. The download holds only the sheet(s) the charter is written to
+// (the other sheets of the workbook are dropped); styles, merges and formulas on
+// those sheets are left untouched.
 const { buildXlsx, zip, readZip, xmlEsc, excelSerial } = require('./xlsx');
 
 // key -> label, and the regex used to find its label in a template.
@@ -410,6 +411,102 @@ function fillGrid(xml, grid, list, startYear, styles, cache) {
   return xml;
 }
 
+// Resolve a relationship target against the folder of the part that owns it.
+function resolvePart(from, target) {
+  const parts = target.startsWith('/') ? [] : from.split('/').slice(0, -1);
+  for (const seg of target.replace(/^\//, '').split('/')) {
+    if (seg === '..') parts.pop();
+    else if (seg && seg !== '.') parts.push(seg);
+  }
+  return parts.join('/');
+}
+const relsPathOf = (part) => { const i = part.lastIndexOf('/'); return `${part.slice(0, i + 1)}_rels/${part.slice(i + 1)}.rels`; };
+
+// Cut the workbook down to the named sheets: their <sheet> entries, the defined
+// names that point at dropped sheets or other workbooks, the external links that
+// leave behind, and every part (drawings, comments, tables, …) that nothing
+// references any more.
+function keepSheets(files, sheets, keep) {
+  const str = (p) => files[p].toString('utf8');
+  const set = (p, s) => { files[p] = Buffer.from(s, 'utf8'); };
+  const kept = sheets.filter((sh) => keep.has(sh.name));
+  if (!kept.length || kept.length === sheets.length) return;
+  const dropped = sheets.filter((sh) => !keep.has(sh.name));
+  const newIndex = new Map(sheets.map((sh, i) => [i, kept.indexOf(sh)]));
+
+  let wb = str('xl/workbook.xml');
+  let rels = str('xl/_rels/workbook.xml.rels');
+  const dropRel = (id) => { rels = rels.replace(new RegExp(`<Relationship\\b[^>]*\\bId="${id}"[^>]*/>`), ''); };
+  wb = wb.replace(/<sheet\b[^>]*\/>/g, (tag) => {
+    const name = decode(tag.match(/name="([^"]*)"/)[1]);
+    if (keep.has(name)) return tag;
+    dropRel(tag.match(/r:id="([^"]+)"/)[1]);
+    return '';
+  });
+  // A workbook needs at least one visible sheet.
+  if (kept.every((sh) => sh.hidden)) {
+    const first = kept[0].name;
+    wb = wb.replace(/<sheet\b[^>]*\/>/g, (tag) => (decode(tag.match(/name="([^"]*)"/)[1]) === first ? tag.replace(/\s+state="[^"]*"/, '') : tag));
+  }
+  wb = wb.replace(/\s+(activeTab|firstSheet)="\d+"/g, '').replace(/<customWorkbookViews>[\s\S]*?<\/customWorkbookViews>/, '');
+
+  // Formula text the kept sheets still use (cells, validations, conditional formats).
+  const keptFormulas = kept.map((sh) => [...str(sh.file).matchAll(/<(?:\w+:)?(?:f|formula\d?)\b[^>]*>([^<]*)</g)].map((m) => decode(m[1])).join('\n')).join('\n');
+  const sheetRef = (name) => new RegExp(`(^|[^\\w.'])(${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|'${name.replace(/'/g, "''").replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}')!`, 'i');
+  const droppedRefs = dropped.map((sh) => sheetRef(sh.name));
+  wb = wb.replace(/<definedName\b([^>]*)>([\s\S]*?)<\/definedName>/g, (whole, attrs, body) => {
+    const formula = decode(body);
+    const local = attrs.match(/localSheetId="(\d+)"/);
+    if (local && newIndex.get(Number(local[1])) < 0) return '';
+    if (droppedRefs.some((re) => re.test(formula))) return '';
+    const name = decode(attrs.match(/name="([^"]*)"/)[1]);
+    const used = new RegExp(`(^|[^\\w.])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\w.])`, 'i').test(keptFormulas);
+    if ((/\[\d+\]/.test(formula) || /#REF!/.test(formula)) && !used) return '';
+    return local ? whole.replace(/localSheetId="\d+"/, `localSheetId="${newIndex.get(Number(local[1]))}"`) : whole;
+  });
+  wb = wb.replace(/<definedNames>\s*<\/definedNames>/, '');
+  // External links nothing refers to any more only trigger "update links" prompts.
+  const namesLeft = (wb.match(/<definedNames>[\s\S]*<\/definedNames>/) || [''])[0];
+  if (!/\[\d+\]/.test(decode(namesLeft)) && !/\[\d+\]/.test(keptFormulas)) {
+    const refs = (wb.match(/<externalReferences>[\s\S]*?<\/externalReferences>/) || [''])[0];
+    for (const m of refs.matchAll(/r:id="([^"]+)"/g)) dropRel(m[1]);
+    wb = wb.replace(/<externalReferences>[\s\S]*?<\/externalReferences>/, '');
+  }
+  set('xl/workbook.xml', wb);
+  set('xl/_rels/workbook.xml.rels', rels);
+
+  // Keep only the parts still reachable from the package root.
+  const reachable = new Set(['[Content_Types].xml']);
+  const walk = (relsFile, owner) => {
+    if (!files[relsFile] || reachable.has(relsFile)) return;
+    reachable.add(relsFile);
+    for (const m of str(relsFile).matchAll(/<Relationship\b[^>]*>/g)) {
+      if (/TargetMode="External"/.test(m[0])) continue;
+      const part = resolvePart(owner, decode(m[0].match(/Target="([^"]+)"/)[1]));
+      if (!files[part] || reachable.has(part)) continue;
+      reachable.add(part);
+      walk(relsPathOf(part), part);
+    }
+  };
+  walk('_rels/.rels', '');
+  for (const p of Object.keys(files)) if (!reachable.has(p)) delete files[p];
+  set('[Content_Types].xml', str('[Content_Types].xml').replace(/<Override\b[^>]*PartName="\/([^"]+)"[^>]*\/>/g, (tag, p) => (files[decode(p)] ? tag : '')));
+  // The sheet list in the document properties is informational; drop it rather than keep a stale one.
+  if (files['docProps/app.xml']) set('docProps/app.xml', str('docProps/app.xml').replace(/<HeadingPairs>[\s\S]*?<\/HeadingPairs>|<TitlesOfParts>[\s\S]*?<\/TitlesOfParts>/g, ''));
+}
+
+// The sheets that go into a filled charter: those a field is mapped to plus those
+// holding a timeline grid (or the first visible sheet when neither applies).
+function outputSheets(template, mapping) {
+  const used = new Set(Object.entries(mapping || {}).filter(([key, m]) => FIELDS[key] && m && m.sheet).map(([, m]) => m.sheet));
+  if (!mapping || mapping._timelines !== false) {
+    for (const sh of template.sheets) if (!sh.hidden && detectTimelines(sh).length) used.add(sh.name);
+  }
+  const names = template.sheets.map((sh) => sh.name).filter((n) => used.has(n));
+  if (!names.length) { const first = template.sheets.find((sh) => !sh.hidden) || template.sheets[0]; if (first) names.push(first.name); }
+  return names;
+}
+
 function fillTemplate(buf, mapping, vals) {
   const t = readTemplate(buf);
   const files = { ...t.files };
@@ -444,10 +541,11 @@ function fillTemplate(buf, mapping, vals) {
     files['[Content_Types].xml'] = Buffer.from(files['[Content_Types].xml'].toString('utf8').replace(/<Override[^>]*calcChain[^>]*\/>/, ''), 'utf8');
     files['xl/_rels/workbook.xml.rels'] = Buffer.from(files['xl/_rels/workbook.xml.rels'].toString('utf8').replace(/<Relationship[^>]*calcChain[^>]*\/>/, ''), 'utf8');
   }
+  keepSheets(files, t.sheets, new Set(outputSheets(t, mapping)));
   return zip(files);
 }
 
 module.exports = {
   FIELDS, FIELD_LIST, REQUIRED, completeness, values, plainWorkbook, readTemplate, detectMapping, detectTimelines,
-  validationList, fillTemplate, ragStatus,
+  validationList, fillTemplate, outputSheets, ragStatus,
 };

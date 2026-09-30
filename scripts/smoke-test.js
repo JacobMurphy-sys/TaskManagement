@@ -324,17 +324,26 @@ async function waitForServer() {
     const plain = readZip(Buffer.from(await cx.arrayBuffer()));
     assert.match(plain['xl/workbook.xml'].toString(), /name="Charter"/, 'plain charter workbook');
     assert.match(plain['xl/worksheets/sheet1.xml'].toString(), /Supplier costs rising/);
-    const tpl = buildXlsx([{ name: 'Form', columns: [{ header: 'Problem definition:' }, { header: 'Management Sponsor:' }, { header: 'Project ID' }], rows: [] }]);
+    const tpl = buildXlsx([{ name: 'Form', columns: [{ header: 'Problem definition:' }, { header: 'Management Sponsor:' }, { header: 'Project ID' }], rows: [] },
+      { name: 'Risk analysis', columns: [{ header: 'Risk' }, { header: 'Likelihood' }], rows: [['Late delivery', 3]] },
+      { name: 'Final report', columns: [{ header: 'Lessons learned' }], rows: [['tbd']] }]);
     const up = await fetch(`${BASE}/charter-template`, { method: 'POST', body: tpl,
       headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': 'form.xlsx' } });
     const info = await up.json();
     assert.equal(up.status, 201, JSON.stringify(info));
     assert.equal(info.mapping.problem.cell, 'A2', 'value goes under its label');
     assert.equal(info.mapping.project_code.cell, 'C2');
+    assert.deepEqual(info.output_sheets, ['Form'], 'only the charter sheet is downloaded');
+    assert.deepEqual(info.dropped_sheets, ['Risk analysis', 'Final report']);
     await assert.rejects(call('PATCH', '/charter-template', { mapping: { problem: { sheet: 'Form', cell: 'nope' } } }), /cell reference/);
     await call('PATCH', '/charter-template', { mapping: { ...info.mapping, sponsor: { sheet: 'Form', cell: 'B5', mode: 'replace' } } });
     cx = await fetch(`${BASE}/projects/${cp.id}/charter.xlsx`);
-    const sheet = readZip(Buffer.from(await cx.arrayBuffer()))['xl/worksheets/sheet1.xml'].toString();
+    const filled = readZip(Buffer.from(await cx.arrayBuffer()));
+    const sheet = filled['xl/worksheets/sheet1.xml'].toString();
+    assert.deepEqual([...filled['xl/workbook.xml'].toString().matchAll(/<sheet\b[^>]*name="([^"]+)"/g)].map((m) => m[1]), ['Form'], 'other sheets left out');
+    assert.ok(!filled['xl/worksheets/sheet2.xml'] && !filled['xl/worksheets/sheet3.xml'], 'dropped sheet parts removed');
+    assert.doesNotMatch(filled['[Content_Types].xml'].toString(), /sheet[23]\.xml/);
+    assert.doesNotMatch(filled['xl/_rels/workbook.xml.rels'].toString(), /sheet[23]\.xml/);
     assert.match(sheet, /<c r="A2"[^>]*><is><t[^>]*>Supplier costs rising</, 'problem filled in');
     assert.match(sheet, /<c r="B5"[^>]*><is><t[^>]*>J\. Smith</, 'remapped sponsor cell used');
     assert.match(sheet, /CI-2026-07/);

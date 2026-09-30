@@ -301,7 +301,8 @@ async function renderCharterSettings(root) {
         ${tpl.timelines.some((g) => g.kind === 'sub') ? 'Sub projects are filled from the project\'s top-level tasks' : ''}${tpl.timelines.some((g) => g.kind === 'actions') ? ', actions from their subtasks' : ''}:
         owner, planned complete date, planned months shaded, <b>S</b> in the month work actually started, <b>x</b> in the month it was completed,
         and Red / Yellow / Green status. The year headers are set to the project's years.</p>` : ''}
-      ${tpl.hidden_sheets?.length ? `<p class="small muted">Hidden sheets in the template are kept as they are: ${tpl.hidden_sheets.map(esc).join(', ')}.</p>` : ''}
+      ${tpl.output_sheets?.length ? `<p class="small">📄 Downloaded charters contain only: <b>${tpl.output_sheets.map(esc).join(', ')}</b>.${tpl.dropped_sheets?.length
+        ? ` <span class="muted">Left out: ${tpl.dropped_sheets.map(esc).join(', ')}.</span>` : ''}</p>` : ''}
       ${tpl.uploaded ? `<table class="log" id="tpl-map" style="margin-top:12px">
         <thead><tr><th>Charter field</th><th>Sheet</th><th>Cell</th><th>How</th><th></th></tr></thead>
         <tbody>${tpl.fields.map(fieldRow).join('')}</tbody></table>
