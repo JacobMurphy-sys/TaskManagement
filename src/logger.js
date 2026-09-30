@@ -26,3 +26,6 @@ module.exports = {
   warn: (msg, extra) => write('WARN', msg, extra),
   error: (msg, extra) => write('ERROR', msg, extra),
 };
+
+// Result of moving the data folder to its new name (see config.js), logged once.
+if (config.dataDirNote) write(/^Moved/.test(config.dataDirNote) ? 'INFO' : 'WARN', config.dataDirNote);

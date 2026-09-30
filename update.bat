@@ -2,7 +2,7 @@
 REM Development helper: stops the running CI Manager, backs up your data,
 REM runs "git pull" in this folder (the same as AutoPull.bat), installs any
 REM new dependencies and restarts the app.
-REM Your data lives in %LOCALAPPDATA%\TaskManager, outside this folder, so the pull never touches it.
+REM Your data lives in %LOCALAPPDATA%\CIManager, outside this folder, so the pull never touches it.
 setlocal EnableExtensions
 
 REM This file may itself be replaced by the update, and cmd reads batch files

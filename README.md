@@ -4,7 +4,7 @@ A personal project & task management system that runs on your own PC.
 
 It needs nothing except **Node.js**. The data is kept in a single **SQLite** database file using the SQLite engine built into Node, so there is no database server to install or run. You can open that file in **DBeaver** to browse, query or edit the data.
 
-**Your data lives outside the app folder**, in `%LOCALAPPDATA%\TaskManager` (the folder keeps its original name from before the app was renamed to CI Manager, so existing data carries on) (i.e. `C:\Users\<you>\AppData\Local\TaskManager`), which holds `taskmgr.db`, `backups\` and `logs\`. Updating, re-cloning or deleting the app folder never touches it. The **Backups** page in the app shows the exact path.
+**Your data lives outside the app folder**, in `%LOCALAPPDATA%\CIManager` (i.e. `C:\Users\<you>\AppData\Local\CIManager`), which holds `taskmgr.db`, `backups\` and `logs\`. Updating, re-cloning or deleting the app folder never touches it. The **Backups** page in the app shows the exact path.
 
 | Spec item | How it's covered |
 |---|---|
@@ -45,7 +45,7 @@ Also included: a **dashboard** in two parts, **Projects** (headline counts plus 
    npm install
    npm start
    ```
-   The database is created automatically on first start in `%LOCALAPPDATA%\TaskManager`. If you used an earlier version that kept `data\taskmgr.db` inside the app folder, it's moved across automatically on first start (the old file is renamed to `taskmgr.db.migrated`), and old backups are copied too.
+   The database is created automatically on first start in `%LOCALAPPDATA%\CIManager`. If you used a version from before the rename to CI Manager, the old `%LOCALAPPDATA%\TaskManager` folder is renamed to `CIManager` automatically on the first start (if something has a file in it open, e.g. DBeaver, the old folder keeps being used and a warning is logged; close it and restart). If you used an earlier version that kept `data\taskmgr.db` inside the app folder, it's moved across automatically on first start (the old file is renamed to `taskmgr.db.migrated`), and old backups are copied too.
 3. **Enable desktop alerts:** click **🔔 Enable desktop alerts** in the top bar and allow notifications. Reminders only fire while the app is open in a browser tab, so keep it pinned in Edge or Chrome.
 4. *(Optional)* To change the port, database location or backup settings, copy `.env.example` to `.env` and edit it.
 
@@ -62,7 +62,7 @@ Double-click **`update.bat`** in your clone of the repository. It:
 4. runs `npm install` in case dependencies changed;
 5. starts the app again and opens it in the browser.
 
-This needs Git installed and the app running from a `git clone` of the repository. Your data is in `%LOCALAPPDATA%\TaskManager`, outside the repository, so pulling never touches it (and `.env` is git-ignored). If the pull fails (for example, because you've edited a tracked file), the script says so and restarts the version you already had.
+This needs Git installed and the app running from a `git clone` of the repository. Your data is in `%LOCALAPPDATA%\CIManager`, outside the repository, so pulling never touches it (and `.env` is git-ignored). If the pull fails (for example, because you've edited a tracked file), the script says so and restarts the version you already had.
 
 When an update changes how data is stored, the app upgrades your database automatically on its next start. Before any structural change it saves a copy of the database as `backups\db\pre-upgrade-<date>.db` in your data folder, and it checks every link between records afterwards; if anything doesn't add up, the upgrade is undone and nothing is changed.
 
@@ -118,15 +118,15 @@ When an update changes how data is stored, the app upgrades your database automa
 
 ## 3. Backups & restore
 
-- Each backup writes a database copy to `backups\db\` and a JSON export to `backups\json\`, inside your data folder (`%LOCALAPPDATA%\TaskManager\backups`).
+- Each backup writes a database copy to `backups\db\` and a JSON export to `backups\json\`, inside your data folder (`%LOCALAPPDATA%\CIManager\backups`).
 - **Take a backup now:** the **Backups** page, or `npm run backup`.
-- **Restore:** `npm run restore -- "%LOCALAPPDATA%\TaskManager\backups\db\taskmgr-YYYYMMDD-HHMMSS.db"` (a `.json` backup works too). It asks you to confirm, then takes a safety backup of the current data before replacing it. Run `npm run restore` with no file to list the available backups. It's best to stop the app first.
+- **Restore:** `npm run restore -- "%LOCALAPPDATA%\CIManager\backups\db\taskmgr-YYYYMMDD-HHMMSS.db"` (a `.json` backup works too). It asks you to confirm, then takes a safety backup of the current data before replacing it. Run `npm run restore` with no file to list the available backups. It's best to stop the app first.
 - A backup `.db` file is a normal database, so you can also just open it in DBeaver to look something up without restoring.
 - **Tip:** set `BACKUP_DIR` in `.env` to a OneDrive or network folder so the backups are kept off your PC.
 
 ## 4. Working with the data directly (DBeaver)
 
-In DBeaver: *Database → New Database Connection → SQLite*, and pick `%LOCALAPPDATA%\TaskManager\taskmgr.db` as the path (paste `%LOCALAPPDATA%\TaskManager` into the file dialog's address bar to get there). DBeaver offers to download the SQLite driver the first time. You can do this while the app is running.
+In DBeaver: *Database → New Database Connection → SQLite*, and pick `%LOCALAPPDATA%\CIManager\taskmgr.db` as the path (paste `%LOCALAPPDATA%\CIManager` into the file dialog's address bar to get there). DBeaver offers to download the SQLite driver the first time. You can do this while the app is running.
 
 | Table | Contents |
 |---|---|
@@ -153,7 +153,7 @@ In DBeaver: *Database → New Database Connection → SQLite*, and pick `%LOCALA
 | Setting | Default | Meaning |
 |---|---|---|
 | `PORT` / `HOST` | `3000` / `127.0.0.1` | Where the app listens. Keeping `127.0.0.1` means only your own PC can reach it. |
-| `DATA_DIR` | `%LOCALAPPDATA%\TaskManager` | Folder for the database, backups and logs. Avoid OneDrive-synced folders for the live database. |
+| `DATA_DIR` | `%LOCALAPPDATA%\CIManager` | Folder for the database, backups and logs. Avoid OneDrive-synced folders for the live database. |
 | `DB_FILE` | `DATA_DIR\taskmgr.db` | The database file |
 | `BACKUP_DIR` | `DATA_DIR\backups` | Where backups go (a OneDrive or network folder is a good choice) |
 | `BACKUP_INTERVAL_HOURS` | `24` | Hours between automatic backups (`0` turns them off) |
