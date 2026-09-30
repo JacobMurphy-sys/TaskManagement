@@ -102,7 +102,8 @@ router.get('/projects', h((req, res) => {
            count(t.id) FILTER (WHERE t.status = 'in_progress')            AS in_progress_count,
            count(t.id) FILTER (WHERE t.status = 'blocked')                AS blocked_count,
            (SELECT min(t2.due_at) FROM tasks t2 WHERE t2.project_id = p.id AND t2.status <> 'done') AS next_due_at,
-           (SELECT max(created_at) FROM notes n WHERE n.project_id = p.id) AS last_note_at
+           (SELECT max(created_at) FROM notes n WHERE n.project_id = p.id) AS last_note_at,
+           (SELECT max(changed_at) FROM audit_log a WHERE a.project_id = p.id) AS last_activity_at
     FROM projects p LEFT JOIN tasks t ON t.project_id = p.id
     ${includeArchived ? '' : "WHERE p.status <> 'archived'"}
     GROUP BY p.id
@@ -365,6 +366,9 @@ router.get('/dashboard', h((req, res) => {
     today: tasks(`${base} AND t.due_at >= ? AND t.due_at < ? ORDER BY t.due_at`, [now, dayStart(1)]),
     week: tasks(`${base} AND t.due_at >= ? AND t.due_at < ? ORDER BY t.due_at`, [dayStart(1), dayStart(8)]),
     high_priority: tasks(`${base} AND t.priority >= 3 ORDER BY t.priority DESC, t.due_at IS NULL, t.due_at`),
+    blocked: tasks(`${base} AND t.status = 'blocked' ORDER BY t.priority DESC, t.due_at IS NULL, t.due_at`),
+    ideas: db.get(`SELECT count(*) AS open, coalesce(sum(cost), 0) AS cost FROM ideas
+      WHERE status IN ('new', 'reviewing', 'approved')`),
     recent_notes: db.all(`SELECT n.*, p.name AS project_name, t.title AS task_title FROM notes n
       JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id
       ORDER BY n.created_at DESC LIMIT 15`),

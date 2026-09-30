@@ -18,7 +18,7 @@ It needs nothing except **Node.js**. The data is kept in a single **SQLite** dat
 | Tick-box tasks & subtasks | Checklist with unlimited nested subtasks. Ticking a parent offers to tick its open subtasks too. |
 | Ideation (lightweight tickets) | Log ideas with a permanent reference (`IDEA-0001`…), name, submitter, area, priority, due date and cost. Add time-stamped notes later, move them through a status, and **escalate** one to a full project in one step. Areas are managed on the **Settings** page. |
 
-Also included: a dashboard (overdue, due today, next 7 days, high priority, reminders, latest notes), search across projects, tasks, notes and ideas, and a layout that works on narrow screens.
+Also included: a **dashboard** in two parts, **Projects** (headline counts plus a table of every ongoing project with a health rating (⚠ At risk / ◐ Watch / ✓ On track), progress, open issues, next due task and last activity) and **Tasks & notes** (overdue, due today, next 7 days, blocked, high-priority, reminders and latest notes), plus search across projects, tasks, notes and ideas, and a layout that works on narrow screens.
 
 ---
 

@@ -232,25 +232,96 @@ function miniTask(t) {
   </li>`;
 }
 
+// Health of an ongoing project, always shown as icon + word (never colour alone).
+function projectHealth(p) {
+  if (p.status === 'on_hold') return { key: 'hold', icon: '⏸', label: 'On hold', why: 'Project is on hold' };
+  const risk = [];
+  if (p.overdue_count) risk.push(`${p.overdue_count} overdue task${p.overdue_count === 1 ? '' : 's'}`);
+  if (p.due_at && dayDiff(p.due_at) < 0) risk.push('project is past its due date');
+  if (risk.length) return { key: 'risk', icon: '⚠', label: 'At risk', why: risk.join(', ') };
+  const watch = [];
+  if (p.blocked_count) watch.push(`${p.blocked_count} blocked task${p.blocked_count === 1 ? '' : 's'}`);
+  if (p.due_at && dayDiff(p.due_at) <= 7) watch.push(`project due ${dueLabel(p.due_at)}`);
+  if (watch.length) return { key: 'watch', icon: '◐', label: 'Watch', why: watch.join(', ') };
+  return { key: 'ok', icon: '✓', label: 'On track', why: 'Nothing overdue or blocked' };
+}
+const HEALTH_ORDER = { risk: 0, watch: 1, ok: 2, hold: 3 };
+
 async function renderDashboard() {
-  const d = await api.get('/dashboard');
-  const section = (title, items, render, empty) => `<div class="card"><h2>${title} <span class="muted small">${items.length}</span></h2>
+  const [d] = await Promise.all([api.get('/dashboard'), loadProjects()]);
+  const ongoing = state.projects
+    .filter((p) => p.status === 'active' || p.status === 'on_hold')
+    .map((p) => ({ ...p, health: projectHealth(p) }))
+    .sort((a, b) => HEALTH_ORDER[a.health.key] - HEALTH_ORDER[b.health.key] || b.priority - a.priority
+      || String(a.due_at || '9').localeCompare(String(b.due_at || '9')));
+  const active = ongoing.filter((p) => p.status === 'active');
+  const onHold = ongoing.length - active.length;
+  const atRisk = ongoing.filter((p) => p.health.key === 'risk').length;
+  const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+  const recentlyDone = state.projects.filter((p) => p.status === 'completed' && p.completed_at > monthAgo).length;
+
+  const kpi = (label, value, sub, target) => `<button class="kpi" data-action="dash-jump" data-target="${target}">
+      <span class="kpi-label">${label}</span><span class="kpi-value">${value.toLocaleString()}</span>
+      <span class="kpi-sub">${sub || '&nbsp;'}</span></button>`;
+  const section = (id, title, items, render, empty) => `<div class="card" id="${id}"><h3>${title} <span class="muted small">${items.length}</span></h3>
     ${items.length ? `<ul class="mini">${items.map(render).join('')}</ul>` : `<div class="empty">${empty}</div>`}</div>`;
+
+  const projectRow = (p) => {
+    const pct = p.task_count ? Math.round((p.done_count / p.task_count) * 100) : 0;
+    const issues = [
+      p.overdue_count && `<span class="chip overdue">⚠ ${p.overdue_count} overdue</span>`,
+      p.blocked_count && `<span class="status-blocked small">⛔ ${p.blocked_count} blocked</span>`,
+      p.in_progress_count && `<span class="small muted">▶ ${p.in_progress_count} in progress</span>`,
+    ].filter(Boolean).join(' ');
+    return `<tr class="clickable" data-action="open-project" data-id="${p.id}">
+      <td><b>${esc(p.name)}</b></td>
+      <td class="nowrap"><span class="health health-${p.health.key}" title="${esc(p.health.why)}">${p.health.icon} ${p.health.label}</span></td>
+      <td>${prioPill(p.priority)}</td>
+      <td class="nowrap"><div class="meter" title="${p.done_count} of ${p.task_count} tasks done (${pct}%)"><div style="width:${pct}%"></div></div>
+        <span class="small muted num-inline">${p.done_count}/${p.task_count}</span></td>
+      <td>${issues || '<span class="small muted">—</span>'}</td>
+      <td class="nowrap small">${p.next_due_at ? `${esc(fmtShortDate(p.next_due_at))} <span class="muted">(${dueLabel(p.next_due_at)})</span>` : '<span class="muted">—</span>'}</td>
+      <td class="nowrap">${p.due_at ? dueChip({ ...p, status: '' }) : '<span class="small muted">—</span>'}</td>
+      <td class="nowrap small muted" title="${esc(fmtDateTime(p.last_activity_at))}">${p.last_activity_at ? fmtRelative(p.last_activity_at) : '—'}</td>
+    </tr>`;
+  };
+
   main().innerHTML = `
     <div class="row" style="margin-bottom:14px"><h1 style="margin:0">Dashboard</h1><div class="spacer"></div>
       <span class="muted">${esc(fmtDate(new Date()))}</span></div>
+
+    <div class="kpis">
+      ${kpi('Active projects', active.length, [onHold && `${onHold} on hold`, recentlyDone && `${recentlyDone} completed this month`].filter(Boolean).join(' · '), 'dash-projects')}
+      ${kpi(`${atRisk ? '⚠ ' : ''}Projects at risk`, atRisk, atRisk ? 'overdue work or past due date' : 'none', 'dash-projects')}
+      ${kpi(`${d.overdue.length ? '⚠ ' : ''}Overdue tasks`, d.overdue.length, '', 'dash-overdue')}
+      ${kpi('Due in the next 7 days', d.today.length + d.week.length, `${d.today.length} today`, 'dash-today')}
+      ${kpi('Blocked tasks', d.blocked.length, '', 'dash-blocked')}
+      ${kpi('Open ideas', d.ideas.open, d.ideas.cost ? `${money(d.ideas.cost)} total cost` : '', 'ideas')}
+    </div>
+
+    <h2 class="dash-heading">Projects</h2>
+    <div class="card" id="dash-projects" style="overflow-x:auto">
+      ${ongoing.length ? `<table class="log dash-projects">
+        <thead><tr><th>Project</th><th>Health</th><th>Priority</th><th>Progress</th><th>Open issues</th><th>Next task due</th><th>Project due</th><th>Last activity</th></tr></thead>
+        <tbody>${ongoing.map(projectRow).join('')}</tbody></table>
+        <div class="small muted" style="margin-top:8px">⚠ At risk = overdue tasks or past its due date · ◐ Watch = blocked tasks or due within 7 days · ✓ On track = neither</div>`
+        : '<div class="empty">No ongoing projects. <button class="link" data-action="new-project">Create one</button></div>'}
+    </div>
+
+    <h2 class="dash-heading">Tasks &amp; notes</h2>
     <div class="grid dash">
-      ${section('⚠ Overdue', d.overdue, miniTask, 'Nothing overdue 🎉')}
-      ${section('📅 Due today', d.today, miniTask, 'Nothing else due today')}
-      ${section('🗓 Next 7 days', d.week, miniTask, 'Nothing due this week')}
-      ${section('🔥 High priority', d.high_priority, miniTask, 'No open high-priority tasks')}
-      ${section('🔔 Upcoming reminders', d.reminders, (r) => `<li>
+      ${section('dash-overdue', '⚠ Overdue', d.overdue, miniTask, 'Nothing overdue 🎉')}
+      ${section('dash-today', '📅 Due today', d.today, miniTask, 'Nothing else due today')}
+      ${section('dash-week', '🗓 Next 7 days', d.week, miniTask, 'Nothing due this week')}
+      ${section('dash-blocked', '⛔ Blocked', d.blocked, miniTask, 'Nothing blocked')}
+      ${section('dash-high', '🔥 High-priority tasks', d.high_priority, miniTask, 'No open high-priority tasks')}
+      ${section('dash-reminders', '🔔 Upcoming reminders', d.reminders, (r) => `<li>
           <span class="t" ${r.task_id ? `data-action="open-task" data-id="${r.task_id}"` : ''}>${esc(r.message || r.task_title || 'Reminder')}</span>
           ${r.project_name ? `<a class="small" href="#/project/${r.project_id}">${esc(r.project_name)}</a>` : ''}
           <span class="chip">⏰ ${esc(fmtDateTime(r.remind_at, { weekday: false }))} (${fmtRelative(r.remind_at)})</span>
           <button class="icon" data-action="delete-reminder" data-id="${r.id}" title="Delete reminder">✕</button>
         </li>`, 'No reminders set')}
-      ${section('📝 Latest notes', d.recent_notes, (n) => `<li style="display:block">
+      ${section('dash-notes', '📝 Latest notes', d.recent_notes, (n) => `<li style="display:block">
           <div class="small muted">${esc(fmtDateTime(n.created_at))} · <a href="#/project/${n.project_id}">${esc(n.project_name)}</a>${n.task_title ? ` · ${esc(n.task_title)}` : ''}</div>
           <div class="pre">${esc(n.body)}</div></li>`, 'No notes yet')}
     </div>`;
@@ -1097,6 +1168,10 @@ const actions = {
   'toggle-task': (el) => setTaskStatus(el.dataset.id, el.checked ? 'done' : 'todo', Number(el.dataset.subs || 0)),
   'toggle-hide-done': (el) => { store.set('hideDone', el.checked); route(); },
   'tasks-view': (el) => { store.set('tasksView', el.dataset.view); route(); },
+  'dash-jump': (el) => {
+    if (el.dataset.target === 'ideas') { location.hash = '#/ideas'; return; }
+    $(`#${el.dataset.target}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
   'open-project': (el) => { location.hash = `#/project/${el.dataset.id}`; },
   'toggle-notes-only': (el) => { store.set('notesOnly', el.checked); route(); },
   'project-field': async (el) => {
