@@ -265,6 +265,7 @@ function renderProjectGantt(root, p, hideDone) {
       tip: `<b>${esc(t.title)}</b><br>${esc(STATUS[t.status])}${overdue ? ' · <b>overdue</b>' : ''}<br>`
         + (start ? `${esc(gFmt(start))} → ${esc(gFmt(end))} (${gDays(gDiff(start, end) + 1)})` : `Due ${esc(gFmt(end))} <span class="muted">(no start date)</span>`)
         + (base ? `<br>Baseline: ${base.start ? `${esc(gFmt(base.start))} → ` : ''}${esc(gFmt(base.end))}${slip ? ` · <b>${slip > 0 ? '+' : ''}${slip}d</b>` : ' · on plan'}` : '')
+        + (t.owner ? `<br>👤 ${esc(t.owner)}` : '')
         + (t.waiting_on ? `<br>⏳ Waiting on ${esc(t.waiting_on)}` : '')
         + '<br><span class="muted">Drag to move · drag the ends to change dates · click to open</span>',
     });

@@ -43,6 +43,32 @@ const CHARTER_FORM_KEYS = ['name', 'problem', 'goals', 'sponsor', 'leader', 'pro
 
 // ---- Charter tab ----------------------------------------------------------------
 
+// Red / Yellow / Green, as in the template's Status column (same rules as the Excel export).
+function ragStatus(t) {
+  if (t.status === 'done') return 'Green';
+  if (t.due_at && dayDiff(t.due_at) < 0) return 'Red';
+  if (t.status === 'blocked' || (t.status === 'todo' && t.due_at && dayDiff(t.due_at) <= 7)) return 'Yellow';
+  return 'Green';
+}
+const RAG_ICON = { Green: '🟢', Yellow: '🟡', Red: '🔴' };
+
+function timelineBox(title, what, list, baseline) {
+  return `<div class="ch-box"><label>${title} <span class="small muted">— ${what}; owners and dates are set in each task</span></label>
+    ${list.length ? `<table class="ch-table ro"><thead><tr><th>Task</th><th>Owner</th><th>Baseline</th><th>Planned complete</th><th>Actual start</th><th>Completed</th><th>Status</th></tr></thead><tbody>
+    ${list.map((m) => {
+      const b = baseline.get(m.id);
+      const rag = ragStatus(m);
+      return `<tr><td><a href="#" data-action="open-task" data-id="${m.id}">${esc(m.title)}</a></td>
+        <td>${esc(m.owner || '')}</td>
+        <td class="nowrap">${b && b.due_at ? esc(fmtShortDate(b.due_at)) : '—'}</td>
+        <td class="nowrap">${m.due_at ? dueChip(m) : '—'}</td>
+        <td class="nowrap">${m.actual_start ? esc(fmtShortDate(m.actual_start)) : ''}</td>
+        <td class="nowrap">${m.completed_at ? esc(fmtShortDate(m.completed_at)) : ''}</td>
+        <td class="nowrap" title="Red: overdue · Yellow: blocked, or due within a week and not started · Green: on track or complete">${RAG_ICON[rag]} ${m.status === 'done' ? 'Complete' : rag}</td></tr>`;
+    }).join('')}</tbody></table>` : '<div class="empty small">None yet.</div>'}
+  </div>`;
+}
+
 function charterMeter(c) {
   const level = c.missing_required.length ? 'over' : c.pct < 100 ? 'near' : '';
   return `<span class="meter wide ${level}" title="${c.pct}% of the charter completed"><span style="width:${c.pct}%"></span></span>`;
@@ -113,17 +139,8 @@ function renderCharterTab(root, p) {
               <td><input type="text" name="unit" placeholder="Unit"></td><td><input type="text" name="baseline" placeholder="Baseline"></td>
               <td><input type="text" name="target" placeholder="Target"></td><td><input type="text" name="current" placeholder="Current"></td><td></td></tr>
             </tbody></table></div>
-          <div class="ch-box"><label>Milestone / phase plan <span class="small muted">— the project's top-level tasks; set their dates in the task or on the ▤ Gantt</span></label>
-            ${p.charter.milestones.length ? `<table class="ch-table ro"><thead><tr><th>Phase / milestone</th><th>Baseline</th><th>Planned</th><th>Actual</th><th>Status</th></tr></thead><tbody>
-            ${p.charter.milestones.map((m) => {
-              const b = baseline.get(m.id);
-              return `<tr><td><a href="#" data-action="open-task" data-id="${m.id}">${esc(m.title)}</a></td>
-                <td class="nowrap">${b && b.due_at ? esc(fmtShortDate(b.due_at)) : '—'}</td>
-                <td class="nowrap">${m.due_at ? dueChip({ ...m, status: m.status }) : '—'}</td>
-                <td class="nowrap">${m.completed_at ? esc(fmtShortDate(m.completed_at)) : ''}</td>
-                <td>${m.status === 'done' ? '✓ Done' : esc(STATUS[m.status])}</td></tr>`;
-            }).join('')}</tbody></table>` : '<div class="empty small">No tasks yet. Add the phases as tasks on the Overview tab.</div>'}
-          </div>
+          ${timelineBox('Timeline — sub projects', 'the project\'s top-level tasks', p.charter.tasks.filter((t) => !t.parent_id), baseline)}
+          ${timelineBox('Timeline — actions agreed', 'subtasks of those tasks', p.charter.tasks.filter((t) => t.parent_id), baseline)}
         </div>
       </div>
       ${lookupList('lk-policy', 'policy_deployment')}${lookupList('lk-category', 'category')}
@@ -280,6 +297,11 @@ async function renderCharterSettings(root) {
           <button data-action="tpl-detect">↻ Detect again</button><button class="danger" data-action="tpl-remove">Remove</button>` : ''}
       </div>
       ${tpl.error ? `<p class="chip overdue">⚠ ${esc(tpl.error)}</p>` : ''}
+      ${tpl.timelines?.length ? `<p class="small">📅 Timeline grids found: ${tpl.timelines.map((g) => `<b>${esc(g.title)}</b> (${esc(g.sheet)}, rows ${g.first_row}–${g.last_row}, ${g.rows} rows, ${g.months} month columns)`).join(' and ')}.
+        ${tpl.timelines.some((g) => g.kind === 'sub') ? 'Sub projects are filled from the project\'s top-level tasks' : ''}${tpl.timelines.some((g) => g.kind === 'actions') ? ', actions from their subtasks' : ''}:
+        owner, planned complete date, planned months shaded, <b>S</b> in the month work actually started, <b>x</b> in the month it was completed,
+        and Red / Yellow / Green status. The year headers are set to the project's years.</p>` : ''}
+      ${tpl.hidden_sheets?.length ? `<p class="small muted">Hidden sheets in the template are kept as they are: ${tpl.hidden_sheets.map(esc).join(', ')}.</p>` : ''}
       ${tpl.uploaded ? `<table class="log" id="tpl-map" style="margin-top:12px">
         <thead><tr><th>Charter field</th><th>Sheet</th><th>Cell</th><th>How</th><th></th></tr></thead>
         <tbody>${tpl.fields.map(fieldRow).join('')}</tbody></table>

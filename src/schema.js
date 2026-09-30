@@ -100,7 +100,8 @@ const TABLES = {
     waiting_on   TEXT,
     waiting_since TEXT,
     recurrence   TEXT    CHECK (recurrence IS NULL OR recurrence IN (${RECURRENCES.map((r) => `'${r}'`).join(', ')})),
-    next_task_id INTEGER`,
+    next_task_id INTEGER,
+    owner        TEXT`,
 
   // Gantt dependencies: task_id can't start until depends_on_id is finished.
   task_links: `

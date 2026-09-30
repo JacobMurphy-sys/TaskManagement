@@ -32,7 +32,7 @@ async function waitForServer() {
   const server = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], {
     env: {
       ...process.env, PORT: String(PORT), BACKUP_INTERVAL_HOURS: '0',
-      DB_FILE: path.join(tmp, 'test.db'), BACKUP_DIR: path.join(tmp, 'backups'), LOG_DIR: path.join(tmp, 'logs'),
+      DATA_DIR: tmp, DB_FILE: path.join(tmp, 'test.db'), BACKUP_DIR: path.join(tmp, 'backups'), LOG_DIR: path.join(tmp, 'logs'),
     },
     stdio: 'inherit',
   });
@@ -340,6 +340,29 @@ async function waitForServer() {
     assert.match(sheet, /CI-2026-07/);
     await assert.rejects(fetch(`${BASE}/charter-template`, { method: 'POST', body: 'not excel',
       headers: { 'X-Requested-With': 'TaskManager', 'Content-Type': 'application/octet-stream' } }).then((r) => { if (!r.ok) throw new Error(String(r.status)); }), /400/);
+    await call('DELETE', '/charter-template');
+
+    // Timeline grid: "Sub projects" rows with Owner, Planned Complete Date and month columns.
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
+    const gridTpl = buildXlsx([{ name: 'Plan', rows: [[1], [2], [3]],
+      columns: [{ header: '#' }, { header: 'Sub projects' }, { header: 'Owner' }, { header: 'Planned Complete Date' },
+        ...months.map((m) => ({ header: m })), { header: 'Status' }] }]);
+    await fetch(`${BASE}/charter-template`, { method: 'POST', body: gridTpl,
+      headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
+    const tinfo = await call('GET', '/charter-template');
+    assert.equal(tinfo.timelines[0].rows, 3, 'grid rows detected');
+    const phase = await call('POST', '/tasks', { project_id: cp.id, title: 'Phase with owner', owner: 'Alex',
+      start_date: `${new Date().getFullYear()}-01-10`, due_at: `${new Date().getFullYear()}-03-20` });
+    assert.equal(phase.owner, 'Alex');
+    assert.ok((await call('GET', `/tasks/owner-names?project_id=${cp.id}`)).includes('Alex'), 'owner suggestions include the team');
+    cx = await fetch(`${BASE}/projects/${cp.id}/charter.xlsx`);
+    const grid = readZip(Buffer.from(await cx.arrayBuffer()))['xl/worksheets/sheet1.xml'].toString();
+    assert.match(grid, /<c r="B2"[^>]*><is><t[^>]*>Phase 1</, 'first top-level task in the grid');
+    assert.match(grid, /<c r="B3"[^>]*><is><t[^>]*>Phase with owner</);
+    assert.match(grid, /<c r="C3"[^>]*><is><t[^>]*>Alex</, 'owner column');
+    assert.match(grid, /<c r="D3"[^>]*><v>\d+<\/v>/, 'planned complete date is a real date');
+    assert.match(grid, /<c r="E3" s="\d+"\/>/, 'January shaded as planned');
+    assert.match(grid, /<c r="Q3"[^>]*><is><t[^>]*>(Green|Yellow|Red)</, 'status column');
     await call('DELETE', '/charter-template');
 
     // Change requests without the app's header are refused (blocks other websites).

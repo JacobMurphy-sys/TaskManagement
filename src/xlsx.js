@@ -180,4 +180,4 @@ function readZip(buf) {
   return files;
 }
 
-module.exports = { buildXlsx, zip, readZip, xmlEsc, colName };
+module.exports = { buildXlsx, zip, readZip, xmlEsc, colName, excelSerial };

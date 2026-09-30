@@ -35,7 +35,7 @@ function reportModel(r) {
       p.budget !== null && p.budget !== undefined ? `spent ${rMoney(p.spent, r.currency)} of ${rMoney(p.budget, r.currency)} budget` : (p.spent ? `spent ${rMoney(p.spent, r.currency)}` : null),
       p.spent_in_period ? `${rMoney(p.spent_in_period, r.currency)} spent this period` : null,
     ].filter(Boolean);
-    const t = (x) => x.title + (x.parent_id ? ' (subtask)' : '');
+    const t = (x) => x.title + (x.parent_id ? ' (subtask)' : '') + (x.owner ? ` [${x.owner}]` : '');
     const sections = [
       ['✅ Completed', p.completed.map((x) => `${t(x)} — ${fmtDate(x.completed_at)}`)],
       ['▶ Started', p.started.map((x) => x.title)],

@@ -177,6 +177,7 @@ function waitingChip(t) {
   const d = t.waiting_since ? daysSince(t.waiting_since) : null;
   return `<span class="chip waiting" title="Waiting on ${esc(t.waiting_on)}${t.waiting_since ? ` since ${esc(fmtDate(t.waiting_since))}` : ''}">⏳ ${esc(t.waiting_on)}${d !== null ? ` · ${d}d` : ''}</span>`;
 }
+const ownerChip = (t) => (t.owner ? `<span class="small muted" title="Owner">👤 ${esc(t.owner)}</span>` : '');
 const repeatChip = (t) => (t.recurrence ? `<span class="small muted" title="Repeats: ${REPEAT[t.recurrence]}">🔁</span>` : '');
 const SHORTCUTS_HELP = 'Shortcuts: <code>!high</code> <code>!crit</code> · <code>@today</code> <code>@fri</code> <code>@2026-10-31</code> · <code>*weekly</code> <code>*monthly</code>';
 
@@ -274,7 +275,7 @@ function miniTask(t) {
     <input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${t.subtask_count - t.subtask_done}" ${t.status === 'done' ? 'checked' : ''}>
     <span class="t" data-action="open-task" data-id="${t.id}">${esc(t.title)}</span>
     ${t.project_id ? `<a class="small" href="#/project/${t.project_id}">${esc(t.project_name)}</a>` : '<a class="small muted" href="#/tasks">✅ Tasks</a>'}
-    ${prioPill(t.priority)} ${dueChip(t)} ${waitingChip(t)} ${repeatChip(t)}
+    ${prioPill(t.priority)} ${dueChip(t)} ${ownerChip(t)} ${waitingChip(t)} ${repeatChip(t)}
   </li>`;
 }
 
@@ -406,7 +407,7 @@ function taskRow(t, p, hideDone) {
     <div class="task-line">
       <input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${open}" ${done ? 'checked' : ''} title="${done ? `Completed ${esc(fmtDateTime(t.completed_at))}` : 'Mark done'}">
       <span class="task-title" data-action="open-task" data-id="${t.id}">${esc(t.title)}</span>
-      ${statusChip(t.status)} ${t.priority !== 2 ? prioPill(t.priority) : ''} ${dueChip(t)} ${waitingChip(t)} ${repeatChip(t)}
+      ${statusChip(t.status)} ${t.priority !== 2 ? prioPill(t.priority) : ''} ${dueChip(t)} ${ownerChip(t)} ${waitingChip(t)} ${repeatChip(t)}
       ${added ? `<span class="badge added" title="Added ${esc(fmtDateTime(t.created_at))}, after the baseline">+ added</span>` : ''}
       ${t.children.length ? `<span class="small muted" title="Subtasks done">☑ ${t.children.length - open}/${t.children.length}</span>` : ''}
       ${t.next_reminder ? `<span class="small" title="Reminder ${esc(fmtDateTime(t.next_reminder))}">🔔</span>` : ''}
@@ -714,7 +715,7 @@ function taskBoardHtml(tasks) {
   const card = (t) => `<div class="kcard p${t.priority} ${t.status === 'done' ? 'done' : ''}" draggable="true" data-id="${t.id}">
       <div class="ktitle"><input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${t.subtask_count - t.subtask_done}" ${t.status === 'done' ? 'checked' : ''}>
         <span data-action="open-task" data-id="${t.id}" style="cursor:pointer">${esc(t.title)}</span></div>
-      <div class="kmeta">${t.priority !== 2 ? prioPill(t.priority) : ''} ${dueChip(t)}
+      <div class="kmeta">${t.priority !== 2 ? prioPill(t.priority) : ''} ${dueChip(t)} ${ownerChip(t)}
         ${t.subtask_count ? `<span class="small muted">☑ ${t.subtask_done}/${t.subtask_count}</span>` : ''}
         ${t.next_reminder ? '<span class="small">🔔</span>' : ''}${t.note_count ? `<span class="small muted">📝 ${t.note_count}</span>` : ''}</div>
       ${t.subtask_count ? `<div class="progress"><div style="width:${Math.round((t.subtask_done / t.subtask_count) * 100)}%"></div></div>` : ''}
@@ -1187,8 +1188,9 @@ async function projectForm(p = {}) {
 
 async function taskModal(id) {
   const t = await api.get(`/tasks/${id}`);
-  const [siblings, waitingNames] = await Promise.all([
-    t.project_id ? api.get(`/tasks?project_id=${t.project_id}`) : Promise.resolve([]), api.get('/tasks/waiting-names')]);
+  const [siblings, waitingNames, ownerNames] = await Promise.all([
+    t.project_id ? api.get(`/tasks?project_id=${t.project_id}`) : Promise.resolve([]), api.get('/tasks/waiting-names'),
+    api.get(`/tasks/owner-names${t.project_id ? `?project_id=${t.project_id}` : ''}`)]);
   const projectChoices = state.projects.filter((x) => x.status !== 'archived' && x.status !== 'completed' || x.id === t.project_id);
   // Tasks this one could depend on: same project, not itself, its subtasks, or ones already linked.
   const below = new Set([t.id]);
@@ -1215,6 +1217,8 @@ async function taskModal(id) {
       <label class="f">Repeats<select name="recurrence">${options(REPEAT, t.recurrence)}</select></label>
       <label class="f">Start date<input type="date" name="start_date" value="${esc(t.start_date || '')}"></label>
       <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(t.due_at)}"></label>
+      <label class="f">Owner<input type="text" name="owner" list="owner-names" autocomplete="off" placeholder="who's responsible" value="${esc(t.owner)}"></label>
+      <datalist id="owner-names">${ownerNames.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
       <label class="f">Waiting on<input type="text" name="waiting_on" list="waiting-names" autocomplete="off" placeholder="person or team" value="${esc(t.waiting_on)}"></label>
       ${t.parent_id ? '' : `<label class="f">Project<select name="project_id" title="Move this task (and its subtasks) to another project">
         <option value="">✅ Tasks (no project)</option>${projectChoices.map((x) => `<option value="${x.id}" ${x.id === t.project_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>`}
@@ -1277,7 +1281,7 @@ async function taskModal(id) {
   // Auto-save each field as it changes.
   $$('#task-form [name]').forEach((el) => el.addEventListener('change', async () => {
     let value = el.value;
-    if (['due_at', 'start_date', 'recurrence', 'waiting_on', 'project_id'].includes(el.name)) value = value || null;
+    if (['due_at', 'start_date', 'recurrence', 'waiting_on', 'project_id', 'owner'].includes(el.name)) value = value || null;
     if (el.name === 'project_id' && value) value = Number(value);
     if (el.name === 'priority') value = Number(value);
     if (el.name === 'title' && !value.trim()) { el.value = t.title; return; }

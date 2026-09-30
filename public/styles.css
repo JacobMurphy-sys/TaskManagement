@@ -414,6 +414,8 @@ label.button { cursor: pointer; }
 .ch-col + .ch-col { border-left: 2px solid var(--text); }
 .ch-box { border-bottom: 1px solid var(--text); padding: 6px 10px 8px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ch-box > label { font-size: 12px; font-weight: 700; }
+.ch-box { overflow-x: auto; }
+.ch-table.ro td, .ch-table.ro th { white-space: nowrap; }
 .ch-box textarea, .ch-box input[type=text] { border: 1px solid transparent; background: var(--panel-2); resize: vertical; min-height: 0; }
 .ch-box textarea:hover, .ch-box input[type=text]:hover { border-color: var(--border); }
 .ch-row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }

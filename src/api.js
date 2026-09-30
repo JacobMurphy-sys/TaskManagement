@@ -72,7 +72,7 @@ function pick(body, keys) {
       if (!Number.isInteger(v) || v < 1 || v > 5) throw new HttpError(400, `${k} must be 1 to 5`);
     }
     if (k === 'recurrence' && v !== null && !RECURRENCES.includes(v)) throw new HttpError(400, 'Invalid repeat setting');
-    if (k === 'waiting_on') v = v === null ? null : (String(v).trim() || null);
+    if (k === 'waiting_on' || k === 'owner') v = v === null ? null : (String(v).trim() || null);
     out[k] = v;
   }
   return out;
@@ -115,7 +115,7 @@ function checkCharter(fields, creating) {
   }
 }
 const TASK_FIELDS = ['title', 'description', 'status', 'priority', 'due_at', 'sort_order', 'parent_id',
-  'start_date', 'waiting_on', 'recurrence'];
+  'start_date', 'waiting_on', 'recurrence', 'owner'];
 
 const TASK_SELECT = `
   SELECT t.*, p.name AS project_name,
@@ -154,8 +154,13 @@ function charterExtras(projectId) {
   return {
     team: db.all('SELECT * FROM project_team WHERE project_id = ? ORDER BY sort_order, id', [projectId]),
     kpis: db.all('SELECT * FROM project_kpis WHERE project_id = ? ORDER BY sort_order, id', [projectId]),
-    milestones: db.all(`SELECT id, title, status, start_date, due_at, completed_at FROM tasks
+    milestones: db.all(`SELECT id, title, status, owner, start_date, due_at, completed_at FROM tasks
       WHERE project_id = ? AND parent_id IS NULL ORDER BY sort_order, id`, [projectId]),
+    // All tasks, with when work actually started (first move to In progress / Done).
+    tasks: db.all(`SELECT t.id, t.parent_id, t.title, t.status, t.owner, t.start_date, t.due_at, t.completed_at,
+        (SELECT min(a.changed_at) FROM audit_log a WHERE a.table_name = 'tasks' AND a.record_id = t.id
+          AND json_extract(a.new_data, '$.status') IN ('in_progress', 'done')) AS actual_start
+      FROM tasks t WHERE t.project_id = ? ORDER BY t.sort_order, t.id`, [projectId]),
   };
 }
 
@@ -316,6 +321,15 @@ function moveTask(taskId, projectId) {
   db.run(`UPDATE notes SET project_id = ? WHERE task_id IN (${inList})`, [projectId ?? null, ...ids]);
   db.run(`UPDATE reminders SET project_id = ? WHERE task_id IN (${inList})`, [projectId ?? null, ...ids]);
 }
+
+// Names for the Owner field: the project's team first, then anyone who has owned a task.
+router.get('/tasks/owner-names', h((req, res) => {
+  const team = req.query.project_id
+    ? db.all('SELECT name FROM project_team WHERE project_id = ? ORDER BY sort_order, id', [req.query.project_id]).map((r) => r.name) : [];
+  const others = db.all(`SELECT owner AS name, max(updated_at) AS last FROM tasks WHERE owner IS NOT NULL
+    GROUP BY owner COLLATE NOCASE ORDER BY last DESC LIMIT 50`).map((r) => r.name);
+  res.json([...new Set([...team, ...others])]);
+}));
 
 router.get('/tasks/waiting-names', h((req, res) => {
   res.json(db.all(`SELECT waiting_on AS name, max(coalesce(waiting_since, updated_at)) AS last FROM tasks
@@ -841,7 +855,12 @@ function templateInfo() {
   if (exists) {
     try {
       const t = charter.readTemplate(fs.readFileSync(TEMPLATE_FILE));
-      info.sheets = t.sheets.map((sh) => sh.name);
+      info.sheets = t.sheets.filter((sh) => !sh.hidden).map((sh) => sh.name);
+      info.hidden_sheets = t.sheets.filter((sh) => sh.hidden).map((sh) => sh.name);
+      info.timelines = t.sheets.filter((sh) => !sh.hidden).flatMap((sh) => charter.detectTimelines(sh)).map((g) => ({
+        title: g.title, kind: g.kind, sheet: g.sheet, first_row: g.rows[0], last_row: g.rows.at(-1), rows: g.rows.length,
+        months: g.months.length, has_owner: !!g.owner_col, has_planned: !!g.planned_col, has_status: !!g.status_col,
+      }));
       info.uploaded_at = fs.statSync(TEMPLATE_FILE).mtime.toISOString();
     } catch (err) { info.error = err.message; }
   }
@@ -854,8 +873,18 @@ router.post('/charter-template', express.raw({ type: '*/*', limit: '15mb' }), h(
   const buf = req.body;
   if (!Buffer.isBuffer(buf) || !buf.length) throw new HttpError(400, 'No file received');
   let detected;
-  try { detected = charter.detectMapping(charter.readTemplate(buf)); } catch (err) {
+  let template;
+  try {
+    template = charter.readTemplate(buf);
+    detected = charter.detectMapping(template);
+  } catch (err) {
     throw new HttpError(400, `That doesn't look like an Excel .xlsx file (${err.message})`);
+  }
+  // Offer the template's own dropdown choices (e.g. Category) as the app's pick-list.
+  for (const list of ['category', 'policy_deployment']) {
+    charter.validationList(template, detected[list]).forEach((name) => {
+      db.run('INSERT OR IGNORE INTO lookups (list, name) VALUES (?, ?)', [list, name]);
+    });
   }
   fs.mkdirSync(path.dirname(TEMPLATE_FILE), { recursive: true });
   fs.writeFileSync(TEMPLATE_FILE, buf);
@@ -897,7 +926,7 @@ router.get('/projects/:id/charter.xlsx', h((req, res) => {
   if (!p) throw notFound('Project');
   const values = charter.values(p, charterExtras(p.id), getSettings().currency);
   const mapping = parseJson(getSetting('charter_map')) || {};
-  const buf = fs.existsSync(TEMPLATE_FILE) && Object.keys(mapping).length
+  const buf = fs.existsSync(TEMPLATE_FILE)
     ? charter.fillTemplate(fs.readFileSync(TEMPLATE_FILE), mapping, values)
     : charter.plainWorkbook(values);
   const file = `Charter - ${(p.project_code ? `${p.project_code} ` : '') + p.name}`.replace(/[^\w -]+/g, '').trim().slice(0, 80);
@@ -963,7 +992,7 @@ const XL = {
   ],
   tasks: [
     { header: 'Project', width: 26 }, { header: 'Task', width: 40 }, { header: 'Subtask of', width: 26 },
-    { header: 'Status', width: 11 }, { header: 'Priority', width: 9 }, { header: 'Start', type: 'date', width: 11 },
+    { header: 'Owner', width: 16 }, { header: 'Status', width: 11 }, { header: 'Priority', width: 9 }, { header: 'Start', type: 'date', width: 11 },
     { header: 'Due', type: 'date', width: 11 }, { header: 'Waiting on', width: 16 },
     { header: 'Waiting since', type: 'date', width: 12 }, { header: 'Repeats', width: 11 },
     { header: 'In baseline', width: 10 }, { header: 'Created', type: 'datetime', width: 16 },
@@ -1010,7 +1039,7 @@ function exportSheets(scope, id) {
       LEFT JOIN projects p ON p.id = t.project_id LEFT JOIN tasks par ON par.id = t.parent_id
       ${projWhere} ORDER BY p.name IS NULL, p.name COLLATE NOCASE, t.sort_order, t.id`, projParams);
     sheets.push({ name: 'Tasks', columns: XL.tasks, rows: tRows.map((t) => [
-      t.project_name || '(standalone task)', t.title, t.parent_title, label(STATUS_LABEL, t.status), PRIORITY_LABEL[t.priority], t.start_date,
+      t.project_name || '(standalone task)', t.title, t.parent_title, t.owner, label(STATUS_LABEL, t.status), PRIORITY_LABEL[t.priority], t.start_date,
       t.due_at, t.waiting_on, t.waiting_since, label(REPEAT_LABEL, t.recurrence), t.is_baseline ? 'Yes' : 'No',
       t.created_at, t.completed_at, t.description]) });
   }
@@ -1203,7 +1232,7 @@ const FIELD_LABEL = { title: 'title', name: 'name', description: 'description', 
   policy_deployment: 'policy deployment', category: 'category', gm_effect: 'gross margin effect',
   problem: 'problem definition', goals: 'goals', in_scope: 'in scope', out_scope: 'out of scope',
   benefits_quantified: 'quantified benefits', benefits_other: 'other benefits', role: 'role', capacity: 'capacity',
-  unit: 'unit', baseline: 'baseline', target: 'target', current: 'current value' };
+  unit: 'unit', baseline: 'baseline', target: 'target', current: 'current value', owner: 'owner' };
 const LONG_TEXT = ['description', 'body', 'problem', 'goals', 'in_scope', 'out_scope', 'benefits_quantified', 'benefits_other'];
 const REPEAT_LABEL = { daily: 'Daily', weekdays: 'Weekdays', weekly: 'Weekly', fortnightly: 'Every 2 weeks',
   monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' };
