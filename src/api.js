@@ -26,13 +26,27 @@ function toIso(v, field) {
   return d.toISOString();
 }
 
+// Due dates are whole days: a plain YYYY-MM-DD is stored as the end of that day in
+// the PC's local time, so it only counts as overdue once the day is over.
+function toDueIso(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59, 999);
+    if (Number.isNaN(d.getTime()) || d.getDate() !== Number(m[3])) throw new HttpError(400, 'Invalid due date');
+    return d.toISOString();
+  }
+  return toIso(v, 'due date');
+}
+
 // Picks only allowed keys from a body, turning '' into null and normalising dates.
 function pick(body, keys) {
   const out = {};
   for (const k of keys) {
     if (body[k] === undefined) continue;
     let v = body[k] === '' ? null : body[k];
-    if (k === 'due_at' || k === 'remind_at') v = toIso(v, k);
+    if (k === 'due_at') v = toDueIso(v);
+    if (k === 'remind_at') v = toIso(v, k);
     if (k === 'start_date' && v !== null && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new HttpError(400, 'Invalid start_date');
     out[k] = v;
   }
@@ -85,6 +99,9 @@ router.get('/projects', h((req, res) => {
            count(t.id)                                                   AS task_count,
            count(t.id) FILTER (WHERE t.status = 'done')                  AS done_count,
            count(t.id) FILTER (WHERE t.status <> 'done' AND t.due_at < ?) AS overdue_count,
+           count(t.id) FILTER (WHERE t.status = 'in_progress')            AS in_progress_count,
+           count(t.id) FILTER (WHERE t.status = 'blocked')                AS blocked_count,
+           (SELECT min(t2.due_at) FROM tasks t2 WHERE t2.project_id = p.id AND t2.status <> 'done') AS next_due_at,
            (SELECT max(created_at) FROM notes n WHERE n.project_id = p.id) AS last_note_at
     FROM projects p LEFT JOIN tasks t ON t.project_id = p.id
     ${includeArchived ? '' : "WHERE p.status <> 'archived'"}
@@ -593,7 +610,8 @@ function fmtValue(field, v) {
   if (field === 'priority') return PRIORITY_LABEL[v] || v;
   if (field === 'area_id') return db.get('SELECT name FROM areas WHERE id = ?', [v])?.name || `#${v}`;
   if (field === 'active') return v ? 'yes' : 'no';
-  if (field === 'due_at' || field === 'remind_at') return new Date(v).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  if (field === 'due_at') return new Date(v).toLocaleDateString(undefined, { dateStyle: 'medium' });
+  if (field === 'remind_at') return new Date(v).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   const s = String(v);
   return s.length > 60 ? `${s.slice(0, 57)}…` : s;
 }

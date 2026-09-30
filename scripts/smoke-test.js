@@ -104,6 +104,19 @@ async function waitForServer() {
     const doneOnCreate = await call('POST', '/tasks', { project_id: p.id, title: 'Already done', status: 'done' });
     assert.ok(doneOnCreate.completed_at, 'completed_at stamped on insert');
 
+    // Due dates are whole days: a plain date is stored as the end of that local day.
+    const dated = await call('POST', '/tasks', { project_id: p.id, title: 'Date only', due_at: '2026-10-01' });
+    const d = new Date(dated.due_at);
+    assert.deepEqual([d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes()], [2026, 9, 1, 23, 59], 'end of local day');
+    await assert.rejects(call('PATCH', `/tasks/${dated.id}`, { due_at: '2026-02-30' }), /400/);
+    const today = new Date();
+    const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    await call('PATCH', `/tasks/${dated.id}`, { due_at: todayKey });
+    const dash2 = await call('GET', '/dashboard');
+    assert.ok(dash2.today.some((t) => t.id === dated.id), 'due today is not yet overdue');
+    assert.ok(!dash2.overdue.some((t) => t.id === dated.id));
+    await call('DELETE', `/tasks/${dated.id}`);
+
     // Search treats % and _ literally.
     assert.equal((await call('GET', '/search?q=%25')).tasks.length, 0);
 

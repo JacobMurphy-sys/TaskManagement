@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const log = require('./logger');
-const { schemaSql } = require('./schema');
+const { schemaSql, dropTriggersSql } = require('./schema');
 
 // node:sqlite prints an "experimental" warning on load; it's stable enough for this use.
 const emitWarning = process.emitWarning;
@@ -83,8 +83,40 @@ function tx(fn) {
   }
 }
 
+// One-off data changes, each recorded in settings so it runs only once. Triggers are
+// dropped while they run so they don't bump updated_at or flood the audit log.
+const DATA_MIGRATIONS = {
+  // Due dates became whole days: move any stored time to the end of that local day.
+  due_dates_end_of_day() {
+    const endOfDay = (iso) => {
+      const d = new Date(iso);
+      d.setHours(23, 59, 59, 999);
+      return d.toISOString();
+    };
+    for (const [table, cols] of [['tasks', ['due_at']], ['ideas', ['due_at']], ['projects', ['due_at', 'baseline_due_at']]]) {
+      for (const col of cols) {
+        for (const r of all(`SELECT id, ${col} AS v FROM ${table} WHERE ${col} IS NOT NULL`)) {
+          const v = endOfDay(r.v);
+          if (v !== r.v) run(`UPDATE ${table} SET ${col} = ? WHERE id = ?`, [v, r.id]);
+        }
+      }
+    }
+  },
+};
+
 function migrate() {
-  tx(() => conn.exec(schemaSql()));
+  tx(() => {
+    conn.exec(schemaSql());
+    const done = new Set(all("SELECT key FROM settings WHERE key LIKE 'migration:%'").map((r) => r.key));
+    const pending = Object.keys(DATA_MIGRATIONS).filter((name) => !done.has(`migration:${name}`));
+    if (!pending.length) return;
+    conn.exec(dropTriggersSql());
+    for (const name of pending) {
+      DATA_MIGRATIONS[name]();
+      run("INSERT INTO settings (key, value) VALUES (?, datetime('now'))", [`migration:${name}`]);
+    }
+    conn.exec(schemaSql());
+  });
 }
 
 module.exports = { conn, all, get, run, tx, migrate, open };

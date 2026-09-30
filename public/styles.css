@@ -104,6 +104,7 @@ button.stop-server:hover { color: var(--danger); }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
 .grid { display: grid; gap: 16px; }
 .grid.two { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+.grid.one { grid-template-columns: minmax(0, 1fr); }
 .grid.dash { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .stack > * + * { margin-top: 10px; }
@@ -163,6 +164,17 @@ button.stop-server:hover { color: var(--danger); }
 .kanban-tools { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
 .kanban-tools select { width: auto; }
 .kanban { display: grid; grid-template-columns: repeat(4, minmax(230px, 1fr)); gap: 14px; align-items: start; overflow-x: auto; }
+.kanban.projects { grid-template-columns: repeat(3, minmax(260px, 1fr)); }
+.kanban.projects .kcard { cursor: pointer; }
+.kanban.mini { gap: 10px; }
+.kanban.mini .column { min-height: 120px; padding: 8px; }
+.kanban.mini .kcard { padding: 6px 8px; margin-bottom: 6px; }
+.kanban.mini .kcard .ktitle { font-weight: 500; margin: 0 0 4px; }
+.kanban .empty.small { padding: 4px 0; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 3px 10px; font-size: 12px; background: var(--panel); color: var(--muted); }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .column { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; min-height: 200px; }
 .column.drag-over { outline: 2px dashed var(--accent); background: var(--accent-soft); }
 .column h3 { display: flex; justify-content: space-between; }

@@ -74,7 +74,25 @@ function fmtRelative(iso) {
   if (s === 'now') return 'now';
   return diff < 0 ? `${s} ago` : `in ${s}`;
 }
-// <input type="datetime-local"> <-> ISO
+// Local calendar date as YYYY-MM-DD (the value format of <input type="date">).
+const dateKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const toDateInput = (iso) => (iso ? dateKey(new Date(iso)) : '');
+const fmtShortDate = (iso) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+// Whole local days from today to the due date (negative = overdue).
+function dayDiff(iso) {
+  const due = new Date(iso);
+  const now = new Date();
+  return Math.round((new Date(due.getFullYear(), due.getMonth(), due.getDate())
+    - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000);
+}
+function dueLabel(iso) {
+  const n = dayDiff(iso);
+  if (n === 0) return 'today';
+  if (n === 1) return 'tomorrow';
+  return n < 0 ? `${-n}d overdue` : `in ${n}d`;
+}
+
+// <input type="datetime-local"> <-> ISO (used for reminder times)
 function toLocalInput(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -96,7 +114,7 @@ function nextWorkdayAt9() {
 
 // Quick-add syntax:  "Call supplier !high @tomorrow"
 //   priority: !low !med !high !crit (or !1..!4)
-//   due:      @today @tomorrow @mon..@sun @2026-10-03 @2026-10-03T14:30  (default time 17:00)
+//   due date: @today @tomorrow @mon..@sun @2026-10-03
 function parseQuick(text) {
   let priority; let due;
   const prioMap = { low: 1, l: 1, 1: 1, med: 2, medium: 2, m: 2, 2: 2, high: 3, h: 3, 3: 3, crit: 4, critical: 4, c: 4, 4: 4 };
@@ -108,18 +126,18 @@ function parseQuick(text) {
   }).replace(/(^|\s)@([\w:-]+)/g, (m, sp, w) => {
     const lw = w.toLowerCase();
     let d;
-    if (lw === 'today') d = at(0, 17);
-    else if (lw === 'tomorrow' || lw === 'tmr') d = at(1, 17);
+    if (lw === 'today') d = at(0, 12);
+    else if (lw === 'tomorrow' || lw === 'tmr') d = at(1, 12);
     else if (days.includes(lw.slice(0, 3)) && /^[a-z]+$/.test(lw)) {
       const target = days.indexOf(lw.slice(0, 3));
       let add = (target - new Date().getDay() + 7) % 7;
       if (add === 0) add = 7;
-      d = at(add, 17);
-    } else if (/^\d{4}-\d{2}-\d{2}(t\d{2}:\d{2})?$/.test(lw)) {
-      d = new Date(lw.length === 10 ? `${w}T17:00` : w);
+      d = at(add, 12);
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(lw)) {
+      d = new Date(`${w}T12:00`);
     }
     if (!d || Number.isNaN(d.getTime())) return m;
-    due = d.toISOString(); return sp;
+    due = dateKey(d); return sp;
   }).replace(/\s+/g, ' ').trim();
   return { title, priority, due_at: due };
 }
@@ -130,13 +148,13 @@ const prioPill = (p) => `<span class="pill prio-${p}" title="Priority">${PRIORIT
 
 function dueChip(t) {
   if (!t.due_at) return '';
-  const due = new Date(t.due_at);
+  const n = dayDiff(t.due_at);
   let cls = '';
   if (t.status !== 'done') {
-    if (due < new Date()) cls = 'overdue';
-    else if (due - Date.now() < 24 * 3600 * 1000) cls = 'soon';
+    if (n < 0) cls = 'overdue';
+    else if (n <= 1) cls = 'soon';
   }
-  return `<span class="chip ${cls}" title="Due ${esc(fmtDateTime(t.due_at))}">📅 ${esc(fmtDateTime(t.due_at, { weekday: false }))}${cls ? ` (${fmtRelative(t.due_at)})` : ''}</span>`;
+  return `<span class="chip ${cls}" title="Due ${esc(fmtDate(t.due_at))}">📅 ${esc(fmtShortDate(t.due_at))}${cls ? ` (${dueLabel(t.due_at)})` : ''}</span>`;
 }
 function statusChip(s) {
   return s === 'in_progress' || s === 'blocked' ? `<span class="pill status-${s}">${STATUS[s]}</span>` : '';
@@ -320,6 +338,7 @@ async function renderProject(id) {
   const [p, timeline] = await Promise.all([api.get(`/projects/${id}`), api.get(`/projects/${id}/timeline`)]);
   state.project = p;
   const hideDone = store.get('hideDone', false);
+  const board = store.get('tasksView', 'list') === 'board';
   const notesOnly = store.get('notesOnly', false);
   const tree = buildTree(p.tasks);
   const shown = hideDone ? tree.filter((t) => t.status !== 'done') : tree;
@@ -352,17 +371,24 @@ async function renderProject(id) {
       </select>
       <button class="primary" data-action="save-note">Add note</button>
     </div>
-    <div class="grid two">
+    <div class="grid ${board ? 'one' : 'two'}">
       <div class="card">
         <div class="list-tools">
           <h2 style="margin:0">Tasks <span class="muted small">${done}/${p.tasks.length} done</span></h2>
-          <label class="small muted row"><input type="checkbox" data-action="toggle-hide-done" ${hideDone ? 'checked' : ''}> Hide completed</label>
+          <div class="row">
+            ${board ? '' : `<label class="small muted row"><input type="checkbox" data-action="toggle-hide-done" ${hideDone ? 'checked' : ''}> Hide completed</label>`}
+            <div class="seg" role="group" aria-label="Task view">
+              <button data-action="tasks-view" data-view="list" class="${board ? '' : 'on'}" title="Checklist">☰ List</button>
+              <button data-action="tasks-view" data-view="board" class="${board ? 'on' : ''}" title="Mini Kanban">▦ Board</button>
+            </div>
+          </div>
         </div>
+        ${board ? taskBoardHtml(p.tasks.filter((t) => !t.parent_id)) : `
         ${shown.length ? `<ul class="tasks">${shown.map((t) => taskRow(t, p, hideDone)).join('')}</ul>` : '<div class="empty">No tasks yet — add one below.</div>'}
         <div class="add-task">
           <input type="text" id="add-task-input" placeholder="Add a task… (Enter)   e.g. Send report !high @fri" autocomplete="off">
-          <div class="small muted" style="margin-top:4px">Shortcuts: <code>!low</code> <code>!high</code> <code>!crit</code> · <code>@today</code> <code>@tomorrow</code> <code>@mon</code> <code>@2026-10-31</code></div>
-        </div>
+        </div>`}
+        <div class="small muted" style="margin-top:4px">Shortcuts when adding: <code>!low</code> <code>!high</code> <code>!crit</code> · <code>@today</code> <code>@tomorrow</code> <code>@mon</code> <code>@2026-10-31</code></div>
       </div>
       <div class="card">
         <div class="list-tools">
@@ -376,14 +402,23 @@ async function renderProject(id) {
   $('#note-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveProjectNote(); }
   });
-  $('#add-task-input').addEventListener('keydown', async (e) => {
-    if (e.key !== 'Enter') return;
-    const q = parseQuick(e.target.value);
-    if (!q.title) return;
-    await api.post('/tasks', { project_id: p.id, ...q });
-    await refresh();
-    $('#add-task-input')?.focus();
-  });
+  for (const id of ['#add-task-input', '#board-add']) {
+    $(id)?.addEventListener('keydown', async (e) => {
+      if (e.key !== 'Enter') return;
+      const q = parseQuick(e.target.value);
+      if (!q.title) return;
+      await api.post('/tasks', { project_id: p.id, ...q });
+      await refresh();
+      $(id)?.focus();
+    });
+  }
+  if (board) {
+    wireDrag(main(), async (id, status) => {
+      const t = p.tasks.find((x) => String(x.id) === id);
+      if (!t || t.status === status) return;
+      await setTaskStatus(t.id, status, t.subtask_count - t.subtask_done);
+    });
+  }
 }
 
 async function saveProjectNote() {
@@ -401,76 +436,103 @@ async function saveProjectNote() {
 // Kanban
 // ======================================================================
 
-async function renderKanban() {
-  const pid = store.get('kanbanProject', '');
-  const withSubs = store.get('kanbanSubs', false);
-  const qs = new URLSearchParams();
-  if (pid) qs.set('project_id', pid);
-  if (!withSubs) qs.set('top_level', '1');
-  const tasks = await api.get(`/tasks?${qs}`);
-  const cols = Object.keys(STATUS);
-  const doneLimit = 30;
-  const byStatus = Object.fromEntries(cols.map((s) => [s, tasks.filter((t) => t.status === s)]));
-  byStatus.done.sort((a, b) => new Date(b.completed_at) - new Date(a.completed_at));
-  const activeProjects = state.projects.filter((p) => p.status !== 'archived');
+const PROJECT_COLUMNS = { active: 'Active', on_hold: 'On hold', completed: 'Completed' };
 
-  const card = (t) => `<div class="kcard p${t.priority} ${t.status === 'done' ? 'done' : ''}" draggable="true" data-id="${t.id}">
-      <div class="small muted">${pid ? '' : esc(t.project_name)}${t.parent_id ? ' · subtask' : ''}</div>
-      <div class="ktitle"><input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${t.subtask_count - t.subtask_done}" ${t.status === 'done' ? 'checked' : ''}>
-        <span data-action="open-task" data-id="${t.id}" style="cursor:pointer">${esc(t.title)}</span></div>
-      <div class="kmeta">${prioPill(t.priority)} ${dueChip(t)}
-        ${t.subtask_count ? `<span class="small muted">☑ ${t.subtask_done}/${t.subtask_count}</span>` : ''}
-        ${t.next_reminder ? '<span class="small">🔔</span>' : ''}${t.note_count ? `<span class="small muted">📝 ${t.note_count}</span>` : ''}</div>
-      ${t.subtask_count ? `<div class="progress"><div style="width:${Math.round((t.subtask_done / t.subtask_count) * 100)}%"></div></div>` : ''}
-    </div>`;
-
-  main().innerHTML = `
-    <div class="kanban-tools">
-      <h1 style="margin:0">Kanban</h1><div class="spacer"></div>
-      <select id="kanban-project"><option value="">All projects</option>
-        ${activeProjects.map((p) => `<option value="${p.id}" ${String(p.id) === String(pid) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
-      <label class="small muted row"><input type="checkbox" id="kanban-subs" ${withSubs ? 'checked' : ''}> Include subtasks</label>
-    </div>
-    <div class="kanban">
-      ${cols.map((s) => {
-        const list = s === 'done' ? byStatus.done.slice(0, doneLimit) : byStatus[s];
-        return `<div class="column" data-status="${s}">
-          <h3>${STATUS[s]} <span class="muted small">${byStatus[s].length}</span></h3>
-          ${list.map(card).join('')}
-          ${s === 'done' && byStatus.done.length > doneLimit ? `<div class="small muted">Showing latest ${doneLimit} completed</div>` : ''}
-          ${s === 'todo' ? `<input type="text" id="kanban-add" placeholder="+ Add task${pid ? '' : ' (pick a project above)'}…" ${pid ? '' : 'disabled'}>` : ''}
-        </div>`;
-      }).join('')}
-    </div>`;
-
-  $('#kanban-project').addEventListener('change', (e) => { store.set('kanbanProject', e.target.value); renderKanban(); });
-  $('#kanban-subs').addEventListener('change', (e) => { store.set('kanbanSubs', e.target.checked); renderKanban(); });
-  $('#kanban-add')?.addEventListener('keydown', async (e) => {
-    if (e.key !== 'Enter') return;
-    const q = parseQuick(e.target.value);
-    if (!q.title) return;
-    await api.post('/tasks', { project_id: pid, ...q });
-    await refresh();
-    $('#kanban-add')?.focus();
-  });
-
-  // Drag & drop between columns changes status.
-  $$('.kcard').forEach((c) => {
+// Makes the cards in `root` draggable between its columns; onDrop(id, newStatus).
+function wireDrag(root, onDrop) {
+  $$('.kcard[draggable]', root).forEach((c) => {
     c.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', c.dataset.id); c.classList.add('dragging'); });
     c.addEventListener('dragend', () => c.classList.remove('dragging'));
   });
-  $$('.column').forEach((col) => {
+  $$('.column', root).forEach((col) => {
     col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('drag-over'); });
     col.addEventListener('dragleave', (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove('drag-over'); });
     col.addEventListener('drop', async (e) => {
       e.preventDefault();
       col.classList.remove('drag-over');
-      const id = e.dataTransfer.getData('text/plain');
-      const t = tasks.find((x) => String(x.id) === id);
-      if (!t || t.status === col.dataset.status) return;
-      await setTaskStatus(t.id, col.dataset.status, t.subtask_count - t.subtask_done);
+      try { await onDrop(e.dataTransfer.getData('text/plain'), col.dataset.status); } catch (err) { toast(err.message, 'error'); }
     });
   });
+}
+
+// Main Kanban: every ongoing project as a card, by project status.
+async function renderKanban() {
+  await loadProjects();
+  const doneLimit = 20;
+  const byStatus = Object.fromEntries(Object.keys(PROJECT_COLUMNS).map((st) => [st, state.projects.filter((p) => p.status === st)]));
+  byStatus.completed.sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)));
+
+  const card = (p) => {
+    const pct = p.task_count ? Math.round((p.done_count / p.task_count) * 100) : 0;
+    const stats = [
+      `☑ ${p.done_count}/${p.task_count} tasks`,
+      p.in_progress_count && `▶ ${p.in_progress_count} in progress`,
+      p.blocked_count && `<span class="status-blocked">⛔ ${p.blocked_count} blocked</span>`,
+      p.overdue_count && `<span class="chip overdue">⚠ ${p.overdue_count} overdue</span>`,
+    ].filter(Boolean).join(' · ');
+    return `<div class="kcard p${p.priority} ${p.status === 'completed' ? 'done' : ''}" draggable="true" data-id="${p.id}"
+        data-action="open-project" title="Open project">
+      <div class="ktitle"><span>${esc(p.name)}</span></div>
+      <div class="kmeta">${prioPill(p.priority)} ${p.due_at ? dueChip({ ...p, status: p.status === 'completed' ? 'done' : '' }) : ''}</div>
+      <div class="small muted" style="margin-top:6px">${stats}</div>
+      ${p.task_count ? `<div class="progress" title="${pct}% done"><div style="width:${pct}%"></div></div>` : ''}
+      <div class="small muted" style="margin-top:6px">
+        ${p.status === 'completed' && p.completed_at ? `Completed ${esc(fmtShortDate(p.completed_at))}`
+          : [p.next_due_at && `Next task due ${esc(fmtShortDate(p.next_due_at))}`,
+             p.last_note_at && `last note ${fmtRelative(p.last_note_at)}`].filter(Boolean).join(' · ')}
+      </div>
+    </div>`;
+  };
+
+  main().innerHTML = `
+    <div class="kanban-tools">
+      <h1 style="margin:0">Projects board</h1><div class="spacer"></div>
+      <span class="small muted">Drag a project to change its status · open a project for its own task board</span>
+      <button class="primary" data-action="new-project">+ New project</button>
+    </div>
+    <div class="kanban projects">
+      ${Object.entries(PROJECT_COLUMNS).map(([st, label]) => {
+        const list = st === 'completed' ? byStatus.completed.slice(0, doneLimit) : byStatus[st];
+        return `<div class="column" data-status="${st}">
+          <h3>${label} <span class="muted small">${byStatus[st].length}</span></h3>
+          ${list.map(card).join('') || '<div class="empty small">None</div>'}
+          ${st === 'completed' && byStatus.completed.length > doneLimit ? `<div class="small muted">Showing latest ${doneLimit}</div>` : ''}
+        </div>`;
+      }).join('')}
+    </div>`;
+
+  wireDrag(main(), async (id, status) => {
+    const p = state.projects.find((x) => String(x.id) === id);
+    if (!p || p.status === status) return;
+    await api.patch(`/projects/${p.id}`, { status });
+    toast(`"${p.name}" → ${PROJECT_COLUMNS[status]}`);
+    await refresh();
+  });
+}
+
+// A project's own mini Kanban of its top-level tasks.
+function taskBoardHtml(tasks) {
+  const cols = Object.keys(STATUS);
+  const doneLimit = 30;
+  const byStatus = Object.fromEntries(cols.map((st) => [st, tasks.filter((t) => t.status === st)]));
+  byStatus.done.sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)));
+  const card = (t) => `<div class="kcard p${t.priority} ${t.status === 'done' ? 'done' : ''}" draggable="true" data-id="${t.id}">
+      <div class="ktitle"><input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${t.subtask_count - t.subtask_done}" ${t.status === 'done' ? 'checked' : ''}>
+        <span data-action="open-task" data-id="${t.id}" style="cursor:pointer">${esc(t.title)}</span></div>
+      <div class="kmeta">${t.priority !== 2 ? prioPill(t.priority) : ''} ${dueChip(t)}
+        ${t.subtask_count ? `<span class="small muted">☑ ${t.subtask_done}/${t.subtask_count}</span>` : ''}
+        ${t.next_reminder ? '<span class="small">🔔</span>' : ''}${t.note_count ? `<span class="small muted">📝 ${t.note_count}</span>` : ''}</div>
+      ${t.subtask_count ? `<div class="progress"><div style="width:${Math.round((t.subtask_done / t.subtask_count) * 100)}%"></div></div>` : ''}
+    </div>`;
+  return `<div class="kanban mini">${cols.map((st) => {
+    const list = st === 'done' ? byStatus.done.slice(0, doneLimit) : byStatus[st];
+    return `<div class="column" data-status="${st}">
+      <h3>${STATUS[st]} <span class="muted small">${byStatus[st].length}</span></h3>
+      ${list.map(card).join('')}
+      ${st === 'done' && byStatus.done.length > doneLimit ? `<div class="small muted">Showing latest ${doneLimit}</div>` : ''}
+      ${st === 'todo' ? '<input type="text" id="board-add" placeholder="+ Add task… (Enter)" autocomplete="off">' : ''}
+    </div>`;
+  }).join('')}</div>`;
 }
 
 // ======================================================================
@@ -499,7 +561,7 @@ const submitterList = (names) => `<datalist id="submitters">${names.map((n) => `
 
 // Reads an idea form's fields into API values.
 function ideaValue(name, value) {
-  if (name === 'due_at') return fromLocalInput(value);
+  if (name === 'due_at') return value || null;
   if (name === 'priority') return Number(value);
   if (name === 'area_id') return value ? Number(value) : null;
   if (name === 'cost') return value === '' ? null : value;
@@ -557,9 +619,9 @@ async function ideaForm() {
       <label class="f full">Name<input type="text" name="title" required></label>
       <label class="f full">Description<textarea name="description" rows="3"></textarea></label>
       <label class="f">Submitted by<input type="text" name="submitted_by" list="submitters" autocomplete="off" value="${esc(store.get('lastSubmitter', ''))}"></label>
-      <label class="f">Area of effect<select name="area_id">${areaOptions(null)}</select></label>
+      <label class="f">Area<select name="area_id">${areaOptions(null)}</select></label>
       <label class="f">Priority<select name="priority">${options(PRIORITY, 2)}</select></label>
-      <label class="f">Due<input type="datetime-local" name="due_at"></label>
+      <label class="f">Due date<input type="date" name="due_at"></label>
       <label class="f">Cost (${esc(state.settings.currency)})<input type="number" name="cost" min="0" step="0.01" inputmode="decimal"></label>
       <div class="f" style="justify-content:flex-end"><button type="button" class="link small" data-action="goto-settings">Manage areas…</button></div>
       ${submitterList(submitters)}
@@ -613,9 +675,9 @@ async function renderIdea(id) {
           <label class="f full">Description<textarea name="description" rows="4">${esc(i.description)}</textarea></label>
           <label class="f">Status<select name="status" ${locked ? 'disabled' : ''}>${options(statusOpts, i.status)}</select></label>
           <label class="f">Priority<select name="priority">${options(PRIORITY, i.priority)}</select></label>
-          <label class="f">Area of effect<select name="area_id">${areaOptions(i.area_id)}</select></label>
+          <label class="f">Area<select name="area_id">${areaOptions(i.area_id)}</select></label>
           <label class="f">Submitted by<input type="text" name="submitted_by" list="submitters" autocomplete="off" value="${esc(i.submitted_by)}"></label>
-          <label class="f">Due<input type="datetime-local" name="due_at" value="${toLocalInput(i.due_at)}"></label>
+          <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(i.due_at)}"></label>
           <label class="f">Cost (${esc(state.settings.currency)})<input type="number" name="cost" min="0" step="0.01" inputmode="decimal" value="${i.cost ?? ''}"></label>
           ${submitterList(submitters)}
         </div>
@@ -673,7 +735,7 @@ function escalateDialog(i) {
       <label class="f full">Description / goal<textarea name="description" rows="3">${esc(i.description)}</textarea></label>
       <label class="f">Priority<select name="priority">${options(PRIORITY, i.priority)}</select></label>
       <label class="f">Start date<input type="date" name="start_date" value="${new Date().toLocaleDateString('sv')}"></label>
-      <label class="f">Due<input type="datetime-local" name="due_at" value="${toLocalInput(i.due_at)}"></label>
+      <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(i.due_at)}"></label>
       <label class="f full">Baseline tasks — one per line (you can add more later)
         <textarea name="baseline_tasks" rows="4"></textarea></label>
       <label class="full row small"><input type="checkbox" name="copy_notes" ${i.notes.length ? 'checked' : 'disabled'}>
@@ -688,7 +750,7 @@ function escalateDialog(i) {
     try {
       const project = await api.post(`/ideas/${i.id}/escalate`, {
         name: f.name, description: f.description, priority: Number(f.priority), start_date: f.start_date || null,
-        due_at: fromLocalInput(f.due_at), baseline_tasks: f.baseline_tasks.split('\n'), copy_notes: f.copy_notes === 'on',
+        due_at: f.due_at || null, baseline_tasks: f.baseline_tasks.split('\n'), copy_notes: f.copy_notes === 'on',
       });
       closeModal();
       toast(`${i.ref} escalated to a project`);
@@ -709,8 +771,8 @@ async function renderSettings() {
     <h1>⚙ Settings</h1>
     <div class="grid dash">
       <div class="card">
-        <h2>Areas of effect</h2>
-        <p class="small muted">The choices in the “Area of effect” drop-down on ideas. Rename an area by editing its name.
+        <h2>Areas</h2>
+        <p class="small muted">The choices in the “Area” drop-down on ideas. Rename an area by editing its name.
           Untick <b>Active</b> to hide it from the drop-down without changing ideas that already use it.</p>
         <table class="log">
           <thead><tr><th>Name</th><th>Active</th><th class="num">Ideas</th><th></th></tr></thead>
@@ -831,7 +893,7 @@ function projectForm(p = {}) {
       <label class="f full">Description / goal<textarea name="description" rows="3">${esc(p.description)}</textarea></label>
       <label class="f">Priority<select name="priority">${options(PRIORITY, p.priority || 2)}</select></label>
       <label class="f">Start date<input type="date" name="start_date" value="${esc(p.start_date || (isNew ? new Date().toLocaleDateString('sv') : ''))}"></label>
-      <label class="f">Due<input type="datetime-local" name="due_at" value="${toLocalInput(p.due_at)}"></label>
+      <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(p.due_at)}"></label>
       ${isNew ? `
         <label class="f full">Baseline tasks — one per line (you can add more at any time)
           <textarea name="baseline_tasks" rows="5" placeholder="Gather requirements&#10;Draft proposal&#10;Review with manager"></textarea></label>
@@ -847,7 +909,7 @@ function projectForm(p = {}) {
   $('#project-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target));
-    f.due_at = fromLocalInput(f.due_at);
+    f.due_at = f.due_at || null;
     f.priority = Number(f.priority);
     if (isNew) {
       f.baseline_tasks = f.baseline_tasks.split('\n');
@@ -880,7 +942,7 @@ async function taskModal(id) {
       <label class="f full">Description<textarea name="description" rows="3">${esc(t.description)}</textarea></label>
       <label class="f">Status<select name="status">${options(STATUS, t.status)}</select></label>
       <label class="f">Priority<select name="priority">${options(PRIORITY, t.priority)}</select></label>
-      <label class="f">Due<input type="datetime-local" name="due_at" value="${toLocalInput(t.due_at)}"></label>
+      <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(t.due_at)}"></label>
     </div>
     <div class="small muted" style="margin-top:8px">Created ${esc(fmtDateTime(t.created_at))} · Updated ${esc(fmtDateTime(t.updated_at))}
       ${t.completed_at ? ` · Completed ${esc(fmtDateTime(t.completed_at))}` : ''}</div>
@@ -924,7 +986,7 @@ async function taskModal(id) {
   // Auto-save each field as it changes.
   $$('#task-form [name]').forEach((el) => el.addEventListener('change', async () => {
     let value = el.value;
-    if (el.name === 'due_at') value = fromLocalInput(value);
+    if (el.name === 'due_at') value = value || null;
     if (el.name === 'priority') value = Number(value);
     if (el.name === 'title' && !value.trim()) { el.value = t.title; return; }
     await api.patch(`/tasks/${t.id}`, { [el.name]: value });
@@ -1034,6 +1096,8 @@ const actions = {
   'open-task': (el) => taskModal(el.dataset.id),
   'toggle-task': (el) => setTaskStatus(el.dataset.id, el.checked ? 'done' : 'todo', Number(el.dataset.subs || 0)),
   'toggle-hide-done': (el) => { store.set('hideDone', el.checked); route(); },
+  'tasks-view': (el) => { store.set('tasksView', el.dataset.view); route(); },
+  'open-project': (el) => { location.hash = `#/project/${el.dataset.id}`; },
   'toggle-notes-only': (el) => { store.set('notesOnly', el.checked); route(); },
   'project-field': async (el) => {
     await api.patch(`/projects/${state.project.id}`, { [el.dataset.field]: el.value });
@@ -1168,7 +1232,8 @@ document.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey || modal().open) return;
   if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
   if (e.key === 'n') { e.preventDefault(); quickNoteDialog(); }
-  if (e.key === 't' && $('#add-task-input')) { e.preventDefault(); $('#add-task-input').focus(); }
+  const addTask = $('#add-task-input') || $('#board-add');
+  if (e.key === 't' && addTask) { e.preventDefault(); addTask.focus(); }
   if (e.key === '/') { e.preventDefault(); $('#search').focus(); }
 });
 
@@ -1263,15 +1328,16 @@ async function pollAlerts() {
     if (isNew) { beep(); desktopNotify(key, title, body, open); }
   }
 
-  // Due-date alerts: pop up once per task/due time when overdue or due within 15 minutes.
-  const soon = Date.now() + 15 * 60000;
+  // Due-date alerts: pop up once when a task is due today, and again once it's overdue.
   for (const t of a.due_tasks) {
-    const key = `due-${t.id}-${t.due_at}`;
-    if (seenDue[key] || new Date(t.due_at) > soon) continue;
+    const days = dayDiff(t.due_at);
+    if (days > 0) continue;
+    const overdue = days < 0;
+    const key = `due-${t.id}-${t.due_at}-${overdue ? 'over' : 'today'}`;
+    if (seenDue[key]) continue;
     liveKeys.add(key);
-    const overdue = new Date(t.due_at) < new Date();
-    const title = `${overdue ? '⚠ Overdue' : '⏳ Due soon'}: ${t.title}`;
-    const body = `${t.project_name}\nDue ${fmtDateTime(t.due_at)} (${fmtRelative(t.due_at)})`;
+    const title = `${overdue ? '⚠ Overdue' : '⏳ Due today'}: ${t.title}`;
+    const body = `${t.project_name}\nDue ${fmtDate(t.due_at)} (${dueLabel(t.due_at)})`;
     const markSeen = () => { seenDue[key] = Date.now(); store.set('seenDue', seenDue); };
     const isNew = showPopup(key, {
       title, body, overdue,

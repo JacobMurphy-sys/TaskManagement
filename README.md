@@ -12,11 +12,11 @@ It needs nothing except **Node.js**. The data is kept in a single **SQLite** dat
 | Fully date & time stamped | Every record has `created_at` / `updated_at` / `completed_at` (with time zone), maintained by the database itself. |
 | Full logging | Every insert/update/delete on every table is written to `audit_log` **by database triggers**, so edits made directly in DBeaver are recorded too. See it in **Activity log**, per project in the **Timeline**, and per task under **History**. The server also writes daily log files to the `logs` folder in your data folder. |
 | Backups | Automatic backups at start-up and every 24h (configurable): a complete copy of the **database file** (safe to take while the app is running) plus a **JSON export** of every table. Old backups are pruned (keeps 30). **Back up now** button in the app, and a restore script. |
-| Priority & due dates | Low / Medium / High / Critical, and due date + time on projects and tasks. Overdue and due-soon items are highlighted. |
+| Priority & due dates | Low / Medium / High / Critical, and a due **date** on projects, tasks and ideas (something is overdue once its due day has passed). Overdue and due-today/tomorrow items are highlighted. The exact time everything was created or changed is still recorded for the logs. |
 | Pop-up reminders & alerts | Set reminders on tasks or projects (quick buttons: 15 min, 1 h, next workday 9:00…). When one is due you get an in-app pop-up with a sound, plus a **Windows desktop notification** once enabled. Pop-ups offer Snooze / Dismiss / Open. Tasks that are overdue or due within 15 min also pop up automatically. |
-| Kanban view | To do / In progress / Blocked / Done columns with drag & drop, filter by project, optional subtasks. |
+| Kanban view | **Projects board**: every ongoing project as a card (Active / On hold / Completed) showing progress, blocked and overdue counts and due dates; drag to change status. Each project page also has its own **mini board** of its tasks (To do / In progress / Blocked / Done) via the **List / Board** switch. |
 | Tick-box tasks & subtasks | Checklist with unlimited nested subtasks. Ticking a parent offers to tick its open subtasks too. |
-| Ideation (lightweight tickets) | Log ideas with a permanent reference (`IDEA-0001`…), name, submitter, area of effect, priority, due date and cost. Add time-stamped notes later, move them through a status, and **escalate** one to a full project in one step. Areas are managed on the **Settings** page. |
+| Ideation (lightweight tickets) | Log ideas with a permanent reference (`IDEA-0001`…), name, submitter, area, priority, due date and cost. Add time-stamped notes later, move them through a status, and **escalate** one to a full project in one step. Areas are managed on the **Settings** page. |
 
 Also included: a dashboard (overdue, due today, next 7 days, high priority, reminders, latest notes), search across projects, tasks, notes and ideas, and a layout that works on narrow screens.
 
@@ -62,21 +62,23 @@ This needs Git installed and the app running from a `git clone` of the repositor
 - **Add a note as you go:** type in the bar at the top of the project and press **Enter**. Notes are time-stamped. To attach a note to a specific task, pick the task in the drop-down first.
 - **Add a task:** type in the *Add a task…* box and press **Enter**. Shortcuts you can include in the text:
   - `!low` `!high` `!crit` sets the priority
-  - `@today` `@tomorrow` `@fri` `@2026-10-31` `@2026-10-31T09:30` sets the due date (17:00 if no time is given)
+  - `@today` `@tomorrow` `@fri` `@2026-10-31` sets the due date
 
   For example, `Send board pack !high @thu`.
 - **Subtasks:** hover over a task and click **＋ sub**, or open the task and use *Add subtask*.
 - **Task details:** click a task title to edit its description, status, priority and due date (changes save automatically), and to add subtasks, reminders and notes or see its history.
+- **Boards:** **🗂 Projects board** in the sidebar shows all ongoing projects; drag a card between *Active*, *On hold* and *Completed*, or click it to open the project. On a project page, switch the Tasks panel between **☰ List** (tick-box checklist with subtasks) and **▦ Board** (that project's own Kanban: drag tasks between columns). The choice is remembered.
+- **Due-date alerts:** a pop-up appears once on the day a task is due, and again once it becomes overdue.
 - **Re-baseline:** use this after an agreed change of scope. All current tasks become the new baseline.
 - **Keyboard:** `N` quick note, `T` add task (in a project), `/` search.
 - **Archive rather than delete:** set a finished project's status to *Archived* to hide it. **Show archived** in the sidebar brings it back.
 
 ### Ideation
 - **💡 Ideation** in the sidebar lists open ideas (*New*, *Under review*, *Approved*). You can filter by status or area, or search by name, reference or submitter. The header shows the total cost of the ideas listed.
-- **+ New idea:** give it a name, who submitted it (earlier names are suggested as you type), an area of effect, a priority, a due date and a cost. It gets the next reference number, e.g. `IDEA-0007`. The reference never changes or gets reused.
+- **+ New idea:** give it a name, who submitted it (earlier names are suggested as you type), an area, a priority, a due date and a cost. It gets the next reference number, e.g. `IDEA-0007`. The reference never changes or gets reused.
 - **Open an idea** by clicking its row. Edit any field (changes save automatically), change its status (*Rejected* and *Implemented* close it), add time-stamped notes, and see its full history.
 - **🚀 Escalate to project** creates a project from the idea. You confirm the name, description, priority and dates, and can list the first (baseline) tasks. The project's timeline gets a summary note (submitter, area, cost) and, optionally, copies of the idea's notes. The idea is marked *Escalated* and the two link to each other.
-- **⚙ Settings** manages the *Area of effect* list. Add areas, rename them, or untick *Active* to hide one without affecting ideas that already use it. You can also set the currency symbol used for costs here (default £).
+- **⚙ Settings** manages the *Area* list. Add areas, rename them, or untick *Active* to hide one without affecting ideas that already use it. You can also set the currency symbol used for costs here (default £).
 
 ---
 
@@ -100,11 +102,11 @@ In DBeaver: *Database → New Database Connection → SQLite*, and pick `%LOCALA
 | `reminders` | Pending and dismissed reminders |
 | `ideas` | Ideation tickets; `ref` (`IDEA-0001`…) is assigned automatically, `project_id` is set when escalated |
 | `idea_notes` | Notes on ideas |
-| `areas` | The *Area of effect* list |
+| `areas` | The *Area* list for ideas |
 | `settings` | App settings (e.g. currency symbol) |
 | `audit_log` | Every change, with old and new values as JSON and when it happened |
 
-**Dates and times** are stored as UTC text in the form `2026-10-31T17:00:00.000Z` (note the trailing `Z`: UTC, not local time). The database rejects anything in another format, so hand edits can't break sorting or the due-date alerts. You don't need to set `updated_at`, `completed_at` or the audit log yourself; the triggers handle them.
+**Dates and times** are stored as UTC text in the form `2026-10-31T17:00:00.000Z` (note the trailing `Z`: UTC, not local time). The database rejects anything in another format, so hand edits can't break sorting or the due-date alerts. Due dates (`due_at`) are whole days, stored as the last moment of that day in local time (e.g. `2026-10-31T23:59:59.999Z` in winter in the UK). You don't need to set `updated_at`, `completed_at` or the audit log yourself; the triggers handle them.
 
 **Microsoft Access / Excel (optional):** install the free *SQLite ODBC driver* (by Christian Werner). Then use *External Data → New Data Source → From Other Sources → ODBC* and link the tables for queries and reports. Edits made that way are captured in the audit log too.
 
