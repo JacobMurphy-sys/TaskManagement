@@ -7,6 +7,8 @@ const path = require('path');
 const assert = require('assert/strict');
 
 const PORT = 3999;
+// The core of a project charter, required to create a project.
+const CHARTER = { problem: 'Supplier costs rising', goals: 'Cut spend 5%', sponsor: 'J. Smith', leader: 'Sam Patel' };
 const BASE = `http://127.0.0.1:${PORT}/api`;
 
 async function call(method, url, body) {
@@ -37,7 +39,7 @@ async function waitForServer() {
   try {
     await waitForServer();
 
-    const p = await call('POST', '/projects', {
+    const p = await call('POST', '/projects', { ...CHARTER,
       name: `Smoke test ${new Date().toISOString()}`, priority: 3,
       due_at: new Date(Date.now() + 7 * 86400000).toISOString(),
       baseline_tasks: ['First baseline task', 'Second baseline task', ''], initial_note: 'Kick-off',
@@ -156,7 +158,7 @@ async function waitForServer() {
     assert.equal((await call('GET', '/ideas?q=IDEA-0002')).length, 1);
     assert.ok((await call('GET', '/search?q=finance')).ideas.some((i) => i.id === idea1.id), 'search finds idea notes');
 
-    const escalated = await call('POST', `/ideas/${idea1.id}/escalate`, { baseline_tasks: ['Build model', 'Pilot'] });
+    const escalated = await call('POST', `/ideas/${idea1.id}/escalate`, { ...CHARTER, problem: undefined, baseline_tasks: ['Build model', 'Pilot'] });
     const ep = await call('GET', `/projects/${escalated.id}`);
     assert.equal(ep.name, 'Automate supplier scoring');
     assert.equal(ep.priority, 3);
@@ -174,7 +176,7 @@ async function waitForServer() {
     await call('DELETE', `/ideas/${idea2.id}`);
 
     // ---- Notes create tasks from "[ ]" lines
-    const np = await call('POST', '/projects', { name: 'Features project', budget: '£2,000' });
+    const np = await call('POST', '/projects', { ...CHARTER, name: 'Features project', budget: '£2,000' });
     assert.equal(np.budget, 2000, 'budget parsed');
     const meeting = await call('POST', '/notes', { project_id: np.id,
       body: 'Kick-off meeting\n[ ] Chase finance for data !high @2026-10-20\n- [ ] Book room *weekly\n[x] already done\nplain line' });
@@ -239,7 +241,8 @@ async function waitForServer() {
     const scored = await call('POST', '/ideas', { title: 'Scored idea', impact: 5, effort: 1, cost: 300 });
     assert.equal(scored.impact, 5);
     await assert.rejects(call('PATCH', `/ideas/${scored.id}`, { effort: 7 }), /1 to 5/);
-    const esc2 = await call('POST', `/ideas/${scored.id}/escalate`, {});
+    await assert.rejects(call('POST', `/ideas/${scored.id}/escalate`, {}), /Problem definition is required/);
+    const esc2 = await call('POST', `/ideas/${scored.id}/escalate`, CHARTER);
     assert.equal(esc2.budget, 300, 'escalated project takes the idea cost as budget');
 
     // ---- Report
@@ -264,6 +267,80 @@ async function waitForServer() {
 
     // ---- Opening a path is validated (and only works on Windows)
     await assert.rejects(call('POST', '/open-path', { path: 'relative\\path' }), /400/);
+
+    // ---- Project charter
+    await assert.rejects(call('POST', '/projects', { name: 'No charter' }), /Problem definition is required/);
+    await assert.rejects(call('POST', '/projects', { ...CHARTER, name: 'x', leader: ' ' }), /Project leader is required/);
+    const cp = await call('POST', '/projects', { ...CHARTER, name: 'Charter project', category: 'Cost', baseline_tasks: ['Phase 1'] });
+    assert.match(cp.project_code, /^PRJ-\d{4}$/, 'default project ID');
+    await assert.rejects(call('PATCH', `/projects/${cp.id}`, { goals: '' }), /Goals of the project is required/);
+    await call('PATCH', `/projects/${cp.id}`, { project_code: 'CI-2026-07', in_scope: 'Tier 1' });
+    const member = await call('POST', `/projects/${cp.id}/team`, { name: 'Alex', role: 'Analyst', capacity: '20%' });
+    await call('PATCH', `/team/${member.id}`, { capacity: '30%' });
+    await call('POST', `/projects/${cp.id}/kpis`, { name: 'Spend', unit: '£k', baseline: '2400', target: '2280' });
+    let cpd = await call('GET', `/projects/${cp.id}`);
+    assert.equal(cpd.charter.team[0].capacity, '30%');
+    assert.equal(cpd.charter.kpis.length, 1);
+    assert.ok(cpd.charter.completeness.pct > 50 && cpd.charter.completeness.pct < 100, 'partial charter');
+    assert.ok(cpd.charter.completeness.missing.includes('Out of scope'));
+    assert.ok((await call('GET', '/projects')).find((x) => x.id === cp.id).charter_pct > 0);
+    // pick-lists: renaming an item updates projects using it
+    const cat = await call('POST', '/lookups', { list: 'category', name: 'Cost' });
+    await call('PATCH', `/lookups/${cat.id}`, { name: 'Cost reduction' });
+    assert.equal((await call('GET', `/projects/${cp.id}`)).category, 'Cost reduction');
+    assert.equal((await call('GET', '/lookups')).category[0].used, 1);
+
+    // ---- Standalone tasks
+    const st = await call('POST', '/tasks', { title: 'Renew parking permit', due_at: todayKey });
+    assert.equal(st.project_id, null, 'task without a project');
+    const stNote = await call('POST', '/notes', { task_id: st.id, body: 'Form is on the intranet\n[ ] Print form' });
+    assert.equal(stNote.created_tasks[0].parent_id, st.id, 'subtask from a note on a standalone task');
+    assert.ok((await call('GET', '/tasks?standalone=1')).some((t) => t.id === st.id));
+    assert.ok((await call('GET', '/dashboard')).today.some((t) => t.id === st.id), 'standalone tasks on the dashboard');
+    assert.ok((await call('GET', `/report?from=${todayKey}&to=${todayKey}`)).standalone.added.some((t) => t.id === st.id));
+    await assert.rejects(call('POST', `/tasks/${st.id}/dependencies`, { depends_on_id: taskA.id }), /tasks in projects/);
+    // move into a project and back out
+    await call('PATCH', `/tasks/${st.id}`, { project_id: cp.id });
+    cpd = await call('GET', `/projects/${cp.id}`);
+    assert.ok(cpd.tasks.some((t) => t.id === st.id && !t.is_baseline), 'moved in as new scope');
+    assert.equal(cpd.tasks.find((t) => t.title === 'Print form').project_id, cp.id, 'subtasks move too');
+    await call('PATCH', `/tasks/${st.id}`, { project_id: null });
+    assert.ok((await call('GET', '/tasks?standalone=1')).some((t) => t.id === st.id), 'moved back out');
+    // promote to a project: charter required, subtasks and notes move across
+    await assert.rejects(call('POST', `/tasks/${st.id}/promote`, {}), /required/);
+    const promoted = await call('POST', `/tasks/${st.id}/promote`, CHARTER);
+    assert.equal(promoted.name, 'Renew parking permit');
+    const pd = await call('GET', `/projects/${promoted.id}`);
+    assert.deepEqual(pd.tasks.map((t) => t.title), ['Print form'], 'subtasks became project tasks');
+    const ptl = await call('GET', `/projects/${promoted.id}/timeline`);
+    assert.ok(ptl.some((i) => i.type === 'note' && /Promoted from the task/.test(i.body)));
+    assert.ok(ptl.some((i) => i.type === 'note' && /Form is on the intranet/.test(i.body)), 'task notes moved');
+    assert.equal((await fetch(`${BASE}/tasks/${st.id}`)).status, 404, 'the promoted task is gone');
+
+    // ---- Charter Excel: plain workbook without a template, filled template with one
+    const { buildXlsx, readZip } = require('../src/xlsx');
+    let cx = await fetch(`${BASE}/projects/${cp.id}/charter.xlsx`);
+    assert.equal(cx.status, 200);
+    const plain = readZip(Buffer.from(await cx.arrayBuffer()));
+    assert.match(plain['xl/workbook.xml'].toString(), /name="Charter"/, 'plain charter workbook');
+    assert.match(plain['xl/worksheets/sheet1.xml'].toString(), /Supplier costs rising/);
+    const tpl = buildXlsx([{ name: 'Form', columns: [{ header: 'Problem definition:' }, { header: 'Management Sponsor:' }, { header: 'Project ID' }], rows: [] }]);
+    const up = await fetch(`${BASE}/charter-template`, { method: 'POST', body: tpl,
+      headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': 'form.xlsx' } });
+    const info = await up.json();
+    assert.equal(up.status, 201, JSON.stringify(info));
+    assert.equal(info.mapping.problem.cell, 'A2', 'value goes under its label');
+    assert.equal(info.mapping.project_code.cell, 'C2');
+    await assert.rejects(call('PATCH', '/charter-template', { mapping: { problem: { sheet: 'Form', cell: 'nope' } } }), /cell reference/);
+    await call('PATCH', '/charter-template', { mapping: { ...info.mapping, sponsor: { sheet: 'Form', cell: 'B5', mode: 'replace' } } });
+    cx = await fetch(`${BASE}/projects/${cp.id}/charter.xlsx`);
+    const sheet = readZip(Buffer.from(await cx.arrayBuffer()))['xl/worksheets/sheet1.xml'].toString();
+    assert.match(sheet, /<c r="A2"[^>]*><is><t[^>]*>Supplier costs rising</, 'problem filled in');
+    assert.match(sheet, /<c r="B5"[^>]*><is><t[^>]*>J\. Smith</, 'remapped sponsor cell used');
+    assert.match(sheet, /CI-2026-07/);
+    await assert.rejects(fetch(`${BASE}/charter-template`, { method: 'POST', body: 'not excel',
+      headers: { 'X-Requested-With': 'TaskManager', 'Content-Type': 'application/octet-stream' } }).then((r) => { if (!r.ok) throw new Error(String(r.status)); }), /400/);
+    await call('DELETE', '/charter-template');
 
     // Change requests without the app's header are refused (blocks other websites).
     const bare = await fetch(`${BASE}/backups`, { method: 'POST' });

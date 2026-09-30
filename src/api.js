@@ -9,6 +9,7 @@ const path = require('path');
 const { parseQuick, nextOccurrence, shiftKey, dateKey } = require('./dates');
 const { buildXlsx } = require('./xlsx');
 const { RECURRENCES } = require('./schema');
+const charter = require('./charter');
 
 const router = express.Router();
 
@@ -102,7 +103,17 @@ const normProject = (p) => p && { ...p, baseline_snapshot: parseJson(p.baseline_
 const normTask = (t) => t && { ...t, is_baseline: !!t.is_baseline };
 const normAudit = (e) => ({ ...e, old_data: parseJson(e.old_data), new_data: parseJson(e.new_data) });
 
-const PROJECT_FIELDS = ['name', 'description', 'status', 'priority', 'start_date', 'due_at', 'budget'];
+const CHARTER_TEXT = ['project_code', 'sponsor', 'leader', 'policy_deployment', 'category', 'gm_effect', 'problem',
+  'goals', 'in_scope', 'out_scope', 'benefits_quantified', 'benefits_other'];
+const PROJECT_FIELDS = ['name', 'description', 'status', 'priority', 'start_date', 'due_at', 'budget', ...CHARTER_TEXT];
+
+// A project needs the core of its charter; checked on create, and on edit for fields being changed.
+function checkCharter(fields, creating) {
+  for (const [k, labelText] of Object.entries(charter.REQUIRED)) {
+    const present = k in fields;
+    if ((creating || present) && !String(fields[k] ?? '').trim()) throw new HttpError(400, `${labelText} is required`);
+  }
+}
 const TASK_FIELDS = ['title', 'description', 'status', 'priority', 'due_at', 'sort_order', 'parent_id',
   'start_date', 'waiting_on', 'recurrence'];
 
@@ -112,7 +123,7 @@ const TASK_SELECT = `
          (SELECT count(*) FROM tasks s WHERE s.parent_id = t.id AND s.status = 'done') AS subtask_done,
          (SELECT count(*) FROM notes n WHERE n.task_id = t.id) AS note_count,
          (SELECT min(r.remind_at) FROM reminders r WHERE r.task_id = t.id AND r.status = 'pending') AS next_reminder
-  FROM tasks t JOIN projects p ON p.id = t.project_id`;
+  FROM tasks t LEFT JOIN projects p ON p.id = t.project_id`;
 const tasks = (where, params = []) => db.all(`${TASK_SELECT} ${where}`, params).map(normTask);
 
 // ------------------------------------------------------------------ projects
@@ -135,13 +146,23 @@ router.get('/projects', h((req, res) => {
     GROUP BY p.id
     ORDER BY (p.status = 'active') DESC, p.priority DESC, p.due_at IS NULL, p.due_at, p.name COLLATE NOCASE`,
   [nowIso()]);
-  res.json(rows.map(normProject));
+  res.json(rows.map((p) => ({ ...normProject(p), charter_pct: charter.completeness(p, charterExtras(p.id)).pct })));
 }));
+
+// Team, KPIs and milestone rows that complete a project's charter.
+function charterExtras(projectId) {
+  return {
+    team: db.all('SELECT * FROM project_team WHERE project_id = ? ORDER BY sort_order, id', [projectId]),
+    kpis: db.all('SELECT * FROM project_kpis WHERE project_id = ? ORDER BY sort_order, id', [projectId]),
+    milestones: db.all(`SELECT id, title, status, start_date, due_at, completed_at FROM tasks
+      WHERE project_id = ? AND parent_id IS NULL ORDER BY sort_order, id`, [projectId]),
+  };
+}
 
 // Creates a project with optional baseline tasks and first note. Call inside a transaction.
 function createProject(body) {
   const fields = pick(body, PROJECT_FIELDS);
-  if (!fields.name || !String(fields.name).trim()) throw new HttpError(400, 'Project name is required');
+  checkCharter(fields, body.require_charter !== false);
   const baselineTasks = (body.baseline_tasks || []).map((s) => String(s).trim()).filter(Boolean);
   const note = String(body.initial_note || '').trim();
   const baseline = body.set_baseline !== false;
@@ -153,14 +174,16 @@ function createProject(body) {
 }
 
 router.post('/projects', h((req, res) => {
-  res.status(201).json(normProject(db.tx(() => createProject(req.body))));
+  res.status(201).json(normProject(db.tx(() => createProject({ ...req.body, require_charter: true }))));
 }));
 
 router.get('/projects/:id', h((req, res) => {
   const project = db.get('SELECT * FROM projects WHERE id = ?', [req.params.id]);
   if (!project) throw notFound('Project');
+  const extras = charterExtras(project.id);
   res.json({
     ...normProject(project),
+    charter: { ...extras, completeness: charter.completeness(project, extras) },
     tasks: tasks('WHERE t.project_id = ? ORDER BY t.sort_order, t.id', [project.id]),
     links: db.all('SELECT id, task_id, depends_on_id FROM task_links WHERE project_id = ?', [project.id]),
     costs: db.all('SELECT * FROM project_costs WHERE project_id = ? ORDER BY spent_on DESC, id DESC', [project.id]),
@@ -170,7 +193,9 @@ router.get('/projects/:id', h((req, res) => {
 }));
 
 router.patch('/projects/:id', h((req, res) => {
-  const row = fresh('projects', updateRow('projects', req.params.id, pick(req.body, PROJECT_FIELDS)));
+  const fields = pick(req.body, PROJECT_FIELDS);
+  checkCharter(fields, false);
+  const row = fresh('projects', updateRow('projects', req.params.id, fields));
   if (!row) throw notFound('Project');
   res.json(normProject(row));
 }));
@@ -225,9 +250,10 @@ router.get('/projects/:id/timeline', h((req, res) => {
 // ------------------------------------------------------------------ tasks
 
 router.get('/tasks', h((req, res) => {
-  const where = ["p.status <> 'archived'"];
+  const where = ["(p.id IS NULL OR p.status <> 'archived')"];
   const params = [];
   if (req.query.project_id) { params.push(req.query.project_id); where.push('t.project_id = ?'); }
+  if (req.query.standalone === '1') where.push('t.project_id IS NULL');
   if (req.query.top_level === '1') where.push('t.parent_id IS NULL');
   if (req.query.open === '1') where.push("t.status <> 'done'");
   res.json(tasks(`WHERE ${where.join(' AND ')}
@@ -267,7 +293,29 @@ function spawnNextOccurrence(taskId) {
 }
 
 const nextSortOrder = (projectId) =>
-  db.get('SELECT coalesce(max(sort_order), -1) + 1 AS n FROM tasks WHERE project_id = ?', [projectId]).n;
+  db.get('SELECT coalesce(max(sort_order), -1) + 1 AS n FROM tasks WHERE project_id IS ?', [projectId ?? null]).n;
+
+const subtreeIds = (id) => db.all(`WITH RECURSIVE sub(id) AS (SELECT ? UNION ALL
+  SELECT t.id FROM tasks t JOIN sub ON t.parent_id = sub.id) SELECT id FROM sub`, [id]).map((r) => r.id);
+
+// Moves a task (with its subtasks, notes and reminders) into a project, or out to the
+// standalone Tasks list (projectId null). Dependencies that would cross projects are dropped.
+function moveTask(taskId, projectId) {
+  const t = db.get('SELECT * FROM tasks WHERE id = ?', [taskId]);
+  if (!t) throw notFound('Task');
+  if (projectId && !db.get('SELECT 1 FROM projects WHERE id = ?', [projectId])) throw notFound('Project');
+  if ((t.project_id ?? null) === (projectId ?? null)) return;
+  const ids = subtreeIds(t.id);
+  const inList = ids.map(() => '?').join(', ');
+  db.run(`DELETE FROM task_links WHERE (task_id IN (${inList})) <> (depends_on_id IN (${inList}))`, [...ids, ...ids]);
+  if (projectId) db.run(`UPDATE task_links SET project_id = ? WHERE task_id IN (${inList})`, [projectId, ...ids]);
+  else db.run(`DELETE FROM task_links WHERE task_id IN (${inList})`, ids);
+  // Work moved into a project is new scope compared with its baseline.
+  db.run(`UPDATE tasks SET project_id = ?, is_baseline = 0 WHERE id IN (${inList})`, [projectId ?? null, ...ids]);
+  db.run('UPDATE tasks SET parent_id = NULL, sort_order = ? WHERE id = ?', [nextSortOrder(projectId), t.id]);
+  db.run(`UPDATE notes SET project_id = ? WHERE task_id IN (${inList})`, [projectId ?? null, ...ids]);
+  db.run(`UPDATE reminders SET project_id = ? WHERE task_id IN (${inList})`, [projectId ?? null, ...ids]);
+}
 
 router.get('/tasks/waiting-names', h((req, res) => {
   res.json(db.all(`SELECT waiting_on AS name, max(coalesce(waiting_since, updated_at)) AS last FROM tasks
@@ -278,14 +326,14 @@ router.post('/tasks', h((req, res) => {
   const fields = pick(req.body, TASK_FIELDS);
   applyTaskRules(null, fields);
   if (!fields.title || !String(fields.title).trim()) throw new HttpError(400, 'Task title is required');
-  let projectId = req.body.project_id;
+  // No project = a standalone task in the Tasks list.
+  let projectId = req.body.project_id || null;
   if (fields.parent_id) {
     const parent = db.get('SELECT project_id FROM tasks WHERE id = ?', [fields.parent_id]);
     if (!parent) throw notFound('Parent task');
     projectId = parent.project_id;
   }
-  if (!projectId) throw new HttpError(400, 'project_id is required');
-  if (!db.get('SELECT 1 FROM projects WHERE id = ?', [projectId])) throw notFound('Project');
+  if (projectId && !db.get('SELECT 1 FROM projects WHERE id = ?', [projectId])) throw notFound('Project');
   if (fields.sort_order === undefined) fields.sort_order = nextSortOrder(projectId);
   const task = fresh('tasks', insertRow('tasks', { ...fields, project_id: projectId }));
   res.status(201).json(normTask(task));
@@ -317,6 +365,7 @@ router.patch('/tasks/:id', h((req, res) => {
     const current = db.get('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
     if (!current) throw notFound('Task');
     applyTaskRules(current, fields);
+    if ('project_id' in req.body) moveTask(current.id, req.body.project_id || null);
     const row = updateRow('tasks', req.params.id, fields);
     // Optionally complete / reopen all subtasks along with the parent.
     if (req.body.cascade && fields.status) {
@@ -340,6 +389,7 @@ router.post('/tasks/:id/dependencies', h((req, res) => {
     const dep = db.get('SELECT id, project_id FROM tasks WHERE id = ?', [req.body.depends_on_id]);
     if (!t || !dep) throw notFound('Task');
     if (t.id === dep.id) throw new HttpError(400, 'A task can\'t depend on itself');
+    if (!t.project_id || !dep.project_id) throw new HttpError(400, 'Dependencies are for tasks in projects');
     if (t.project_id !== dep.project_id) throw new HttpError(400, 'Dependencies must be in the same project');
     // Refuse loops: walk everything `dep` already waits for.
     const seen = new Set();
@@ -357,6 +407,28 @@ router.post('/tasks/:id/dependencies', h((req, res) => {
     return insertRow('task_links', { project_id: t.project_id, task_id: t.id, depends_on_id: dep.id });
   });
   res.status(201).json(link);
+}));
+
+// Turns a standalone task into a project (the charter is required). Its subtasks become
+// the project's tasks and its notes and reminders move across.
+router.post('/tasks/:id/promote', h((req, res) => {
+  const project = db.tx(() => {
+    const t = db.get('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
+    if (!t) throw notFound('Task');
+    if (t.project_id) throw new HttpError(400, 'Only standalone tasks can be promoted to a project');
+    const p = createProject({
+      priority: t.priority, due_at: t.due_at, start_date: t.start_date, ...req.body,
+      name: req.body.name || t.title, set_baseline: false,
+    });
+    for (const child of db.all('SELECT id FROM tasks WHERE parent_id = ? ORDER BY sort_order, id', [t.id])) moveTask(child.id, p.id);
+    db.run('UPDATE notes SET project_id = ?, task_id = NULL WHERE task_id = ?', [p.id, t.id]);
+    db.run('UPDATE reminders SET project_id = ?, task_id = NULL WHERE task_id = ?', [p.id, t.id]);
+    insertRow('notes', { project_id: p.id,
+      body: `Promoted from the task "${t.title}" (added ${new Date(t.created_at).toLocaleDateString(undefined, { dateStyle: 'medium' })}).` });
+    db.run('DELETE FROM tasks WHERE id = ?', [t.id]);
+    return req.body.set_baseline === false ? p : setBaseline(p.id);
+  });
+  res.status(201).json(normProject(project));
 }));
 
 router.delete('/task-links/:id', h((req, res) => {
@@ -383,8 +455,8 @@ router.post('/notes', h((req, res) => {
     if (!t) throw notFound('Task');
     projectId = t.project_id;
   }
-  if (!projectId) throw new HttpError(400, 'project_id is required');
-  if (!db.get('SELECT 1 FROM projects WHERE id = ?', [projectId])) throw notFound('Project');
+  if (!projectId && !taskId) throw new HttpError(400, 'project_id or task_id is required');
+  if (projectId && !db.get('SELECT 1 FROM projects WHERE id = ?', [projectId])) throw notFound('Project');
   const result = db.tx(() => {
     const { text, created } = tasksFromNote(body, projectId, taskId);
     return { ...insertRow('notes', { project_id: projectId, task_id: taskId, body: text }), created_tasks: created };
@@ -481,7 +553,7 @@ router.get('/alerts', h((req, res) => {
   res.json({
     now,
     reminders: db.all(`${REMINDER_SELECT} WHERE r.status = 'pending' AND r.remind_at <= ? ORDER BY r.remind_at`, [now]),
-    due_tasks: tasks(`WHERE t.status <> 'done' AND p.status IN ('active', 'on_hold')
+    due_tasks: tasks(`WHERE t.status <> 'done' AND (p.id IS NULL OR p.status IN ('active', 'on_hold'))
       AND t.due_at IS NOT NULL AND t.due_at <= ? ORDER BY t.due_at`, [nowIso(24 * 3600 * 1000)]),
   });
 }));
@@ -493,7 +565,7 @@ router.get('/dashboard', h((req, res) => {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const dayStart = (n) => new Date(today.getTime() + n * 86400000).toISOString();
   const now = nowIso();
-  const base = "WHERE t.status <> 'done' AND p.status IN ('active', 'on_hold')";
+  const base = "WHERE t.status <> 'done' AND (p.id IS NULL OR p.status IN ('active', 'on_hold'))";
   res.json({
     overdue: tasks(`${base} AND t.due_at < ? ORDER BY t.due_at`, [now]),
     today: tasks(`${base} AND t.due_at >= ? AND t.due_at < ? ORDER BY t.due_at`, [now, dayStart(1)]),
@@ -504,7 +576,7 @@ router.get('/dashboard', h((req, res) => {
     ideas: db.get(`SELECT count(*) AS open, coalesce(sum(cost), 0) AS cost FROM ideas
       WHERE status IN ('new', 'reviewing', 'approved')`),
     recent_notes: db.all(`SELECT n.*, p.name AS project_name, t.title AS task_title FROM notes n
-      JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id
+      LEFT JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id
       ORDER BY n.created_at DESC LIMIT 15`),
     reminders: db.all(`${REMINDER_SELECT} WHERE r.status = 'pending' ORDER BY r.remind_at LIMIT 20`),
   });
@@ -612,6 +684,8 @@ router.post('/ideas/:id/escalate', h((req, res) => {
       `Raised: ${new Date(idea.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`,
     ].filter(Boolean).join('\n');
     const p = createProject({
+      ...Object.fromEntries(CHARTER_TEXT.map((k) => [k, req.body[k]])),
+      problem: req.body.problem !== undefined ? req.body.problem : idea.description,
       name: req.body.name || idea.title,
       description: req.body.description !== undefined ? req.body.description : idea.description,
       priority: req.body.priority || idea.priority,
@@ -691,6 +765,147 @@ router.delete('/areas/:id', h((req, res) => {
   res.status(204).end();
 }));
 
+// ------------------------------------------------------------------ charter: team, KPIs, lists
+
+const TEAM_FIELDS = ['name', 'role', 'capacity', 'sort_order'];
+const KPI_FIELDS = ['name', 'unit', 'baseline', 'target', 'current', 'sort_order'];
+for (const [path_, table, fieldsList, what] of [['team', 'project_team', TEAM_FIELDS, 'Team member'], ['kpis', 'project_kpis', KPI_FIELDS, 'KPI']]) {
+  router.post(`/projects/:id/${path_}`, h((req, res) => {
+    if (!db.get('SELECT 1 FROM projects WHERE id = ?', [req.params.id])) throw notFound('Project');
+    const f = pick(req.body, fieldsList);
+    if (!String(f.name || '').trim()) throw new HttpError(400, `${what} name is required`);
+    if (f.sort_order === undefined) {
+      f.sort_order = db.get(`SELECT coalesce(max(sort_order), -1) + 1 AS n FROM ${table} WHERE project_id = ?`, [req.params.id]).n;
+    }
+    res.status(201).json(insertRow(table, { ...f, project_id: Number(req.params.id) }));
+  }));
+  router.patch(`/${path_}/:id`, h((req, res) => {
+    const f = pick(req.body, fieldsList);
+    if ('name' in f && !String(f.name || '').trim()) throw new HttpError(400, `${what} name is required`);
+    const row = fresh(table, updateRow(table, req.params.id, f));
+    if (!row) throw notFound(what);
+    res.json(row);
+  }));
+  router.delete(`/${path_}/:id`, h((req, res) => {
+    if (!db.run(`DELETE FROM ${table} WHERE id = ?`, [req.params.id]).changes) throw notFound(what);
+    res.status(204).end();
+  }));
+}
+
+const LOOKUP_LISTS = ['category', 'policy_deployment'];
+router.get('/lookups', h((req, res) => {
+  const rows = db.all(`SELECT l.*, (SELECT count(*) FROM projects p WHERE
+      (l.list = 'category' AND p.category = l.name) OR (l.list = 'policy_deployment' AND p.policy_deployment = l.name)) AS used
+    FROM lookups l ORDER BY l.sort_order, l.name COLLATE NOCASE`).map((r) => ({ ...r, active: !!r.active }));
+  res.json(Object.fromEntries(LOOKUP_LISTS.map((l) => [l, rows.filter((r) => r.list === l)])));
+}));
+router.post('/lookups', h((req, res) => {
+  const name = String(req.body.name || '').trim();
+  if (!LOOKUP_LISTS.includes(req.body.list)) throw new HttpError(400, 'Unknown list');
+  if (!name) throw new HttpError(400, 'Name is required');
+  if (db.get('SELECT 1 FROM lookups WHERE list = ? AND name = ?', [req.body.list, name])) throw new HttpError(400, `"${name}" already exists`);
+  res.status(201).json(insertRow('lookups', { list: req.body.list, name }));
+}));
+router.patch('/lookups/:id', h((req, res) => {
+  const cur = db.get('SELECT * FROM lookups WHERE id = ?', [req.params.id]);
+  if (!cur) throw notFound('List item');
+  const f = pick(req.body, ['name', 'active', 'sort_order']);
+  if ('name' in f) {
+    f.name = String(f.name || '').trim();
+    if (!f.name) throw new HttpError(400, 'Name is required');
+  }
+  const row = db.tx(() => {
+    const r = updateRow('lookups', cur.id, f);
+    // Renaming an item updates the projects that use it.
+    if (f.name && f.name !== cur.name) db.run(`UPDATE projects SET ${cur.list} = ? WHERE ${cur.list} = ?`, [f.name, cur.name]);
+    return r;
+  });
+  res.json(fresh('lookups', row));
+}));
+router.delete('/lookups/:id', h((req, res) => {
+  if (!db.run('DELETE FROM lookups WHERE id = ?', [req.params.id]).changes) throw notFound('List item');
+  res.status(204).end();
+}));
+
+// ---- charter Excel template: upload once, map fields to cells, fill per project
+
+const TEMPLATE_FILE = path.join(config.dataDir, 'charter-template.xlsx');
+const setSetting = (key, value) => db.run(`INSERT INTO settings (key, value) VALUES (?, ?)
+  ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [key, value]);
+const getSetting = (key) => db.get('SELECT value FROM settings WHERE key = ?', [key])?.value ?? null;
+
+function templateInfo() {
+  const exists = fs.existsSync(TEMPLATE_FILE);
+  const info = { uploaded: exists, file_name: getSetting('charter_template_name'), fields: charter.FIELD_LIST,
+    mapping: parseJson(getSetting('charter_map')) || {} };
+  if (exists) {
+    try {
+      const t = charter.readTemplate(fs.readFileSync(TEMPLATE_FILE));
+      info.sheets = t.sheets.map((sh) => sh.name);
+      info.uploaded_at = fs.statSync(TEMPLATE_FILE).mtime.toISOString();
+    } catch (err) { info.error = err.message; }
+  }
+  return info;
+}
+
+router.get('/charter-template', h((req, res) => res.json(templateInfo())));
+
+router.post('/charter-template', express.raw({ type: '*/*', limit: '15mb' }), h((req, res) => {
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || !buf.length) throw new HttpError(400, 'No file received');
+  let detected;
+  try { detected = charter.detectMapping(charter.readTemplate(buf)); } catch (err) {
+    throw new HttpError(400, `That doesn't look like an Excel .xlsx file (${err.message})`);
+  }
+  fs.mkdirSync(path.dirname(TEMPLATE_FILE), { recursive: true });
+  fs.writeFileSync(TEMPLATE_FILE, buf);
+  setSetting('charter_template_name', String(req.get('X-File-Name') || 'template.xlsx').slice(0, 200));
+  setSetting('charter_map', JSON.stringify(detected));
+  log.info('Charter template uploaded', { fields_found: Object.keys(detected).length });
+  res.status(201).json(templateInfo());
+}));
+
+router.patch('/charter-template', h((req, res) => {
+  if (!fs.existsSync(TEMPLATE_FILE)) throw notFound('Template');
+  const t = charter.readTemplate(fs.readFileSync(TEMPLATE_FILE));
+  const mapping = {};
+  for (const [key, m] of Object.entries(req.body.mapping || {})) {
+    if (!charter.FIELDS[key] || !m || !m.cell) continue;
+    const cell = String(m.cell).trim().toUpperCase();
+    if (!/^[A-Z]{1,3}[1-9]\d*$/.test(cell)) throw new HttpError(400, `"${m.cell}" isn't a cell reference (e.g. B4)`);
+    if (!t.sheets.some((sh) => sh.name === m.sheet)) throw new HttpError(400, `No sheet called "${m.sheet}"`);
+    mapping[key] = { sheet: m.sheet, cell, mode: m.mode === 'append' ? 'append' : 'replace' };
+  }
+  setSetting('charter_map', JSON.stringify(mapping));
+  res.json(templateInfo());
+}));
+
+router.post('/charter-template/detect', h((req, res) => {
+  if (!fs.existsSync(TEMPLATE_FILE)) throw notFound('Template');
+  setSetting('charter_map', JSON.stringify(charter.detectMapping(charter.readTemplate(fs.readFileSync(TEMPLATE_FILE)))));
+  res.json(templateInfo());
+}));
+
+router.delete('/charter-template', h((req, res) => {
+  fs.rmSync(TEMPLATE_FILE, { force: true });
+  db.run("DELETE FROM settings WHERE key IN ('charter_template_name', 'charter_map')");
+  res.status(204).end();
+}));
+
+router.get('/projects/:id/charter.xlsx', h((req, res) => {
+  const p = db.get('SELECT * FROM projects WHERE id = ?', [req.params.id]);
+  if (!p) throw notFound('Project');
+  const values = charter.values(p, charterExtras(p.id), getSettings().currency);
+  const mapping = parseJson(getSetting('charter_map')) || {};
+  const buf = fs.existsSync(TEMPLATE_FILE) && Object.keys(mapping).length
+    ? charter.fillTemplate(fs.readFileSync(TEMPLATE_FILE), mapping, values)
+    : charter.plainWorkbook(values);
+  const file = `Charter - ${(p.project_code ? `${p.project_code} ` : '') + p.name}`.replace(/[^\w -]+/g, '').trim().slice(0, 80);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${file}.xlsx"; filename*=UTF-8''${encodeURIComponent(`${file}.xlsx`)}`);
+  res.send(buf);
+}));
+
 // ------------------------------------------------------------------ project costs
 
 router.post('/projects/:id/costs', h((req, res) => {
@@ -739,6 +954,12 @@ const XL = {
     { header: 'Budget', type: 'money', width: 11 }, { header: 'Spent', type: 'money', width: 11 },
     { header: 'Created', type: 'datetime', width: 16 }, { header: 'Completed', type: 'datetime', width: 16 },
     { header: 'Description', type: 'wrap', width: 50 },
+    { header: 'Project ID', width: 12 }, { header: 'Sponsor', width: 18 }, { header: 'Leader', width: 18 },
+    { header: 'Policy deployment', width: 18 }, { header: 'Category', width: 16 }, { header: 'Gross margin effect', width: 18 },
+    { header: 'Problem definition', type: 'wrap', width: 50 }, { header: 'Goals', type: 'wrap', width: 50 },
+    { header: 'In scope', type: 'wrap', width: 40 }, { header: 'Out of scope', type: 'wrap', width: 40 },
+    { header: 'Quantified benefits', type: 'wrap', width: 40 }, { header: 'Other benefits', type: 'wrap', width: 40 },
+    { header: 'Charter complete', width: 10 },
   ],
   tasks: [
     { header: 'Project', width: 26 }, { header: 'Task', width: 40 }, { header: 'Subtask of', width: 26 },
@@ -781,12 +1002,15 @@ function exportSheets(scope, id) {
     if (scope === 'project' && !projects.length) throw notFound('Project');
     sheets.push({ name: 'Projects', columns: XL.projects, rows: projects.map((p) => [
       p.name, label(STATUS_LABEL, p.status), PRIORITY_LABEL[p.priority], p.start_date, p.due_at, p.baseline_due_at,
-      p.task_count, p.done_count, p.overdue_count, p.budget, p.spent, p.created_at, p.completed_at, p.description]) });
+      p.task_count, p.done_count, p.overdue_count, p.budget, p.spent, p.created_at, p.completed_at, p.description,
+      p.project_code, p.sponsor, p.leader, p.policy_deployment, p.category, p.gm_effect, p.problem, p.goals,
+      p.in_scope, p.out_scope, p.benefits_quantified, p.benefits_other,
+      `${charter.completeness(p, charterExtras(p.id)).pct}%`]) });
     const tRows = db.all(`SELECT t.*, p.name AS project_name, par.title AS parent_title FROM tasks t
-      JOIN projects p ON p.id = t.project_id LEFT JOIN tasks par ON par.id = t.parent_id
-      ${projWhere} ORDER BY p.name COLLATE NOCASE, t.sort_order, t.id`, projParams);
+      LEFT JOIN projects p ON p.id = t.project_id LEFT JOIN tasks par ON par.id = t.parent_id
+      ${projWhere} ORDER BY p.name IS NULL, p.name COLLATE NOCASE, t.sort_order, t.id`, projParams);
     sheets.push({ name: 'Tasks', columns: XL.tasks, rows: tRows.map((t) => [
-      t.project_name, t.title, t.parent_title, label(STATUS_LABEL, t.status), PRIORITY_LABEL[t.priority], t.start_date,
+      t.project_name || '(standalone task)', t.title, t.parent_title, label(STATUS_LABEL, t.status), PRIORITY_LABEL[t.priority], t.start_date,
       t.due_at, t.waiting_on, t.waiting_since, label(REPEAT_LABEL, t.recurrence), t.is_baseline ? 'Yes' : 'No',
       t.created_at, t.completed_at, t.description]) });
   }
@@ -799,8 +1023,8 @@ function exportSheets(scope, id) {
   }
   const notes = [];
   if (scope !== 'ideas') {
-    notes.push(...db.all(`SELECT n.created_at, p.name AS owner, t.title AS task, n.body FROM notes n
-      JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id ${projWhere}`, projParams));
+    notes.push(...db.all(`SELECT n.created_at, coalesce(p.name, '(standalone task)') AS owner, t.title AS task, n.body FROM notes n
+      LEFT JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id ${projWhere}`, projParams));
   }
   if (scope !== 'project') {
     notes.push(...db.all(`SELECT n.created_at, i.ref || ' ' || i.title AS owner, NULL AS task, n.body
@@ -897,6 +1121,21 @@ router.get('/report', h((req, res) => {
     };
   });
 
+  // Standalone tasks, reported alongside the projects.
+  let standalone = null;
+  if (!req.query.project_id) {
+    const sw = "t.project_id IS NULL AND t.status <> 'done'";
+    standalone = {
+      completed: tasks('WHERE t.project_id IS NULL AND t.completed_at BETWEEN ? AND ? ORDER BY t.completed_at', [start, end]),
+      added: tasks('WHERE t.project_id IS NULL AND t.created_at BETWEEN ? AND ? ORDER BY t.created_at', [start, end]),
+      notes: db.all(`SELECT n.*, t.title AS task_title FROM notes n JOIN tasks t ON t.id = n.task_id
+        WHERE n.project_id IS NULL AND n.created_at BETWEEN ? AND ? ORDER BY n.created_at`, [start, end]),
+      blocked: tasks(`WHERE ${sw} AND t.status = 'blocked' ORDER BY t.due_at IS NULL, t.due_at`),
+      overdue: tasks(`WHERE ${sw} AND t.due_at < ? ORDER BY t.due_at`, [now]),
+      waiting: tasks(`WHERE ${sw} AND t.waiting_on IS NOT NULL ORDER BY t.waiting_since`),
+      upcoming: tasks(`WHERE ${sw} AND t.due_at >= ? AND t.due_at <= ? ORDER BY t.due_at`, [now, soon]),
+    };
+  }
   const ideaEvents = req.query.project_id ? [] : db.all(`SELECT * FROM audit_log WHERE table_name = 'ideas'
     AND action = 'UPDATE' AND changed_at BETWEEN ? AND ? ORDER BY changed_at, id`, [start, end]).map(normAudit)
     .filter((e) => e.old_data?.status !== e.new_data?.status)
@@ -904,6 +1143,7 @@ router.get('/report', h((req, res) => {
   res.json({
     from, to, generated_at: now, currency: getSettings().currency,
     projects: out,
+    standalone,
     ideas: req.query.project_id ? null : {
       raised: db.all(`${IDEA_SELECT} WHERE i.created_at BETWEEN ? AND ? ORDER BY i.id`, [start, end]),
       status_changes: ideaEvents,
@@ -939,7 +1179,8 @@ router.get('/search', h((req, res) => {
   res.json({
     projects: db.all(`SELECT id, name, status FROM projects WHERE ${like('name')} OR ${like('description')} LIMIT 20`, [q, q]),
     tasks: tasks(`WHERE ${like('t.title')} OR ${like('t.description')} LIMIT 30`, [q, q]),
-    notes: db.all(`SELECT n.*, p.name AS project_name FROM notes n JOIN projects p ON p.id = n.project_id
+    notes: db.all(`SELECT n.*, p.name AS project_name, t.title AS task_title FROM notes n
+      LEFT JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id
       WHERE ${like('n.body')} ORDER BY n.created_at DESC LIMIT 30`, [q]),
     ideas: db.all(`${IDEA_SELECT} WHERE ${like('i.title')} OR ${like('i.description')} OR ${like('i.ref')}
       OR i.id IN (SELECT idea_id FROM idea_notes WHERE ${like('body')}) ORDER BY i.id DESC LIMIT 30`, [q, q, q, q]),
@@ -958,7 +1199,12 @@ const FIELD_LABEL = { title: 'title', name: 'name', description: 'description', 
   remind_at: 'reminder time', message: 'message', body: 'text',
   submitted_by: 'submitted by', area_id: 'area', cost: 'cost', value: 'value', active: 'active',
   waiting_on: 'waiting on', recurrence: 'repeats', budget: 'budget', impact: 'impact', effort: 'effort',
-  amount: 'amount', spent_on: 'date' };
+  amount: 'amount', spent_on: 'date', project_code: 'project ID', sponsor: 'sponsor', leader: 'project leader',
+  policy_deployment: 'policy deployment', category: 'category', gm_effect: 'gross margin effect',
+  problem: 'problem definition', goals: 'goals', in_scope: 'in scope', out_scope: 'out of scope',
+  benefits_quantified: 'quantified benefits', benefits_other: 'other benefits', role: 'role', capacity: 'capacity',
+  unit: 'unit', baseline: 'baseline', target: 'target', current: 'current value' };
+const LONG_TEXT = ['description', 'body', 'problem', 'goals', 'in_scope', 'out_scope', 'benefits_quantified', 'benefits_other'];
 const REPEAT_LABEL = { daily: 'Daily', weekdays: 'Weekdays', weekly: 'Weekly', fortnightly: 'Every 2 weeks',
   monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' };
 
@@ -982,7 +1228,8 @@ function describeAudit(e) {
   const d = e.new_data || e.old_data || {};
   const label = { projects: 'Project', tasks: d.parent_id ? 'Subtask' : 'Task', notes: 'Note', reminders: 'Reminder',
     ideas: `Idea${d.ref ? ` ${d.ref}` : ''}`, idea_notes: 'Idea note', areas: 'Area', settings: 'Setting',
-    project_costs: 'Cost', task_links: 'Dependency' }[e.table_name] || e.table_name;
+    project_costs: 'Cost', task_links: 'Dependency', project_team: 'Team member', project_kpis: 'KPI',
+    lookups: 'List item' }[e.table_name] || e.table_name;
   if (e.table_name === 'task_links') {
     const title = (id) => db.get('SELECT title FROM tasks WHERE id = ?', [id])?.title || `task #${id}`;
     const verb = e.action === 'DELETE' ? 'removed' : 'added';
@@ -1007,7 +1254,8 @@ function describeAudit(e) {
     const a = e.old_data?.[field];
     const b = e.new_data?.[field];
     if (JSON.stringify(a) !== JSON.stringify(b)) {
-      if (field === 'description' || field === 'body') changes.push(`${text} edited`);
+      if (field === 'project_code' && !a) continue; // assigned automatically on creation
+      if (LONG_TEXT.includes(field)) changes.push(`${text} edited`);
       else changes.push(`${text}: ${fmtValue(field, a)} → ${fmtValue(field, b)}`);
     }
   }

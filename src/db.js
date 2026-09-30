@@ -3,7 +3,9 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const log = require('./logger');
-const { tablesSql, triggersSql, addColumnsSql, dropTriggersSql, TABLE_NAMES } = require('./schema');
+const {
+  tablesSql, triggersSql, addColumnsSql, dropTriggersSql, tablesToRebuild, createTableSql, columnsOf, TABLE_NAMES,
+} = require('./schema');
 
 // node:sqlite prints an "experimental" warning on load; it's stable enough for this use.
 const emitWarning = process.emitWarning;
@@ -86,6 +88,10 @@ function tx(fn) {
 // One-off data changes, each recorded in settings so it runs only once. Triggers are
 // dropped while they run so they don't bump updated_at or flood the audit log.
 const DATA_MIGRATIONS = {
+  // Existing projects get a default project ID (new ones get it by trigger).
+  project_codes() {
+    run("UPDATE projects SET project_code = 'PRJ-' || printf('%04d', id) WHERE project_code IS NULL");
+  },
   // Due dates became whole days: move any stored time to the end of that local day.
   due_dates_end_of_day() {
     const endOfDay = (iso) => {
@@ -104,9 +110,49 @@ const DATA_MIGRATIONS = {
   },
 };
 
+// Rebuilds tables whose NOT NULL constraints changed (e.g. tasks.project_id became
+// optional for standalone tasks), following SQLite's documented procedure:
+// foreign keys off, copy into a new table, swap, then verify every reference.
+// A copy of the database is saved first.
+function rebuildTables() {
+  const info = Object.fromEntries(TABLE_NAMES.map((t) => [t, all(`PRAGMA table_info(${t})`)]));
+  const tables = tablesToRebuild(info);
+  if (!tables.length) return;
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
+  const safety = path.join(config.backup.dir, 'db', `pre-upgrade-${stamp}.db`);
+  fs.mkdirSync(path.dirname(safety), { recursive: true });
+  conn.prepare('VACUUM INTO ?').run(safety);
+  log.info(`Upgrading tables ${tables.join(', ')}; copy of the database saved first`, safety);
+  conn.exec('PRAGMA foreign_keys = OFF');
+  try {
+    tx(() => {
+      conn.exec(dropTriggersSql());
+      for (const t of tables) {
+        const old = info[t].map((c) => c.name);
+        const cols = columnsOf(t).filter((c) => old.includes(c)).join(', ');
+        const seq = get('SELECT seq FROM sqlite_sequence WHERE name = ?', [t]);
+        conn.exec(createTableSql(t, `${t}__new`));
+        conn.exec(`INSERT INTO ${t}__new (${cols}) SELECT ${cols} FROM ${t}`);
+        conn.exec(`DROP TABLE ${t}`);
+        conn.exec(`ALTER TABLE ${t}__new RENAME TO ${t}`);
+        if (seq) {
+          if (!run('UPDATE sqlite_sequence SET seq = max(seq, ?) WHERE name = ?', [seq.seq, t]).changes) {
+            run('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)', [t, seq.seq]);
+          }
+        }
+      }
+      const broken = all('PRAGMA foreign_key_check');
+      if (broken.length) throw new Error(`Upgrade stopped: ${broken.length} broken references (nothing was changed)`);
+    });
+  } finally {
+    conn.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
 function migrate() {
+  tx(() => conn.exec(tablesSql()));
+  rebuildTables();
   tx(() => {
-    conn.exec(tablesSql());
     const existing = Object.fromEntries(TABLE_NAMES.map((t) => [t, all(`PRAGMA table_info(${t})`).map((c) => c.name)]));
     for (const sql of addColumnsSql(existing)) {
       conn.exec(sql);

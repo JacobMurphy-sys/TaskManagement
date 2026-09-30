@@ -32,11 +32,58 @@ const TABLES = {
     created_at        TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at        TEXT    NOT NULL DEFAULT (${NOW}),
     completed_at      TEXT,
-    budget            REAL    ${moneyCheck('budget')}`,
+    budget            REAL    ${moneyCheck('budget')},
+    project_code      TEXT,
+    sponsor           TEXT,
+    leader            TEXT,
+    policy_deployment TEXT,
+    category          TEXT,
+    gm_effect         TEXT,
+    problem           TEXT,
+    goals             TEXT,
+    in_scope          TEXT,
+    out_scope         TEXT,
+    benefits_quantified TEXT,
+    benefits_other    TEXT`,
 
+  // Project charter: team members (with capacity) and improvement KPIs.
+  project_team: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name        TEXT    NOT NULL,
+    role        TEXT,
+    capacity    TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
+  project_kpis: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name        TEXT    NOT NULL,
+    unit        TEXT,
+    baseline    TEXT,
+    target      TEXT,
+    current     TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
+  // Pick-lists for charter fields (managed on the Settings page).
+  lookups: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    list        TEXT    NOT NULL CHECK (list IN ('category', 'policy_deployment')),
+    name        TEXT    NOT NULL COLLATE NOCASE,
+    active      INTEGER NOT NULL DEFAULT 1,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    UNIQUE (list, name)`,
+
+  // project_id is empty for standalone tasks (the "Tasks" area).
   tasks: `
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id   INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    project_id   INTEGER REFERENCES projects(id) ON DELETE CASCADE,
     parent_id    INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
     title        TEXT    NOT NULL,
     description  TEXT,
@@ -79,7 +126,7 @@ const TABLES = {
   // The additive "log as I go" notes on a project (optionally tied to a task).
   notes: `
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
     task_id    INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
     body       TEXT    NOT NULL,
     created_at TEXT    NOT NULL DEFAULT (${NOW}),
@@ -168,6 +215,14 @@ const INDEXES = `
   CREATE INDEX IF NOT EXISTS task_links_dep_idx  ON task_links(depends_on_id);
   CREATE INDEX IF NOT EXISTS project_costs_idx ON project_costs(project_id, spent_on);
 
+  CREATE INDEX IF NOT EXISTS project_team_idx  ON project_team(project_id, sort_order);
+  CREATE INDEX IF NOT EXISTS project_kpis_idx  ON project_kpis(project_id, sort_order);
+
+  -- Default project ID (editable), like ideas' references.
+  DROP TRIGGER IF EXISTS projects_code;
+  CREATE TRIGGER projects_code AFTER INSERT ON projects WHEN NEW.project_code IS NULL
+  BEGIN UPDATE projects SET project_code = 'PRJ-' || printf('%04d', NEW.id) WHERE id = NEW.id; END;
+
   -- Gives every idea a permanent, human-friendly reference, even if added in DBeaver.
   DROP TRIGGER IF EXISTS ideas_ref;
   CREATE TRIGGER ideas_ref AFTER INSERT ON ideas WHEN NEW.ref IS NULL
@@ -236,10 +291,20 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');
+
+// Tables whose existing NOT NULL constraints differ from the definition (SQLite can
+// only change those by rebuilding the table).
+function tablesToRebuild(existingInfo) {
+  return Object.keys(TABLES).filter((t) => existingInfo[t]?.length && columnDefs(t).some((c) => {
+    const ex = existingInfo[t].find((i) => i.name === c.name);
+    return ex && !!ex.notnull !== /\bNOT NULL\b/i.test(c.sql);
+  }));
+}
+const createTableSql = (t, name = t) => `CREATE TABLE ${name} (${TABLES[t]}\n);`;
 
 // ALTER TABLE statements for columns an older database doesn't have yet.
 function addColumnsSql(existing) {
@@ -250,9 +315,10 @@ function addColumnsSql(existing) {
 
 function dropTriggersSql() {
   return DATA_TABLES.flatMap((t) => ['audit_insert', 'audit_update', 'audit_delete', 'stamp', 'stamp_insert']
-    .map((s) => `DROP TRIGGER IF EXISTS ${t}_${s};`)).concat('DROP TRIGGER IF EXISTS ideas_ref;').join('\n');
+    .map((s) => `DROP TRIGGER IF EXISTS ${t}_${s};`)).concat('DROP TRIGGER IF EXISTS ideas_ref;', 'DROP TRIGGER IF EXISTS projects_code;').join('\n');
 }
 
 module.exports = {
-  tablesSql, triggersSql, addColumnsSql, dropTriggersSql, TABLE_NAMES: Object.keys(TABLES), JSON_COLUMNS, RECURRENCES,
+  tablesSql, triggersSql, addColumnsSql, dropTriggersSql, tablesToRebuild, createTableSql, columnsOf,
+  TABLE_NAMES: Object.keys(TABLES), JSON_COLUMNS, RECURRENCES,
 };
