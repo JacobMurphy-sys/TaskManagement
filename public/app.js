@@ -148,7 +148,7 @@ const options = (map, selected) => Object.entries(map)
 // State, routing & sidebar
 // ======================================================================
 
-const state = { projects: [], view: null, project: null };
+const state = { projects: [], view: null, project: null, settings: { currency: '£' }, areas: [] };
 const main = () => $('#main');
 
 async function loadProjects() {
@@ -168,7 +168,8 @@ function renderSidebar() {
       <div class="progress" title="${p.done_count}/${p.task_count} tasks done"><div style="width:${pct}%"></div></div>
     </a></li>`;
   }).join('') || '<li class="empty small">No projects yet</li>';
-  $$('#sidebar nav a').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view));
+  const nav = state.view === 'idea' ? 'ideas' : state.view;
+  $$('#sidebar nav a').forEach((a) => a.classList.toggle('active', a.dataset.nav === nav));
 }
 
 async function route() {
@@ -180,6 +181,9 @@ async function route() {
   try {
     if (view === 'project') await renderProject(rest[0]);
     else if (view === 'kanban') await renderKanban();
+    else if (view === 'ideas') await renderIdeas();
+    else if (view === 'idea') await renderIdea(rest[0]);
+    else if (view === 'settings') await renderSettings();
     else if (view === 'log') await renderLog();
     else if (view === 'backups') await renderBackups();
     else if (view === 'search') await renderSearch(decodeURIComponent(rest.join('/')));
@@ -326,6 +330,7 @@ async function renderProject(id) {
     <div class="project-head">
       <div class="title">
         <h1>${esc(p.name)}</h1>
+        ${p.escalated_from ? `<div class="small" style="margin-bottom:4px"><a href="#/idea/${p.escalated_from.id}">💡 Escalated from ${esc(p.escalated_from.ref)}</a></div>` : ''}
         ${p.description ? `<div class="pre muted">${esc(p.description)}</div>` : ''}
         <div class="small muted" style="margin-top:4px">Created ${esc(fmtDateTime(p.created_at))} · Updated ${esc(fmtDateTime(p.updated_at))}
           ${p.completed_at ? ` · Completed ${esc(fmtDateTime(p.completed_at))}` : ''}</div>
@@ -469,6 +474,281 @@ async function renderKanban() {
 }
 
 // ======================================================================
+// Ideation
+// ======================================================================
+
+const IDEA_STATUS = { new: 'New', reviewing: 'Under review', approved: 'Approved', rejected: 'Rejected', implemented: 'Implemented', escalated: 'Escalated' };
+const OPEN_IDEA_STATUSES = ['new', 'reviewing', 'approved'];
+
+const money = (v) => (v === null || v === undefined || v === '' ? ''
+  : `${state.settings.currency}${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+const ideaStatusPill = (s) => `<span class="pill istatus-${s}">${IDEA_STATUS[s] || esc(s)}</span>`;
+// Colour the due date only while the idea is still open.
+const ideaDue = (i) => (i.due_at ? dueChip({ ...i, status: OPEN_IDEA_STATUSES.includes(i.status) ? '' : 'done' }) : '');
+
+async function loadAreas() {
+  state.areas = await api.get('/areas');
+  return state.areas;
+}
+function areaOptions(selected) {
+  const list = state.areas.filter((a) => a.active || a.id === selected);
+  return '<option value="">— none —</option>' + list.map((a) =>
+    `<option value="${a.id}" ${a.id === selected ? 'selected' : ''}>${esc(a.name)}${a.active ? '' : ' (inactive)'}</option>`).join('');
+}
+const submitterList = (names) => `<datalist id="submitters">${names.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>`;
+
+// Reads an idea form's fields into API values.
+function ideaValue(name, value) {
+  if (name === 'due_at') return fromLocalInput(value);
+  if (name === 'priority') return Number(value);
+  if (name === 'area_id') return value ? Number(value) : null;
+  if (name === 'cost') return value === '' ? null : value;
+  return value;
+}
+
+async function renderIdeas() {
+  const f = { status: 'open', area: '', q: '', ...store.get('ideaFilter', {}) };
+  const qs = new URLSearchParams({ status: f.status });
+  if (f.area) qs.set('area_id', f.area);
+  if (f.q) qs.set('q', f.q);
+  const [ideas] = await Promise.all([api.get(`/ideas?${qs}`), loadAreas()]);
+  const total = ideas.reduce((sum, i) => sum + (i.cost || 0), 0);
+  const filtered = f.status !== 'open' || f.area || f.q;
+
+  main().innerHTML = `
+    <div class="kanban-tools"><h1 style="margin:0">💡 Ideation</h1><div class="spacer"></div>
+      <button class="primary" data-action="new-idea">+ New idea</button></div>
+    <div class="kanban-tools">
+      <input type="search" id="idea-q" placeholder="Filter by name, ref or submitter… (Enter)" value="${esc(f.q)}" style="max-width:300px">
+      <select id="idea-status">${options({ open: 'Open (new, under review, approved)', all: 'All statuses', ...IDEA_STATUS }, f.status)}</select>
+      <select id="idea-area"><option value="">All areas</option>
+        ${state.areas.map((a) => `<option value="${a.id}" ${String(a.id) === String(f.area) ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>
+      <span class="muted small">${ideas.length} idea${ideas.length === 1 ? '' : 's'}${total ? ` · total cost ${money(total)}` : ''}</span>
+    </div>
+    <div class="card" style="overflow-x:auto">
+      ${ideas.length ? `<table class="log ideas">
+        <thead><tr><th>Ref</th><th>Idea</th><th>Area</th><th>Submitted by</th><th>Priority</th><th>Due</th><th class="num">Cost</th><th>Status</th><th>Raised</th></tr></thead>
+        <tbody>${ideas.map((i) => `<tr class="clickable" data-action="open-idea" data-id="${i.id}">
+          <td class="nowrap"><b>${esc(i.ref)}</b></td>
+          <td>${esc(i.title)}${i.note_count ? ` <span class="small muted" title="Notes">📝 ${i.note_count}</span>` : ''}</td>
+          <td>${esc(i.area_name || '')}</td>
+          <td>${esc(i.submitted_by || '')}</td>
+          <td>${prioPill(i.priority)}</td>
+          <td class="nowrap">${ideaDue(i)}</td>
+          <td class="num nowrap">${money(i.cost)}</td>
+          <td class="nowrap">${ideaStatusPill(i.status)}${i.project_id ? ` <a class="small" href="#/project/${i.project_id}">→ ${esc(i.project_name)}</a>` : ''}</td>
+          <td class="nowrap small muted">${esc(fmtDateTime(i.created_at, { weekday: false }))}</td>
+        </tr>`).join('')}</tbody></table>`
+        : `<div class="empty">${filtered ? 'No ideas match these filters.' : 'No open ideas yet — click “+ New idea” to log one.'}</div>`}
+    </div>`;
+
+  const save = (patch) => { store.set('ideaFilter', { ...f, ...patch }); renderIdeas(); };
+  $('#idea-status').addEventListener('change', (e) => save({ status: e.target.value }));
+  $('#idea-area').addEventListener('change', (e) => save({ area: e.target.value }));
+  $('#idea-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') save({ q: e.target.value.trim() }); });
+  $('#idea-q').addEventListener('search', (e) => { if (!e.target.value && f.q) save({ q: '' }); });
+}
+
+async function ideaForm() {
+  const [submitters] = await Promise.all([api.get('/ideas/submitters'), loadAreas()]);
+  openModal(`
+    <div class="modal-head"><h2 style="margin:0">💡 New idea</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <form id="idea-form" class="form-grid">
+      <label class="f full">Name<input type="text" name="title" required></label>
+      <label class="f full">Description<textarea name="description" rows="3"></textarea></label>
+      <label class="f">Submitted by<input type="text" name="submitted_by" list="submitters" autocomplete="off" value="${esc(store.get('lastSubmitter', ''))}"></label>
+      <label class="f">Area of effect<select name="area_id">${areaOptions(null)}</select></label>
+      <label class="f">Priority<select name="priority">${options(PRIORITY, 2)}</select></label>
+      <label class="f">Due<input type="datetime-local" name="due_at"></label>
+      <label class="f">Cost (${esc(state.settings.currency)})<input type="number" name="cost" min="0" step="0.01" inputmode="decimal"></label>
+      <div class="f" style="justify-content:flex-end"><button type="button" class="link small" data-action="goto-settings">Manage areas…</button></div>
+      ${submitterList(submitters)}
+      <div class="full row"><div class="spacer"></div>
+        <button type="button" data-action="close-modal">Cancel</button>
+        <button class="primary" type="submit">Create idea</button></div>
+    </form>`);
+  $('#idea-form [name=title]').focus();
+  $('#idea-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = {};
+    for (const [k, v] of new FormData(e.target)) body[k] = ideaValue(k, v);
+    try {
+      const idea = await api.post('/ideas', body);
+      if (body.submitted_by) store.set('lastSubmitter', body.submitted_by);
+      closeModal();
+      toast(`${idea.ref} created`);
+      if (state.view === 'ideas') await renderIdeas(); else location.hash = '#/ideas';
+    } catch (err) { toast(err.message, 'error'); }
+  });
+}
+
+async function renderIdea(id) {
+  const [i, submitters] = await Promise.all([api.get(`/ideas/${id}`), api.get('/ideas/submitters'), loadAreas()]);
+  state.idea = i;
+  const locked = i.status === 'escalated';
+  const statusOpts = locked ? { escalated: 'Escalated' }
+    : Object.fromEntries(Object.entries(IDEA_STATUS).filter(([k]) => k !== 'escalated'));
+
+  main().innerHTML = `
+    <div class="project-head">
+      <div class="title">
+        <div class="small"><a href="#/ideas">💡 Ideation</a> ›</div>
+        <h1><span class="muted">${esc(i.ref)}</span> ${esc(i.title)}</h1>
+        <div class="small muted">Raised ${esc(fmtDateTime(i.created_at))}${i.submitted_by ? ` by <b>${esc(i.submitted_by)}</b>` : ''}
+          · Updated ${esc(fmtDateTime(i.updated_at))}</div>
+      </div>
+      <div class="meta">
+        ${ideaStatusPill(i.status)}
+        ${locked ? '' : '<button class="primary" data-action="escalate-idea">🚀 Escalate to project</button>'}
+        <button class="danger" data-action="delete-idea">Delete</button>
+      </div>
+    </div>
+    ${locked ? `<div class="baseline-box">🚀 Escalated to project
+      ${i.project_id ? `<a href="#/project/${i.project_id}"><b>${esc(i.project_name)}</b></a>` : '<i>(project since deleted)</i>'}</div>` : ''}
+    <div class="grid two">
+      <div class="card">
+        <div class="list-tools"><h2 style="margin:0">Details</h2><span class="saved-flag" id="saved-flag">✓ Saved</span></div>
+        <div class="form-grid" id="idea-edit">
+          <label class="f full">Name<input type="text" name="title" value="${esc(i.title)}"></label>
+          <label class="f full">Description<textarea name="description" rows="4">${esc(i.description)}</textarea></label>
+          <label class="f">Status<select name="status" ${locked ? 'disabled' : ''}>${options(statusOpts, i.status)}</select></label>
+          <label class="f">Priority<select name="priority">${options(PRIORITY, i.priority)}</select></label>
+          <label class="f">Area of effect<select name="area_id">${areaOptions(i.area_id)}</select></label>
+          <label class="f">Submitted by<input type="text" name="submitted_by" list="submitters" autocomplete="off" value="${esc(i.submitted_by)}"></label>
+          <label class="f">Due<input type="datetime-local" name="due_at" value="${toLocalInput(i.due_at)}"></label>
+          <label class="f">Cost (${esc(state.settings.currency)})<input type="number" name="cost" min="0" step="0.01" inputmode="decimal" value="${i.cost ?? ''}"></label>
+          ${submitterList(submitters)}
+        </div>
+      </div>
+      <div class="card">
+        <h2>Notes <span class="muted small">${i.notes.length}</span></h2>
+        <div class="quick-note"><textarea id="idea-note" placeholder="Add a note… (Enter to save, Shift+Enter for a new line)"></textarea>
+          <button class="primary" data-action="save-idea-note">Add</button></div>
+        ${i.notes.length ? `<ul class="timeline">${i.notes.map((n) => `<li class="note">
+          <div class="when">🕘 ${esc(fmtDateTime(n.created_at))}<span class="spacer"></span>
+            <button class="icon" data-action="delete-idea-note" data-id="${n.id}" title="Delete note">✕</button></div>
+          <div class="note-body pre">${esc(n.body)}</div></li>`).join('')}</ul>` : '<div class="empty">No notes yet.</div>'}
+        <details class="section"><summary class="muted">History (${i.history.length})</summary>
+          <ul class="timeline" style="margin-top:8px">${i.history.map((e) => timelineItem({ type: 'event', ...e })).join('')}</ul></details>
+      </div>
+    </div>`;
+
+  // Auto-save each field as it changes.
+  $$('#idea-edit [name]').forEach((el) => el.addEventListener('change', async () => {
+    if (el.name === 'title' && !el.value.trim()) { el.value = i.title; return; }
+    try {
+      await api.patch(`/ideas/${i.id}`, { [el.name]: ideaValue(el.name, el.value) });
+      if (el.name === 'submitted_by' && el.value) store.set('lastSubmitter', el.value);
+      if (['status', 'title', 'submitted_by'].includes(el.name)) return renderIdea(i.id);
+      const flag = $('#saved-flag');
+      flag.classList.add('show');
+      setTimeout(() => flag.classList.remove('show'), 1200);
+    } catch (err) {
+      toast(err.message, 'error');
+      renderIdea(i.id);
+    }
+  }));
+  $('#idea-note').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveIdeaNote(); }
+  });
+}
+
+async function saveIdeaNote() {
+  const body = $('#idea-note').value.trim();
+  if (!body) return;
+  await api.post(`/ideas/${state.idea.id}/notes`, { body });
+  toast('Note added');
+  await renderIdea(state.idea.id);
+  $('#idea-note').focus();
+}
+
+function escalateDialog(i) {
+  openModal(`
+    <div class="modal-head"><h2 style="margin:0">🚀 Escalate ${esc(i.ref)} to a project</h2>
+      <button class="icon" data-action="close-modal">✕</button></div>
+    <p class="muted">Creates a new project from this idea. The idea is marked <b>Escalated</b> and linked to the project,
+      and a summary (submitter, area, cost) is added to the project's timeline.</p>
+    <form id="escalate-form" class="form-grid">
+      <label class="f full">Project name<input type="text" name="name" required value="${esc(i.title)}"></label>
+      <label class="f full">Description / goal<textarea name="description" rows="3">${esc(i.description)}</textarea></label>
+      <label class="f">Priority<select name="priority">${options(PRIORITY, i.priority)}</select></label>
+      <label class="f">Start date<input type="date" name="start_date" value="${new Date().toLocaleDateString('sv')}"></label>
+      <label class="f">Due<input type="datetime-local" name="due_at" value="${toLocalInput(i.due_at)}"></label>
+      <label class="f full">Baseline tasks — one per line (you can add more later)
+        <textarea name="baseline_tasks" rows="4"></textarea></label>
+      <label class="full row small"><input type="checkbox" name="copy_notes" ${i.notes.length ? 'checked' : 'disabled'}>
+        Copy this idea's ${i.notes.length} note${i.notes.length === 1 ? '' : 's'} into the project timeline</label>
+      <div class="full row"><div class="spacer"></div>
+        <button type="button" data-action="close-modal">Cancel</button>
+        <button class="primary" type="submit">Create project</button></div>
+    </form>`);
+  $('#escalate-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.target));
+    try {
+      const project = await api.post(`/ideas/${i.id}/escalate`, {
+        name: f.name, description: f.description, priority: Number(f.priority), start_date: f.start_date || null,
+        due_at: fromLocalInput(f.due_at), baseline_tasks: f.baseline_tasks.split('\n'), copy_notes: f.copy_notes === 'on',
+      });
+      closeModal();
+      toast(`${i.ref} escalated to a project`);
+      await loadProjects();
+      location.hash = `#/project/${project.id}`;
+    } catch (err) { toast(err.message, 'error'); }
+  });
+}
+
+// ======================================================================
+// Settings
+// ======================================================================
+
+async function renderSettings() {
+  const [areas, settings] = await Promise.all([loadAreas(), api.get('/settings')]);
+  state.settings = settings;
+  main().innerHTML = `
+    <h1>⚙ Settings</h1>
+    <div class="grid dash">
+      <div class="card">
+        <h2>Areas of effect</h2>
+        <p class="small muted">The choices in the “Area of effect” drop-down on ideas. Rename an area by editing its name.
+          Untick <b>Active</b> to hide it from the drop-down without changing ideas that already use it.</p>
+        <table class="log">
+          <thead><tr><th>Name</th><th>Active</th><th class="num">Ideas</th><th></th></tr></thead>
+          <tbody>${areas.map((a) => `<tr>
+            <td><input type="text" value="${esc(a.name)}" data-area-name="${a.id}"></td>
+            <td><input type="checkbox" data-area-active="${a.id}" ${a.active ? 'checked' : ''}></td>
+            <td class="num">${a.idea_count}</td>
+            <td>${a.idea_count ? '' : `<button class="icon" data-action="delete-area" data-id="${a.id}" title="Delete">✕</button>`}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+        ${areas.length ? '' : '<div class="empty">No areas yet.</div>'}
+        <div class="row" style="margin-top:10px;flex-wrap:nowrap">
+          <input type="text" id="new-area" placeholder="New area… (Enter)" autocomplete="off">
+          <button data-action="add-area">Add</button></div>
+      </div>
+      <div class="card">
+        <h2>General</h2>
+        <label class="f">Currency symbol for idea costs
+          <input type="text" id="currency" value="${esc(settings.currency)}" maxlength="5" style="max-width:120px"></label>
+      </div>
+    </div>`;
+
+  const patchArea = async (id, body) => {
+    try { await api.patch(`/areas/${id}`, body); toast('Area saved'); } catch (err) { toast(err.message, 'error'); }
+    renderSettings();
+  };
+  $$('[data-area-name]').forEach((el) => el.addEventListener('change', () => patchArea(el.dataset.areaName, { name: el.value })));
+  $$('[data-area-active]').forEach((el) => el.addEventListener('change', () => patchArea(el.dataset.areaActive, { active: el.checked })));
+  $('#new-area').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') actions['add-area']().catch((err) => toast(err.message, 'error'));
+  });
+  $('#currency').addEventListener('change', async (e) => {
+    state.settings = await api.patch('/settings', { currency: e.target.value || '£' });
+    toast('Currency saved');
+  });
+}
+
+// ======================================================================
 // Activity log, backups, search
 // ======================================================================
 
@@ -521,6 +801,8 @@ async function renderSearch(q) {
     <div class="grid dash">
       <div class="card"><h2>Projects</h2>${r.projects.length ? `<ul class="mini">${r.projects.map((p) => `<li><a href="#/project/${p.id}">${esc(p.name)}</a> <span class="small muted">${PSTATUS[p.status]}</span></li>`).join('')}</ul>` : '<div class="empty">None</div>'}</div>
       <div class="card"><h2>Tasks</h2>${r.tasks.length ? `<ul class="mini">${r.tasks.map(miniTask).join('')}</ul>` : '<div class="empty">None</div>'}</div>
+      <div class="card"><h2>Ideas</h2>${r.ideas.length ? `<ul class="mini">${r.ideas.map((i) => `<li>
+        <span class="t" data-action="open-idea" data-id="${i.id}"><b>${esc(i.ref)}</b> ${esc(i.title)}</span> ${ideaStatusPill(i.status)}</li>`).join('')}</ul>` : '<div class="empty">None</div>'}</div>
       <div class="card"><h2>Notes</h2>${r.notes.length ? `<ul class="mini">${r.notes.map((n) => `<li style="display:block">
         <div class="small muted">${esc(fmtDateTime(n.created_at))} · <a href="#/project/${n.project_id}">${esc(n.project_name)}</a></div>
         <div class="pre">${esc(n.body)}</div></li>`).join('')}</ul>` : '<div class="empty">None</div>'}</div>
@@ -823,6 +1105,36 @@ const actions = {
     } finally { el.disabled = false; }
   },
   'enable-notifications': () => ensureNotificationPermission(true),
+  'new-idea': () => ideaForm(),
+  'open-idea': (el) => { location.hash = `#/idea/${el.dataset.id}`; },
+  'escalate-idea': () => escalateDialog(state.idea),
+  'save-idea-note': () => saveIdeaNote(),
+  'delete-idea': async () => {
+    const i = state.idea;
+    if (!confirm(`Delete ${i.ref} "${i.title}" and its notes? (The activity log keeps a record.)`)) return;
+    await api.del(`/ideas/${i.id}`);
+    toast(`${i.ref} deleted`);
+    location.hash = '#/ideas';
+  },
+  'delete-idea-note': async (el) => {
+    if (!confirm('Delete this note? (The activity log keeps a copy.)')) return;
+    await api.del(`/idea-notes/${el.dataset.id}`);
+    await renderIdea(state.idea.id);
+  },
+  'goto-settings': () => { closeModal(); location.hash = '#/settings'; },
+  'add-area': async () => {
+    const input = $('#new-area');
+    if (!input.value.trim()) return;
+    await api.post('/areas', { name: input.value });
+    toast('Area added');
+    await renderSettings();
+    $('#new-area').focus();
+  },
+  'delete-area': async (el) => {
+    if (!confirm('Delete this area?')) return;
+    await api.del(`/areas/${el.dataset.id}`);
+    await renderSettings();
+  },
   'stop-server': async () => {
     if (!confirm('Stop the Task Manager? Reminders won\'t pop up until you start it again.')) return;
     await api.post('/shutdown');
@@ -839,6 +1151,8 @@ async function runAction(el, e) {
 }
 
 document.addEventListener('click', (e) => {
+  const link = e.target.closest('a[href]');
+  if (link && !link.dataset.action) return; // plain links (e.g. inside a clickable row) navigate normally
   const el = e.target.closest('[data-action]');
   if (!el || el.tagName === 'SELECT' || el.type === 'checkbox') return;
   e.preventDefault();
@@ -998,7 +1312,9 @@ window.addEventListener('hashchange', route);
   tickClock();
   setInterval(tickClock, 15000);
   updateNotifyButton();
-  try { await loadProjects(); } catch (err) { toast(err.message, 'error'); }
+  try {
+    [state.settings] = await Promise.all([api.get('/settings'), loadProjects()]);
+  } catch (err) { toast(err.message, 'error'); }
   await route();
   pollAlerts();
   setInterval(pollAlerts, 30000);

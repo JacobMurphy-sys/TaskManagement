@@ -16,8 +16,9 @@ It needs nothing except **Node.js**. The data is kept in a single **SQLite** dat
 | Pop-up reminders & alerts | Set reminders on tasks or projects (quick buttons: 15 min, 1 h, next workday 9:00…). When one is due you get an in-app pop-up with a sound, plus a **Windows desktop notification** once enabled. Pop-ups offer Snooze / Dismiss / Open. Tasks that are overdue or due within 15 min also pop up automatically. |
 | Kanban view | To do / In progress / Blocked / Done columns with drag & drop, filter by project, optional subtasks. |
 | Tick-box tasks & subtasks | Checklist with unlimited nested subtasks. Ticking a parent offers to tick its open subtasks too. |
+| Ideation (lightweight tickets) | Log ideas with a permanent reference (`IDEA-0001`…), name, submitter, area of effect, priority, due date and cost. Add time-stamped notes later, move them through a status, and **escalate** one to a full project in one step. Areas are managed on the **Settings** page. |
 
-Also included: a dashboard (overdue, due today, next 7 days, high priority, reminders, latest notes), search across projects/tasks/notes, and a layout that works on narrow screens.
+Also included: a dashboard (overdue, due today, next 7 days, high priority, reminders, latest notes), search across projects, tasks, notes and ideas, and a layout that works on narrow screens.
 
 ---
 
@@ -70,6 +71,13 @@ This needs Git installed and the app running from a `git clone` of the repositor
 - **Keyboard:** `N` quick note, `T` add task (in a project), `/` search.
 - **Archive rather than delete:** set a finished project's status to *Archived* to hide it. **Show archived** in the sidebar brings it back.
 
+### Ideation
+- **💡 Ideation** in the sidebar lists open ideas (*New*, *Under review*, *Approved*). You can filter by status or area, or search by name, reference or submitter. The header shows the total cost of the ideas listed.
+- **+ New idea:** give it a name, who submitted it (earlier names are suggested as you type), an area of effect, a priority, a due date and a cost. It gets the next reference number, e.g. `IDEA-0007`. The reference never changes or gets reused.
+- **Open an idea** by clicking its row. Edit any field (changes save automatically), change its status (*Rejected* and *Implemented* close it), add time-stamped notes, and see its full history.
+- **🚀 Escalate to project** creates a project from the idea. You confirm the name, description, priority and dates, and can list the first (baseline) tasks. The project's timeline gets a summary note (submitter, area, cost) and, optionally, copies of the idea's notes. The idea is marked *Escalated* and the two link to each other.
+- **⚙ Settings** manages the *Area of effect* list. Add areas, rename them, or untick *Active* to hide one without affecting ideas that already use it. You can also set the currency symbol used for costs here (default £).
+
 ---
 
 ## 3. Backups & restore
@@ -90,6 +98,10 @@ In DBeaver: *Database → New Database Connection → SQLite*, and pick `%LOCALA
 | `tasks` | Tasks; `parent_id` links subtasks, `is_baseline` (1/0) marks original-plan tasks |
 | `notes` | The additive, time-stamped notes |
 | `reminders` | Pending and dismissed reminders |
+| `ideas` | Ideation tickets; `ref` (`IDEA-0001`…) is assigned automatically, `project_id` is set when escalated |
+| `idea_notes` | Notes on ideas |
+| `areas` | The *Area of effect* list |
+| `settings` | App settings (e.g. currency symbol) |
 | `audit_log` | Every change, with old and new values as JSON and when it happened |
 
 **Dates and times** are stored as UTC text in the form `2026-10-31T17:00:00.000Z` (note the trailing `Z`: UTC, not local time). The database rejects anything in another format, so hand edits can't break sorting or the due-date alerts. You don't need to set `updated_at`, `completed_at` or the audit log yourself; the triggers handle them.

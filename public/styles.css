@@ -60,7 +60,7 @@ button.danger { color: var(--danger); }
 button.link { border: 0; background: none; color: var(--accent); padding: 2px 4px; }
 button.icon { border: 0; background: none; padding: 2px 5px; color: var(--muted); }
 button.icon:hover { color: var(--accent); }
-input[type=text], input[type=search], input[type=datetime-local], input[type=date], select, textarea {
+input[type=text], input[type=search], input[type=number], input[type=datetime-local], input[type=date], select, textarea {
   background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; width: 100%;
 }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
@@ -185,6 +185,16 @@ table.log { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.log th, table.log td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
 table.log th { color: var(--muted); font-weight: 600; font-size: 12px; }
 table.log td.nowrap { white-space: nowrap; }
+table.log .num { text-align: right; }
+table.log tr.clickable { cursor: pointer; }
+table.log tr.clickable:hover td { background: var(--panel-2); }
+table.log input[type=text] { padding: 3px 6px; }
+.istatus-new { color: var(--accent); }
+.istatus-reviewing { color: var(--warn); }
+.istatus-approved { color: var(--ok); }
+.istatus-rejected { color: var(--muted); }
+.istatus-implemented { color: var(--ok); background: var(--ok-soft); }
+.istatus-escalated { color: var(--p3); background: var(--warn-soft); }
 
 /* ---------- modal */
 dialog#modal { border: 1px solid var(--border); border-radius: 10px; padding: 0; width: min(720px, calc(100vw - 32px));

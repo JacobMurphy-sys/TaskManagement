@@ -64,6 +64,45 @@ const TABLES = {
     updated_at   TEXT    NOT NULL DEFAULT (${NOW}),
     dismissed_at TEXT`,
 
+  // Ideation: a lightweight ticket list. `ref` (IDEA-0001…) is assigned by trigger.
+  areas: `
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    active     INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at TEXT    NOT NULL DEFAULT (${NOW})`,
+
+  ideas: `
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ref          TEXT    UNIQUE,
+    title        TEXT    NOT NULL,
+    description  TEXT,
+    submitted_by TEXT,
+    area_id      INTEGER REFERENCES areas(id),
+    priority     INTEGER NOT NULL DEFAULT 2 CHECK (priority BETWEEN 1 AND 4),
+    due_at       TEXT    ${isoCheck('due_at')},
+    cost         REAL    CHECK (cost IS NULL OR (typeof(cost) IN ('integer', 'real') AND cost >= 0)),
+    status       TEXT    NOT NULL DEFAULT 'new'
+                 CHECK (status IN ('new', 'reviewing', 'approved', 'rejected', 'implemented', 'escalated')),
+    project_id   INTEGER REFERENCES projects(id) ON DELETE SET NULL,  -- set when escalated
+    created_at   TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at   TEXT    NOT NULL DEFAULT (${NOW})`,
+
+  idea_notes: `
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    idea_id    INTEGER NOT NULL REFERENCES ideas(id) ON DELETE CASCADE,
+    body       TEXT    NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at TEXT    NOT NULL DEFAULT (${NOW})`,
+
+  settings: `
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    key        TEXT    NOT NULL UNIQUE,
+    value      TEXT,
+    created_at TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at TEXT    NOT NULL DEFAULT (${NOW})`,
+
   audit_log: `
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     table_name TEXT NOT NULL,
@@ -85,7 +124,20 @@ const INDEXES = `
   CREATE INDEX IF NOT EXISTS reminders_task_idx ON reminders(task_id);
   CREATE INDEX IF NOT EXISTS audit_project_idx ON audit_log(project_id, changed_at);
   CREATE INDEX IF NOT EXISTS audit_record_idx  ON audit_log(table_name, record_id);
-  CREATE INDEX IF NOT EXISTS audit_changed_idx ON audit_log(changed_at);`;
+  CREATE INDEX IF NOT EXISTS audit_changed_idx ON audit_log(changed_at);
+  CREATE INDEX IF NOT EXISTS ideas_status_idx  ON ideas(status);
+  CREATE INDEX IF NOT EXISTS ideas_area_idx    ON ideas(area_id);
+  CREATE INDEX IF NOT EXISTS idea_notes_idx    ON idea_notes(idea_id, created_at);
+
+  -- Gives every idea a permanent, human-friendly reference, even if added in DBeaver.
+  DROP TRIGGER IF EXISTS ideas_ref;
+  CREATE TRIGGER ideas_ref AFTER INSERT ON ideas WHEN NEW.ref IS NULL
+  BEGIN UPDATE ideas SET ref = 'IDEA-' || printf('%04d', NEW.id) WHERE id = NEW.id; END;
+
+  -- A starting area on a brand-new database (only ever once).
+  INSERT INTO areas (name) SELECT 'General'
+    WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'areas_seeded') AND NOT EXISTS (SELECT 1 FROM areas);
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('areas_seeded', '1');`;
 
 // Status value that means "finished", and the column stamped when it is reached.
 const DONE = {
@@ -93,7 +145,7 @@ const DONE = {
   tasks: ['done', 'completed_at'],
   reminders: ['dismissed', 'dismissed_at'],
 };
-const AUTO_COLUMNS = ['id', 'created_at', 'updated_at', 'completed_at', 'dismissed_at'];
+const AUTO_COLUMNS = ['id', 'ref', 'created_at', 'updated_at', 'completed_at', 'dismissed_at'];
 const JSON_COLUMNS = ['baseline_snapshot'];
 
 const columnsOf = (table) => TABLES[table].split('\n')
@@ -103,7 +155,10 @@ function triggerSql(table) {
   const cols = columnsOf(table);
   const tracked = cols.filter((c) => !AUTO_COLUMNS.includes(c));
   const obj = (rec) => `json_object(${cols.map((c) => `'${c}', ${JSON_COLUMNS.includes(c) ? `json(${rec}.${c})` : `${rec}.${c}`}`).join(', ')})`;
-  const projectId = (rec) => (table === 'projects' ? `${rec}.id` : `${rec}.project_id`);
+  const projectId = (rec) => {
+    if (table === 'projects') return `${rec}.id`;
+    return cols.includes('project_id') ? `${rec}.project_id` : 'NULL';
+  };
   const audit = (action, oldRec, newRec, rec) => `INSERT INTO audit_log (table_name, record_id, project_id, action, old_data, new_data)
       VALUES ('${table}', ${rec}.id, ${projectId(rec)}, '${action}', ${oldRec ? obj(oldRec) : 'NULL'}, ${newRec ? obj(newRec) : 'NULL'});`;
   const [doneStatus, doneCol] = DONE[table] || [];
@@ -137,19 +192,19 @@ function triggerSql(table) {
     BEGIN UPDATE ${table} SET ${doneCol} = ${NOW} WHERE id = NEW.id; END;` : ''}`;
 }
 
-const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders'];
+const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings'];
 
 function schemaSql() {
   return [
     ...Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`),
-    INDEXES,
     ...DATA_TABLES.map(triggerSql),
+    INDEXES,
   ].join('\n');
 }
 
 function dropTriggersSql() {
   return DATA_TABLES.flatMap((t) => ['audit_insert', 'audit_update', 'audit_delete', 'stamp', 'stamp_insert']
-    .map((s) => `DROP TRIGGER IF EXISTS ${t}_${s};`)).join('\n');
+    .map((s) => `DROP TRIGGER IF EXISTS ${t}_${s};`)).concat('DROP TRIGGER IF EXISTS ideas_ref;').join('\n');
 }
 
 module.exports = { schemaSql, dropTriggersSql, TABLE_NAMES: Object.keys(TABLES), JSON_COLUMNS };

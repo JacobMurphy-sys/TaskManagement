@@ -94,26 +94,32 @@ router.get('/projects', h((req, res) => {
   res.json(rows.map(normProject));
 }));
 
-router.post('/projects', h((req, res) => {
-  const fields = pick(req.body, PROJECT_FIELDS);
+// Creates a project with optional baseline tasks and first note. Call inside a transaction.
+function createProject(body) {
+  const fields = pick(body, PROJECT_FIELDS);
   if (!fields.name || !String(fields.name).trim()) throw new HttpError(400, 'Project name is required');
-  const baselineTasks = (req.body.baseline_tasks || []).map((s) => String(s).trim()).filter(Boolean);
-  const note = String(req.body.initial_note || '').trim();
-  const baseline = req.body.set_baseline !== false;
+  const baselineTasks = (body.baseline_tasks || []).map((s) => String(s).trim()).filter(Boolean);
+  const note = String(body.initial_note || '').trim();
+  const baseline = body.set_baseline !== false;
 
-  const project = db.tx(() => {
-    const p = insertRow('projects', fields);
-    baselineTasks.forEach((title, i) => insertRow('tasks', { project_id: p.id, title, sort_order: i, is_baseline: baseline }));
-    if (note) insertRow('notes', { project_id: p.id, body: note });
-    return baseline ? setBaseline(p.id) : p;
-  });
-  res.status(201).json(normProject(project));
+  const p = insertRow('projects', fields);
+  baselineTasks.forEach((title, i) => insertRow('tasks', { project_id: p.id, title, sort_order: i, is_baseline: baseline }));
+  if (note) insertRow('notes', { project_id: p.id, body: note });
+  return baseline ? setBaseline(p.id) : p;
+}
+
+router.post('/projects', h((req, res) => {
+  res.status(201).json(normProject(db.tx(() => createProject(req.body))));
 }));
 
 router.get('/projects/:id', h((req, res) => {
   const project = db.get('SELECT * FROM projects WHERE id = ?', [req.params.id]);
   if (!project) throw notFound('Project');
-  res.json({ ...normProject(project), tasks: tasks('WHERE t.project_id = ? ORDER BY t.sort_order, t.id', [project.id]) });
+  res.json({
+    ...normProject(project),
+    tasks: tasks('WHERE t.project_id = ? ORDER BY t.sort_order, t.id', [project.id]),
+    escalated_from: db.get('SELECT id, ref, title FROM ideas WHERE project_id = ?', [project.id]) || null,
+  });
 }));
 
 router.patch('/projects/:id', h((req, res) => {
@@ -349,6 +355,191 @@ router.get('/dashboard', h((req, res) => {
   });
 }));
 
+// ------------------------------------------------------------------ ideation
+
+const IDEA_FIELDS = ['title', 'description', 'submitted_by', 'area_id', 'priority', 'due_at', 'cost', 'status'];
+const IDEA_SELECT = `
+  SELECT i.*, a.name AS area_name, p.name AS project_name,
+         (SELECT count(*) FROM idea_notes n WHERE n.idea_id = i.id) AS note_count,
+         (SELECT max(created_at) FROM idea_notes n WHERE n.idea_id = i.id) AS last_note_at
+  FROM ideas i LEFT JOIN areas a ON a.id = i.area_id LEFT JOIN projects p ON p.id = i.project_id`;
+const OPEN_IDEA = "i.status IN ('new', 'reviewing', 'approved')";
+
+function ideaFields(body) {
+  const f = pick(body, IDEA_FIELDS);
+  if (f.cost !== undefined && f.cost !== null) {
+    const n = Number(String(f.cost).replace(/[^0-9.-]/g, ''));
+    if (String(f.cost).trim() === '' || Number.isNaN(n) || n < 0) throw new HttpError(400, 'Cost must be a positive number');
+    f.cost = Math.round(n * 100) / 100;
+  }
+  if (f.status === 'escalated') throw new HttpError(400, 'Use "Escalate to project" to escalate an idea');
+  if (f.title !== undefined && !String(f.title || '').trim()) throw new HttpError(400, 'Idea name is required');
+  return f;
+}
+
+router.get('/ideas', h((req, res) => {
+  const where = [];
+  const params = [];
+  const status = req.query.status || 'open';
+  if (status === 'open') where.push(OPEN_IDEA);
+  else if (status !== 'all') { where.push('i.status = ?'); params.push(status); }
+  if (req.query.area_id) { where.push('i.area_id = ?'); params.push(req.query.area_id); }
+  if (req.query.q) {
+    const q = `%${String(req.query.q).trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    where.push("(i.title LIKE ? ESCAPE '\\' OR i.description LIKE ? ESCAPE '\\' OR i.ref LIKE ? ESCAPE '\\' OR i.submitted_by LIKE ? ESCAPE '\\')");
+    params.push(q, q, q, q);
+  }
+  res.json(db.all(`${IDEA_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    ORDER BY i.id DESC`, params));
+}));
+
+// Distinct submitters, for the "Submitted by" suggestions.
+router.get('/ideas/submitters', h((req, res) => {
+  res.json(db.all(`SELECT submitted_by AS name, max(created_at) AS last FROM ideas
+    WHERE coalesce(trim(submitted_by), '') <> '' GROUP BY submitted_by COLLATE NOCASE ORDER BY last DESC`).map((r) => r.name));
+}));
+
+router.post('/ideas', h((req, res) => {
+  const fields = ideaFields(req.body);
+  if (!fields.title) throw new HttpError(400, 'Idea name is required');
+  const idea = fresh('ideas', insertRow('ideas', fields));
+  res.status(201).json(db.get(`${IDEA_SELECT} WHERE i.id = ?`, [idea.id]));
+}));
+
+router.get('/ideas/:id', h((req, res) => {
+  const idea = db.get(`${IDEA_SELECT} WHERE i.id = ?`, [req.params.id]);
+  if (!idea) throw notFound('Idea');
+  const history = db.all(
+    "SELECT * FROM audit_log WHERE table_name = 'ideas' AND record_id = ? ORDER BY changed_at DESC, id DESC", [idea.id])
+    .map(normAudit);
+  res.json({
+    ...idea,
+    notes: db.all('SELECT * FROM idea_notes WHERE idea_id = ? ORDER BY created_at DESC, id DESC', [idea.id]),
+    history: history.map((e) => ({ at: e.changed_at, text: describeAudit(e) })).filter((e) => e.text),
+  });
+}));
+
+router.patch('/ideas/:id', h((req, res) => {
+  const current = db.get('SELECT status FROM ideas WHERE id = ?', [req.params.id]);
+  if (!current) throw notFound('Idea');
+  const fields = ideaFields(req.body);
+  if (current.status === 'escalated' && fields.status) throw new HttpError(400, 'This idea has already been escalated to a project');
+  updateRow('ideas', req.params.id, fields);
+  res.json(db.get(`${IDEA_SELECT} WHERE i.id = ?`, [req.params.id]));
+}));
+
+router.delete('/ideas/:id', h((req, res) => {
+  const { changes } = db.run('DELETE FROM ideas WHERE id = ?', [req.params.id]);
+  if (!changes) throw notFound('Idea');
+  res.status(204).end();
+}));
+
+router.post('/ideas/:id/notes', h((req, res) => {
+  const body = String(req.body.body || '').trim();
+  if (!body) throw new HttpError(400, 'Note text is required');
+  if (!db.get('SELECT 1 FROM ideas WHERE id = ?', [req.params.id])) throw notFound('Idea');
+  res.status(201).json(insertRow('idea_notes', { idea_id: req.params.id, body }));
+}));
+
+router.delete('/idea-notes/:id', h((req, res) => {
+  const { changes } = db.run('DELETE FROM idea_notes WHERE id = ?', [req.params.id]);
+  if (!changes) throw notFound('Note');
+  res.status(204).end();
+}));
+
+// Turns an idea into a full project: copies its details and notes, and links the two.
+router.post('/ideas/:id/escalate', h((req, res) => {
+  const project = db.tx(() => {
+    const idea = db.get(`${IDEA_SELECT} WHERE i.id = ?`, [req.params.id]);
+    if (!idea) throw notFound('Idea');
+    if (idea.status === 'escalated') throw new HttpError(400, `${idea.ref} has already been escalated`);
+    const currency = getSettings().currency;
+    const summary = [
+      `Escalated from ${idea.ref} "${idea.title}".`,
+      idea.submitted_by && `Submitted by: ${idea.submitted_by}`,
+      idea.area_name && `Area: ${idea.area_name}`,
+      idea.cost !== null && `Estimated cost: ${currency}${idea.cost.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      `Raised: ${new Date(idea.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`,
+    ].filter(Boolean).join('\n');
+    const p = createProject({
+      name: req.body.name || idea.title,
+      description: req.body.description !== undefined ? req.body.description : idea.description,
+      priority: req.body.priority || idea.priority,
+      due_at: req.body.due_at !== undefined ? req.body.due_at : idea.due_at,
+      start_date: req.body.start_date,
+      baseline_tasks: req.body.baseline_tasks,
+      set_baseline: req.body.set_baseline,
+    });
+    // Notes keep their original time stamps so the project history reads in order.
+    db.run('INSERT INTO notes (project_id, body, created_at, updated_at) VALUES (?, ?, ?, ?)',
+      [p.id, summary, idea.created_at, idea.created_at]);
+    if (req.body.copy_notes !== false) {
+      for (const n of db.all('SELECT * FROM idea_notes WHERE idea_id = ? ORDER BY created_at, id', [idea.id])) {
+        db.run('INSERT INTO notes (project_id, body, created_at, updated_at) VALUES (?, ?, ?, ?)',
+          [p.id, `[${idea.ref}] ${n.body}`, n.created_at, n.created_at]);
+      }
+    }
+    db.run("UPDATE ideas SET status = 'escalated', project_id = ? WHERE id = ?", [p.id, idea.id]);
+    return p;
+  });
+  log.info(`Idea ${req.params.id} escalated to project ${project.id}`);
+  res.status(201).json(normProject(project));
+}));
+
+// ------------------------------------------------------------------ settings & areas
+
+const SETTING_DEFAULTS = { currency: '£' };
+function getSettings() {
+  const out = { ...SETTING_DEFAULTS };
+  for (const r of db.all('SELECT key, value FROM settings')) if (r.key in SETTING_DEFAULTS) out[r.key] = r.value;
+  return out;
+}
+
+router.get('/settings', h((req, res) => res.json(getSettings())));
+
+router.patch('/settings', h((req, res) => {
+  db.tx(() => {
+    for (const key of Object.keys(SETTING_DEFAULTS)) {
+      if (req.body[key] === undefined) continue;
+      db.run(`INSERT INTO settings (key, value) VALUES (?, ?)
+              ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [key, String(req.body[key]).trim()]);
+    }
+  });
+  res.json(getSettings());
+}));
+
+router.get('/areas', h((req, res) => {
+  res.json(db.all(`SELECT a.*, (SELECT count(*) FROM ideas i WHERE i.area_id = a.id) AS idea_count
+    FROM areas a ORDER BY a.sort_order, a.name COLLATE NOCASE`).map((a) => ({ ...a, active: !!a.active })));
+}));
+
+router.post('/areas', h((req, res) => {
+  const name = String(req.body.name || '').trim();
+  if (!name) throw new HttpError(400, 'Area name is required');
+  if (db.get('SELECT 1 FROM areas WHERE name = ?', [name])) throw new HttpError(400, `"${name}" already exists`);
+  res.status(201).json(insertRow('areas', { name }));
+}));
+
+router.patch('/areas/:id', h((req, res) => {
+  const f = pick(req.body, ['name', 'active', 'sort_order']);
+  if (f.name !== undefined) {
+    f.name = String(f.name || '').trim();
+    if (!f.name) throw new HttpError(400, 'Area name is required');
+    if (db.get('SELECT 1 FROM areas WHERE name = ? AND id <> ?', [f.name, req.params.id])) throw new HttpError(400, `"${f.name}" already exists`);
+  }
+  const row = updateRow('areas', req.params.id, f);
+  if (!row) throw notFound('Area');
+  res.json(fresh('areas', row));
+}));
+
+router.delete('/areas/:id', h((req, res) => {
+  const used = db.get('SELECT count(*) AS n FROM ideas WHERE area_id = ?', [req.params.id]).n;
+  if (used) throw new HttpError(400, `This area is used by ${used} idea(s). Untick "Active" to hide it from the list instead.`);
+  const { changes } = db.run('DELETE FROM areas WHERE id = ?', [req.params.id]);
+  if (!changes) throw notFound('Area');
+  res.status(204).end();
+}));
+
 // ------------------------------------------------------------------ audit log
 
 router.get('/audit', h((req, res) => {
@@ -371,7 +562,7 @@ router.post('/backups', h((req, res) => res.status(201).json(backup.runBackup('m
 
 router.get('/search', h((req, res) => {
   const term = String(req.query.q || '').trim();
-  if (!term) return res.json({ projects: [], tasks: [], notes: [] });
+  if (!term) return res.json({ projects: [], tasks: [], notes: [], ideas: [] });
   const q = `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const like = (col) => `${col} LIKE ? ESCAPE '\\'`;
   res.json({
@@ -379,22 +570,29 @@ router.get('/search', h((req, res) => {
     tasks: tasks(`WHERE ${like('t.title')} OR ${like('t.description')} LIMIT 30`, [q, q]),
     notes: db.all(`SELECT n.*, p.name AS project_name FROM notes n JOIN projects p ON p.id = n.project_id
       WHERE ${like('n.body')} ORDER BY n.created_at DESC LIMIT 30`, [q]),
+    ideas: db.all(`${IDEA_SELECT} WHERE ${like('i.title')} OR ${like('i.description')} OR ${like('i.ref')}
+      OR i.id IN (SELECT idea_id FROM idea_notes WHERE ${like('body')}) ORDER BY i.id DESC LIMIT 30`, [q, q, q, q]),
   });
 }));
 
 // ------------------------------------------------------------------ helpers
 
 const STATUS_LABEL = { todo: 'To do', in_progress: 'In progress', blocked: 'Blocked', done: 'Done',
-  active: 'Active', on_hold: 'On hold', completed: 'Completed', archived: 'Archived' };
+  active: 'Active', on_hold: 'On hold', completed: 'Completed', archived: 'Archived',
+  new: 'New', reviewing: 'Under review', approved: 'Approved', rejected: 'Rejected',
+  implemented: 'Implemented', escalated: 'Escalated to project' };
 const PRIORITY_LABEL = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Critical' };
 const FIELD_LABEL = { title: 'title', name: 'name', description: 'description', status: 'status',
   priority: 'priority', due_at: 'due date', start_date: 'start date', parent_id: 'parent task',
-  remind_at: 'reminder time', message: 'message', body: 'text' };
+  remind_at: 'reminder time', message: 'message', body: 'text',
+  submitted_by: 'submitted by', area_id: 'area', cost: 'cost', value: 'value', active: 'active' };
 
 function fmtValue(field, v) {
   if (v === null || v === undefined || v === '') return '(none)';
   if (field === 'status') return STATUS_LABEL[v] || v;
   if (field === 'priority') return PRIORITY_LABEL[v] || v;
+  if (field === 'area_id') return db.get('SELECT name FROM areas WHERE id = ?', [v])?.name || `#${v}`;
+  if (field === 'active') return v ? 'yes' : 'no';
   if (field === 'due_at' || field === 'remind_at') return new Date(v).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   const s = String(v);
   return s.length > 60 ? `${s.slice(0, 57)}…` : s;
@@ -403,8 +601,9 @@ function fmtValue(field, v) {
 // Turns an audit_log row into a human sentence (or null for noise).
 function describeAudit(e) {
   const d = e.new_data || e.old_data || {};
-  const label = { projects: 'Project', tasks: d.parent_id ? 'Subtask' : 'Task', notes: 'Note', reminders: 'Reminder' }[e.table_name] || e.table_name;
-  const name = d.title || d.name || (d.body && fmtValue('body', d.body)) || '';
+  const label = { projects: 'Project', tasks: d.parent_id ? 'Subtask' : 'Task', notes: 'Note', reminders: 'Reminder',
+    ideas: `Idea${d.ref ? ` ${d.ref}` : ''}`, idea_notes: 'Idea note', areas: 'Area', settings: 'Setting' }[e.table_name] || e.table_name;
+  const name = d.title || d.name || d.key || (d.body && fmtValue('body', d.body)) || '';
   const named = name ? ` "${name}"` : '';
   if (e.action === 'INSERT') {
     if (e.table_name === 'reminders') return `Reminder set for ${fmtValue('remind_at', d.remind_at)}`;
@@ -426,6 +625,10 @@ function describeAudit(e) {
   }
   if (e.table_name === 'projects' && e.old_data?.baseline_set_at !== e.new_data?.baseline_set_at) {
     changes.push('baseline set');
+  }
+  if (e.table_name === 'ideas' && e.new_data?.status === 'escalated' && e.old_data?.status !== 'escalated') {
+    const p = db.get('SELECT name FROM projects WHERE id = ?', [e.new_data.project_id]);
+    return `${label}${named} escalated to project${p ? ` "${p.name}"` : ''}`;
   }
   if (e.table_name === 'tasks' && !e.old_data?.is_baseline && e.new_data?.is_baseline) {
     changes.push('added to baseline');

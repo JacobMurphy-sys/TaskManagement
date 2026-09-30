@@ -111,6 +111,55 @@ async function waitForServer() {
     assert.ok(b.json.endsWith('.json') && fs.existsSync(b.json), 'JSON backup written');
     assert.ok(b.db.endsWith('.db') && fs.existsSync(b.db), 'database copy written');
 
+    // ---- Ideation
+    const areas = await call('GET', '/areas');
+    assert.deepEqual(areas.map((a) => a.name), ['General'], 'default area seeded');
+    const ops = await call('POST', '/areas', { name: 'Operations' });
+    await assert.rejects(call('POST', '/areas', { name: 'operations' }), /already exists/);
+    assert.equal((await call('GET', '/settings')).currency, '£');
+    await call('PATCH', '/settings', { currency: '€' });
+
+    const idea1 = await call('POST', '/ideas', {
+      title: 'Automate supplier scoring', description: 'Use the spend data', submitted_by: 'Sam',
+      area_id: ops.id, priority: 3, due_at: new Date(Date.now() + 5 * 86400000).toISOString(), cost: '1,250.50',
+    });
+    assert.equal(idea1.ref, 'IDEA-0001', 'first idea gets IDEA-0001');
+    assert.equal(idea1.cost, 1250.5, 'cost parsed');
+    assert.equal(idea1.area_name, 'Operations');
+    const idea2 = await call('POST', '/ideas', { title: 'Second idea', submitted_by: 'Alex' });
+    assert.equal(idea2.ref, 'IDEA-0002');
+    await assert.rejects(call('POST', '/ideas', { title: 'x', cost: -5 }), /400/);
+    await assert.rejects(call('POST', '/ideas', { title: '' }), /400/);
+    await assert.rejects(call('DELETE', `/areas/${ops.id}`), /used by 1 idea/);
+
+    await call('POST', `/ideas/${idea1.id}/notes`, { body: 'Discussed with finance' });
+    await call('PATCH', `/ideas/${idea1.id}`, { status: 'approved' });
+    let ideaDetail = await call('GET', `/ideas/${idea1.id}`);
+    assert.equal(ideaDetail.notes.length, 1);
+    assert.ok(ideaDetail.history.some((h) => /status: New → Approved/.test(h.text)), 'idea status change in history');
+    assert.deepEqual(await call('GET', '/ideas/submitters'), ['Alex', 'Sam']);
+    assert.equal((await call('GET', '/ideas?status=open')).length, 2);
+    assert.equal((await call('GET', `/ideas?area_id=${ops.id}`)).length, 1);
+    assert.equal((await call('GET', '/ideas?q=IDEA-0002')).length, 1);
+    assert.ok((await call('GET', '/search?q=finance')).ideas.some((i) => i.id === idea1.id), 'search finds idea notes');
+
+    const escalated = await call('POST', `/ideas/${idea1.id}/escalate`, { baseline_tasks: ['Build model', 'Pilot'] });
+    const ep = await call('GET', `/projects/${escalated.id}`);
+    assert.equal(ep.name, 'Automate supplier scoring');
+    assert.equal(ep.priority, 3);
+    assert.equal(ep.tasks.length, 2);
+    assert.equal(ep.escalated_from.ref, 'IDEA-0001', 'project links back to idea');
+    const eTimeline = await call('GET', `/projects/${ep.id}/timeline`);
+    assert.ok(eTimeline.some((t) => t.type === 'note' && /€1,250\.50/.test(t.body)), 'summary note with cost');
+    assert.ok(eTimeline.some((t) => t.type === 'note' && t.body === '[IDEA-0001] Discussed with finance'), 'idea notes copied');
+    ideaDetail = await call('GET', `/ideas/${idea1.id}`);
+    assert.equal(ideaDetail.status, 'escalated');
+    assert.equal(ideaDetail.project_id, ep.id);
+    await assert.rejects(call('POST', `/ideas/${idea1.id}/escalate`, {}), /already been escalated/);
+    await assert.rejects(call('PATCH', `/ideas/${idea1.id}`, { status: 'new' }), /already been escalated/);
+    assert.equal((await call('GET', '/ideas?status=open')).length, 1, 'escalated idea no longer open');
+    await call('DELETE', `/ideas/${idea2.id}`);
+
     // Change requests without the app's header are refused (blocks other websites).
     const bare = await fetch(`${BASE}/backups`, { method: 'POST' });
     assert.equal(bare.status, 403, 'request without X-Requested-With refused');
