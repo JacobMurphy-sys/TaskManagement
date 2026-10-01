@@ -1236,6 +1236,7 @@ async function escalateDialog(i) {
         <button type="button" data-action="close-modal">Cancel</button>
         <button class="primary" type="submit">Create project</button></div>
     </form>`, { wide: true });
+  enhanceContactFields($('#escalate-form'), null);
   $('#escalate-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target));
@@ -1478,8 +1479,8 @@ async function projectForm(p = {}) {
       ${isNew ? `
         <label class="f full">Baseline tasks — one per line (you can add more at any time)
           <textarea name="baseline_tasks" rows="5" placeholder="Gather requirements&#10;Draft proposal&#10;Review with manager"></textarea></label>
-        <label class="f full">Project team — one per line, <i>Name, role</i> (optional; leader and sponsor are above)
-          <textarea name="team" rows="3" placeholder="Sam Patel, Quality engineer&#10;Alex Jones, Maintenance"></textarea></label>
+        <label class="f full"><span>Project team — one per line as <i>Name, role</i>, or 📇 to pick from your contacts (optional; leader and sponsor are above)</span>
+          <textarea name="team" rows="3" data-contact-lines placeholder="Sam Patel, Quality engineer&#10;Alex Jones, Maintenance"></textarea></label>
         <label class="f full">First note (optional)<textarea name="initial_note" rows="2"></textarea></label>` : `
         <label class="f">Status<select name="status">${options(PSTATUS, p.status)}</select></label>
         <div class="f full small muted">Charter fields (problem, goals, sponsor, team, KPIs…) are edited on the project's <a href="#/project/${p.id}/charter" data-action="close-modal-go">📋 Charter</a> tab.</div>`}
@@ -1490,6 +1491,7 @@ async function projectForm(p = {}) {
         <button class="primary" type="submit">${isNew ? 'Create project' : 'Save'}</button>
       </div>
     </form>`, { wide: isNew });
+  if (isNew) enhanceContactFields($('#project-form'), null);
   $('#project-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target));

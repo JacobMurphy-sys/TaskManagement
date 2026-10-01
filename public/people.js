@@ -306,3 +306,88 @@ async function renderContacts() {
     await renderPeopleSettings($('#contacts-lists'));
   });
 }
+
+// ---- Contact autofill for single-name fields (charter sponsor, leader, team) ---------
+
+// Contacts plus the leaders and sponsors of other projects.
+async function contactGroups(projectId) {
+  const groups = await ownerOptions(projectId);
+  const known = new Set(groups.flatMap((g) => g.names.map((n) => n.toLowerCase())));
+  const roles = new Map();
+  for (const p of state.projects) {
+    for (const [name, what] of [[p.leader, 'Leader'], [p.sponsor, 'Sponsor']]) {
+      if (!name || known.has(name.toLowerCase())) continue;
+      const k = name.toLowerCase();
+      const r = roles.get(k) || { name, parts: [] };
+      if (r.parts.length < 2) r.parts.push(`${what} of ${p.name}`);
+      roles.set(k, r);
+    }
+  }
+  if (roles.size) {
+    const list = [...roles.values()];
+    const group = { label: 'Leaders & sponsors', names: list.map((r) => r.name), details: Object.fromEntries(list.map((r) => [r.name, r.parts.join(', ')])) };
+    const used = groups.findIndex((g) => g.label === 'Used before');
+    groups.splice(used < 0 ? groups.length : used, 0, group);
+  }
+  return groups;
+}
+// A role to fill in: only from the contacts lists' details (not "Leader of …" or a role on this project).
+const NOT_ROLES = ['Project team', 'Leaders & sponsors', 'Used before'];
+const roleOf = (groups, name) => groups.filter((g) => !NOT_ROLES.includes(g.label))
+  .map((g) => Object.entries(g.details || {}).find(([n]) => n.toLowerCase() === name.toLowerCase())?.[1]).find(Boolean) || '';
+
+// Typing in a name field suggests contacts (with their role alongside) via
+// <datalist id="people">, and a 📇 button opens the contacts book:
+//   input[data-contact="Title"]       one name; with data-role-field, the role in the same row is filled too
+//   textarea[data-contact-lines]      "Name, role" lines; the book can add several
+async function enhanceContactFields(root, projectId) {
+  const groups = await contactGroups(projectId);
+  const dl = $('datalist#people', root);
+  if (dl) {
+    const seen = new Set();
+    dl.innerHTML = groups.flatMap((g) => g.names.filter((n) => !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase()))
+      .map((n) => `<option value="${esc(n)}" label="${esc(g.details?.[n] || g.label)}">`)).join('');
+  }
+  const addButton = (field, onClick) => {
+    if (field.parentElement.classList.contains('cf-wrap')) return;
+    const wrap = document.createElement('span');
+    wrap.className = 'cf-wrap';
+    field.before(wrap);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cf-book';
+    btn.textContent = '📇';
+    btn.title = 'Choose from the contacts book';
+    wrap.append(field, btn);
+    btn.addEventListener('click', onClick);
+  };
+  for (const input of $$('input[data-contact]', root)) {
+    addButton(input, async () => {
+      const pick = await contactsBook({ groups, title: input.dataset.contact || 'Choose a contact', multiple: false });
+      if (!pick) return;
+      input.value = pick[0];
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      const role = 'roleField' in input.dataset ? $('input[name=role]', input.closest('tr')) : null;
+      const detail = roleOf(groups, pick[0]);
+      if (role && !role.value.trim() && detail) {
+        role.value = detail;
+        role.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      input.focus();
+    });
+  }
+  for (const ta of $$('textarea[data-contact-lines]', root)) {
+    addButton(ta, async () => {
+      const already = ta.value.split(/\r?\n/).map((l) => l.split(',')[0].trim()).filter(Boolean);
+      const pick = await contactsBook({ groups, selected: already, title: 'Choose the project team' });
+      if (!pick) return;
+      const lines = ta.value.split(/\r?\n/).filter((l) => l.trim());
+      const keep = lines.filter((l) => pick.some((n) => n.toLowerCase() === l.split(',')[0].trim().toLowerCase()));
+      const add = pick.filter((n) => !already.some((a) => a.toLowerCase() === n.toLowerCase()))
+        .map((n) => { const d = roleOf(groups, n); return d ? `${n}, ${d}` : n; });
+      ta.value = [...keep, ...add].join('\n');
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+}

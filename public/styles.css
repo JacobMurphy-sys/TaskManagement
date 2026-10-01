@@ -572,3 +572,14 @@ label.button { cursor: pointer; }
 .cb-foot { gap: 8px; }
 .op-book { border: 0; background: none; padding: 0 4px; cursor: pointer; font-size: 15px; min-width: 0; opacity: .75; }
 .op-book:hover { opacity: 1; }
+
+/* ---- contact autofill on name fields */
+.cf-wrap { display: flex; align-items: flex-start; gap: 4px; width: 100%; position: relative; }
+.cf-wrap > input, .cf-wrap > textarea { flex: 1; min-width: 0; }
+.cf-book { padding: 4px 7px; min-width: 0; flex: none; }
+/* In one-line boxes the 📇 sits inside the right edge, so narrow fields keep their width. */
+.cf-wrap > input { padding-right: 28px; }
+.cf-wrap > input + .cf-book { position: absolute; right: 3px; top: 50%; transform: translateY(-50%); border: 0; background: none;
+  padding: 2px 4px; font-size: 14px; opacity: .7; }
+.cf-wrap > input + .cf-book:hover { opacity: 1; }
+@media print { .cf-book, .op-book { display: none !important; } }

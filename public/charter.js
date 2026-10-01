@@ -22,8 +22,8 @@ function charterFieldsHtml(v = {}) {
     <label class="f full"><span>Project title${req}</span><input type="text" name="name" required value="${esc(v.name)}"></label>
     ${ta('problem', 'Problem definition', 3, true, 'What is the problem, where and how big is it?')}
     ${ta('goals', 'Goals of the project', 2, true, 'What will be different when the project is done?')}
-    ${inp('sponsor', 'Management sponsor', true, 'list="people"')}
-    ${inp('leader', 'Project leader', true, 'list="people"')}
+    ${inp('sponsor', 'Management sponsor', true, 'list="people" autocomplete="off" data-contact="Management sponsor"')}
+    ${inp('leader', 'Project leader', true, 'list="people" autocomplete="off" data-contact="Project leader"')}
     ${inp('project_code', 'Project ID', false, 'placeholder="automatic (PRJ-…) if blank"')}
     ${inp('policy_deployment', 'Policy deployment', false, 'list="lk-policy"')}
     ${inp('category', 'Category', false, 'list="lk-category"')}
@@ -35,8 +35,7 @@ function charterFieldsHtml(v = {}) {
       </div>
     </details>
     ${lookupList('lk-policy', 'policy_deployment')}${lookupList('lk-category', 'category')}
-    <datalist id="people">${[...new Set(state.projects.flatMap((p) => [p.sponsor, p.leader]).filter(Boolean))]
-      .map((n) => `<option value="${esc(n)}">`).join('')}</datalist>`;
+    <datalist id="people"></datalist>`; // filled by enhanceContactFields()
 }
 const CHARTER_FORM_KEYS = ['name', 'problem', 'goals', 'sponsor', 'leader', 'project_code', 'policy_deployment', 'category',
   'gm_effect', 'in_scope', 'out_scope', 'benefits_quantified', 'benefits_other'];
@@ -108,7 +107,8 @@ function renderCharterTab(root, p) {
   const box = (name, label, rows = 3) => `<div class="ch-box"><label for="ch-${name}">${label}${CHARTER_REQUIRED.includes(name) ? '<span class="req">*</span>' : ''}</label>
     <textarea id="ch-${name}" name="${name}" rows="${Math.max(rows, String(p[name] || '').split('\n').length + 1)}">${esc(p[name])}</textarea></div>`;
   const small = (name, label, list) => `<div class="ch-box"><label for="ch-${name}">${label}${CHARTER_REQUIRED.includes(name) ? '<span class="req">*</span>' : ''}</label>
-    <input id="ch-${name}" type="text" name="${name}" value="${esc(p[name])}" ${list ? `list="${list}"` : ''}></div>`;
+    <input id="ch-${name}" type="text" name="${name}" value="${esc(p[name])}" ${list ? `list="${list}" autocomplete="off"` : ''}
+      ${list === 'people' ? `data-contact="${esc(label)}"` : ''}></div>`;
   const baseline = new Map(((p.baseline_snapshot || {}).tasks || []).map((t) => [t.id, t]));
   root.innerHTML = `
     <div class="charter-bar row">
@@ -127,11 +127,11 @@ function renderCharterTab(root, p) {
           <div class="ch-box"><label>Team (incl. capacity p.p.)</label>
             <table class="ch-table"><thead><tr><th>Name</th><th>Role</th><th>Capacity</th><th></th></tr></thead><tbody>
             ${p.charter.team.map((m) => `<tr data-team="${m.id}">
-              <td><input type="text" name="name" value="${esc(m.name)}" list="people"></td>
+              <td><input type="text" name="name" value="${esc(m.name)}" list="people" autocomplete="off" data-contact="Team member" data-role-field></td>
               <td><input type="text" name="role" value="${esc(m.role)}"></td>
               <td><input type="text" name="capacity" value="${esc(m.capacity)}" placeholder="e.g. 20% / 1 day a week"></td>
               <td><button class="icon" data-action="del-team" data-id="${m.id}" title="Remove">✕</button></td></tr>`).join('')}
-            <tr class="ch-add" data-add="team"><td><input type="text" name="name" placeholder="+ Add person… (Enter)" list="people"></td>
+            <tr class="ch-add" data-add="team"><td><input type="text" name="name" placeholder="+ Add person… (Enter)" list="people" autocomplete="off" data-contact="Add to the team" data-role-field></td>
               <td><input type="text" name="role" placeholder="Role"></td><td><input type="text" name="capacity" placeholder="Capacity"></td><td></td></tr>
             </tbody></table></div>
           ${box('in_scope', 'In scope', 2)}
@@ -166,10 +166,10 @@ function renderCharterTab(root, p) {
         </div>
       </div>
       ${lookupList('lk-policy', 'policy_deployment')}${lookupList('lk-category', 'category')}
-      <datalist id="people">${[...new Set([...state.projects.flatMap((x) => [x.sponsor, x.leader]), ...p.charter.team.map((m) => m.name)].filter(Boolean))]
-        .map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
+      <datalist id="people"></datalist>
     </div>`;
 
+  enhanceContactFields(root, p.id); // contacts autofill + 📇 on sponsor, leader and team names
   // Autosave project fields.
   $$('#charter-form [name]', root).forEach((el) => {
     if (el.closest('tr')) return;
@@ -225,6 +225,7 @@ async function promoteDialog(t) {
       <div class="full row"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button>
         <button class="primary" type="submit">Create project</button></div>
     </form>`, { wide: true });
+  enhanceContactFields($('#promote-form'), null);
   $('#promote-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target));
