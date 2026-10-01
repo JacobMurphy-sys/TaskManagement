@@ -164,6 +164,7 @@ async function meetingEditor(id, opts = {}) {
   ownerPicker($('#mt-attendees'), { value: m.attendees, groups, placeholder: 'Add attendee…', bookTitle: 'Choose attendees',
     onChange: (attendees) => save({ attendees: attendees || '' }) });
   const editor = richEditor($('#mt-notes'), m.notes, (html) => save({ notes: html }));
+  modal().addEventListener('close', () => editor.flush(), { once: true }); // however it's closed
 
   const ownersBox = ownerPicker($('#mt-owner'), { groups, placeholder: 'Owners', bookTitle: 'Who owns this action?' });
   const addAction = async () => {

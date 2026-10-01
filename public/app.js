@@ -1428,7 +1428,32 @@ async function renderSearch(q) {
 // ======================================================================
 
 const modal = () => $('#modal');
+// Clicking the dimmed area around a pop-up window closes it. The press has to start
+// outside too, so selecting text and letting go outside the window doesn't count.
+function closeOnBackdrop(dialog, onOutside) {
+  const outside = (e) => {
+    const r = dialog.getBoundingClientRect();
+    return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+  };
+  let pressedOutside = false;
+  dialog.addEventListener('mousedown', (e) => { pressedOutside = e.target === dialog && outside(e); });
+  dialog.addEventListener('click', (e) => {
+    if (pressedOutside && e.target === dialog && outside(e)) onOutside();
+    pressedOutside = false;
+  });
+}
+
+// A form that hasn't been submitted (new project, phase, cost…) asks before its
+// typing is thrown away; windows that save as you go just close.
+let modalFormDirty = false;
+$('#modal-body').addEventListener('input', (e) => { if (e.target.closest('form')) modalFormDirty = true; });
+closeOnBackdrop(modal(), () => {
+  if (modalFormDirty && !confirm('Close without saving? What you typed in this form will be lost.')) return;
+  closeModal();
+});
+
 function openModal(html, opts = {}) {
+  modalFormDirty = false;
   modal().classList.toggle('wide', !!opts.wide);
   $('#modal-body').innerHTML = html;
   if (!modal().open) modal().showModal();
@@ -1608,10 +1633,11 @@ async function taskModal(id) {
       state.modalDirty = true;
       if (saved.next_occurrence) toast(`🔁 Next one created, due ${fmtDate(saved.next_occurrence.due_at)}`);
       if (el.name === 'project_id') toast(value ? 'Moved to the project (counts as new scope there)' : 'Moved to ✅ Tasks');
-      if (['waiting_on', 'recurrence', 'status', 'description', 'project_id'].includes(el.name)) return taskModal(t.id);
+      // Redraw for fields that change other parts of the window (not if it was just closed).
+      if (['waiting_on', 'recurrence', 'status', 'description', 'project_id'].includes(el.name) && modal().open) return taskModal(t.id);
     } catch (err) {
       toast(err.message, 'error');
-      return taskModal(t.id);
+      return modal().open ? taskModal(t.id) : undefined;
     }
     const flag = $('#saved-flag');
     flag.classList.add('show');
@@ -2084,6 +2110,13 @@ async function runAction(el, e) {
   if (!fn) return;
   try { await fn(el, e); } catch (err) { toast(err.message, 'error'); }
 }
+
+// On a narrow screen the sidebar slides over the page; a click elsewhere closes it.
+document.addEventListener('click', (e) => {
+  if (document.body.classList.contains('sidebar-open') && !e.target.closest('#sidebar, [data-action="toggle-sidebar"]')) {
+    document.body.classList.remove('sidebar-open');
+  }
+}, true);
 
 document.addEventListener('click', (e) => {
   const link = e.target.closest('a[href]');

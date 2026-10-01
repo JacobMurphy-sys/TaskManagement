@@ -21,6 +21,8 @@ function contactsBook({ groups = [], selected = [], title = 'Contacts', multiple
     dlg = document.createElement('dialog');
     dlg.id = 'contacts-dialog';
     document.body.append(dlg);
+    // Clicking outside keeps what's ticked (like Done); Cancel or Esc throws it away.
+    closeOnBackdrop(dlg, () => dlg.dispatchEvent(new CustomEvent('outside')));
   }
   const chosen = [...selected];
   const isChosen = (n) => chosen.some((c) => c.toLowerCase() === n.toLowerCase());
@@ -53,7 +55,9 @@ function contactsBook({ groups = [], selected = [], title = 'Contacts', multiple
   if (!dlg.open) dlg.showModal();
   search.focus();
   return new Promise((resolve) => {
-    const close = (result) => { dlg.close(); dlg.onclick = null; resolve(result); };
+    const onOutside = () => close(multiple ? chosen : null);
+    const close = (result) => { dlg.removeEventListener('outside', onOutside); dlg.close(); dlg.onclick = null; resolve(result); };
+    dlg.addEventListener('outside', onOutside);
     search.oninput = draw;
     search.onkeydown = (e) => {
       if (e.key !== 'Enter') return;

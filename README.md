@@ -89,6 +89,7 @@ When an update changes how data is stored, the app upgrades your database automa
 - **Due-date alerts:** a pop-up appears once on the day a task is due, and again once it becomes overdue.
 - **Re-baseline:** use this after an agreed change of scope. All current tasks become the new baseline.
 - **Keyboard:** `N` quick note, `T` add task (in a project), `/` search.
+- **Closing windows:** click anywhere outside a pop-up window (or press Esc). Windows that save as you go (tasks, meetings) save first; a form you haven't saved yet (new project, phase, person…) asks before discarding what you typed. Clicking outside the 📇 contacts book keeps what you ticked.
 - **Repeating tasks:** add `*weekly` (or `*daily`, `*weekdays`, `*fortnightly`, `*monthly`, `*quarterly`, `*yearly`) when adding a task, or set *Repeats* in the task window.
 - **Waiting on someone:** fill in *Waiting on* in the task window (names you've used are suggested). Clear it when they've replied.
 - **Gantt:** give tasks a *Start date* and *Due date* in the task window, or drag on the chart. A task with only a due date shows as a ◆ milestone. Add dependencies under *Depends on* in the task window.
