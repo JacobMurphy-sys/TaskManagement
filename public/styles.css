@@ -502,3 +502,12 @@ label.button { cursor: pointer; }
 .mt-actions td:nth-child(3) { width: 22%; }
 .mt-actions td:nth-child(4) { width: 150px; }
 @media (max-width: 700px) { .mt-add { grid-template-columns: 1fr 1fr; } }
+
+/* ---- reordering and renaming in task lists */
+.drag-handle { cursor: grab; color: var(--muted); opacity: 0; padding: 0 2px; margin-left: -4px; user-select: none; font-size: 14px; line-height: 1; }
+.task-line:hover .drag-handle, .drag-handle:focus { opacity: 1; }
+.drag-handle:focus { outline: 2px solid var(--accent); border-radius: 3px; }
+.dragging-row { opacity: .45; }
+.rename-input { font: inherit; padding: 2px 6px; min-width: 260px; width: 100%; }
+.task-title:has(.rename-input) { flex: 1; }
+@media (hover: none) { .drag-handle { opacity: 1; } }

@@ -525,6 +525,30 @@ router.patch('/tasks/:id', h((req, res) => {
   res.json({ ...normTask(task), next_occurrence: nextOcc });
 }));
 
+// New order for some tasks of one list ({ ids } in the order wanted): subtasks of one
+// task, or the top-level tasks of one project (or of the standalone Tasks list).
+// The list may be filtered (completed hidden, one phase), so the given tasks take
+// the places they already occupied among all their siblings; then all are renumbered.
+router.post('/tasks/reorder', h((req, res) => {
+  const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(Number);
+  if (!ids.length || new Set(ids).size !== ids.length) throw new HttpError(400, 'Give each task to reorder once');
+  const rows = ids.map((id) => db.get('SELECT id, project_id, parent_id FROM tasks WHERE id = ?', [id]));
+  if (rows.some((r) => !r)) throw notFound('Task');
+  const { project_id: projectId, parent_id: parentId } = rows[0];
+  if (rows.some((r) => r.parent_id !== parentId || (!parentId && r.project_id !== projectId))) {
+    throw new HttpError(400, 'Only tasks in the same list can be reordered together');
+  }
+  db.tx(() => {
+    const order = (parentId
+      ? db.all('SELECT id FROM tasks WHERE parent_id = ? ORDER BY sort_order, id', [parentId])
+      : db.all('SELECT id FROM tasks WHERE parent_id IS NULL AND project_id IS ? ORDER BY sort_order, id', [projectId])).map((r) => r.id);
+    const moved = new Set(ids);
+    order.map((id, i) => (moved.has(id) ? i : -1)).filter((i) => i >= 0).forEach((slot, k) => { order[slot] = ids[k]; });
+    order.forEach((id, i) => db.run('UPDATE tasks SET sort_order = ? WHERE id = ? AND sort_order IS NOT ?', [i, id, i]));
+  });
+  res.json({ ok: true });
+}));
+
 // Dependencies (for the Gantt chart): task :id can't start until depends_on_id is done.
 router.post('/tasks/:id/dependencies', h((req, res) => {
   const link = db.tx(() => {

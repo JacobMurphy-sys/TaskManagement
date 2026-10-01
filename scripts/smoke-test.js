@@ -352,6 +352,29 @@ async function waitForServer() {
     assert.ok((await call('GET', `/tasks/owner-names?project_id=${tp.id}`)).slice(0, 3).includes('Riya'), 'team offered as owners');
     await call('DELETE', `/projects/${tp.id}`);
 
+    // ---- Reordering: within one list only, keeping the places of tasks not shown
+    const ordP = await call('POST', '/projects', { name: 'Reorder test', ...CHARTER });
+    const ordT = [];
+    for (const title of ['A', 'B', 'C', 'D']) ordT.push(await call('POST', '/tasks', { project_id: ordP.id, title }));
+    const titles = async () => (await call('GET', `/projects/${ordP.id}`)).tasks.filter((t) => !t.parent_id)
+      .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id).map((t) => t.title).join('');
+    await call('POST', '/tasks/reorder', { ids: [ordT[3].id, ordT[0].id] });
+    assert.equal(await titles(), 'DBCA', 'D and A swap places; B and C stay put');
+    await call('POST', '/tasks/reorder', { ids: [ordT[2].id, ordT[1].id, ordT[3].id, ordT[0].id] });
+    assert.equal(await titles(), 'CBDA');
+    const ordS = [];
+    for (const title of ['x', 'y', 'z']) ordS.push(await call('POST', '/tasks', { parent_id: ordT[0].id, title }));
+    await call('POST', '/tasks/reorder', { ids: [ordS[2].id, ordS[0].id, ordS[1].id] });
+    assert.deepEqual((await call('GET', `/tasks/${ordT[0].id}`)).subtasks.map((t) => t.title), ['z', 'x', 'y'], 'subtasks reordered');
+    await assert.rejects(call('POST', '/tasks/reorder', { ids: [ordS[0].id, ordT[1].id] }), /same list/);
+    await assert.rejects(call('POST', '/tasks/reorder', { ids: [ordT[1].id, ordT[1].id] }), /once/);
+    await assert.rejects(call('POST', '/tasks/reorder', { ids: [999999] }), /not found/i);
+    const ordLone = await call('POST', '/tasks', { title: 'Standalone one' });
+    await assert.rejects(call('POST', '/tasks/reorder', { ids: [ordT[1].id, ordLone.id] }), /same list/, 'project and standalone lists are separate');
+    await call('DELETE', `/tasks/${ordLone.id}`);
+    assert.ok(!(await call('GET', `/projects/${ordP.id}/timeline`)).some((i) => /sort/i.test(i.text || '')), 'reordering is not timeline noise');
+    await call('DELETE', `/projects/${ordP.id}`);
+
     // ---- Meetings: on a project or a task, formatted notes, actions that become tasks
     const { sanitizeHtml, htmlToText } = require('../src/richtext');
     assert.equal(sanitizeHtml('<b>Bold</b> <u>u</u> <i>i</i> <span style="background-color: rgb(255, 241, 118);">hi</span>'),

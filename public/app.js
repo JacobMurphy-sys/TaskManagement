@@ -419,16 +419,18 @@ function taskRow(t, p, hideDone) {
   const added = p.baseline_set_at && !t.is_baseline;
   const kids = hideDone ? t.children.filter((c) => c.status !== 'done') : t.children;
   const open = t.children.filter((c) => c.status !== 'done').length;
-  return `<li class="task ${done ? 'done' : ''}">
+  return `<li class="task ${done ? 'done' : ''}" data-id="${t.id}">
     <div class="task-line">
+      ${dragHandle()}
       <input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${open}" ${done ? 'checked' : ''} title="${done ? `Completed ${esc(fmtDateTime(t.completed_at))}` : 'Mark done'}">
-      <span class="task-title" data-action="open-task" data-id="${t.id}">${esc(t.title)}</span>
+      <span class="task-title" data-action="open-task" data-id="${t.id}" data-rename title="Click to open · double-click to rename">${esc(t.title)}</span>
       ${statusChip(t.status)} ${t.priority !== 2 ? prioPill(t.priority) : ''} ${dueChip(t)} ${ownerChip(t)} ${waitingChip(t)} ${repeatChip(t)}
       ${added ? `<span class="badge added" title="Added ${esc(fmtDateTime(t.created_at))}, after the baseline">+ added</span>` : ''}
       ${t.children.length ? `<span class="small muted" title="Subtasks done">☑ ${t.children.length - open}/${t.children.length}</span>` : ''}
       ${t.next_reminder ? `<span class="small" title="Reminder ${esc(fmtDateTime(t.next_reminder))}">🔔</span>` : ''}
       ${t.note_count ? `<span class="small muted" title="Notes">📝 ${t.note_count}</span>` : ''}
       <span class="row-actions">
+        <button class="icon" data-action="rename-task" title="Rename (or double-click the title)">✎</button>
         <button class="icon" data-action="add-subtask" data-id="${t.id}" title="Add subtask">＋ sub</button>
         <button class="icon" data-action="remind-task" data-id="${t.id}" title="Set a reminder">🔔</button>
       </span>
@@ -1520,10 +1522,12 @@ async function taskModal(id) {
 
     <div class="section">
       <h3>Subtasks <span class="muted small">${t.subtasks.filter((s) => s.status === 'done').length}/${t.subtasks.length}</span></h3>
-      <ul class="tasks">${t.subtasks.map((s) => `<li class="task ${s.status === 'done' ? 'done' : ''}"><div class="task-line">
+      <ul class="tasks" data-reload-task="${t.id}">${t.subtasks.map((s) => `<li class="task ${s.status === 'done' ? 'done' : ''}" data-id="${s.id}"><div class="task-line">
+        ${dragHandle()}
         <input type="checkbox" data-action="toggle-task" data-id="${s.id}" data-subs="${s.subtask_count - s.subtask_done}" ${s.status === 'done' ? 'checked' : ''}>
-        <span class="task-title" data-action="open-task" data-id="${s.id}">${esc(s.title)}</span>
-        ${statusChip(s.status)} ${s.priority !== 2 ? prioPill(s.priority) : ''} ${dueChip(s)}</div></li>`).join('')}</ul>
+        <span class="task-title" data-action="open-task" data-id="${s.id}" data-rename title="Click to open · double-click to rename">${esc(s.title)}</span>
+        ${statusChip(s.status)} ${s.priority !== 2 ? prioPill(s.priority) : ''} ${dueChip(s)} ${ownerChip(s)}
+        <span class="row-actions"><button class="icon" data-action="rename-task" title="Rename (or double-click the title)">✎</button></span></div></li>`).join('')}</ul>
       <input type="text" id="modal-add-sub" placeholder="+ Add subtask… (Enter)" autocomplete="off">
     </div>
 
@@ -1762,7 +1766,14 @@ const actions = {
   'quick-note': () => quickNoteDialog(),
   'save-note': () => saveProjectNote(),
   'save-task-note': (el) => saveTaskNote(el.dataset.id),
-  'open-task': (el) => taskModal(el.dataset.id),
+  // In lists a title opens the task on a single click and is renamed on a double click,
+  // so the single click waits a moment to see whether a second one follows.
+  'open-task': (el) => {
+    if (!('rename' in el.dataset)) return taskModal(el.dataset.id);
+    clearTimeout(openTaskTimer);
+    openTaskTimer = setTimeout(() => taskModal(el.dataset.id), 250);
+  },
+  'rename-task': (el) => startRename(el.closest('.task-line').querySelector('[data-rename]')),
   'toggle-task': (el) => setTaskStatus(el.dataset.id, el.checked ? 'done' : 'todo', Number(el.dataset.subs || 0)),
   'toggle-hide-done': (el) => { store.set('hideDone', el.checked); route(); },
   'tasks-view': (el) => { store.set('tasksView', el.dataset.view); route(); },
@@ -1917,6 +1928,104 @@ const actions = {
       <p>Start it again by double-clicking <b>start-hidden.vbs</b> (or <b>start.bat</b>) in the app folder.</p></div>`;
   },
 };
+
+// ---- Task lists: inline rename and reordering ---------------------------------------
+
+let openTaskTimer = null;
+const dragHandle = () => '<span class="drag-handle" draggable="true" tabindex="0" title="Drag to reorder (or focus and use ↑ ↓)">⠿</span>';
+
+// Swaps a task title for a text box: Enter or leaving it saves, Esc cancels.
+function startRename(span) {
+  if (!span || span.querySelector('input')) return;
+  clearTimeout(openTaskTimer);
+  const old = span.textContent;
+  const action = span.dataset.action;
+  delete span.dataset.action; // clicks in the box mustn't open the task
+  span.innerHTML = `<input type="text" class="rename-input" value="${esc(old)}">`;
+  const input = span.querySelector('input');
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    const title = input.value.trim();
+    span.dataset.action = action;
+    span.textContent = save && title ? title : old;
+    if (!save || !title || title === old) return;
+    try {
+      await api.patch(`/tasks/${span.dataset.id}`, { title });
+      toast('Renamed');
+      if (span.closest('#modal')) state.modalDirty = true;
+      else await refresh();
+    } catch (err) { span.textContent = old; toast(err.message, 'error'); }
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+}
+
+document.addEventListener('dblclick', (e) => {
+  const span = e.target.closest('[data-rename]');
+  if (!span || !span.dataset.action) return;
+  e.preventDefault();
+  startRename(span);
+});
+
+// Saves the order of the items in a list after a drag or an arrow-key move.
+async function saveListOrder(ul) {
+  const ids = [...ul.children].filter((li) => li.dataset.id).map((li) => Number(li.dataset.id));
+  try {
+    await api.post('/tasks/reorder', { ids });
+    if (ul.dataset.reloadTask) { state.modalDirty = true; await taskModal(ul.dataset.reloadTask); } else await refresh();
+  } catch (err) { toast(err.message, 'error'); await refresh(); }
+}
+
+let dragRow = null;
+let dragStartOrder = '';
+const listOrder = (ul) => [...ul.children].map((li) => li.dataset.id).join(',');
+document.addEventListener('dragstart', (e) => {
+  const handle = e.target.closest?.('.drag-handle');
+  if (!handle) return;
+  dragRow = handle.closest('li[data-id]');
+  dragStartOrder = listOrder(dragRow.parentElement);
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', dragRow.dataset.id);
+  e.dataTransfer.setDragImage(dragRow, 20, 16);
+  setTimeout(() => dragRow?.classList.add('dragging-row'), 0);
+});
+// Rows move live while dragging, but only among their own siblings.
+document.addEventListener('dragover', (e) => {
+  if (!dragRow) return;
+  const over = e.target.closest?.('li[data-id]');
+  if (!over || over === dragRow || over.parentElement !== dragRow.parentElement) return;
+  e.preventDefault();
+  const box = over.getBoundingClientRect();
+  const after = e.clientY > box.top + Math.min(box.height, 36) / 2;
+  if (after ? over.nextElementSibling !== dragRow : over.previousElementSibling !== dragRow) over[after ? 'after' : 'before'](dragRow);
+});
+document.addEventListener('drop', (e) => { if (dragRow) e.preventDefault(); });
+document.addEventListener('dragend', () => {
+  if (!dragRow) return;
+  const row = dragRow;
+  dragRow = null;
+  row.classList.remove('dragging-row');
+  if (listOrder(row.parentElement) !== dragStartOrder) saveListOrder(row.parentElement);
+});
+document.addEventListener('keydown', (e) => {
+  const handle = e.target.closest?.('.drag-handle');
+  if (!handle || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+  e.preventDefault();
+  const li = handle.closest('li[data-id]');
+  const other = e.key === 'ArrowUp' ? li.previousElementSibling : li.nextElementSibling;
+  if (!other?.dataset.id) return;
+  other[e.key === 'ArrowUp' ? 'before' : 'after'](li);
+  handle.focus();
+  clearTimeout(li.parentElement._saveTimer);
+  li.parentElement._saveTimer = setTimeout(() => saveListOrder(li.parentElement), 600);
+});
 
 async function runAction(el, e) {
   const fn = actions[el.dataset.action];
