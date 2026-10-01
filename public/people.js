@@ -10,15 +10,94 @@ async function ownerOptions(projectId) {
   return api.get(`/owner-options${projectId ? `?project_id=${projectId}` : ''}`);
 }
 
+// ---- Contacts book: one searchable window for picking people ------------------------
+
+// Opens over whatever is showing (even the task window). Resolves to the chosen names
+// (in order: ones already chosen first) or null if cancelled. With multiple: false a
+// click picks one name straight away.
+function contactsBook({ groups = [], selected = [], title = 'Contacts', multiple = true } = {}) {
+  let dlg = $('#contacts-dialog');
+  if (!dlg) {
+    dlg = document.createElement('dialog');
+    dlg.id = 'contacts-dialog';
+    document.body.append(dlg);
+  }
+  const chosen = [...selected];
+  const isChosen = (n) => chosen.some((c) => c.toLowerCase() === n.toLowerCase());
+  const known = new Set(groups.flatMap((g) => g.names.map((n) => n.toLowerCase())));
+  const extra = chosen.filter((n) => !known.has(n.toLowerCase()));
+  const all = [...(extra.length ? [{ label: 'Chosen (not in a list)', names: extra, details: {} }] : []), ...groups];
+  dlg.innerHTML = `<div class="cb-head"><h2 style="margin:0">📇 ${esc(title)}</h2><button class="icon" data-cb="cancel" title="Close">✕</button></div>
+    <input type="search" class="cb-search" placeholder="Search names, roles, departments…" autocomplete="off">
+    <div class="cb-list"></div>
+    <div class="cb-foot row"><span class="small muted cb-count"></span><div class="spacer"></div>
+      <a href="#/contacts" class="small" data-cb="manage">Manage contacts…</a>
+      <button data-cb="cancel">Cancel</button>${multiple ? '<button class="primary" data-cb="done">Done</button>' : ''}</div>`;
+  const search = $('.cb-search', dlg);
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    const hit = (g, n) => !q || n.toLowerCase().includes(q) || String(g.details?.[n] || '').toLowerCase().includes(q);
+    const html = all.map((g) => {
+      const names = g.names.filter((n) => hit(g, n));
+      return names.length ? `<div class="cb-group">${esc(g.label)}</div>${names.map((n) => `<label class="cb-row">
+        ${multiple ? `<input type="checkbox" data-cb-name="${esc(n)}" ${isChosen(n) ? 'checked' : ''}>` : `<button type="button" class="link" data-cb-pick="${esc(n)}">${esc(n)}</button>`}
+        ${multiple ? `<span class="cb-name">${esc(n)}</span>` : ''}<span class="small muted">${esc(g.details?.[n] || '')}</span></label>`).join('')}` : '';
+    }).join('');
+    const typed = search.value.trim();
+    const exact = typed && all.some((g) => g.names.some((n) => n.toLowerCase() === typed.toLowerCase()));
+    $('.cb-list', dlg).innerHTML = html + (typed && !exact ? `<button type="button" class="cb-add" data-cb-new="${esc(typed)}">＋ Use “${esc(typed)}” (not in your contacts)</button>` : '')
+      || '<div class="empty small">No contacts yet — add names on the 📇 Contacts page, or type one above.</div>';
+    $('.cb-count', dlg).textContent = multiple ? `${chosen.length} chosen` : '';
+  };
+  draw();
+  if (!dlg.open) dlg.showModal();
+  search.focus();
+  return new Promise((resolve) => {
+    const close = (result) => { dlg.close(); dlg.onclick = null; resolve(result); };
+    search.oninput = draw;
+    search.onkeydown = (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const first = $('[data-cb-name], [data-cb-pick], [data-cb-new]', dlg);
+      if (first) first.click();
+      search.select();
+    };
+    dlg.oncancel = (e) => { e.preventDefault(); close(null); };
+    dlg.onchange = (e) => {
+      const n = e.target.dataset.cbName;
+      if (n === undefined) return;
+      if (e.target.checked) { if (!isChosen(n)) chosen.push(n); } else chosen.splice(chosen.findIndex((c) => c.toLowerCase() === n.toLowerCase()), 1);
+      $('.cb-count', dlg).textContent = `${chosen.length} chosen`;
+    };
+    dlg.onclick = (e) => {
+      const t = e.target;
+      if (t.closest('[data-cb="cancel"]')) return close(null);
+      if (t.closest('[data-cb="done"]')) return close(chosen);
+      if (t.closest('[data-cb="manage"]')) { close(null); closeModal(); return; }
+      const pick = t.closest('[data-cb-pick]');
+      if (pick) return close([pick.dataset.cbPick]);
+      const add = t.closest('[data-cb-new]');
+      if (add) {
+        if (!multiple) return close([add.dataset.cbNew]);
+        if (!isChosen(add.dataset.cbNew)) chosen.push(add.dataset.cbNew);
+        all.unshift({ label: 'Added now', names: [add.dataset.cbNew], details: {} });
+        search.value = '';
+        draw();
+      }
+    };
+  });
+}
+
 // Chips for the chosen names plus a box that suggests from `groups` ([{ label, names }]).
 // Enter or a comma adds what's typed; Backspace in an empty box removes the last one.
 // onChange(value) gets "Name, Name" (or null) after every change.
-function ownerPicker(root, { value = '', groups = [], placeholder = 'Add owner…', onChange = () => {} } = {}) {
+function ownerPicker(root, { value = '', groups = [], placeholder = 'Add owner…', bookTitle = 'Choose owners', onChange = () => {} } = {}) {
   let owners = splitOwners(value);
   let active = -1;
   root.classList.add('owner-picker');
   root.innerHTML = `<div class="op-box"><span class="op-chips"></span>
-    <input type="text" class="op-input" autocomplete="off" placeholder="${esc(placeholder)}"></div>
+    <input type="text" class="op-input" autocomplete="off" placeholder="${esc(placeholder)}">
+    <button type="button" class="op-book" title="Choose from the contacts book">📇</button></div>
     <div class="op-menu" hidden></div>`;
   const input = $('.op-input', root);
   const menu = $('.op-menu', root);
@@ -33,7 +112,9 @@ function ownerPicker(root, { value = '', groups = [], placeholder = 'Add owner�
     return groups.map((g) => ({ label: g.label, names: g.names.filter((n) => !has(n) && (!q || n.toLowerCase().includes(q))).slice(0, 25) }))
       .filter((g) => g.names.length);
   };
+  // Suggestions appear only while typing; the 📇 button shows everyone.
   const drawMenu = () => {
+    if (!input.value.trim()) { menu.hidden = true; return []; }
     const list = matches();
     const flat = list.flatMap((g) => g.names);
     if (active >= flat.length) active = flat.length - 1;
@@ -41,7 +122,7 @@ function ownerPicker(root, { value = '', groups = [], placeholder = 'Add owner�
     menu.innerHTML = list.map((g) => `<div class="op-group">${esc(g.label)}</div>${g.names.map((n) => {
       i += 1;
       return `<div class="op-option ${i === active ? 'on' : ''}" data-op-add="${esc(n)}">${esc(n)}</div>`;
-    }).join('')}`).join('') || (input.value.trim() ? `<div class="op-hint">Press Enter to add “${esc(input.value.trim())}”</div>` : '<div class="op-hint">Type a name</div>');
+    }).join('')}`).join('') || `<div class="op-hint">Press Enter to add “${esc(input.value.trim())}”</div>`;
     menu.hidden = false;
     return flat;
   };
@@ -53,15 +134,19 @@ function ownerPicker(root, { value = '', groups = [], placeholder = 'Add owner�
     drawMenu();
     emit();
   };
-  root.addEventListener('mousedown', (e) => { if (e.target.closest('[data-op-add], [data-op-remove]')) e.preventDefault(); });
-  root.addEventListener('click', (e) => {
+  root.addEventListener('mousedown', (e) => { if (e.target.closest('[data-op-add], [data-op-remove], .op-book')) e.preventDefault(); });
+  root.addEventListener('click', async (e) => {
     const pick = e.target.closest('[data-op-add]');
     const rm = e.target.closest('[data-op-remove]');
+    if (e.target.closest('.op-book')) {
+      const chosen = await contactsBook({ groups, selected: owners, title: bookTitle });
+      if (chosen) { owners = chosen; drawChips(); emit(); }
+      return;
+    }
     if (pick) add(pick.dataset.opAdd);
     else if (rm) { owners.splice(Number(rm.dataset.opRemove), 1); drawChips(); emit(); input.focus(); }
     else input.focus();
   });
-  input.addEventListener('focus', drawMenu);
   input.addEventListener('input', () => {
     if (/[,;]/.test(input.value)) { add(input.value); return; }
     active = input.value.trim() ? 0 : -1;
@@ -105,8 +190,8 @@ function ownerPicker(root, { value = '', groups = [], placeholder = 'Add owner�
 async function renderPeopleSettings(root) {
   const lists = await api.get('/name-lists');
   root.innerHTML = `<div class="card people-card">
-    <h2>👥 People &amp; departments</h2>
-    <p class="small muted">Lists of names offered when you choose a task's <b>owners</b> or a meeting's <b>attendees</b>, after the project's team.
+    <h2>Lists</h2>
+    <p class="small muted">Names offered in the 📇 contacts book when you choose a task's <b>owners</b>, a meeting's <b>attendees</b> or a project's team, after the project's own team.
       Make as many lists as you like (e.g. <i>People</i>, <i>Departments</i>, <i>Suppliers</i>). Untick <b>Active</b> to stop offering a name
       without touching tasks that already use it. Tasks can still have names that aren't in any list.</p>
     <div class="people-lists">${lists.map((l) => `<div class="people-list" data-list="${l.id}">
@@ -129,6 +214,7 @@ async function renderPeopleSettings(root) {
     <div class="row" style="margin-top:12px"><input type="text" id="pl-new-list" placeholder="New list, e.g. Suppliers… (Enter)" autocomplete="off" style="max-width:320px">
       <button data-pl-new-list>Add list</button></div>
   </div>`;
+  root.dispatchEvent(new Event('contacts-redrawn'));
   const reload = () => renderPeopleSettings(root);
   const run = async (fn, msg) => { try { const r = await fn(); if (msg) toast(typeof msg === 'function' ? msg(r) : msg); } catch (err) { toast(err.message, 'error'); } await reload(); };
 
@@ -173,4 +259,46 @@ async function renderPeopleSettings(root) {
     if (name) run(() => api.post('/name-lists', { name }), `List “${name}” added`);
   };
   $('#pl-new-list', root).addEventListener('keydown', (e) => { if (e.key === 'Enter') addList(); });
+}
+
+// ---- 📇 Contacts page: the name lists, plus everyone on a project team -----------------
+
+async function renderContacts() {
+  main().innerHTML = `<div class="kanban-tools"><h1 style="margin:0">📇 Contacts</h1>
+      <span class="muted small">People and departments offered when choosing owners, attendees and team members</span>
+      <div class="spacer"></div>
+      <input type="search" id="contacts-search" placeholder="Search contacts…" autocomplete="off" style="max-width:260px"></div>
+    <div id="contacts-lists"></div>
+    <div id="contacts-teams" style="margin-top:16px"></div>`;
+  const teams = await api.get('/contacts/teams');
+  $('#contacts-teams').innerHTML = `<div class="card"><h2>On project teams <span class="muted small">${teams.length}</span></h2>
+    <p class="small muted">From each project's 👥 team (edit them on the project). Not in a list above yet? Use ＋ to add them.</p>
+    ${teams.length ? `<table class="log"><thead><tr><th>Name</th><th>Role</th><th>Contact</th><th>Projects</th><th></th></tr></thead><tbody>
+      ${teams.map((t) => `<tr data-search="${esc([t.name, ...t.roles, t.contact, ...t.projects.map((x) => x.name)].join(' ').toLowerCase())}">
+        <td><b>${esc(t.name)}</b></td><td>${esc(t.roles.join(', '))}</td><td>${contactLink(t.contact)}</td>
+        <td>${t.projects.map((x) => `<a href="#/project/${x.id}">${esc(x.name)}</a>`).join(', ')}</td>
+        <td><button class="link small" data-team-add="${esc(t.name)}" data-detail="${esc(t.roles.join(', '))}" title="Add to a contacts list">＋ List</button></td></tr>`).join('')}
+      </tbody></table>` : '<div class="empty small">No team members yet.</div>'}</div>`;
+  await renderPeopleSettings($('#contacts-lists'));
+  const filter = () => {
+    const q = $('#contacts-search').value.trim().toLowerCase();
+    $$('#contacts-lists tr[data-item]').forEach((tr) => {
+      tr.hidden = !!q && ![...tr.querySelectorAll('input[type=text]')].some((i) => i.value.toLowerCase().includes(q));
+    });
+    $$('#contacts-teams tr[data-search]').forEach((tr) => { tr.hidden = !!q && !tr.dataset.search.includes(q); });
+  };
+  $('#contacts-search').addEventListener('input', filter);
+  $('#contacts-lists').addEventListener('contacts-redrawn', filter);
+  $('#contacts-teams').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-team-add]');
+    if (!b) return;
+    const lists = await api.get('/name-lists');
+    if (!lists.length) { toast('Make a list first (e.g. People)', 'error'); return; }
+    const target = lists.length === 1 ? lists[0] : lists.find((l) => l.name.toLowerCase() === 'people') || lists[0];
+    try {
+      await api.post(`/name-lists/${target.id}/items`, { name: b.dataset.teamAdd, detail: b.dataset.detail });
+      toast(`${b.dataset.teamAdd} added to ${target.name}`);
+    } catch (err) { toast(err.message, 'error'); }
+    await renderPeopleSettings($('#contacts-lists'));
+  });
 }

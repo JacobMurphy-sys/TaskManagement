@@ -6,6 +6,10 @@
   <title>CI Manager</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%232f6fdb'/><path d='M4 8.5l2.5 2.5L12 5' stroke='white' stroke-width='2' fill='none'/></svg>">
   <link rel="stylesheet" href="styles.css">
+  <script>
+    // Apply a chosen light/dark theme before the page draws (no flash).
+    try { const t = JSON.parse(localStorage.getItem('theme')); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) { /* storage unavailable */ }
+  </script>
 </head>
 <body>
   <aside id="sidebar">
@@ -19,6 +23,7 @@
       <a href="#/report" data-nav="report">📰 Report</a>
       <a href="#/log" data-nav="log">🕘 Activity log</a>
       <a href="#/backups" data-nav="backups">💾 Backups</a>
+      <a href="#/contacts" data-nav="contacts">📇 Contacts</a>
       <a href="#/settings" data-nav="settings">⚙ Settings</a>
     </nav>
     <div class="side-head">
@@ -35,6 +40,8 @@
       <button class="menu-toggle" data-action="toggle-sidebar" aria-label="Menu">☰</button>
       <div id="clock" class="muted"></div>
       <div class="spacer"></div>
+      <button id="theme-toggle" class="theme-switch" role="switch" aria-checked="false" data-action="toggle-theme" title="Dark mode on/off">
+        <span class="track"><span class="knob">☀</span></span><span class="lbl">Dark</span></button>
       <button data-action="quick-note" title="Quick note (N)">📝<span class="lbl"> Quick note</span></button>
       <button id="notify-btn" data-action="enable-notifications" hidden>🔔<span class="lbl"> Enable desktop alerts</span></button>
       <a id="bell" href="#/dashboard" title="Due / overdue tasks">🔔 <span id="bell-count" class="count" hidden>0</span></a>

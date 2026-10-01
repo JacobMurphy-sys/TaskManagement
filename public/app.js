@@ -251,6 +251,7 @@ async function route() {
     else if (view === 'report') await renderReport(rest[0]);
     else if (view === 'log') await renderLog();
     else if (view === 'backups') await renderBackups();
+    else if (view === 'contacts') await renderContacts();
     else if (view === 'search') await renderSearch(decodeURIComponent(rest.join('/')));
     else { state.view = 'dashboard'; renderSidebar(); await renderDashboard(); }
   } catch (err) {
@@ -525,7 +526,8 @@ function memberDialog(p, m, presetName = '') {
   openModal(`
     <div class="modal-head"><h2 style="margin:0">👥 ${m ? 'Team member' : 'Add to the team'} — ${esc(p.name)}</h2><button class="icon" data-action="close-modal">✕</button></div>
     <form id="member-form" class="form-grid">
-      <label class="f">Name<input type="text" name="name" required list="member-people" autocomplete="off" value="${esc(m?.name || presetName)}"></label>
+      <label class="f">Name<span class="row" style="flex-wrap:nowrap;gap:4px"><input type="text" name="name" required list="member-people" autocomplete="off" value="${esc(m?.name || presetName)}" style="flex:1">
+        <button type="button" id="member-book" title="Choose from the contacts book">📇</button></span></label>
       <label class="f">Role<input type="text" name="role" value="${esc(m?.role || '')}" placeholder="e.g. Quality engineer"></label>
       <label class="f">Capacity<input type="text" name="capacity" value="${esc(m?.capacity || '')}" placeholder="e.g. 20% / 1 day a week"></label>
       <label class="f">Contact<input type="text" name="contact" value="${esc(m?.contact || '')}" placeholder="email, phone or extension"></label>
@@ -537,6 +539,15 @@ function memberDialog(p, m, presetName = '') {
     </form>`);
   const form = $('#member-form');
   form.querySelector(presetName ? '[name=role]' : '[name=name]').focus();
+  $('#member-book').addEventListener('click', async () => {
+    const groups = (await ownerOptions(null)).filter((g) => g.label !== 'Project team');
+    const pick = await contactsBook({ groups, title: 'Add someone from your contacts', multiple: false });
+    if (!pick) return;
+    form.querySelector('[name=name]').value = pick[0];
+    const detail = groups.map((g) => g.details?.[pick[0]]).find(Boolean);
+    if (detail && !form.querySelector('[name=role]').value) form.querySelector('[name=role]').value = detail;
+    form.querySelector('[name=role]').focus();
+  });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(form));
@@ -1272,6 +1283,9 @@ async function renderSettings() {
       </div>
       <div class="card">
         <h2>General</h2>
+        <label class="f">Appearance
+          <select id="theme-choice" style="max-width:220px">${options({ auto: 'Automatic (follow Windows)', light: '☀ Light', dark: '🌙 Dark' }, store.get('theme', 'auto'))}</select></label>
+        <p class="small muted">People and departments for owners and attendees are on the <a href="#/contacts">📇 Contacts</a> page.</p>
         <label class="f">Currency symbol for idea costs
           <input type="text" id="currency" value="${esc(settings.currency)}" maxlength="5" style="max-width:120px"></label>
       </div>
@@ -1286,16 +1300,14 @@ async function renderSettings() {
   $('#new-area').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') actions['add-area']().catch((err) => toast(err.message, 'error'));
   });
+  $('#theme-choice').addEventListener('change', (e) => setTheme(e.target.value));
   $('#currency').addEventListener('change', async (e) => {
     state.settings = await api.patch('/settings', { currency: e.target.value || '£' });
     toast('Currency saved');
   });
-  const people = document.createElement('div');
-  people.style.marginTop = '16px';
-  main().append(people);
   const extra = document.createElement('div');
   main().append(extra);
-  await Promise.all([renderPeopleSettings(people), renderCharterSettings(extra)]);
+  await renderCharterSettings(extra);
 }
 
 // ======================================================================
@@ -1766,6 +1778,10 @@ const actions = {
   'new-project': () => projectForm(),
   'edit-project': () => projectForm(state.project),
   'add-phase': () => phaseDialog(state.project, null),
+  'toggle-theme': () => {
+    setTheme(effectiveTheme() === 'dark' ? 'light' : 'dark');
+    if ($('#theme-choice')) $('#theme-choice').value = store.get('theme');
+  },
   'new-meeting': (el) => newMeetingDialog({ projectId: Number(el.dataset.project) || null, taskId: Number(el.dataset.task) || null }),
   'open-meeting': (el) => meetingEditor(el.dataset.id, { returnTask: Number(el.dataset.returnTask) || null }),
   'toggle-all-meetings': (el) => { store.set(`allMeetings:${el.dataset.id}`, !store.get(`allMeetings:${el.dataset.id}`, false)); refresh(); },
@@ -1939,6 +1955,31 @@ const actions = {
       <p>Start it again by double-clicking <b>start-hidden.vbs</b> (or <b>start.bat</b>) in the app folder.</p></div>`;
   },
 };
+
+// ---- Light / dark ------------------------------------------------------------------
+
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+const effectiveTheme = () => {
+  const t = store.get('theme', 'auto');
+  return t === 'auto' ? (darkQuery.matches ? 'dark' : 'light') : t;
+};
+function drawThemeSwitch() {
+  const dark = effectiveTheme() === 'dark';
+  const sw = $('#theme-toggle');
+  if (!sw) return;
+  sw.setAttribute('aria-checked', String(dark));
+  $('.knob', sw).textContent = dark ? '🌙' : '☀';
+  sw.title = `${dark ? 'Dark' : 'Light'} mode${store.get('theme', 'auto') === 'auto' ? ' (following Windows)' : ''} — click to switch`;
+}
+// 'auto' follows Windows; 'light' / 'dark' are fixed choices.
+function setTheme(choice) {
+  store.set('theme', choice);
+  if (choice === 'auto') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = choice;
+  drawThemeSwitch();
+}
+darkQuery.addEventListener?.('change', drawThemeSwitch);
+drawThemeSwitch();
 
 // ---- Task lists: inline rename and reordering ---------------------------------------
 

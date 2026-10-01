@@ -465,19 +465,43 @@ const recentOwners = () => dedupeNames(db.all(`SELECT owner FROM tasks WHERE own
 
 // Everything the owner / attendee pickers offer, in groups: the project's team, each
 // list from Settings → People & departments, then other names used before.
+// Each group: { label, names, details: { name: 'role / department / email' } }.
 router.get('/owner-options', h((req, res) => {
   const groups = [];
+  const group = (label, people) => {
+    const seen = new Set();
+    const list = people.filter((x) => x.name && !seen.has(x.name.toLowerCase()) && seen.add(x.name.toLowerCase()));
+    groups.push({ label, names: list.map((x) => x.name), details: Object.fromEntries(list.filter((x) => x.detail).map((x) => [x.name, x.detail])) });
+  };
   if (req.query.project_id) {
     const p = db.get('SELECT leader, sponsor FROM projects WHERE id = ?', [req.query.project_id]);
-    const team = db.all('SELECT name FROM project_team WHERE project_id = ? ORDER BY sort_order, id', [req.query.project_id]).map((r) => r.name);
-    groups.push({ label: 'Project team', names: dedupeNames([p?.leader, ...team, p?.sponsor]) });
+    const team = db.all('SELECT name, role, contact FROM project_team WHERE project_id = ? ORDER BY sort_order, id', [req.query.project_id]);
+    group('Project team', [{ name: p?.leader, detail: 'Project leader' },
+      ...team.map((m) => ({ name: m.name, detail: [m.role, m.contact].filter(Boolean).join(' · ') })), { name: p?.sponsor, detail: 'Management sponsor' }]);
   }
   for (const l of db.all('SELECT * FROM name_lists ORDER BY sort_order, name')) {
-    groups.push({ label: l.name, names: db.all('SELECT name FROM name_list_items WHERE list_id = ? AND active = 1 ORDER BY sort_order, name', [l.id]).map((r) => r.name) });
+    group(l.name, db.all('SELECT name, detail FROM name_list_items WHERE list_id = ? AND active = 1 ORDER BY sort_order, name', [l.id]));
   }
   const listed = new Set(groups.flatMap((g) => g.names.map((n) => n.toLowerCase())));
-  groups.push({ label: 'Used before', names: recentOwners().filter((n) => !listed.has(n.toLowerCase())) });
+  group('Used before', recentOwners().filter((n) => !listed.has(n.toLowerCase())).map((name) => ({ name })));
   res.json(groups.filter((g) => g.names.length));
+}));
+
+// Everyone on a project team, with the projects they're on (for the Contacts page).
+router.get('/contacts/teams', h((req, res) => {
+  const rows = db.all(`SELECT m.name, m.role, m.contact, p.id AS project_id, p.name AS project_name, p.status
+    FROM project_team m JOIN projects p ON p.id = m.project_id WHERE p.status <> 'archived'
+    ORDER BY m.name COLLATE NOCASE, p.name COLLATE NOCASE`);
+  const people = new Map();
+  for (const r of rows) {
+    const key = r.name.trim().toLowerCase();
+    const person = people.get(key) || { name: r.name.trim(), roles: [], contact: null, projects: [] };
+    if (r.role && !person.roles.includes(r.role)) person.roles.push(r.role);
+    person.contact = person.contact || r.contact;
+    person.projects.push({ id: r.project_id, name: r.project_name, status: r.status });
+    people.set(key, person);
+  }
+  res.json([...people.values()]);
 }));
 
 // ---- Settings → People & departments ------------------------------------------------

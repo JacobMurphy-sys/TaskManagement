@@ -371,7 +371,10 @@ async function waitForServer() {
     assert.deepEqual(dl.items.map((i) => i.name), ['Maintenance', 'Quality', 'Logistics Stores']);
     assert.equal(dl.items[0].open_tasks, 1, 'open tasks counted for a name among several owners');
     const opts = await call('GET', `/owner-options?project_id=${ownP.id}`);
-    assert.deepEqual(opts[0], { label: 'Project team', names: ['Sam Patel', 'J. Smith'] });
+    assert.deepEqual([opts[0].label, opts[0].names], ['Project team', ['Sam Patel', 'J. Smith']]);
+    assert.equal(opts[0].details['J. Smith'], 'Management sponsor', 'details shown in the contacts book');
+    const teamsBook = await call('GET', '/contacts/teams');
+    assert.ok(teamsBook.some((x) => x.name === 'Sam Patel' && x.projects.some((pr) => pr.id === ownP.id)), 'who is on which project team');
     assert.ok(opts.some((g) => g.label === 'Departments' && g.names.includes('Quality')), 'lists offered as owners');
     assert.ok(!opts.some((g) => g.label === 'People'), 'empty lists left out');
     assert.ok(!(opts.find((g) => g.label === 'Used before')?.names || []).some((n) => /maintenance|sam patel/i.test(n)), 'no repeats in Used before');

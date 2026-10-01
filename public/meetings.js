@@ -105,7 +105,6 @@ function newMeetingDialog({ projectId, taskId }) {
 async function meetingEditor(id, opts = {}) {
   const m = await api.get(`/meetings/${id}`);
   const groups = await ownerOptions(m.project_id);
-  const team = [...new Set(groups.flatMap((g) => g.names))];
   const where = [m.project_name && `<a href="#/project/${m.project_id}" data-action="close-modal-go">${esc(m.project_name)}</a>`,
     m.task_title && `<a href="#" data-action="open-task" data-id="${m.task_id}">re: ${esc(m.task_title)}</a>`].filter(Boolean).join(' · ');
   const actionRow = (a) => `<tr class="${a.status === 'done' ? 'done' : ''}">
@@ -123,8 +122,7 @@ async function meetingEditor(id, opts = {}) {
       <label class="f full">Title<input type="text" name="title" value="${esc(m.title)}"></label>
       <label class="f">Date &amp; time<input type="datetime-local" name="held_at" value="${toLocalInput(m.held_at)}"></label>
       <label class="f">Location<input type="text" name="location" value="${esc(m.location || '')}" placeholder="Room, Teams…"></label>
-      <label class="f full">Attendees<input type="text" name="attendees" value="${esc(m.attendees || '')}" placeholder="Names, separated by commas" autocomplete="off"></label>
-      <div class="full small" id="mt-people"></div>
+      <div class="f full"><span>Attendees</span><div id="mt-attendees"></div></div>
     </div>
     <div class="section">
       <h3>Notes</h3>
@@ -162,26 +160,12 @@ async function meetingEditor(id, opts = {}) {
     if (el.name === 'title' && !el.value.trim()) { el.value = m.title; return; }
     save({ [el.name]: el.name === 'held_at' ? fromLocalInput(el.value) : el.value });
   }));
-  // One-click attendees: the project team, the People & departments lists, then names used before.
-  const attendeesInput = $('#meeting-form [name=attendees]');
-  const listed = () => attendeesInput.value.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
-  const drawPeople = () => {
-    const left = team.filter((n) => !listed().includes(n.toLowerCase())).slice(0, 12);
-    $('#mt-people').innerHTML = left.length ? `<span class="muted">Add:</span> ${left.map((n) =>
-      `<button type="button" class="link small" data-person="${esc(n)}">＋ ${esc(n)}</button>`).join(' ')}` : '';
-  };
-  drawPeople();
-  attendeesInput.addEventListener('input', drawPeople);
-  $('#mt-people').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-person]');
-    if (!b) return;
-    attendeesInput.value = [attendeesInput.value.trim().replace(/,$/, ''), b.dataset.person].filter(Boolean).join(', ');
-    drawPeople();
-    save({ attendees: attendeesInput.value });
-  });
+  // Attendees: type to search, or 📇 for the contacts book (project team, lists, names used before).
+  ownerPicker($('#mt-attendees'), { value: m.attendees, groups, placeholder: 'Add attendee…', bookTitle: 'Choose attendees',
+    onChange: (attendees) => save({ attendees: attendees || '' }) });
   const editor = richEditor($('#mt-notes'), m.notes, (html) => save({ notes: html }));
 
-  const ownersBox = ownerPicker($('#mt-owner'), { groups, placeholder: 'Owners' });
+  const ownersBox = ownerPicker($('#mt-owner'), { groups, placeholder: 'Owners', bookTitle: 'Who owns this action?' });
   const addAction = async () => {
     const title = $('#mt-action').value.trim();
     if (!title) { $('#mt-action').focus(); return; }
