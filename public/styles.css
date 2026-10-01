@@ -511,3 +511,28 @@ label.button { cursor: pointer; }
 .rename-input { font: inherit; padding: 2px 6px; min-width: 260px; width: 100%; }
 .task-title:has(.rename-input) { flex: 1; }
 @media (hover: none) { .drag-handle { opacity: 1; } }
+
+/* ---- owner picker and People & departments */
+.owner-picker { position: relative; }
+.op-box { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-height: 34px; padding: 3px 6px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--panel); cursor: text; }
+.op-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.op-chips { display: contents; }
+.op-chip { display: inline-flex; align-items: center; gap: 2px; background: var(--accent-soft); color: var(--text); border-radius: 12px;
+  padding: 1px 4px 1px 8px; font-size: 13px; white-space: nowrap; }
+.op-chip button { border: 0; background: none; padding: 0 3px; font-size: 11px; color: var(--muted); cursor: pointer; min-width: 0; }
+.op-chip button:hover { color: var(--danger); }
+.op-input { flex: 1; min-width: 110px; border: 0 !important; box-shadow: none !important; padding: 4px 2px !important; background: transparent; outline: none; }
+.op-menu { position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 2px); max-height: 260px; overflow-y: auto; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.15); padding: 4px 0; }
+.op-group { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 6px 10px 2px; }
+.op-option { padding: 5px 14px; cursor: pointer; }
+.op-option:hover, .op-option.on { background: var(--accent-soft); }
+.op-hint { padding: 6px 10px; color: var(--muted); font-size: 13px; }
+.people-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; }
+.people-list { border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+.people-list .pl-name { font-weight: 600; max-width: 220px; }
+.people-list td input[type=text] { width: 100%; }
+.pl-add { margin-top: 8px; flex-wrap: nowrap; }
+.pl-bulk { margin-top: 6px; }
+.pl-bulk textarea { width: 100%; margin-bottom: 4px; }

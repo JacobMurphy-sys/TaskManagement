@@ -59,6 +59,17 @@ function parseMoney(v, label) {
 const MONEY_FIELDS = { cost: 'Cost', budget: 'Budget', amount: 'Amount' };
 const DATE_FIELDS = { start_date: 'start date', spent_on: 'date' };
 
+// A task can have several owners, stored as one "Sam Patel, Maintenance" string so
+// every list, export and report shows them as they are. Split on commas/semicolons.
+const splitOwners = (v) => String(v ?? '').split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
+function normOwners(v) {
+  const seen = new Set();
+  const list = (Array.isArray(v) ? v.flatMap(splitOwners) : splitOwners(v))
+    .filter((n) => !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase()));
+  return list.length ? list.join(', ') : null;
+}
+const ownsTask = (owner, name) => splitOwners(owner).some((o) => o.toLowerCase() === String(name).trim().toLowerCase());
+
 // Picks only allowed keys from a body, turning '' into null and normalising values.
 function pick(body, keys) {
   const out = {};
@@ -76,7 +87,8 @@ function pick(body, keys) {
       if (!Number.isInteger(v) || v < 1 || v > 5) throw new HttpError(400, `${k} must be 1 to 5`);
     }
     if (k === 'recurrence' && v !== null && !RECURRENCES.includes(v)) throw new HttpError(400, 'Invalid repeat setting');
-    if (k === 'waiting_on' || k === 'owner') v = v === null ? null : (String(v).trim() || null);
+    if (k === 'waiting_on') v = v === null ? null : (String(v).trim() || null);
+    if (k === 'owner') v = normOwners(v);
     out[k] = v;
   }
   return out;
@@ -440,9 +452,118 @@ function moveTask(taskId, projectId) {
 router.get('/tasks/owner-names', h((req, res) => {
   const team = req.query.project_id
     ? db.all('SELECT name FROM project_team WHERE project_id = ? ORDER BY sort_order, id', [req.query.project_id]).map((r) => r.name) : [];
-  const others = db.all(`SELECT owner AS name, max(updated_at) AS last FROM tasks WHERE owner IS NOT NULL
-    GROUP BY owner COLLATE NOCASE ORDER BY last DESC LIMIT 50`).map((r) => r.name);
-  res.json([...new Set([...team, ...others])]);
+  res.json(dedupeNames([...team, ...recentOwners()]));
+}));
+
+const dedupeNames = (names) => {
+  const seen = new Set();
+  return names.filter((n) => n && !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase()));
+};
+// Individual names from recent tasks' owner lists, most recent first.
+const recentOwners = () => dedupeNames(db.all(`SELECT owner FROM tasks WHERE owner IS NOT NULL
+  ORDER BY updated_at DESC LIMIT 400`).flatMap((r) => splitOwners(r.owner))).slice(0, 60);
+
+// Everything the owner / attendee pickers offer, in groups: the project's team, each
+// list from Settings → People & departments, then other names used before.
+router.get('/owner-options', h((req, res) => {
+  const groups = [];
+  if (req.query.project_id) {
+    const p = db.get('SELECT leader, sponsor FROM projects WHERE id = ?', [req.query.project_id]);
+    const team = db.all('SELECT name FROM project_team WHERE project_id = ? ORDER BY sort_order, id', [req.query.project_id]).map((r) => r.name);
+    groups.push({ label: 'Project team', names: dedupeNames([p?.leader, ...team, p?.sponsor]) });
+  }
+  for (const l of db.all('SELECT * FROM name_lists ORDER BY sort_order, name')) {
+    groups.push({ label: l.name, names: db.all('SELECT name FROM name_list_items WHERE list_id = ? AND active = 1 ORDER BY sort_order, name', [l.id]).map((r) => r.name) });
+  }
+  const listed = new Set(groups.flatMap((g) => g.names.map((n) => n.toLowerCase())));
+  groups.push({ label: 'Used before', names: recentOwners().filter((n) => !listed.has(n.toLowerCase())) });
+  res.json(groups.filter((g) => g.names.length));
+}));
+
+// ---- Settings → People & departments ------------------------------------------------
+
+router.get('/name-lists', h((req, res) => {
+  const lists = db.all('SELECT * FROM name_lists ORDER BY sort_order, name');
+  // How many open tasks name each entry as an owner (so it's clear what a rename/removal touches).
+  const owners = db.all("SELECT owner FROM tasks WHERE owner IS NOT NULL AND status <> 'done'").map((r) => r.owner);
+  res.json(lists.map((l) => ({ ...l, items: db.all('SELECT * FROM name_list_items WHERE list_id = ? ORDER BY sort_order, name', [l.id])
+    .map((i) => ({ ...i, active: !!i.active, open_tasks: owners.filter((o) => ownsTask(o, i.name)).length })) })));
+}));
+
+router.post('/name-lists', h((req, res) => {
+  const name = String(req.body.name || '').trim();
+  if (!name) throw new HttpError(400, 'List name is required');
+  if (db.get('SELECT 1 FROM name_lists WHERE name = ?', [name])) throw new HttpError(400, `There's already a list called "${name}"`);
+  const sort = db.get('SELECT coalesce(max(sort_order), -1) + 1 AS n FROM name_lists').n;
+  res.status(201).json(insertRow('name_lists', { name, sort_order: sort }));
+}));
+
+router.patch('/name-lists/:id', h((req, res) => {
+  const f = {};
+  if ('name' in req.body) {
+    f.name = String(req.body.name || '').trim();
+    if (!f.name) throw new HttpError(400, 'List name is required');
+    if (db.get('SELECT 1 FROM name_lists WHERE name = ? AND id <> ?', [f.name, req.params.id])) throw new HttpError(400, `There's already a list called "${f.name}"`);
+  }
+  if ('sort_order' in req.body) f.sort_order = Number(req.body.sort_order) || 0;
+  const row = fresh('name_lists', updateRow('name_lists', req.params.id, f));
+  if (!row) throw notFound('List');
+  res.json(row);
+}));
+
+router.delete('/name-lists/:id', h((req, res) => {
+  if (!db.run('DELETE FROM name_lists WHERE id = ?', [req.params.id]).changes) throw notFound('List');
+  res.status(204).end();
+}));
+
+// Add one entry ({ name, detail }) or several at once ({ names: "one per line" }).
+router.post('/name-lists/:id/items', h((req, res) => {
+  if (!db.get('SELECT 1 FROM name_lists WHERE id = ?', [req.params.id])) throw notFound('List');
+  const names = req.body.names !== undefined ? String(req.body.names).split(/\r?\n/) : [req.body.name];
+  const wanted = dedupeNames(names.map((n) => String(n ?? '').replace(/[,;]/g, ' ').replace(/\s+/g, ' ').trim()));
+  if (!wanted.length) throw new HttpError(400, 'Name is required');
+  const added = db.tx(() => {
+    let sort = db.get('SELECT coalesce(max(sort_order), -1) + 1 AS n FROM name_list_items WHERE list_id = ?', [req.params.id]).n;
+    return wanted.filter((name) => !db.get('SELECT 1 FROM name_list_items WHERE list_id = ? AND name = ?', [req.params.id, name]))
+      .map((name) => insertRow('name_list_items', { list_id: Number(req.params.id), name,
+        detail: wanted.length === 1 ? (String(req.body.detail || '').trim() || null) : null, sort_order: sort++ }));
+  });
+  if (!added.length) throw new HttpError(400, wanted.length === 1 ? `"${wanted[0]}" is already in this list` : 'Those names are all in the list already');
+  res.status(201).json({ added: added.length, skipped: wanted.length - added.length });
+}));
+
+// Renaming an entry can also rename it on open tasks that list it as an owner.
+router.patch('/name-list-items/:id', h((req, res) => {
+  const item = db.get('SELECT * FROM name_list_items WHERE id = ?', [req.params.id]);
+  if (!item) throw notFound('Entry');
+  const f = {};
+  if ('name' in req.body) {
+    f.name = String(req.body.name || '').replace(/[,;]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!f.name) throw new HttpError(400, 'Name is required');
+    if (db.get('SELECT 1 FROM name_list_items WHERE list_id = ? AND name = ? AND id <> ?', [item.list_id, f.name, item.id])) {
+      throw new HttpError(400, `"${f.name}" is already in this list`);
+    }
+  }
+  if ('detail' in req.body) f.detail = String(req.body.detail || '').trim() || null;
+  if ('active' in req.body) f.active = req.body.active ? 1 : 0;
+  let renamed = 0;
+  db.tx(() => {
+    updateRow('name_list_items', item.id, f);
+    if (f.name && f.name !== item.name && req.body.rename_tasks) {
+      for (const t of db.all("SELECT id, owner FROM tasks WHERE owner IS NOT NULL AND status <> 'done'")) {
+        if (!ownsTask(t.owner, item.name)) continue;
+        const owner = normOwners(splitOwners(t.owner).map((o) => (o.toLowerCase() === item.name.toLowerCase() ? f.name : o)));
+        db.run('UPDATE tasks SET owner = ? WHERE id = ?', [owner, t.id]);
+        renamed++;
+      }
+    }
+  });
+  res.json({ ...fresh('name_list_items', item), renamed_tasks: renamed });
+}));
+
+router.delete('/name-list-items/:id', h((req, res) => {
+  if (!db.run('DELETE FROM name_list_items WHERE id = ?', [req.params.id]).changes) throw notFound('Entry');
+  res.status(204).end();
 }));
 
 router.get('/tasks/waiting-names', h((req, res) => {
@@ -1322,12 +1443,14 @@ function exportSheets(scope, id) {
     const phases = projects.flatMap((p) => projectPhases(p.id).map((ph, i) => [p.name, i + 1, ph.name, label(STATUS_LABEL, ph.status),
       ph.start_date, ph.due_at, ph.baseline_due_at, ph.task_count, ph.done_count, ph.overdue_count, ph.completed_at, ph.description]));
     if (phases.length) sheets.push({ name: 'Phases', columns: XL.phases, rows: phases });
-    const ownedBy = `t.project_id = m.project_id AND t.status <> 'done' AND lower(trim(t.owner)) = lower(trim(m.name))`;
-    const team = projects.flatMap((p) => db.all(`SELECT m.*,
-        (SELECT count(*) FROM tasks t WHERE ${ownedBy}) AS open_count,
-        (SELECT count(*) FROM tasks t WHERE ${ownedBy} AND t.due_at < ?) AS overdue_count
-      FROM project_team m WHERE m.project_id = ? ORDER BY m.sort_order, m.id`, [nowIso(), p.id])
-      .map((m) => [p.name, m.name, m.role, m.capacity, m.contact, m.open_count, m.overdue_count]));
+    const now = nowIso();
+    const team = projects.flatMap((p) => {
+      const open = db.all("SELECT owner, due_at FROM tasks WHERE project_id = ? AND status <> 'done' AND owner IS NOT NULL", [p.id]);
+      return db.all('SELECT * FROM project_team WHERE project_id = ? ORDER BY sort_order, id', [p.id]).map((m) => {
+        const mine = open.filter((t) => ownsTask(t.owner, m.name));
+        return [p.name, m.name, m.role, m.capacity, m.contact, mine.length, mine.filter((t) => t.due_at && t.due_at < now).length];
+      });
+    });
     if (team.length) sheets.push({ name: 'Team', columns: XL.team, rows: team });
     const meetings = scope === 'project' ? meetingList('m.project_id = ?', [id], 'm.held_at')
       : meetingList('1', [], 'm.held_at');

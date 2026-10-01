@@ -177,7 +177,7 @@ function waitingChip(t) {
   const d = t.waiting_since ? daysSince(t.waiting_since) : null;
   return `<span class="chip waiting" title="Waiting on ${esc(t.waiting_on)}${t.waiting_since ? ` since ${esc(fmtDate(t.waiting_since))}` : ''}">⏳ ${esc(t.waiting_on)}${d !== null ? ` · ${d}d` : ''}</span>`;
 }
-const ownerChip = (t) => (t.owner ? `<span class="small muted" title="Owner">👤 ${esc(t.owner)}</span>` : '');
+const ownerChip = (t) => (t.owner ? `<span class="small muted" title="Owner${t.owner.includes(',') ? 's' : ''}">👤 ${esc(t.owner)}</span>` : '');
 const repeatChip = (t) => (t.recurrence ? `<span class="small muted" title="Repeats: ${REPEAT[t.recurrence]}">🔁</span>` : '');
 const SHORTCUTS_HELP = 'Shortcuts: <code>!high</code> <code>!crit</code> · <code>@today</code> <code>@fri</code> <code>@2026-10-31</code> · <code>*weekly</code> <code>*monthly</code>';
 
@@ -492,14 +492,14 @@ const contactLink = (c) => (!c ? '' : /^[^\s@]+@[^\s@]+$/.test(c.trim())
 function teamCard(p) {
   const open = p.tasks.filter((t) => t.status !== 'done');
   const load = (name) => {
-    const mine = open.filter((t) => sameName(t.owner, name));
+    const mine = open.filter((t) => ownsTask(t.owner, name));
     const late = mine.filter((t) => t.due_at && dayDiff(t.due_at) < 0).length;
     if (!mine.length) return '<span class="small muted">no open tasks</span>';
     return `<span class="small" title="${esc(mine.map((t) => t.title).join('\n'))}">☑ ${mine.length} open</span>${late ? ` <span class="chip overdue">⚠ ${late} overdue</span>` : ''}`;
   };
   const team = p.charter.team;
   const known = [p.leader, p.sponsor, ...team.map((m) => m.name)];
-  const others = [...new Set(open.map((t) => t.owner).filter((o) => o && !known.some((k) => sameName(k, o))))];
+  const others = [...new Set(open.flatMap((t) => splitOwners(t.owner)).filter((o) => !known.some((k) => sameName(k, o))))];
   const fixed = (name, role) => (name ? `<li class="team-row"><div><b>${esc(name)}</b> <span class="small muted">${role}</span></div>
     <div>${load(name)}</div></li>` : '');
   return `<div class="card team-card">
@@ -521,7 +521,7 @@ function teamCard(p) {
 }
 
 function memberDialog(p, m, presetName = '') {
-  const people = [...new Set([...state.projects.flatMap((x) => [x.sponsor, x.leader]), ...p.tasks.map((t) => t.owner)].filter(Boolean))];
+  const people = [...new Set([...state.projects.flatMap((x) => [x.sponsor, x.leader]), ...p.tasks.flatMap((t) => splitOwners(t.owner))].filter(Boolean))];
   openModal(`
     <div class="modal-head"><h2 style="margin:0">👥 ${m ? 'Team member' : 'Add to the team'} — ${esc(p.name)}</h2><button class="icon" data-action="close-modal">✕</button></div>
     <form id="member-form" class="form-grid">
@@ -1290,9 +1290,12 @@ async function renderSettings() {
     state.settings = await api.patch('/settings', { currency: e.target.value || '£' });
     toast('Currency saved');
   });
+  const people = document.createElement('div');
+  people.style.marginTop = '16px';
+  main().append(people);
   const extra = document.createElement('div');
   main().append(extra);
-  await renderCharterSettings(extra);
+  await Promise.all([renderPeopleSettings(people), renderCharterSettings(extra)]);
 }
 
 // ======================================================================
@@ -1474,9 +1477,9 @@ async function projectForm(p = {}) {
 
 async function taskModal(id) {
   const t = await api.get(`/tasks/${id}`);
-  const [siblings, waitingNames, ownerNames, phases] = await Promise.all([
+  const [siblings, waitingNames, ownerGroups, phases] = await Promise.all([
     t.project_id ? api.get(`/tasks?project_id=${t.project_id}`) : Promise.resolve([]), api.get('/tasks/waiting-names'),
-    api.get(`/tasks/owner-names${t.project_id ? `?project_id=${t.project_id}` : ''}`),
+    ownerOptions(t.project_id),
     t.project_id ? api.get(`/projects/${t.project_id}/phases`) : Promise.resolve([])]);
   const projectChoices = state.projects.filter((x) => x.status !== 'archived' && x.status !== 'completed' || x.id === t.project_id);
   // Tasks this one could depend on: same project, not itself, its subtasks, or ones already linked.
@@ -1505,8 +1508,7 @@ async function taskModal(id) {
       <label class="f">Repeats<select name="recurrence">${options(REPEAT, t.recurrence)}</select></label>
       <label class="f">Start date<input type="date" name="start_date" value="${esc(t.start_date || '')}"></label>
       <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(t.due_at)}"></label>
-      <label class="f">Owner<input type="text" name="owner" list="owner-names" autocomplete="off" placeholder="who's responsible" value="${esc(t.owner)}"></label>
-      <datalist id="owner-names">${ownerNames.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
+      <div class="f full"><span>Owners <span class="muted small">— one or more people or departments</span></span><div id="owner-pick"></div></div>
       <label class="f">Waiting on<input type="text" name="waiting_on" list="waiting-names" autocomplete="off" placeholder="person or team" value="${esc(t.waiting_on)}"></label>
       ${t.parent_id ? '' : `<label class="f">Project<select name="project_id" title="Move this task (and its subtasks) to another project">
         <option value="">✅ Tasks (no project)</option>${projectChoices.map((x) => `<option value="${x.id}" ${x.id === t.project_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>`}
@@ -1573,6 +1575,15 @@ async function taskModal(id) {
       <button class="primary" data-action="close-modal">Done</button>
     </div>`);
 
+  const flagSaved = () => {
+    const flag = $('#saved-flag');
+    flag?.classList.add('show');
+    setTimeout(() => flag?.classList.remove('show'), 1200);
+  };
+  ownerPicker($('#owner-pick'), { value: t.owner, groups: ownerGroups, placeholder: "Who's responsible?",
+    onChange: async (owner) => {
+      try { await api.patch(`/tasks/${t.id}`, { owner }); state.modalDirty = true; flagSaved(); } catch (err) { toast(err.message, 'error'); }
+    } });
   // Auto-save each field as it changes.
   $$('#task-form [name]').forEach((el) => el.addEventListener('change', async () => {
     let value = el.value;

@@ -352,6 +352,46 @@ async function waitForServer() {
     assert.ok((await call('GET', `/tasks/owner-names?project_id=${tp.id}`)).slice(0, 3).includes('Riya'), 'team offered as owners');
     await call('DELETE', `/projects/${tp.id}`);
 
+    // ---- Several owners per task; People & departments lists
+    const ownP = await call('POST', '/projects', { name: 'Owners test', ...CHARTER, team: 'Sam Patel, QA' });
+    const ot = await call('POST', '/tasks', { project_id: ownP.id, title: 'Shared job', owner: ' Sam Patel ;Maintenance, sam patel,, ' });
+    assert.equal(ot.owner, 'Sam Patel, Maintenance', 'owners trimmed, split and de-duplicated');
+    assert.equal((await call('PATCH', `/tasks/${ot.id}`, { owner: ['Alex', 'Maintenance'] })).owner, 'Alex, Maintenance', 'owners as a list');
+    assert.equal((await call('PATCH', `/tasks/${ot.id}`, { owner: '' })).owner, null);
+    await call('PATCH', `/tasks/${ot.id}`, { owner: 'Sam Patel, Maintenance' });
+    const lists = await call('GET', '/name-lists');
+    assert.deepEqual(lists.map((l) => l.name), ['People', 'Departments'], 'starting lists');
+    const depts = lists[1];
+    await call('POST', `/name-lists/${depts.id}/items`, { name: 'Maintenance', detail: 'Ext 2201' });
+    const bulk = await call('POST', `/name-lists/${depts.id}/items`, { names: 'Quality\nmaintenance\n\nLogistics; Stores' });
+    assert.deepEqual([bulk.added, bulk.skipped], [2, 1], 'bulk add skips names already there (any case)');
+    await assert.rejects(call('POST', `/name-lists/${depts.id}/items`, { name: 'quality' }), /already in this list/);
+    await assert.rejects(call('POST', '/name-lists', { name: 'people' }), /already a list/);
+    let dl = (await call('GET', '/name-lists')).find((l) => l.id === depts.id);
+    assert.deepEqual(dl.items.map((i) => i.name), ['Maintenance', 'Quality', 'Logistics Stores']);
+    assert.equal(dl.items[0].open_tasks, 1, 'open tasks counted for a name among several owners');
+    const opts = await call('GET', `/owner-options?project_id=${ownP.id}`);
+    assert.deepEqual(opts[0], { label: 'Project team', names: ['Sam Patel', 'J. Smith'] });
+    assert.ok(opts.some((g) => g.label === 'Departments' && g.names.includes('Quality')), 'lists offered as owners');
+    assert.ok(!opts.some((g) => g.label === 'People'), 'empty lists left out');
+    assert.ok(!(opts.find((g) => g.label === 'Used before')?.names || []).some((n) => /maintenance|sam patel/i.test(n)), 'no repeats in Used before');
+    // rename on open tasks, deactivate, delete
+    const ren = await call('PATCH', `/name-list-items/${dl.items[0].id}`, { name: 'Engineering', rename_tasks: true });
+    assert.equal(ren.renamed_tasks, 1);
+    assert.equal((await call('GET', `/tasks/${ot.id}`)).owner, 'Sam Patel, Engineering', 'renamed on the task');
+    await call('PATCH', `/name-list-items/${dl.items[1].id}`, { active: false });
+    assert.ok(!(await call('GET', '/owner-options')).some((g) => g.names.includes('Quality')), 'inactive names not offered');
+    await call('DELETE', `/name-lists/${depts.id}`);
+    assert.equal((await call('GET', '/name-lists')).length, 1);
+    assert.equal((await call('GET', `/tasks/${ot.id}`)).owner, 'Sam Patel, Engineering', 'deleting a list leaves task owners alone');
+    // meeting actions and the export's team counts handle several owners
+    const om = await call('POST', '/meetings', { project_id: ownP.id, title: 'Owners', held_at: new Date().toISOString() });
+    assert.equal((await call('POST', `/meetings/${om.id}/actions`, { title: 'Both of you', owner: 'Sam Patel; Alex' })).owner, 'Sam Patel, Alex');
+    const oxl = readZip(Buffer.from(await (await fetch(`${BASE}/export.xlsx?scope=project&id=${ownP.id}`)).arrayBuffer()));
+    const oTeam = Object.entries(oxl).find(([k, v]) => /worksheets\/sheet\d+\.xml$/.test(k) && v.toString().includes('>QA<'));
+    assert.match(oTeam[1].toString(), /<c r="F2"[^>]*><v>2<\/v>/, 'team member counted on tasks shared with others');
+    await call('DELETE', `/projects/${ownP.id}`);
+
     // ---- Reordering: within one list only, keeping the places of tasks not shown
     const ordP = await call('POST', '/projects', { name: 'Reorder test', ...CHARTER });
     const ordT = [];

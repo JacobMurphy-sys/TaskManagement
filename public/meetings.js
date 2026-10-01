@@ -104,7 +104,8 @@ function newMeetingDialog({ projectId, taskId }) {
 
 async function meetingEditor(id, opts = {}) {
   const m = await api.get(`/meetings/${id}`);
-  const team = m.project_id ? (await api.get(`/tasks/owner-names?project_id=${m.project_id}`)) : await api.get('/tasks/owner-names');
+  const groups = await ownerOptions(m.project_id);
+  const team = [...new Set(groups.flatMap((g) => g.names))];
   const where = [m.project_name && `<a href="#/project/${m.project_id}" data-action="close-modal-go">${esc(m.project_name)}</a>`,
     m.task_title && `<a href="#" data-action="open-task" data-id="${m.task_id}">re: ${esc(m.task_title)}</a>`].filter(Boolean).join(' · ');
   const actionRow = (a) => `<tr class="${a.status === 'done' ? 'done' : ''}">
@@ -134,8 +135,7 @@ async function meetingEditor(id, opts = {}) {
       <table class="log mt-actions"><tbody>${m.actions.map(actionRow).join('') || ''}</tbody></table>
       <div class="mt-add">
         <input type="text" id="mt-action" placeholder="+ Action agreed… (Enter)   e.g. Send revised quote !high" autocomplete="off">
-        <input type="text" id="mt-owner" placeholder="Owner" list="mt-owners" autocomplete="off">
-        <datalist id="mt-owners">${team.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
+        <div id="mt-owner"></div>
         <input type="date" id="mt-due" title="Due date">
         <button id="mt-add-btn">Add</button>
       </div>
@@ -162,7 +162,7 @@ async function meetingEditor(id, opts = {}) {
     if (el.name === 'title' && !el.value.trim()) { el.value = m.title; return; }
     save({ [el.name]: el.name === 'held_at' ? fromLocalInput(el.value) : el.value });
   }));
-  // One-click attendees: the project team and recent owners not already listed.
+  // One-click attendees: the project team, the People & departments lists, then names used before.
   const attendeesInput = $('#meeting-form [name=attendees]');
   const listed = () => attendeesInput.value.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
   const drawPeople = () => {
@@ -181,11 +181,12 @@ async function meetingEditor(id, opts = {}) {
   });
   const editor = richEditor($('#mt-notes'), m.notes, (html) => save({ notes: html }));
 
+  const ownersBox = ownerPicker($('#mt-owner'), { groups, placeholder: 'Owners' });
   const addAction = async () => {
     const title = $('#mt-action').value.trim();
     if (!title) { $('#mt-action').focus(); return; }
     try {
-      await api.post(`/meetings/${m.id}/actions`, { title, owner: $('#mt-owner').value.trim() || null, due_at: $('#mt-due').value || null });
+      await api.post(`/meetings/${m.id}/actions`, { title, owner: ownersBox.value, due_at: $('#mt-due').value || null });
       state.modalDirty = true;
       editor.flush();
       await meetingEditor(m.id, opts);
@@ -194,7 +195,7 @@ async function meetingEditor(id, opts = {}) {
   };
   $('#mt-add-btn').addEventListener('click', addAction);
   for (const sel of ['#mt-action', '#mt-owner', '#mt-due']) {
-    $(sel).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addAction(); } });
+    $(sel).addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented) { e.preventDefault(); addAction(); } });
   }
   $$('[data-mt-done]').forEach((cb) => cb.addEventListener('change', async () => {
     await api.patch(`/tasks/${cb.dataset.mtDone}`, { status: cb.checked ? 'done' : 'todo' });

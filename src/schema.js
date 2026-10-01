@@ -213,6 +213,26 @@ const TABLES = {
     created_at TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at TEXT    NOT NULL DEFAULT (${NOW})`,
 
+  // Settings → People & departments: named lists (e.g. "People", "Departments",
+  // "Maintenance crew") offered when picking task owners and meeting attendees.
+  name_lists: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
+  name_list_items: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    list_id     INTEGER NOT NULL REFERENCES name_lists(id) ON DELETE CASCADE,
+    name        TEXT    NOT NULL COLLATE NOCASE,
+    detail      TEXT,
+    active      INTEGER NOT NULL DEFAULT 1,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    UNIQUE (list_id, name)`,
+
   settings: `
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     key        TEXT    NOT NULL UNIQUE,
@@ -272,7 +292,15 @@ const INDEXES = `
   -- A starting area on a brand-new database (only ever once).
   INSERT INTO areas (name) SELECT 'General'
     WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'areas_seeded') AND NOT EXISTS (SELECT 1 FROM areas);
-  INSERT OR IGNORE INTO settings (key, value) VALUES ('areas_seeded', '1');`;
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('areas_seeded', '1');
+
+  -- Two starting name lists (only ever once; they can be renamed or deleted).
+  INSERT INTO name_lists (name, sort_order) SELECT 'People', 0
+    WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'name_lists_seeded') AND NOT EXISTS (SELECT 1 FROM name_lists);
+  INSERT INTO name_lists (name, sort_order) SELECT 'Departments', 1
+    WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'name_lists_seeded') AND (SELECT count(*) FROM name_lists) = 1;
+  INSERT OR IGNORE INTO settings (key, value) VALUES ('name_lists_seeded', '1');
+  CREATE INDEX IF NOT EXISTS name_list_items_idx ON name_list_items(list_id, sort_order);`;
 
 // Status value that means "finished", and the column stamped when it is reached.
 const DONE = {
@@ -333,7 +361,7 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');
