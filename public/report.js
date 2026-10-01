@@ -49,6 +49,8 @@ function reportModel(r) {
         const late = ph.due_at && dateKey(new Date(ph.completed_at)) > dateKey(new Date(ph.due_at));
         return `${ph.name} — ${fmtDate(ph.completed_at)}${ph.due_at ? (late ? ` (planned ${fmtDate(ph.due_at)})` : ' (on time)') : ''}`;
       })],
+      ['🗓 Meetings', (p.meetings || []).map((m) => `${fmtDateTime(m.held_at)} — ${m.title}${m.task_title ? ` [${m.task_title}]` : ''}`
+        + `${m.action_count ? ` (${m.action_count} action${m.action_count === 1 ? '' : 's'} agreed, ${m.actions_done} done)` : ''}`)],
       ['✅ Completed', p.completed.map((x) => `${t(x)} — ${fmtDate(x.completed_at)}`)],
       ['▶ Started', p.started.map((x) => x.title)],
       ['➕ Added', p.added.map((x) => `${t(x)}${p.baseline_set_at && !x.is_baseline ? ' (new scope)' : ''}`)],
@@ -59,7 +61,7 @@ function reportModel(r) {
       ['🔜 Coming up (next 14 days)', p.upcoming.map((x) => `${t(x)} — due ${fmtDate(x.due_at)}`)],
       ['📝 Notes', p.notes.map((n) => `${fmtDate(n.created_at)}${n.task_title ? ` [${n.task_title}]` : ''}: ${n.body}`)],
     ].filter(([, items]) => items.length);
-    const quiet = !phases.some((ph) => ph.status === 'done' && inPeriod(ph.completed_at)) && !p.completed.length && !p.added.length && !p.notes.length && !p.due_changes.length && !p.started.length;
+    const quiet = !(p.meetings || []).length && !phases.some((ph) => ph.status === 'done' && inPeriod(ph.completed_at)) && !p.completed.length && !p.added.length && !p.notes.length && !p.due_changes.length && !p.started.length;
     return { id: p.id, name: p.name, status: p.status, health, facts, sections, quiet };
   }).sort((a, b) => a.quiet - b.quiet); // projects with news first
   const ideas = r.ideas ? [

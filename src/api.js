@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('./db');
 const backup = require('./backup');
 const { readBackup, restoreData, BadBackup } = require('./restore');
+const { sanitizeHtml, htmlToText } = require('./richtext');
 const log = require('./logger');
 const config = require('./config');
 const { execFile, spawn } = require('child_process');
@@ -66,6 +67,8 @@ function pick(body, keys) {
     let v = body[k] === '' ? null : body[k];
     if (k === 'due_at') v = toDueIso(v);
     if (k === 'remind_at') v = toIso(v, k);
+    if (k === 'held_at') v = toIso(v, 'meeting date/time');
+    if (k === 'notes' && v !== null) v = sanitizeHtml(v) || null;
     if (k in DATE_FIELDS && v !== null && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new HttpError(400, `Invalid ${DATE_FIELDS[k]}`);
     if (k in MONEY_FIELDS) v = parseMoney(v, MONEY_FIELDS[k]);
     if ((k === 'impact' || k === 'effort') && v !== null) {
@@ -280,10 +283,12 @@ router.get('/projects/:id/timeline', h((req, res) => {
     FROM notes n LEFT JOIN tasks t ON t.id = n.task_id
     WHERE n.project_id = ? ORDER BY n.created_at DESC LIMIT ?`, [req.params.id, limit]);
   const events = db.all(`
-    SELECT * FROM audit_log WHERE project_id = ? AND table_name <> 'notes'
+    SELECT * FROM audit_log WHERE project_id = ? AND table_name NOT IN ('notes', 'meetings')
     ORDER BY changed_at DESC, id DESC LIMIT ?`, [req.params.id, limit]).map(normAudit);
+  const meetings = meetingList('m.project_id = ?', [req.params.id]);
   const items = [
     ...notes.map((n) => ({ type: 'note', at: n.created_at, ...n })),
+    ...meetings.filter((m) => m.held_at <= nowIso()).map((m) => ({ type: 'meeting', at: m.held_at, ...m })),
     ...events.map((e) => ({ type: 'event', at: e.changed_at, id: e.id, text: describeAudit(e) }))
       .filter((e) => e.text),
   ].sort((a, b) => b.at.localeCompare(a.at));
@@ -427,6 +432,7 @@ function moveTask(taskId, projectId) {
   db.run(`UPDATE tasks SET project_id = ?, is_baseline = 0, phase_id = NULL WHERE id IN (${inList})`, [projectId ?? null, ...ids]);
   db.run('UPDATE tasks SET parent_id = NULL, sort_order = ? WHERE id = ?', [nextSortOrder(projectId), t.id]);
   db.run(`UPDATE notes SET project_id = ? WHERE task_id IN (${inList})`, [projectId ?? null, ...ids]);
+  db.run(`UPDATE meetings SET project_id = ? WHERE task_id IN (${inList})`, [projectId ?? null, ...ids]);
   db.run(`UPDATE reminders SET project_id = ? WHERE task_id IN (${inList})`, [projectId ?? null, ...ids]);
 }
 
@@ -477,6 +483,8 @@ router.get('/tasks/:id', h((req, res) => {
       JOIN tasks t ON t.id = l.task_id WHERE l.depends_on_id = ? ORDER BY t.sort_order, t.id`, [task.id]),
     subtasks: tasks('WHERE t.parent_id = ? ORDER BY t.sort_order, t.id', [task.id]),
     notes: db.all('SELECT * FROM notes WHERE task_id = ? ORDER BY created_at DESC', [task.id]),
+    meeting: task.meeting_id ? db.get('SELECT id, title, held_at FROM meetings WHERE id = ?', [task.meeting_id]) || null : null,
+    meetings: meetingList('m.task_id = ?', [task.id]),
     reminders: db.all('SELECT * FROM reminders WHERE task_id = ? ORDER BY remind_at', [task.id]),
     history: history.map((e) => ({ at: e.changed_at, text: describeAudit(e) })).filter((e) => e.text),
   });
@@ -558,6 +566,7 @@ router.post('/tasks/:id/promote', h((req, res) => {
     for (const child of db.all('SELECT id FROM tasks WHERE parent_id = ? ORDER BY sort_order, id', [t.id])) moveTask(child.id, p.id);
     db.run('UPDATE notes SET project_id = ?, task_id = NULL WHERE task_id = ?', [p.id, t.id]);
     db.run('UPDATE reminders SET project_id = ?, task_id = NULL WHERE task_id = ?', [p.id, t.id]);
+    db.run('UPDATE meetings SET project_id = ?, task_id = NULL WHERE task_id = ?', [p.id, t.id]);
     insertRow('notes', { project_id: p.id,
       body: `Promoted from the task "${t.title}" (added ${new Date(t.created_at).toLocaleDateString(undefined, { dateStyle: 'medium' })}).` });
     db.run('DELETE FROM tasks WHERE id = ?', [t.id]);
@@ -573,9 +582,90 @@ router.delete('/task-links/:id', h((req, res) => {
 }));
 
 router.delete('/tasks/:id', h((req, res) => {
-  const { changes } = db.run('DELETE FROM tasks WHERE id = ?', [req.params.id]);
+  const changes = db.tx(() => {
+    // Meetings on a standalone task go with it; on a project task they stay on the project.
+    const ids = subtreeIds(Number(req.params.id));
+    db.run(`DELETE FROM meetings WHERE project_id IS NULL AND task_id IN (${ids.map(() => '?').join(', ')})`, ids);
+    return db.run('DELETE FROM tasks WHERE id = ?', [req.params.id]).changes;
+  });
   if (!changes) throw notFound('Task');
   res.status(204).end();
+}));
+
+// ------------------------------------------------------------------ meetings
+
+const MEETING_FIELDS = ['title', 'held_at', 'location', 'attendees', 'notes'];
+const MEETING_SELECT = `
+  SELECT m.*, p.name AS project_name, t.title AS task_title,
+    (SELECT count(*) FROM tasks a WHERE a.meeting_id = m.id) AS action_count,
+    (SELECT count(*) FROM tasks a WHERE a.meeting_id = m.id AND a.status = 'done') AS actions_done
+  FROM meetings m LEFT JOIN projects p ON p.id = m.project_id LEFT JOIN tasks t ON t.id = m.task_id`;
+const meetingList = (where, params = [], order = 'm.held_at DESC, m.id DESC') =>
+  db.all(`${MEETING_SELECT} WHERE ${where} ORDER BY ${order}`, params);
+
+function getMeeting(id) {
+  const m = db.get(`${MEETING_SELECT} WHERE m.id = ?`, [id]);
+  if (!m) throw notFound('Meeting');
+  return { ...m, actions: tasks('WHERE t.meeting_id = ? ORDER BY t.created_at, t.id', [m.id]) };
+}
+
+router.get('/meetings', h((req, res) => {
+  if (req.query.project_id) return res.json(meetingList('m.project_id = ?', [req.query.project_id]));
+  if (req.query.task_id) return res.json(meetingList('m.task_id = ?', [req.query.task_id]));
+  res.json(meetingList('1', [], 'm.held_at DESC, m.id DESC LIMIT 200'));
+}));
+
+router.get('/meetings/:id', h((req, res) => res.json(getMeeting(req.params.id))));
+
+// A meeting on a project ({ project_id }) or a task ({ task_id }).
+router.post('/meetings', h((req, res) => {
+  const fields = pick(req.body, MEETING_FIELDS);
+  if (!String(fields.title || '').trim()) throw new HttpError(400, 'Meeting title is required');
+  if (!fields.held_at) throw new HttpError(400, 'Meeting date and time are required');
+  let projectId = req.body.project_id || null;
+  const taskId = req.body.task_id || null;
+  if (taskId) {
+    const t = db.get('SELECT project_id FROM tasks WHERE id = ?', [taskId]);
+    if (!t) throw notFound('Task');
+    projectId = t.project_id;
+  } else if (!projectId) throw new HttpError(400, 'A meeting belongs to a project or a task');
+  if (projectId && !db.get('SELECT 1 FROM projects WHERE id = ?', [projectId])) throw notFound('Project');
+  const m = insertRow('meetings', { ...fields, title: String(fields.title).trim(), project_id: projectId, task_id: taskId });
+  res.status(201).json(getMeeting(m.id));
+}));
+
+router.patch('/meetings/:id', h((req, res) => {
+  const fields = pick(req.body, MEETING_FIELDS);
+  if ('title' in fields && !String(fields.title || '').trim()) throw new HttpError(400, 'Meeting title is required');
+  if ('held_at' in fields && !fields.held_at) throw new HttpError(400, 'Meeting date and time are required');
+  if (!updateRow('meetings', req.params.id, fields)) throw notFound('Meeting');
+  res.json(getMeeting(req.params.id));
+}));
+
+// Deleting a meeting keeps the actions agreed at it (as ordinary tasks).
+router.delete('/meetings/:id', h((req, res) => {
+  if (!db.run('DELETE FROM meetings WHERE id = ?', [req.params.id]).changes) throw notFound('Meeting');
+  res.status(204).end();
+}));
+
+// An agreed action: a task on the meeting's project, or a subtask of the meeting's task.
+// The title understands the quick-add syntax (!high @fri *weekly).
+router.post('/meetings/:id/actions', h((req, res) => {
+  const m = db.get('SELECT * FROM meetings WHERE id = ?', [req.params.id]);
+  if (!m) throw notFound('Meeting');
+  const q = parseQuick(String(req.body.title || '').trim());
+  if (!q.title) throw new HttpError(400, 'Action text is required');
+  const extra = pick(req.body, ['owner', 'due_at']);
+  const parent = m.task_id ? db.get('SELECT id, project_id, phase_id FROM tasks WHERE id = ?', [m.task_id]) : null;
+  const projectId = parent ? parent.project_id : m.project_id;
+  const when = new Date(m.held_at).toLocaleDateString(undefined, { dateStyle: 'medium' });
+  const task = insertRow('tasks', {
+    project_id: projectId, parent_id: parent?.id ?? null, phase_id: parent?.phase_id ?? null, meeting_id: m.id,
+    title: q.title, priority: q.priority, recurrence: q.recurrence, owner: extra.owner ?? null,
+    due_at: extra.due_at ?? toDueIso(q.due_at), description: `Agreed at the meeting "${m.title}" on ${when}.`,
+    sort_order: nextSortOrder(projectId),
+  });
+  res.status(201).json(tasks('WHERE t.id = ?', [task.id])[0]);
 }));
 
 // ------------------------------------------------------------------ notes
@@ -726,6 +816,8 @@ router.get('/dashboard', h((req, res) => {
     waiting: tasks(`${base} AND t.waiting_on IS NOT NULL ORDER BY t.waiting_on COLLATE NOCASE, t.waiting_since`),
     ideas: db.get(`SELECT count(*) AS open, coalesce(sum(cost), 0) AS cost FROM ideas
       WHERE status IN ('new', 'reviewing', 'approved')`),
+    meetings: meetingList(`m.held_at >= ? AND m.held_at < ? AND (p.id IS NULL OR p.status <> 'archived')`,
+      [dayStart(0), dayStart(8)], 'm.held_at, m.id'),
     recent_notes: db.all(`SELECT n.*, p.name AS project_name, t.title AS task_title FROM notes n
       LEFT JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id
       ORDER BY n.created_at DESC LIMIT 15`),
@@ -1146,6 +1238,11 @@ const XL = {
     { header: 'Capacity', width: 16 }, { header: 'Contact', width: 28 },
     { header: 'Open tasks', type: 'number', width: 10 }, { header: 'Overdue', type: 'number', width: 8 },
   ],
+  meetings: [
+    { header: 'When', type: 'datetime', width: 16 }, { header: 'Project', width: 26 }, { header: 'Task', width: 26 },
+    { header: 'Meeting', width: 30 }, { header: 'Location', width: 16 }, { header: 'Attendees', type: 'wrap', width: 30 },
+    { header: 'Notes', type: 'wrap', width: 70 }, { header: 'Actions agreed', type: 'wrap', width: 60 },
+  ],
   phases: [
     { header: 'Project', width: 26 }, { header: '#', type: 'number', width: 5 }, { header: 'Phase', width: 30 },
     { header: 'Status', width: 10 }, { header: 'Start', type: 'date', width: 11 }, { header: 'End', type: 'date', width: 11 },
@@ -1208,6 +1305,15 @@ function exportSheets(scope, id) {
       FROM project_team m WHERE m.project_id = ? ORDER BY m.sort_order, m.id`, [nowIso(), p.id])
       .map((m) => [p.name, m.name, m.role, m.capacity, m.contact, m.open_count, m.overdue_count]));
     if (team.length) sheets.push({ name: 'Team', columns: XL.team, rows: team });
+    const meetings = scope === 'project' ? meetingList('m.project_id = ?', [id], 'm.held_at')
+      : meetingList('1', [], 'm.held_at');
+    if (meetings.length) {
+      sheets.push({ name: 'Meetings', columns: XL.meetings, rows: meetings.map((m) => [
+        m.held_at, m.project_name || '(standalone task)', m.task_title, m.title, m.location, m.attendees, htmlToText(m.notes),
+        tasks('WHERE t.meeting_id = ? ORDER BY t.created_at, t.id', [m.id]).map((a) => `${a.status === 'done' ? '✓' : '☐'} ${a.title}`
+          + `${a.owner ? ` [${a.owner}]` : ''}${a.due_at ? ` — due ${new Date(a.due_at).toLocaleDateString('en-GB')}` : ''}`).join('\n'),
+      ]) });
+    }
   }
   if (scope !== 'project') {
     const ideas = db.all(`${IDEA_SELECT} ORDER BY i.id`);
@@ -1310,6 +1416,8 @@ router.get('/report', h((req, res) => {
       due_changes: [...moves.values()].filter((m) => m.from !== m.to),
       notes: db.all(`SELECT n.*, t.title AS task_title FROM notes n LEFT JOIN tasks t ON t.id = n.task_id
         WHERE n.project_id = ? AND n.created_at BETWEEN ? AND ? ORDER BY n.created_at`, [p.id, start, end]),
+      meetings: meetingList('m.project_id = ? AND m.held_at BETWEEN ? AND ?', [p.id, start, end], 'm.held_at')
+        .map((m) => ({ id: m.id, title: m.title, held_at: m.held_at, task_title: m.task_title, action_count: m.action_count, actions_done: m.actions_done })),
       spent_in_period: db.get(`SELECT coalesce(sum(amount), 0) AS n FROM project_costs
         WHERE project_id = ? AND spent_on BETWEEN ? AND ?`, [p.id, from, to]).n,
       blocked: tasks(`WHERE ${open} AND t.status = 'blocked' ORDER BY t.due_at IS NULL, t.due_at`, [p.id]),
@@ -1391,7 +1499,7 @@ router.post('/backups/:kind/:file/restore', h((req, res) => {
 
 router.get('/search', h((req, res) => {
   const term = String(req.query.q || '').trim();
-  if (!term) return res.json({ projects: [], tasks: [], notes: [], ideas: [] });
+  if (!term) return res.json({ projects: [], tasks: [], notes: [], ideas: [], meetings: [] });
   const q = `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const like = (col) => `${col} LIKE ? ESCAPE '\\'`;
   res.json({
@@ -1402,6 +1510,10 @@ router.get('/search', h((req, res) => {
       WHERE ${like('n.body')} ORDER BY n.created_at DESC LIMIT 30`, [q]),
     ideas: db.all(`${IDEA_SELECT} WHERE ${like('i.title')} OR ${like('i.description')} OR ${like('i.ref')}
       OR i.id IN (SELECT idea_id FROM idea_notes WHERE ${like('body')}) ORDER BY i.id DESC LIMIT 30`, [q, q, q, q]),
+    // Notes are HTML, so match on their text (a search for "b" shouldn't hit every <b>).
+    meetings: meetingList(`${like('m.title')} OR ${like('m.attendees')} OR ${like('m.location')} OR m.notes IS NOT NULL`, [q, q, q], 'm.held_at DESC')
+      .filter((m) => [m.title, m.attendees, m.location, htmlToText(m.notes)].some((v) => String(v || '').toLowerCase().includes(term.toLowerCase())))
+      .slice(0, 30).map((m) => ({ ...m, notes_text: htmlToText(m.notes) })),
   });
 }));
 
@@ -1421,8 +1533,9 @@ const FIELD_LABEL = { title: 'title', name: 'name', description: 'description', 
   policy_deployment: 'policy deployment', category: 'category', gm_effect: 'gross margin effect',
   problem: 'problem definition', goals: 'goals', in_scope: 'in scope', out_scope: 'out of scope',
   benefits_quantified: 'quantified benefits', benefits_other: 'other benefits', role: 'role', capacity: 'capacity',
-  contact: 'contact', unit: 'unit', baseline: 'baseline', target: 'target', current: 'current value', owner: 'owner', phase_id: 'phase' };
-const LONG_TEXT = ['description', 'body', 'problem', 'goals', 'in_scope', 'out_scope', 'benefits_quantified', 'benefits_other'];
+  contact: 'contact', held_at: 'date/time', location: 'location', attendees: 'attendees', notes: 'notes',
+  unit: 'unit', baseline: 'baseline', target: 'target', current: 'current value', owner: 'owner', phase_id: 'phase' };
+const LONG_TEXT = ['notes', 'description', 'body', 'problem', 'goals', 'in_scope', 'out_scope', 'benefits_quantified', 'benefits_other'];
 const REPEAT_LABEL = { daily: 'Daily', weekdays: 'Weekdays', weekly: 'Weekly', fortnightly: 'Every 2 weeks',
   monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' };
 
@@ -1437,6 +1550,7 @@ function fmtValue(field, v) {
   if (field in MONEY_FIELDS) return `${getSettings().currency}${Number(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (field === 'due_at') return new Date(v).toLocaleDateString(undefined, { dateStyle: 'medium' });
   if (field === 'start_date' || field === 'spent_on') return new Date(`${v}T12:00`).toLocaleDateString(undefined, { dateStyle: 'medium' });
+  if (field === 'held_at') return new Date(v).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   if (field === 'remind_at') return new Date(v).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   const s = String(v);
   return s.length > 60 ? `${s.slice(0, 57)}…` : s;
@@ -1448,7 +1562,7 @@ function describeAudit(e) {
   const label = { projects: 'Project', tasks: d.parent_id ? 'Subtask' : 'Task', notes: 'Note', reminders: 'Reminder',
     ideas: `Idea${d.ref ? ` ${d.ref}` : ''}`, idea_notes: 'Idea note', areas: 'Area', settings: 'Setting',
     project_costs: 'Cost', task_links: 'Dependency', project_team: 'Team member', project_kpis: 'KPI',
-    lookups: 'List item', project_phases: 'Phase' }[e.table_name] || e.table_name;
+    lookups: 'List item', project_phases: 'Phase', meetings: 'Meeting' }[e.table_name] || e.table_name;
   if (e.table_name === 'project_phases' && e.action === 'UPDATE' && e.old_data?.status !== e.new_data?.status) {
     return `Phase "${d.name}" ${e.new_data.status === 'done' ? 'completed ✓' : 'reopened'}`;
   }

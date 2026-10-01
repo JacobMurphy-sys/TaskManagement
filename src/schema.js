@@ -119,7 +119,8 @@ const TABLES = {
     recurrence   TEXT    CHECK (recurrence IS NULL OR recurrence IN (${RECURRENCES.map((r) => `'${r}'`).join(', ')})),
     next_task_id INTEGER,
     owner        TEXT,
-    phase_id     INTEGER REFERENCES project_phases(id) ON DELETE SET NULL`,
+    phase_id     INTEGER REFERENCES project_phases(id) ON DELETE SET NULL,
+    meeting_id   INTEGER REFERENCES meetings(id) ON DELETE SET NULL`,
 
   // Gantt dependencies: task_id can't start until depends_on_id is finished.
   task_links: `
@@ -150,6 +151,21 @@ const TABLES = {
     body       TEXT    NOT NULL,
     created_at TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at TEXT    NOT NULL DEFAULT (${NOW})`,
+
+  // Meetings on a project or on a task (task meetings also carry the task's project).
+  // notes is a small, sanitised HTML subset (see richtext.js); agreed actions are
+  // tasks with meeting_id set.
+  meetings: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id  INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+    task_id     INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+    title       TEXT    NOT NULL,
+    held_at     TEXT    NOT NULL ${isoCheck('held_at')},
+    location    TEXT,
+    attendees   TEXT,
+    notes       TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
 
   reminders: `
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -238,6 +254,10 @@ const INDEXES = `
   CREATE INDEX IF NOT EXISTS project_kpis_idx  ON project_kpis(project_id, sort_order);
   CREATE INDEX IF NOT EXISTS project_phases_idx ON project_phases(project_id, sort_order);
   CREATE INDEX IF NOT EXISTS tasks_phase_idx   ON tasks(phase_id);
+  CREATE INDEX IF NOT EXISTS tasks_meeting_idx ON tasks(meeting_id);
+  CREATE INDEX IF NOT EXISTS meetings_project_idx ON meetings(project_id, held_at);
+  CREATE INDEX IF NOT EXISTS meetings_task_idx ON meetings(task_id);
+  CREATE INDEX IF NOT EXISTS meetings_held_idx ON meetings(held_at);
 
   -- Default project ID (editable), like ideas' references.
   DROP TRIGGER IF EXISTS projects_code;
@@ -313,7 +333,7 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');

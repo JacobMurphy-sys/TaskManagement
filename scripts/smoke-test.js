@@ -352,6 +352,66 @@ async function waitForServer() {
     assert.ok((await call('GET', `/tasks/owner-names?project_id=${tp.id}`)).slice(0, 3).includes('Riya'), 'team offered as owners');
     await call('DELETE', `/projects/${tp.id}`);
 
+    // ---- Meetings: on a project or a task, formatted notes, actions that become tasks
+    const { sanitizeHtml, htmlToText } = require('../src/richtext');
+    assert.equal(sanitizeHtml('<b>Bold</b> <u>u</u> <i>i</i> <span style="background-color: rgb(255, 241, 118);">hi</span>'),
+      '<b>Bold</b> <u>u</u> <i>i</i> <mark>hi</mark>', 'supported formats kept; highlight becomes <mark>');
+    assert.equal(sanitizeHtml('<p onclick="x()">a<script>alert(1)</script><img src=x onerror=alert(1)><a href="javascript:x">link</a></p>'),
+      '<p>alink</p>', 'scripts, attributes, images and links removed');
+    assert.equal(sanitizeHtml('<ul><li>one<li>two</ul><b>unclosed'), '<ul><li>one<li>two</li></li></ul><b>unclosed</b>', 'tags balanced');
+    assert.equal(sanitizeHtml('x < y & "z"'), 'x &lt; y &amp; &quot;z&quot;');
+    assert.equal(sanitizeHtml('<div><br></div>'), '', 'an empty editor saves as empty');
+    assert.equal(sanitizeHtml('<span style="background-color: transparent">plain</span>'), 'plain', 'cleared highlight');
+    assert.equal(htmlToText('<b>Agenda</b><ul><li>Costs</li><li>Plan &amp; dates</li></ul><ol><li>a</li><li>b</li></ol>'),
+      'Agenda\n• Costs\n• Plan & dates\n\n1. a\n2. b');
+    const mp = await call('POST', '/projects', { name: 'Meeting test', ...CHARTER });
+    await assert.rejects(call('POST', '/meetings', { title: 'x', held_at: new Date().toISOString() }), /project or a task/);
+    await assert.rejects(call('POST', '/meetings', { project_id: mp.id, title: 'x' }), /date and time/);
+    await assert.rejects(call('POST', '/meetings', { project_id: mp.id, title: 'x', held_at: 'soon' }), /Invalid meeting date/);
+    const mt = await call('POST', '/meetings', { project_id: mp.id, title: 'Kick-off', held_at: '2026-09-29T09:00:00Z',
+      attendees: 'Sam, Alex', notes: '<b>Scope</b> agreed<script>x</script>' });
+    assert.equal(mt.notes, '<b>Scope</b> agreed', 'notes cleaned on save');
+    const act = await call('POST', `/meetings/${mt.id}/actions`, { title: 'Send quote !high', owner: 'Sam', due_at: '2026-10-09' });
+    assert.equal(act.project_id, mp.id); assert.equal(act.meeting_id, mt.id); assert.equal(act.priority, 3);
+    assert.equal(act.owner, 'Sam'); assert.match(act.due_at, /^2026-10-09T/);
+    assert.match(act.description, /Agreed at the meeting "Kick-off"/);
+    await assert.rejects(call('POST', `/meetings/${mt.id}/actions`, { title: ' ' }), /Action text/);
+    // a meeting on a task: actions become its subtasks, and it shows on the project too
+    const mtask = await call('POST', '/tasks', { project_id: mp.id, title: 'Supplier review' });
+    const tm = await call('POST', '/meetings', { task_id: mtask.id, title: 'Supplier call', held_at: '2026-09-30T14:00:00Z' });
+    assert.equal(tm.project_id, mp.id, 'task meeting carries the project');
+    const tmAct = await call('POST', `/meetings/${tm.id}/actions`, { title: 'Chase samples' });
+    assert.equal(tmAct.parent_id, mtask.id, 'task meeting actions are subtasks');
+    const tdetail = await call('GET', `/tasks/${mtask.id}`);
+    assert.equal(tdetail.meetings[0].title, 'Supplier call');
+    assert.equal((await call('GET', `/tasks/${act.id}`)).meeting.title, 'Kick-off', 'action links back to its meeting');
+    await call('PATCH', `/tasks/${act.id}`, { status: 'done' });
+    const mlist = await call('GET', `/meetings?project_id=${mp.id}`);
+    assert.deepEqual(mlist.map((m) => [m.title, m.action_count, m.actions_done]), [['Supplier call', 1, 0], ['Kick-off', 1, 1]]);
+    const upd = await call('PATCH', `/meetings/${mt.id}`, { notes: '<ul><li>Budget</li></ul>', location: 'Room 2' });
+    assert.equal(upd.notes, '<ul><li>Budget</li></ul>'); assert.equal(upd.actions.length, 1);
+    const mtl = await call('GET', `/projects/${mp.id}/timeline`);
+    assert.ok(mtl.some((i) => i.type === 'meeting' && i.title === 'Kick-off'), 'meetings in the project timeline');
+    assert.ok(!mtl.some((i) => /Meeting created/.test(i.text || '')), 'no duplicate audit line');
+    assert.equal((await call('GET', '/search?q=budget')).meetings[0].id, mt.id, 'search finds note text');
+    assert.equal((await call('GET', '/search?q=ul')).meetings.length, 0, 'search ignores the HTML');
+    const mrep = await call('GET', `/report?project_id=${mp.id}&from=2026-09-28&to=2026-09-30`);
+    assert.equal(mrep.projects[0].meetings.length, 2, 'meetings in the status report');
+    const mxl = readZip(Buffer.from(await (await fetch(`${BASE}/export.xlsx?scope=project&id=${mp.id}`)).arrayBuffer()));
+    assert.match(mxl['xl/workbook.xml'].toString(), /name="Meetings"/, 'Meetings sheet in the export');
+    // deleting a meeting keeps its actions; deleting a project task keeps its meeting on the project
+    await call('DELETE', `/meetings/${mt.id}`);
+    assert.equal((await call('GET', `/tasks/${act.id}`)).meeting_id, null, 'action kept as a task');
+    await call('DELETE', `/tasks/${mtask.id}`);
+    assert.equal((await call('GET', `/meetings/${tm.id}`)).task_id, null, 'meeting stays on the project');
+    // a standalone task's meeting goes with the task
+    const lone = await call('POST', '/tasks', { title: 'Lone task' });
+    const lm = await call('POST', '/meetings', { task_id: lone.id, title: '1:1', held_at: new Date().toISOString() });
+    assert.equal(lm.project_id, null);
+    await call('DELETE', `/tasks/${lone.id}`);
+    await assert.rejects(call('GET', `/meetings/${lm.id}`), /not found/i);
+    await call('DELETE', `/projects/${mp.id}`);
+
     // ---- Phases: a project split into milestones
     const pp = await call('POST', '/projects', { name: 'Line upgrade', ...CHARTER });
     const ph1 = await call('POST', `/projects/${pp.id}/phases`, { name: 'Pilot', start_date: '2026-10-01', due_at: '2026-11-30' });

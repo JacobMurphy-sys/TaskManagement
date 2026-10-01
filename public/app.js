@@ -377,6 +377,12 @@ async function renderDashboard() {
       ${section('dash-blocked', '⛔ Blocked', d.blocked, miniTask, 'Nothing blocked')}
       ${section('dash-waiting', '⏳ Waiting on others', d.waiting, miniTask, 'Not waiting on anyone')}
       ${section('dash-high', '🔥 High-priority tasks', d.high_priority, miniTask, 'No open high-priority tasks')}
+      ${section('dash-meetings', '🗓 Meetings (next 7 days)', d.meetings, (m) => `<li>
+          <span class="t" data-action="open-meeting" data-id="${m.id}">${esc(m.title)}</span>
+          ${m.project_name ? `<a class="small" href="#/project/${m.project_id}">${esc(m.project_name)}</a>` : ''}
+          ${m.task_title ? `<span class="small muted">re: ${esc(m.task_title)}</span>` : ''}
+          <span class="chip">${esc(fmtDateTime(m.held_at, { weekday: true }))}${new Date(m.held_at) > new Date() ? ` (${fmtRelative(m.held_at)})` : ''}</span>
+        </li>`, 'No meetings this week')}
       ${section('dash-reminders', '🔔 Upcoming reminders', d.reminders, (r) => `<li>
           <span class="t" ${r.task_id ? `data-action="open-task" data-id="${r.task_id}"` : ''}>${esc(r.message || r.task_title || 'Reminder')}</span>
           ${r.project_name ? `<a class="small" href="#/project/${r.project_id}">${esc(r.project_name)}</a>` : ''}
@@ -458,6 +464,13 @@ function baselineBox(p) {
 }
 
 function timelineItem(i) {
+  if (i.type === 'meeting') {
+    return `<li class="note meeting-item" data-action="open-meeting" data-id="${i.id}" title="Open meeting">
+      <div class="when">🗓 ${esc(fmtDateTime(i.held_at))} <b>${esc(i.title)}</b>
+        ${i.task_title ? `<span class="badge baseline">${esc(i.task_title)}</span>` : ''}
+        <span class="spacer"></span><span class="small muted">${actionsLabel(i)}</span></div>
+      ${i.attendees ? `<div class="small muted">With ${esc(i.attendees)}</div>` : ''}</li>`;
+  }
   if (i.type === 'note') {
     return `<li class="note"><div class="when">🕘 ${esc(fmtDateTime(i.created_at))}
         ${i.task_title ? `<span class="badge baseline" data-action="open-task" data-id="${i.task_id}" style="cursor:pointer">${esc(i.task_title)}</span>` : ''}
@@ -664,7 +677,8 @@ function phasedTaskList(p, shown, hideDone) {
 }
 
 async function renderProject(id, tab) {
-  const [p, timeline] = await Promise.all([api.get(`/projects/${id}`), api.get(`/projects/${id}/timeline`), loadLookups()]);
+  const [p, timeline, meetings] = await Promise.all([api.get(`/projects/${id}`), api.get(`/projects/${id}/timeline`),
+    api.get(`/meetings?project_id=${id}`), loadLookups()]);
   state.project = p;
   const tabs = `<div class="tabs"><a href="#/project/${p.id}" class="${tab === 'charter' ? '' : 'on'}">Overview</a>
     <a href="#/project/${p.id}/charter" class="${tab === 'charter' ? 'on' : ''}">📋 Charter <span class="small muted">${p.charter.completeness.pct}%</span></a></div>`;
@@ -734,7 +748,7 @@ async function renderProject(id, tab) {
         </div>`}
         ${gantt ? '' : `<div class="small muted" style="margin-top:4px">${SHORTCUTS_HELP}</div>`}
       </div>
-      <div class="stack">${teamCard(p)}
+      <div class="stack">${teamCard(p)}${meetingsCard(p, meetings)}
       <div class="card">
         <div class="list-tools">
           <h2 style="margin:0">Timeline</h2>
@@ -1382,6 +1396,10 @@ async function renderSearch(q) {
       <div class="card"><h2>Tasks</h2>${r.tasks.length ? `<ul class="mini">${r.tasks.map(miniTask).join('')}</ul>` : '<div class="empty">None</div>'}</div>
       <div class="card"><h2>Ideas</h2>${r.ideas.length ? `<ul class="mini">${r.ideas.map((i) => `<li>
         <span class="t" data-action="open-idea" data-id="${i.id}"><b>${esc(i.ref)}</b> ${esc(i.title)}</span> ${ideaStatusPill(i.status)}</li>`).join('')}</ul>` : '<div class="empty">None</div>'}</div>
+      <div class="card"><h2>Meetings</h2>${r.meetings.length ? `<ul class="mini">${r.meetings.map((m) => `<li style="display:block">
+        <span class="t" data-action="open-meeting" data-id="${m.id}">🗓 <b>${esc(m.title)}</b></span>
+        <span class="small muted">${esc(fmtDateTime(m.held_at))}${m.project_name ? ` · ${esc(m.project_name)}` : ''}${m.task_title ? ` · ${esc(m.task_title)}` : ''}</span>
+        ${m.notes_text ? `<div class="pre small">${esc(m.notes_text.slice(0, 300))}${m.notes_text.length > 300 ? '…' : ''}</div>` : ''}</li>`).join('')}</ul>` : '<div class="empty">None</div>'}</div>
       <div class="card"><h2>Notes</h2>${r.notes.length ? `<ul class="mini">${r.notes.map((n) => `<li style="display:block">
         <div class="small muted">${esc(fmtDateTime(n.created_at))} · <a href="#/project/${n.project_id}">${esc(n.project_name)}</a></div>
         <div class="pre">${esc(n.body)}</div></li>`).join('')}</ul>` : '<div class="empty">None</div>'}</div>
@@ -1473,7 +1491,8 @@ async function taskModal(id) {
     : (p && p.baseline_set_at ? '<span class="badge added">Added after baseline</span>' : '');
   openModal(`
     <div class="modal-head">
-      <div class="small muted">${t.project_id ? esc(t.project_name) : '✅ Tasks (no project)'}${t.parent_id ? ' · subtask' : ''} ${baselineText}</div>
+      <div class="small muted">${t.project_id ? esc(t.project_name) : '✅ Tasks (no project)'}${t.parent_id ? ' · subtask' : ''} ${baselineText}
+        ${t.meeting ? ` · <a href="#" data-action="open-meeting" data-id="${t.meeting.id}" data-return-task="${t.id}" title="Agreed at this meeting">🗓 from ${esc(t.meeting.title)}, ${esc(fmtDate(t.meeting.held_at))}</a>` : ''}</div>
       <div class="row"><span class="saved-flag" id="saved-flag">✓ Saved</span><button class="icon" data-action="close-modal">✕</button></div>
     </div>
     <div class="form-grid" id="task-form" data-id="${t.id}">
@@ -1520,6 +1539,8 @@ async function taskModal(id) {
       ${t.blocking.length ? `<div class="small muted" style="margin-top:6px">Waiting for this task: ${t.blocking.map((b) =>
         `<a href="#" data-action="open-task" data-id="${b.id}">${esc(b.title)}</a>`).join(', ')}</div>` : ''}
     </div>`}
+
+    ${taskMeetingsHtml(t)}
 
     <div class="section">
       <h3>Reminders</h3>
@@ -1730,6 +1751,9 @@ const actions = {
   'new-project': () => projectForm(),
   'edit-project': () => projectForm(state.project),
   'add-phase': () => phaseDialog(state.project, null),
+  'new-meeting': (el) => newMeetingDialog({ projectId: Number(el.dataset.project) || null, taskId: Number(el.dataset.task) || null }),
+  'open-meeting': (el) => meetingEditor(el.dataset.id, { returnTask: Number(el.dataset.returnTask) || null }),
+  'toggle-all-meetings': (el) => { store.set(`allMeetings:${el.dataset.id}`, !store.get(`allMeetings:${el.dataset.id}`, false)); refresh(); },
   'add-member': (el) => memberDialog(state.project, null, el.dataset.name || ''),
   'edit-member': (el, e) => { if (!e?.target.closest('button, a')) memberDialog(state.project, state.project.charter.team.find((m) => String(m.id) === el.dataset.id)); },
   'del-member': (el) => removeMember(state.project.charter.team.find((m) => String(m.id) === el.dataset.id)),
