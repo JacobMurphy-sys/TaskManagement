@@ -182,7 +182,8 @@ router.get('/projects', h((req, res) => {
 // Team, KPIs and milestone rows that complete a project's charter.
 function charterExtras(projectId) {
   return {
-    team: db.all('SELECT * FROM project_team WHERE project_id = ? ORDER BY sort_order, id', [projectId]),
+    team: ((deptOf) => db.all('SELECT * FROM project_team WHERE project_id = ? ORDER BY sort_order, id', [projectId])
+      .map((m) => ({ ...m, department: deptOf(m.name) })))(departmentOf()),
     kpis: db.all('SELECT * FROM project_kpis WHERE project_id = ? ORDER BY sort_order, id', [projectId]),
     milestones: db.all(`SELECT id, title, status, owner, start_date, due_at, completed_at FROM tasks
       WHERE project_id = ? AND parent_id IS NULL ORDER BY sort_order, id`, [projectId]),
@@ -467,6 +468,18 @@ const dedupeNames = (names) => {
   return names.filter((n) => n && !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase()));
 };
 // Individual names from recent tasks' owner lists, most recent first.
+// People get a department from the list named "Departments". departmentsList() is that
+// list (or undefined); departmentOf() maps lower-cased names to their department.
+const departmentsList = () => db.get("SELECT * FROM name_lists WHERE name = 'Departments' COLLATE NOCASE");
+function departmentOf() {
+  const map = new Map();
+  for (const r of db.all('SELECT name, department FROM name_list_items WHERE department IS NOT NULL ORDER BY active DESC, sort_order')) {
+    if (!map.has(r.name.toLowerCase())) map.set(r.name.toLowerCase(), r.department);
+  }
+  return (name) => map.get(String(name || '').trim().toLowerCase()) || null;
+}
+const cleanDepartment = (v) => String(v ?? '').replace(/\s+/g, ' ').trim() || null;
+
 const recentOwners = () => dedupeNames(db.all(`SELECT owner FROM tasks WHERE owner IS NOT NULL
   ORDER BY updated_at DESC LIMIT 400`).flatMap((r) => splitOwners(r.owner))).slice(0, 60);
 
@@ -475,10 +488,12 @@ const recentOwners = () => dedupeNames(db.all(`SELECT owner FROM tasks WHERE own
 // Each group: { label, names, details: { name: 'role / department / email' } }.
 router.get('/owner-options', h((req, res) => {
   const groups = [];
+  const deptOf = departmentOf();
   const group = (label, people) => {
     const seen = new Set();
     const list = people.filter((x) => x.name && !seen.has(x.name.toLowerCase()) && seen.add(x.name.toLowerCase()));
-    groups.push({ label, names: list.map((x) => x.name), details: Object.fromEntries(list.filter((x) => x.detail).map((x) => [x.name, x.detail])) });
+    groups.push({ label, names: list.map((x) => x.name), details: Object.fromEntries(list.filter((x) => x.detail).map((x) => [x.name, x.detail])),
+      departments: Object.fromEntries(list.map((x) => [x.name, deptOf(x.name)]).filter(([, d]) => d)) });
   };
   if (req.query.project_id) {
     const p = db.get('SELECT leader, sponsor FROM projects WHERE id = ?', [req.query.project_id]);
@@ -486,8 +501,19 @@ router.get('/owner-options', h((req, res) => {
     group('Project team', [{ name: p?.leader, detail: 'Project leader' },
       ...team.map((m) => ({ name: m.name, detail: [m.role, m.contact].filter(Boolean).join(' · ') })), { name: p?.sponsor, detail: 'Management sponsor' }]);
   }
+  const depts = departmentsList();
   for (const l of db.all('SELECT * FROM name_lists ORDER BY sort_order, name')) {
     group(l.name, db.all('SELECT name, detail FROM name_list_items WHERE list_id = ? AND active = 1 ORDER BY sort_order, name', [l.id]));
+    // The Departments group also says who is in each one (active people only).
+    if (depts && l.id === depts.id) {
+      const g = groups[groups.length - 1];
+      g.members = {};
+      for (const d of g.names) {
+        const people = db.all(`SELECT DISTINCT name FROM name_list_items WHERE active = 1 AND list_id <> ? AND department = ?
+          ORDER BY name COLLATE NOCASE`, [l.id, d]).map((r) => r.name);
+        if (people.length) g.members[d] = people;
+      }
+    }
   }
   const listed = new Set(groups.flatMap((g) => g.names.map((n) => n.toLowerCase())));
   group('Used before', recentOwners().filter((n) => !listed.has(n.toLowerCase())).map((name) => ({ name })));
@@ -500,9 +526,10 @@ router.get('/contacts/teams', h((req, res) => {
     FROM project_team m JOIN projects p ON p.id = m.project_id WHERE p.status <> 'archived'
     ORDER BY m.name COLLATE NOCASE, p.name COLLATE NOCASE`);
   const people = new Map();
+  const deptOf = departmentOf();
   for (const r of rows) {
     const key = r.name.trim().toLowerCase();
-    const person = people.get(key) || { name: r.name.trim(), roles: [], contact: null, projects: [] };
+    const person = people.get(key) || { name: r.name.trim(), department: deptOf(r.name), roles: [], contact: null, projects: [] };
     if (r.role && !person.roles.includes(r.role)) person.roles.push(r.role);
     person.contact = person.contact || r.contact;
     person.projects.push({ id: r.project_id, name: r.project_name, status: r.status });
@@ -517,8 +544,18 @@ router.get('/name-lists', h((req, res) => {
   const lists = db.all('SELECT * FROM name_lists ORDER BY sort_order, name');
   // How many open tasks name each entry as an owner (so it's clear what a rename/removal touches).
   const owners = db.all("SELECT owner FROM tasks WHERE owner IS NOT NULL AND status <> 'done'").map((r) => r.owner);
-  res.json(lists.map((l) => ({ ...l, items: db.all('SELECT * FROM name_list_items WHERE list_id = ? ORDER BY sort_order, name', [l.id])
-    .map((i) => ({ ...i, active: !!i.active, open_tasks: owners.filter((o) => ownsTask(o, i.name)).length })) })));
+  const depts = departmentsList();
+  const all = db.all('SELECT * FROM name_list_items ORDER BY sort_order, name');
+  res.json(lists.map((l) => ({ ...l, departments: !!depts && l.id === depts.id, items: all.filter((i) => i.list_id === l.id).map((i) => {
+    const item = { ...i, active: !!i.active, open_tasks: owners.filter((o) => ownsTask(o, i.name)).length };
+    if (depts && l.id === depts.id) {
+      // A department's open tasks: ones it owns itself, plus ones owned by anyone in it.
+      const members = dedupeNames(all.filter((m) => m.list_id !== l.id && m.department && m.department.toLowerCase() === i.name.toLowerCase()).map((m) => m.name));
+      item.members = members;
+      item.dept_open_tasks = owners.filter((o) => ownsTask(o, i.name) || members.some((m) => ownsTask(o, m))).length;
+    }
+    return item;
+  }) })));
 }));
 
 router.post('/name-lists', h((req, res) => {
@@ -557,7 +594,8 @@ router.post('/name-lists/:id/items', h((req, res) => {
     let sort = db.get('SELECT coalesce(max(sort_order), -1) + 1 AS n FROM name_list_items WHERE list_id = ?', [req.params.id]).n;
     return wanted.filter((name) => !db.get('SELECT 1 FROM name_list_items WHERE list_id = ? AND name = ?', [req.params.id, name]))
       .map((name) => insertRow('name_list_items', { list_id: Number(req.params.id), name,
-        detail: wanted.length === 1 ? (String(req.body.detail || '').trim() || null) : null, sort_order: sort++ }));
+        detail: wanted.length === 1 ? (String(req.body.detail || '').trim() || null) : null,
+        department: cleanDepartment(req.body.department), sort_order: sort++ }));
   });
   if (!added.length) throw new HttpError(400, wanted.length === 1 ? `"${wanted[0]}" is already in this list` : 'Those names are all in the list already');
   res.status(201).json({ added: added.length, skipped: wanted.length - added.length });
@@ -577,9 +615,18 @@ router.patch('/name-list-items/:id', h((req, res) => {
   }
   if ('detail' in req.body) f.detail = String(req.body.detail || '').trim() || null;
   if ('active' in req.body) f.active = req.body.active ? 1 : 0;
+  if ('department' in req.body) f.department = cleanDepartment(req.body.department);
   let renamed = 0;
+  let moved = 0;
   db.tx(() => {
     updateRow('name_list_items', item.id, f);
+    // Renaming a department moves everyone in it to the new name.
+    if (f.name && f.name !== item.name && item.list_id === departmentsList()?.id) {
+      for (const m of db.all('SELECT id FROM name_list_items WHERE department = ? AND list_id <> ?', [item.name, item.list_id])) {
+        updateRow('name_list_items', m.id, { department: f.name });
+        moved++;
+      }
+    }
     if (f.name && f.name !== item.name && req.body.rename_tasks) {
       for (const t of db.all("SELECT id, owner FROM tasks WHERE owner IS NOT NULL AND status <> 'done'")) {
         if (!ownsTask(t.owner, item.name)) continue;
@@ -589,7 +636,7 @@ router.patch('/name-list-items/:id', h((req, res) => {
       }
     }
   });
-  res.json({ ...fresh('name_list_items', item), renamed_tasks: renamed });
+  res.json({ ...fresh('name_list_items', item), renamed_tasks: renamed, moved_people: moved });
 }));
 
 router.delete('/name-list-items/:id', h((req, res) => {
@@ -1483,7 +1530,7 @@ const XL = {
   ],
   team: [
     { header: 'Project', width: 26 }, { header: 'Name', width: 22 }, { header: 'Role', width: 22 },
-    { header: 'Capacity', width: 16 }, { header: 'Contact', width: 28 },
+    { header: 'Department', width: 18 }, { header: 'Capacity', width: 16 }, { header: 'Contact', width: 28 },
     { header: 'Open tasks', type: 'number', width: 10 }, { header: 'Overdue', type: 'number', width: 8 },
   ],
   meetings: [
@@ -1547,11 +1594,12 @@ function exportSheets(scope, id) {
       ph.start_date, ph.due_at, ph.baseline_due_at, ph.task_count, ph.done_count, ph.overdue_count, ph.completed_at, ph.description]));
     if (phases.length) sheets.push({ name: 'Phases', columns: XL.phases, rows: phases });
     const now = nowIso();
+    const deptOf = departmentOf();
     const team = projects.flatMap((p) => {
       const open = db.all("SELECT owner, due_at FROM tasks WHERE project_id = ? AND status <> 'done' AND owner IS NOT NULL", [p.id]);
       return db.all('SELECT * FROM project_team WHERE project_id = ? ORDER BY sort_order, id', [p.id]).map((m) => {
         const mine = open.filter((t) => ownsTask(t.owner, m.name));
-        return [p.name, m.name, m.role, m.capacity, m.contact, mine.length, mine.filter((t) => t.due_at && t.due_at < now).length];
+        return [p.name, m.name, m.role, deptOf(m.name), m.capacity, m.contact, mine.length, mine.filter((t) => t.due_at && t.due_at < now).length];
       });
     });
     if (team.length) sheets.push({ name: 'Team', columns: XL.team, rows: team });

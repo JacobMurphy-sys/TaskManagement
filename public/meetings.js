@@ -270,7 +270,7 @@ async function meetingEditor(id, opts = {}) {
     save({ [el.name]: el.name === 'held_at' ? fromLocalInput(el.value) : el.name === 'duration_min' ? Number(el.value) : el.value });
   }));
   // Attendees: type to search, or 📇 for the contacts book (project team, lists, names used before).
-  ownerPicker($('#mt-attendees'), { value: m.attendees, groups, placeholder: 'Add attendee…', bookTitle: 'Choose attendees',
+  ownerPicker($('#mt-attendees'), { value: m.attendees, groups, placeholder: 'Add attendee…', bookTitle: 'Choose attendees', wholeDepartments: true,
     onChange: (attendees) => save({ attendees: attendees || '' }) });
   const editor = richEditor($('#mt-notes'), m.notes, (html) => save({ notes: html }));
   modal().addEventListener('close', () => editor.flush(), { once: true }); // however it's closed

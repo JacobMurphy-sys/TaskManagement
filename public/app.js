@@ -517,7 +517,7 @@ function teamCard(p) {
       ${fixed(p.leader, 'Project leader')}${fixed(p.sponsor, 'Management sponsor')}
       ${team.map((m) => `<li class="team-row clickable" data-action="edit-member" data-id="${m.id}" title="Edit">
         <div><b>${esc(m.name)}</b>${m.role ? ` <span class="small muted">${esc(m.role)}</span>` : ''}
-          <div class="small muted">${[m.capacity && `⏱ ${esc(m.capacity)}`, contactLink(m.contact)].filter(Boolean).join(' · ')}</div></div>
+          <div class="small muted">${[m.department && `🏢 ${esc(m.department)}`, m.capacity && `⏱ ${esc(m.capacity)}`, contactLink(m.contact)].filter(Boolean).join(' · ')}</div></div>
         <div class="row">${load(m.name)}<button class="icon" data-action="del-member" data-id="${m.id}" title="Remove from the team">✕</button></div>
       </li>`).join('')}
     </ul>

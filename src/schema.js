@@ -242,6 +242,7 @@ const TABLES = {
     list_id     INTEGER NOT NULL REFERENCES name_lists(id) ON DELETE CASCADE,
     name        TEXT    NOT NULL COLLATE NOCASE,
     detail      TEXT,
+    department  TEXT    COLLATE NOCASE,
     active      INTEGER NOT NULL DEFAULT 1,
     sort_order  INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),

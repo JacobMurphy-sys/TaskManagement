@@ -348,7 +348,7 @@ async function waitForServer() {
     assert.match(txl['xl/workbook.xml'].toString(), /name="Team"/, 'Team sheet in the export');
     const teamSheet = Object.entries(txl).find(([k, v]) => /worksheets\/sheet\d+\.xml$/.test(k) && v.toString().includes('sam@example.com'));
     assert.ok(teamSheet, 'contact in the Team sheet');
-    assert.match(teamSheet[1].toString(), /<c r="F2"[^>]*><v>1<\/v>/, 'open tasks counted by owner name (any case)');
+    assert.match(teamSheet[1].toString(), /<c r="G2"[^>]*><v>1<\/v>/, 'open tasks counted by owner name (any case)');
     assert.ok((await call('GET', `/tasks/owner-names?project_id=${tp.id}`)).slice(0, 3).includes('Riya'), 'team offered as owners');
     await call('DELETE', `/projects/${tp.id}`);
 
@@ -507,6 +507,31 @@ async function waitForServer() {
     const ren = await call('PATCH', `/name-list-items/${dl.items[0].id}`, { name: 'Engineering', rename_tasks: true });
     assert.equal(ren.renamed_tasks, 1);
     assert.equal((await call('GET', `/tasks/${ot.id}`)).owner, 'Sam Patel, Engineering', 'renamed on the task');
+    // departments for people
+    const peopleL = lists[0];
+    await call('POST', `/name-lists/${peopleL.id}/items`, { name: 'Sam Patel', detail: 'Fitter', department: ' Engineering ' });
+    await call('POST', `/name-lists/${peopleL.id}/items`, { name: 'Jo Bloggs' });
+    let nl = await call('GET', '/name-lists');
+    const jo = nl[0].items.find((i) => i.name === 'Jo Bloggs');
+    assert.equal((await call('PATCH', `/name-list-items/${jo.id}`, { department: 'engineering' })).department, 'engineering');
+    await call('POST', '/tasks', { project_id: ownP.id, title: 'Jo job', owner: 'Jo Bloggs' });
+    await call('POST', '/tasks', { project_id: ownP.id, title: 'Done job', owner: 'Jo Bloggs', status: 'done' });
+    nl = await call('GET', '/name-lists');
+    assert.deepEqual(nl.map((l) => l.departments), [false, true], 'the Departments list is recognised');
+    const eng = nl[1].items.find((i) => i.name === 'Engineering');
+    assert.deepEqual([eng.members, eng.open_tasks, eng.dept_open_tasks], [['Sam Patel', 'Jo Bloggs'], 1, 2], 'department rolls up its people\'s open tasks');
+    const dOpts = await call('GET', `/owner-options?project_id=${ownP.id}`);
+    assert.equal(dOpts.find((g) => g.label === 'People').departments['Sam Patel'], 'Engineering', 'department alongside a person');
+    assert.equal(dOpts.find((g) => g.label === 'People').details['Sam Patel'], 'Fitter', 'details kept separate');
+    assert.equal(dOpts[0].departments['Sam Patel'], 'Engineering', 'project team picks up the department by name');
+    assert.deepEqual(dOpts.find((g) => g.label === 'Departments').members.Engineering, ['Jo Bloggs', 'Sam Patel'], 'who is in each department');
+    const moved = await call('PATCH', `/name-list-items/${eng.id}`, { name: 'Maint Eng' });
+    assert.equal(moved.moved_people, 2, 'renaming a department moves its people');
+    assert.deepEqual((await call('GET', '/name-lists'))[0].items.map((i) => i.department), ['Maint Eng', 'Maint Eng']);
+    assert.equal((await call('GET', `/projects/${ownP.id}`)).charter.team[0].department, 'Maint Eng', 'team member shows the department');
+    assert.equal((await call('GET', '/contacts/teams')).find((x) => x.name === 'Sam Patel').department, 'Maint Eng');
+    await call('PATCH', `/name-list-items/${jo.id}`, { department: '' });
+    assert.equal((await call('GET', '/name-lists'))[0].items[1].department, null, 'department cleared');
     await call('PATCH', `/name-list-items/${dl.items[1].id}`, { active: false });
     assert.ok(!(await call('GET', '/owner-options')).some((g) => g.names.includes('Quality')), 'inactive names not offered');
     await call('DELETE', `/name-lists/${depts.id}`);
@@ -517,7 +542,8 @@ async function waitForServer() {
     assert.equal((await call('POST', `/meetings/${om.id}/actions`, { title: 'Both of you', owner: 'Sam Patel; Alex' })).owner, 'Sam Patel, Alex');
     const oxl = readZip(Buffer.from(await (await fetch(`${BASE}/export.xlsx?scope=project&id=${ownP.id}`)).arrayBuffer()));
     const oTeam = Object.entries(oxl).find(([k, v]) => /worksheets\/sheet\d+\.xml$/.test(k) && v.toString().includes('>QA<'));
-    assert.match(oTeam[1].toString(), /<c r="F2"[^>]*><v>2<\/v>/, 'team member counted on tasks shared with others');
+    assert.match(oTeam[1].toString(), /<c r="G2"[^>]*><v>2<\/v>/, 'team member counted on tasks shared with others');
+    assert.match(oTeam[1].toString(), /<c r="D2"[^>]*><is><t[^>]*>Maint Eng</, 'Team sheet has the department');
     await call('DELETE', `/projects/${ownP.id}`);
 
     // ---- Reordering: within one list only, keeping the places of tasks not shown
