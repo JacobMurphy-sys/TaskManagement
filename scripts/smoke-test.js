@@ -403,6 +403,23 @@ async function waitForServer() {
     await call('DELETE', '/library');
     assert.equal((await call('GET', '/library')).docs.length, 0);
 
+    // Sheets Extended tables: merges, vertical headers, ~ styles, ```sheet blocks
+    const { renderMarkdown } = require('../src/markdown');
+    const sx = (src) => renderMarkdown(src).html;
+    let t = sx('| A | B | C |\n|---|---|---|\n| x | < | y |\n| z | w | ^ |\n| p | < | < |\n| ^ | < | < |');
+    assert.match(t, /<td colspan="2">x<\/td><td rowspan="2">y<\/td>/, 'merge left and up');
+    assert.match(t, /<tr><td>z<\/td><td>w<\/td><\/tr>/, 'merged cells are not drawn');
+    assert.match(t, /<td colspan="3" rowspan="2">p<\/td><\/tr><tr><\/tr>/, 'merges stack into a rectangle');
+    t = sx('| I | - | h |\n|---|---|---|\n| r1 | - | 1 |');
+    assert.match(t, /<th class="sx-row-head">r1<\/th><td>1<\/td>/, 'all-dash column makes row headers and is hidden');
+    t = sx('| a | b |\n|---|---|\n| x ~ { "text-align": "right" } | ~~s~~ \\~ y |\n| q ~ { background: "url(e)" } | <script> |');
+    assert.match(t, /<td style="text-align: right">x<\/td><td><del>s<\/del> ~ y<\/td>/, 'inline style; strike and \\~ kept');
+    assert.match(t, /<td>q<\/td><td>&lt;script&gt;<\/td>/, 'unsafe css dropped, html escaped');
+    t = sx("```sheet\n{ classes: { hot: { backgroundColor: 'orange' } } }\n--- ~ { color: 'red' }\n| H | x |\n| - | -: ~ .hot |\n| a | b |\n```");
+    assert.match(t, /<td style="color: red; text-align: right; background-color: orange">b<\/td>/, 'sheet block: table, column and class styles');
+    assert.match(sx('```sheet\n{ bad\n---\n| a |\n```'), /md-sheet-error/, 'bad metadata reported');
+    assert.match(sx('---\ndisable-sheet: true\n---\n| a | b |\n|---|---|\n| x | < |'), /<td>&lt;<\/td>/, 'disable-sheet respected');
+
     // ---- Several owners per task; People & departments lists
     const ownP = await call('POST', '/projects', { name: 'Owners test', ...CHARTER, team: 'Sam Patel, QA' });
     const ot = await call('POST', '/tasks', { project_id: ownP.id, title: 'Shared job', owner: ' Sam Patel ;Maintenance, sam patel,, ' });

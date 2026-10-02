@@ -13,6 +13,8 @@
 //   ctx.loadDoc(id)                   -> markdown of another note (for ![[Note]])
 //   ctx.path                          -> path of the note being rendered
 
+const sheets = require('./sheets');
+
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'ico'];
@@ -135,6 +137,12 @@ function blocks(lines, st) {
       const body = [];
       for (i++; i < lines.length && !close.test(lines[i]); i++) body.push(lines[i].slice(Math.min(m[1].length, indentOf(lines[i]))));
       i++;
+      if (m[3].toLowerCase() === 'sheet' && st.sheets) { // Sheets Extended table block
+        try { out.push(sheets.sheetBlock(body.join('\n'), (c) => inline(c, st))); } catch (err) {
+          out.push(`<div class="md-sheet-error">Sheet: ${esc(err.message)}</div>${codeBlock(body.join('\n'), 'sheet')}`);
+        }
+        continue;
+      }
       out.push(codeBlock(body.join('\n'), m[3].toLowerCase()));
       continue;
     }
@@ -166,7 +174,9 @@ function blocks(lines, st) {
       const head = splitRow(lines[i]);
       const align = splitRow(lines[i + 1]).map((c) => (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : c.startsWith(':') ? 'left' : ''));
       const rows = [];
+      const delimiter = splitRow(lines[i + 1]);
       for (i += 2; i < lines.length && lines[i].trim() && lines[i].includes('|'); i++) rows.push(splitRow(lines[i]));
+      if (st.sheets) { out.push(sheets.nativeTable(head, delimiter, rows, (c) => inline(c, st))); continue; }
       const cell = (tag, c, k) => `<${tag}${align[k] ? ` style="text-align:${align[k]}"` : ''}>${inline(c, st)}</${tag}>`;
       out.push(`<div class="md-table"><table><thead><tr>${head.map((c, k) => cell('th', c, k)).join('')}</tr></thead>
         <tbody>${rows.map((r) => `<tr>${head.map((_, k) => cell('td', r[k] ?? '', k)).join('')}</tr>`).join('')}</tbody></table></div>`);
@@ -386,13 +396,13 @@ function inline(text, st) {
     .replace(/\bhttps?:\/\/[^\s<>()\u0000\u0001]*[^\s<>().,;:!?'"\u0000\u0001]/g,
       (u) => hold(`<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(u)}</a>`));
   s = esc(s)
-    .replace(/\*\*\*(?=\S)(.+?\S)\*\*\*/g, '<strong><em>$1</em></strong>')
-    .replace(/\*\*(?=\S)(.+?\S)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[^\w])__(?=\S)(.+?\S)__(?!\w)/g, '$1<strong>$2</strong>')
+    .replace(/\*\*\*(\S(?:.*?\S)??)\*\*\*/g, '<strong><em>$1</em></strong>')
+    .replace(/\*\*(\S(?:.*?\S)??)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^\w])__(\S(?:.*?\S)??)__(?!\w)/g, '$1<strong>$2</strong>')
     .replace(/(^|[^*\w])\*(?=\S)([^*]*?\S)\*(?!\*)/g, '$1<em>$2</em>')
     .replace(/(^|[^\w])_(?=\S)([^_]*?\S)_(?!\w)/g, '$1<em>$2</em>')
-    .replace(/~~(?=\S)(.+?\S)~~/g, '<del>$1</del>')
-    .replace(/==(?=\S)(.+?\S)==/g, '<mark>$1</mark>')
+    .replace(/~~(\S(?:.*?\S)??)~~/g, '<del>$1</del>')
+    .replace(/==(\S(?:.*?\S)??)==/g, '<mark>$1</mark>')
     .replace(/(^|\s)#([\p{L}_][\p{L}\p{N}_/-]*)/gu, '$1<span class="md-tag">#$2</span>');
   return s.replace(/\u0000(\d+)\u0001/g, (m, n) => slots[n]);
 }
@@ -401,7 +411,9 @@ function inline(text, st) {
 
 function renderMarkdown(src, ctx = {}) {
   const { props, body } = parseFrontmatter(String(src ?? '').replace(/\r\n?/g, '\n'));
-  const st = { ctx, headings: [], slugs: new Map(), footnotes: new Map(), fnOrder: [] };
+  // Sheets Extended table features, unless the note opts out like it does in Obsidian.
+  const sheetsOn = ctx.sheets !== false && !/^(true|yes)$/i.test(String(props['disable-sheet'] ?? ''));
+  const st = { ctx, headings: [], slugs: new Map(), footnotes: new Map(), fnOrder: [], sheets: sheetsOn };
   const lines = body.replace(/%%[\s\S]*?%%/g, '').replace(/<!--[\s\S]*?-->/g, '').split('\n')
     .map((l) => l.replace(/\t/g, '    ').replace(/\s\^[A-Za-z0-9-]+\s*$/, '')); // drop ^block-ids
   let html = blocks(lines, st);

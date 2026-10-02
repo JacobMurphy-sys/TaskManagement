@@ -688,3 +688,8 @@ label.button { cursor: pointer; }
   body.printing-doc .lib-doc { padding: 0; }
   body.printing-doc .md .callout { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+/* Sheets Extended tables */
+.md th, .md td { vertical-align: middle; }
+.md .sx-table th.sx-row-head { background: var(--panel-2); font-weight: 600; text-align: left; }
+.md .md-sheet-error { color: var(--danger); background: var(--danger-soft); border-radius: 6px; padding: 6px 10px; margin-bottom: 6px;
+  font-family: Consolas, monospace; font-size: 13px; }
