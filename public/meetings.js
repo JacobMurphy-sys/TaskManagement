@@ -42,6 +42,99 @@ function richEditor(root, html, onChange) {
   return { flush: () => { if (timer) { clearTimeout(timer); timer = null; onChange(area.innerHTML); } } };
 }
 
+// ---- Date & time: a date box plus a time box with a 15-minute list (type any time too) ----
+
+// "9", "930", "9:30", "9.30", "2pm", "14:05" -> minutes after midnight (or null).
+function parseTime(text) {
+  const t = String(text).trim().toLowerCase().replace(/\s+/g, '').replace(/[.h]/, ':');
+  const m = t.match(/^(\d{1,2})(?::(\d{1,2}))?(am|pm|a|p)?$/) || t.match(/^(\d{1,2})(\d{2})(am|pm|a|p)?$/);
+  if (!m) return null;
+  let h = Number(m[1]);
+  const min = m[2] ? Number(m[2]) : 0;
+  if (m[3]) {
+    if (h < 1 || h > 12) return null;
+    h = (h % 12) + (m[3][0] === 'p' ? 12 : 0);
+  }
+  return h > 23 || min > 59 ? null : h * 60 + min;
+}
+const hhmm = (min) => `${pad(Math.floor(min / 60) % 24)}:${pad(min % 60)}`;
+
+// The fields; the chosen value is kept in a hidden "held_at" input (local "YYYY-MM-DDTHH:MM")
+// that fires "change" like any other field.
+function whenFieldHtml(iso) {
+  const v = toLocalInput(iso);
+  return `<div class="f when-field"><span>Date &amp; time</span><div class="when-row">
+    <input type="date" class="when-date" value="${v.slice(0, 10)}" required>
+    <span class="time-pick"><input type="text" class="when-time" value="${v.slice(11, 16)}" autocomplete="off" inputmode="numeric"
+      title="Pick from the list, or type e.g. 930, 14:15 or 2pm (↑ ↓ change by 15 minutes)"><span class="tp-menu" hidden></span></span>
+    <span class="small muted when-end"></span>
+    <input type="hidden" name="held_at" value="${v}"></div></div>`;
+}
+
+function wireWhenField(root) {
+  const dateIn = $('.when-date', root);
+  const timeIn = $('.when-time', root);
+  const hidden = $('input[name=held_at]', root);
+  const menu = $('.tp-menu', root);
+  const durSel = root.querySelector('[name=duration_min]') || root.closest('form, .form-grid')?.querySelector('[name=duration_min]');
+  let current = parseTime(timeIn.value) ?? 540;
+  const showEnd = () => {
+    const end = current + Number(durSel?.value || 60);
+    $('.when-end', root).textContent = `ends ${hhmm(end)}${end >= 1440 ? ' (next day)' : ''}`;
+  };
+  const commit = () => {
+    const parsed = parseTime(timeIn.value);
+    if (parsed === null) timeIn.classList.add('bad'); else { timeIn.classList.remove('bad'); current = parsed; }
+    timeIn.value = hhmm(current);
+    showEnd();
+    const v = dateIn.value && `${dateIn.value}T${hhmm(current)}`;
+    if (v && v !== hidden.value) {
+      hidden.value = v;
+      hidden.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  };
+  const open = () => {
+    menu.innerHTML = Array.from({ length: 96 }, (_, k) => k * 15).map((t) =>
+      `<span class="tp-opt ${t === current ? 'on' : ''} ${t >= 420 && t < 1140 ? 'work' : ''}" data-t="${t}">${hhmm(t)}</span>`).join('');
+    menu.hidden = false;
+    // Float above the window (fixed), below the box or above it if there's no room.
+    const r = timeIn.getBoundingClientRect();
+    const below = window.innerHeight - r.bottom > 240;
+    Object.assign(menu.style, { position: 'fixed', left: `${r.left}px`, top: below ? `${r.bottom + 2}px` : 'auto',
+      bottom: below ? 'auto' : `${window.innerHeight - r.top + 2}px` });
+    const near = $(`.tp-opt[data-t="${Math.round(current / 15) * 15 % 1440}"]`, menu);
+    if (near) menu.scrollTop = near.offsetTop - menu.clientHeight / 2 + near.offsetHeight / 2;
+  };
+  const step = (d) => {
+    current = (Math.round(current / 15) * 15 + d + 1440) % 1440;
+    timeIn.value = hhmm(current);
+    if (!menu.hidden) open();
+    commit();
+  };
+  timeIn.addEventListener('focus', () => { open(); timeIn.select(); });
+  timeIn.addEventListener('click', () => { if (menu.hidden) open(); });
+  timeIn.addEventListener('blur', () => { menu.hidden = true; commit(); });
+  timeIn.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); step(e.key === 'ArrowDown' ? 15 : -15); }
+    if (e.key === 'Enter') { e.preventDefault(); commit(); menu.hidden = true; }
+    if (e.key === 'Escape' && !menu.hidden) { e.preventDefault(); e.stopPropagation(); menu.hidden = true; }
+  });
+  menu.addEventListener('mousedown', (e) => {
+    const opt = e.target.closest('.tp-opt');
+    e.preventDefault(); // keep focus in the box
+    if (!opt) return;
+    current = Number(opt.dataset.t);
+    timeIn.value = hhmm(current);
+    menu.hidden = true;
+    commit();
+  });
+  dateIn.addEventListener('change', commit);
+  // The list floats in place, so close it if the window behind it scrolls.
+  root.closest('dialog')?.addEventListener('scroll', (e) => { if (e.target !== menu) menu.hidden = true; }, true);
+  durSel?.addEventListener('change', showEnd);
+  showEnd();
+}
+
 const meetingEnd = (m) => new Date(new Date(m.held_at).getTime() + (m.duration_min || 60) * 60000);
 const meetingWhen = (m) => `${fmtDateTime(m.held_at)}–${pad(meetingEnd(m).getHours())}:${pad(meetingEnd(m).getMinutes())}`;
 const actionsLabel = (m) => (m.action_count ? `☑ ${m.actions_done}/${m.action_count} action${m.action_count === 1 ? '' : 's'}` : '');
@@ -92,15 +185,16 @@ function newMeetingDialog({ projectId, taskId, at, duration = 60, pickProject = 
     <div class="modal-head"><h2 style="margin:0">🗓 New meeting</h2><button class="icon" data-action="close-modal">✕</button></div>
     <form id="meeting-new" class="form-grid">
       <label class="f full">Title<input type="text" name="title" required placeholder="e.g. Weekly progress review" value="Progress meeting"></label>
-      <label class="f">Date &amp; time<input type="datetime-local" name="held_at" required value="${toLocalInput(now.toISOString())}"></label>
+      ${whenFieldHtml(now.toISOString())}
       <label class="f">Duration<select name="duration_min">${durationOptions(duration)}</select></label>
-      <label class="f">Location <span class="muted small">(optional)</span><input type="text" name="location" placeholder="Room, Teams…"></label>
+      <label class="f">Location<input type="text" name="location" placeholder="Room, Teams… (optional)"></label>
       ${pickProject ? `<label class="f">Project<select name="project_id"><option value="">— None (a meeting of its own) —</option>
         ${projects.map((p) => `<option value="${p.id}" ${p.id === projectId ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>` : ''}
       <div class="full row"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button>
         <button class="primary" type="submit">Create &amp; open</button></div>
     </form>`);
   const form = $('#meeting-new');
+  wireWhenField(form);
   form.querySelector('[name=title]').select();
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -132,7 +226,7 @@ async function meetingEditor(id, opts = {}) {
     </div>
     <div class="form-grid" id="meeting-form">
       <label class="f full">Title<input type="text" name="title" value="${esc(m.title)}"></label>
-      <label class="f">Date &amp; time<input type="datetime-local" name="held_at" value="${toLocalInput(m.held_at)}"></label>
+      ${whenFieldHtml(m.held_at)}
       <label class="f">Duration<select name="duration_min">${durationOptions(m.duration_min)}</select></label>
       <label class="f">Location<input type="text" name="location" value="${esc(m.location || '')}" placeholder="Room, Teams…"></label>
       <div class="f full"><span>Attendees</span><div id="mt-attendees"></div></div>
@@ -170,6 +264,7 @@ async function meetingEditor(id, opts = {}) {
   const save = async (body) => {
     try { await api.patch(`/meetings/${m.id}`, body); state.modalDirty = true; saved(); } catch (err) { toast(err.message, 'error'); }
   };
+  wireWhenField($('#meeting-form'));
   $$('#meeting-form [name]').forEach((el) => el.addEventListener('change', () => {
     if (el.name === 'title' && !el.value.trim()) { el.value = m.title; return; }
     save({ [el.name]: el.name === 'held_at' ? fromLocalInput(el.value) : el.name === 'duration_min' ? Number(el.value) : el.value });

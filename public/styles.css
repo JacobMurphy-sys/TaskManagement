@@ -788,3 +788,20 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .cal-block.short .cal-block-time { flex: none; }
 .cal-block.short .cal-block-title { overflow: hidden; text-overflow: ellipsis; }
 .cal-block.short .cal-block-sub { display: none; }
+
+/* ---- meeting date & time */
+.when-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.when-row .when-date { width: auto; }
+.time-pick { position: relative; display: inline-block; }
+.time-pick .when-time { width: 76px; text-align: center; font-variant-numeric: tabular-nums; }
+.time-pick .when-time.bad { border-color: var(--danger); }
+.tp-menu { position: absolute; z-index: 40; top: calc(100% + 2px); left: 0; width: 96px; max-height: 232px; overflow-y: auto; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.15); padding: 4px 0; display: block; }
+.tp-menu[hidden] { display: none; }
+.tp-opt { display: block; padding: 4px 12px; cursor: pointer; font-variant-numeric: tabular-nums; color: var(--muted); }
+.tp-opt.work { color: var(--text); }
+.tp-opt:hover { background: var(--panel-2); }
+.tp-opt.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.form-grid .when-field { grid-column: span 2; }
+.when-row { flex-wrap: nowrap; }
+@media (max-width: 700px) { .form-grid .when-field { grid-column: 1 / -1; } .when-row { flex-wrap: wrap; } }
