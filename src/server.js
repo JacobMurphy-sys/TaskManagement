@@ -14,10 +14,10 @@ try {
 }
 
 const app = express();
-// Vault imports send attachments in batches, so they get a larger limit.
+// Vault imports send attachments in batches, and an A3 export sends chart pictures, so they get a larger limit.
 const jsonSmall = express.json({ limit: '1mb' });
 const jsonLarge = express.json({ limit: '80mb' });
-app.use((req, res, next) => (req.path.startsWith('/api/library/import') ? jsonLarge : jsonSmall)(req, res, next));
+app.use((req, res, next) => (req.path.startsWith('/api/library/import') || /^\/api\/kpi\/snapshots\/\d+\/export$/.test(req.path) ? jsonLarge : jsonSmall)(req, res, next));
 
 // Lets the launcher check that the app is already up.
 app.get('/api/health', (req, res) => res.json({ app: 'taskmanager', ok: true }));

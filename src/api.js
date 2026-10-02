@@ -1283,9 +1283,107 @@ router.post('/ideas/:id/escalate', h((req, res) => {
   res.status(201).json(normProject(project));
 }));
 
+// ------------------------------------------------------------------ weekly KPIs
+
+const kpi = require('./kpi');
+const zlibSync = require('zlib');
+const kpiMeta = (r) => ({ id: r.id, week: r.week, year: r.year, month: r.month, source_name: r.source_name, source_modified: r.source_modified,
+  loaded_at: r.updated_at, exported_at: r.exported_at, exported_to: r.exported_to });
+
+function storeWeek(buf, sourceName, sourceModified) {
+  const set = getSettings();
+  let w;
+  try {
+    w = kpi.loadWeek(buf, { a3Sheet: set.kpi_a3_sheet, dbSheet: set.kpi_db_sheet, weekCell: set.kpi_week_cell });
+  } catch (err) { throw new HttpError(400, err.message); }
+  const row = {
+    week: w.week, year: w.year, month: w.month, source_name: sourceName || null, source_modified: sourceModified || null,
+    model: zlibSync.gzipSync(JSON.stringify({ views: w.views, sheets: w.sheets, errors: w.errors })).toString('base64'),
+    pkg: w.pkg.toString('base64'), updated_at: nowIso(),
+  };
+  const old = db.get('SELECT id FROM kpi_snapshots WHERE week = ?', [w.week]);
+  const saved = old ? fresh('kpi_snapshots', updateRow('kpi_snapshots', old.id, { ...row, exported_at: null, exported_to: null })) : insertRow('kpi_snapshots', row);
+  log.info(`KPI week ${w.week} ${old ? 'reloaded' : 'loaded'}`, { from: sourceName });
+  return { ...kpiMeta(saved), replaced: !!old, errors: w.errors };
+}
+
+router.get('/kpi/snapshots', h((req, res) => {
+  res.json(db.all('SELECT * FROM kpi_snapshots ORDER BY year DESC, week DESC').map(kpiMeta));
+}));
+
+router.get('/kpi/snapshots/:id', h((req, res) => {
+  const r = db.get('SELECT * FROM kpi_snapshots WHERE id = ?', [req.params.id]);
+  if (!r) throw notFound('Week');
+  res.json({ ...kpiMeta(r), ...JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8')) });
+}));
+
+router.delete('/kpi/snapshots/:id', h((req, res) => {
+  if (!db.run('DELETE FROM kpi_snapshots WHERE id = ?', [req.params.id]).changes) throw notFound('Week');
+  res.status(204).end();
+}));
+
+// Load the week the workbook is showing: an uploaded copy…
+router.post('/kpi/load', express.raw({ type: '*/*', limit: '200mb' }), h((req, res) => {
+  if (!req.body?.length) throw new HttpError(400, 'Choose the workbook to load');
+  const name = fileNameHeader(req, 'workbook.xlsm');
+  if (!/\.xls[xm]$/i.test(name)) throw new HttpError(400, 'Choose an Excel workbook (.xlsx or .xlsm)');
+  res.status(201).json(storeWeek(req.body, name, req.get('X-File-Modified') || null));
+}));
+
+// …or straight from where it's saved (e.g. on the S: drive).
+router.post('/kpi/load-path', h((req, res) => {
+  const file = String(req.body.path || getSettings().kpi_workbook_path || '').trim().replace(/^"|"$/g, '');
+  if (!file) throw new HttpError(400, 'Set where the workbook is saved first');
+  if (!/\.xls[xm]$/i.test(file)) throw new HttpError(400, 'That isn\'t an Excel workbook (.xlsx or .xlsm)');
+  let buf; let stat;
+  try { stat = fs.statSync(file); buf = fs.readFileSync(file); } catch (err) {
+    throw new HttpError(400, err.code === 'ENOENT' ? `Can't find ${file}` : err.code === 'EBUSY' || err.code === 'EPERM' ? `${file} is locked — close it in Excel, or save and try again` : `Can't open ${file}: ${err.message}`);
+  }
+  res.status(201).json(storeWeek(buf, path.basename(file), stat.mtime.toISOString()));
+}));
+
+// The disconnected A3: chart pictures come from the page (PNG, base64). With save,
+// it's also written to the export folder for the week.
+router.post('/kpi/snapshots/:id/export', h((req, res) => {
+  const r = db.get('SELECT * FROM kpi_snapshots WHERE id = ?', [req.params.id]);
+  if (!r) throw notFound('Week');
+  const images = {};
+  for (const [index, data] of Object.entries(req.body.charts || {})) {
+    const m = String(data || '').match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
+    if (m) images[index] = Buffer.from(m[1], 'base64');
+  }
+  const file = kpi.exportA3(Buffer.from(r.pkg, 'base64'), images);
+  const set = getSettings();
+  const name = kpi.fillPattern(set.kpi_export_name || 'A3 {year} WK{wk}.xlsx', r.week).replace(/[\\/:*?"<>|]/g, '-');
+  let savedTo = null;
+  if (req.body.save) {
+    const dir = kpi.fillPattern(set.kpi_export_dir, r.week).trim();
+    if (!dir) throw new HttpError(400, 'Set the folder the A3 is saved to first');
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      savedTo = path.join(dir, name);
+      fs.writeFileSync(savedTo, file);
+    } catch (err) {
+      throw new HttpError(400, err.code === 'EBUSY' || err.code === 'EPERM' ? `${path.join(dir, name)} is open in Excel — close it and try again` : `Couldn't save to ${dir}: ${err.message}`);
+    }
+    updateRow('kpi_snapshots', r.id, { exported_at: nowIso(), exported_to: savedTo });
+    log.info(`A3 for ${r.week} saved`, { to: savedTo });
+  }
+  res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.set('Content-Disposition', `attachment; filename="${name.replace(/[^\x20-\x7e]|"/g, '_')}"; filename*=UTF-8''${encodeURIComponent(name)}`);
+  if (savedTo) res.set('X-Saved-To', encodeURIComponent(savedTo));
+  res.send(file);
+}));
+
 // ------------------------------------------------------------------ settings & areas
 
-const SETTING_DEFAULTS = { currency: '£', report_last_sent: '' };
+const SETTING_DEFAULTS = {
+  currency: '£', report_last_sent: '',
+  // Weekly KPIs: where the CI workbook is, its sheets, and where the A3 copy is saved
+  // ({year} {yy} {wk} {week} are filled in from the reporting week).
+  kpi_workbook_path: '', kpi_a3_sheet: 'A3 Weekly Report', kpi_db_sheet: 'Database', kpi_week_cell: 'B2',
+  kpi_export_dir: '', kpi_export_name: 'A3 {year} WK{wk}.xlsx',
+};
 function getSettings() {
   const out = { ...SETTING_DEFAULTS };
   for (const r of db.all('SELECT key, value FROM settings')) if (r.key in SETTING_DEFAULTS) out[r.key] = r.value;

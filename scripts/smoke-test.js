@@ -823,6 +823,112 @@ async function waitForServer() {
     assert.equal(up2.status, 400, 'a non-backup file is refused');
     assert.match((await up2.json()).error, /not a CI Manager backup/);
 
+    // ---- Weekly KPIs: a small workbook like the CI one (A3 + Database, a cross-sheet
+    // conditional format, a chart), loaded, viewed and exported as a disconnected A3
+    {
+      const { zip: mkZip, readZip: rz } = require('../src/xlsx');
+      const { formatValue } = require('../src/numfmt');
+      const { evaluate } = require('../src/xlformula');
+      assert.equal(formatValue(0.6654, '0.0%').text, '66.5%');
+      assert.equal(formatValue(-1234.5, '#,##0.0').text, '-1,234.5');
+      assert.equal(formatValue(-0.4, '#,##0.0\\K;\\-#,##0.0\\K').text, '-0.4K');
+      assert.equal(formatValue(46297, 'mmm-yy').text, 'Oct-26');
+      assert.deepEqual(formatValue(-2, '0;[Red]-0'), { text: '-2', color: 'FF0000' });
+      const cells = { A1: -3, B1: 'up ▲' };
+      const ectx = { sheet: 'S', cell: (sh, r, c) => cells[String.fromCharCode(64 + c) + r] ?? null };
+      assert.equal(evaluate('AND(A1>-10,A1<0)', ectx), true);
+      assert.equal(evaluate('NOT(ISERROR(SEARCH("▲",B1)))', ectx), true);
+      assert.equal(evaluate('C1=0', ectx), true, 'a blank cell equals 0');
+      assert.equal(evaluate('1/0', ectx).error, '#DIV/0!');
+
+      const x = (s) => Buffer.from(s, 'utf8');
+      const ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+      const book = {
+        '[Content_Types].xml': x('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.ms-excel.sheet.macroEnabled.main+xml"/></Types>'),
+        '_rels/.rels': x('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'),
+        'xl/workbook.xml': x(`<?xml version="1.0"?><workbook ${ns}><sheets><sheet name="Database" sheetId="1" r:id="rId1"/><sheet name="A3 Weekly Report" sheetId="2" r:id="rId2"/></sheets><externalReferences><externalReference r:id="rId9"/></externalReferences></workbook>`),
+        'xl/_rels/workbook.xml.rels': x('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'),
+        'xl/styles.xml': x('<?xml version="1.0"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="0.0%"/></numFmts><fonts count="1"><font><sz val="11"/><color theme="1"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><dxfs count="1"><dxf><font><b/><color rgb="FFFF0000"/></font><fill><patternFill><bgColor rgb="FFFFC7CE"/></patternFill></fill></dxf></dxfs></styleSheet>'),
+        'xl/worksheets/sheet1.xml': x(`<?xml version="1.0"?><worksheet ${ns}><sheetData><row r="2"><c r="A2" t="inlineStr"><is><t>Sept</t></is></c><c r="B2" t="inlineStr"><is><t>W2639</t></is></c></row><row r="9"><c r="B9"><v>0.998</v></c></row></sheetData></worksheet>`),
+        'xl/worksheets/sheet2.xml': x(`<?xml version="1.0"?><worksheet ${ns}><cols><col min="1" max="3" width="15" customWidth="1"/></cols><sheetData>`
+          + '<row r="1" ht="30" customHeight="1"><c r="A1" t="str"><f>Database!B2</f><v>W2639</v></c><c r="B1" s="1"><f>[1]Other!A1/2</f><v>0.665</v></c><c r="C1" t="str"><f>"▼"</f><v>▼</v></c></row>'
+          + '<row r="2"><c r="A2"><f>SUM(1,2)</f><v>3</v></c><c r="B2" s="1"><v>0.999</v></c></row></sheetData><mergeCells count="1"><mergeCell ref="A3:C3"/></mergeCells>'
+          + '<conditionalFormatting sqref="C1"><cfRule type="containsText" dxfId="0" priority="1" operator="containsText" text="▼"><formula>NOT(ISERROR(SEARCH("▼",C1)))</formula></cfRule></conditionalFormatting>'
+          + '<dataValidations count="1"><dataValidation type="list" sqref="A2"><formula1>"1,2"</formula1></dataValidation></dataValidations>'
+          + '<drawing r:id="rId1"/><extLst><ext uri="{78C0D931-6437-407d-A8EE-F0AAD7539E65}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"><x14:conditionalFormattings><x14:conditionalFormatting xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main">'
+          + '<x14:cfRule type="expression" priority="2" id="{1}"><xm:f>B1&lt;Database!$B$9</xm:f><x14:dxf><font><color rgb="FFFF0000"/></font></x14:dxf></x14:cfRule>'
+          + '<x14:cfRule type="expression" priority="3" id="{2}"><xm:f>B1&gt;=Database!$B$9</xm:f><x14:dxf><font><color rgb="FF00B050"/></font></x14:dxf></x14:cfRule><xm:sqref>B1:B2</xm:sqref></x14:conditionalFormatting></x14:conditionalFormattings></ext></extLst></worksheet>'),
+        'xl/worksheets/_rels/sheet2.xml.rels': x('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>'),
+        'xl/drawings/drawing1.xml': x('<?xml version="1.0"?><xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><xdr:twoCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>3</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>3</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>12</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to><xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="2" name="Chart 1"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor></xdr:wsDr>'),
+        'xl/drawings/_rels/drawing1.xml.rels': x('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart1.xml"/></Relationships>'),
+        'xl/charts/chart1.xml': x('<?xml version="1.0"?><c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><c:chart><c:autoTitleDeleted val="1"/><c:plotArea><c:layout/><c:lineChart><c:grouping val="standard"/><c:ser><c:idx val="0"/><c:order val="0"/><c:tx><c:strRef><c:f>Database!$D$43</c:f><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>OTD SC</c:v></c:pt></c:strCache></c:strRef></c:tx><c:spPr><a:ln w="38100"><a:solidFill><a:srgbClr val="430099"/></a:solidFill></a:ln></c:spPr><c:cat><c:strRef><c:f>x</c:f><c:strCache><c:ptCount val="2"/><c:pt idx="0"><c:v>W2638</c:v></c:pt><c:pt idx="1"><c:v>W2639</c:v></c:pt></c:strCache></c:strRef></c:cat><c:val><c:numRef><c:f>y</c:f><c:numCache><c:formatCode>0%</c:formatCode><c:ptCount val="2"/><c:pt idx="0"><c:v>1</c:v></c:pt><c:pt idx="1"><c:v>0.665</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser><c:axId val="1"/><c:axId val="2"/></c:lineChart><c:catAx><c:axId val="1"/><c:axPos val="b"/><c:crossAx val="2"/></c:catAx><c:valAx><c:axId val="2"/><c:scaling><c:orientation val="minMax"/><c:max val="1"/><c:min val="0.3"/></c:scaling><c:axPos val="l"/><c:numFmt formatCode="0.0%" sourceLinked="0"/><c:crossAx val="1"/></c:valAx></c:plotArea><c:legend><c:legendPos val="b"/></c:legend></c:chart></c:chartSpace>'),
+        'xl/vbaProject.bin': x('not really vba'),
+      };
+      const wbFile = mkZip(book);
+      const loadKpi = (buf, name) => fetch(`${BASE}/kpi/load`, { method: 'POST', body: buf,
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(name) } });
+      let lr = await loadKpi(wbFile, 'CI Hub.xlsm');
+      assert.equal(lr.status, 201);
+      const wk = await lr.json();
+      assert.deepEqual([wk.week, wk.year, wk.month, wk.replaced], ['W2639', 2026, 'Sept', false], 'the week the workbook shows');
+      assert.equal((await (await loadKpi(wbFile, 'CI Hub.xlsm')).json()).replaced, true, 'loading the same week again replaces it');
+      assert.equal((await loadKpi(Buffer.from('nope'), 'notes.txt')).status, 400, 'only workbooks');
+      assert.match((await (await loadKpi(mkZip({ ...book, 'xl/workbook.xml': x(`<workbook ${ns}><sheets><sheet name="Other" sheetId="1" r:id="rId1"/></sheets></workbook>`) }), 'x.xlsx')).json()).error, /no sheet called "A3 Weekly Report"/);
+      const snap = await call('GET', `/kpi/snapshots/${wk.id}`);
+      const cellAt = (v, row, col) => v.cells.find((c) => c[0] === row && c[1] === col);
+      const a3v = snap.views.a3;
+      assert.equal(cellAt(a3v, 1, 2)[2], '66.5%', 'cached value in its number format');
+      assert.match(a3v.styles[cellAt(a3v, 1, 2)[3]], /color:#FF0000/, 'cross-sheet rule against the target (x14) → red');
+      assert.match(a3v.styles[cellAt(a3v, 2, 2)[3]], /color:#00B050/, 'at or above target → green');
+      assert.match(a3v.styles[cellAt(a3v, 1, 3)[3]], /color:#FF0000;background:#FFC7CE/, 'contains ▼ → red on pink');
+      assert.equal(a3v.cols[0], 105, 'column width in pixels as Excel draws it');
+      assert.equal(a3v.rows[0], 40, 'row height 30pt = 40px');
+      assert.equal(a3v.charts.length, 1);
+      const ax = Object.values(a3v.charts[0].spec.axes).find((a) => a.kind === 'valAx');
+      assert.deepEqual(ax.ticks.map((t) => t.text), ['30.0%', '40.0%', '50.0%', '60.0%', '70.0%', '80.0%', '90.0%', '100.0%'], 'axis ticks as Excel spaces them');
+      assert.deepEqual(a3v.charts[0].spec.groups[0].series[0].vals, [1, 0.665], 'chart drawn from its stored values');
+      assert.ok(snap.views.database.cells.some((c) => c[2] === 'W2639'), 'Database sheet view');
+      assert.equal((await call('GET', '/kpi/snapshots')).length, 1);
+      // the disconnected A3
+      const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+      const expRes = await fetch(`${BASE}/kpi/snapshots/${wk.id}/export`, { method: 'POST', body: JSON.stringify({ charts: { 0: png } }), headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } });
+      assert.equal(expRes.status, 200);
+      assert.match(expRes.headers.get('content-disposition'), /A3 2026 WK39\.xlsx/);
+      const out = rz(Buffer.from(await expRes.arrayBuffer()));
+      const sheetXml = out['xl/worksheets/sheet1.xml'].toString();
+      assert.ok(!/<f[ >]/.test(sheetXml), 'no formulas');
+      assert.ok(!/conditionalFormatting|dataValidation|extLst/.test(sheetXml), 'no rules or validations left');
+      assert.ok(!out['xl/vbaProject.bin'] && !Object.keys(out).some((k) => /externalLink|connections|charts\//.test(k)), 'no macros, links, queries or live charts');
+      assert.match(out['[Content_Types].xml'].toString(), /spreadsheetml\.sheet\.main\+xml/, 'a plain .xlsx');
+      assert.match(sheetXml, /<c r="A1"[^>]*t="inlineStr"><is><t xml:space="preserve">W2639<\/t>/, 'values kept');
+      assert.match(sheetXml, /<mergeCell ref="A3:C3"\/>/, 'layout kept');
+      const red = sheetXml.match(/<c r="B1" s="(\d+)"/)[1];
+      const xfs = [...out['xl/styles.xml'].toString().match(/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/)[1].matchAll(/<xf\b[^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g)].map((m) => m[0]);
+      const fonts = [...out['xl/styles.xml'].toString().match(/<fonts\b[^>]*>([\s\S]*?)<\/fonts>/)[1].matchAll(/<font\b[\s\S]*?<\/font>/g)].map((m) => m[0]);
+      assert.match(fonts[Number(xfs[red].match(/fontId="(\d+)"/)[1])], /FFFF0000/, 'the red written into the cell\'s own format');
+      assert.match(xfs[red], /numFmtId="164"/, 'number format kept');
+      assert.ok(out['xl/media/chart0.png'] && /<xdr:pic>[\s\S]*r:embed="rIdChart0"/.test(out['xl/drawings/drawing1.xml'].toString()), 'chart replaced by its picture, same place');
+      assert.ok(!/graphicFrame|CIM-CHART/.test(out['xl/drawings/drawing1.xml'].toString()));
+      // saved into the week's folder
+      await assert.rejects(call('POST', `/kpi/snapshots/${wk.id}/export`, { save: true }), /Set the folder/);
+      await call('PATCH', '/settings', { kpi_export_dir: path.join(tmp, 'OPS', '{year}', 'Weekly', 'WK{wk}'), kpi_export_name: 'SC {year} WK{wk}.xlsx' });
+      const saved = await fetch(`${BASE}/kpi/snapshots/${wk.id}/export`, { method: 'POST', body: JSON.stringify({ save: true }), headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } });
+      assert.equal(saved.status, 200);
+      const savedPath = path.join(tmp, 'OPS', '2026', 'Weekly', 'WK39', 'SC 2026 WK39.xlsx');
+      assert.ok(fs.existsSync(savedPath), 'written to the WK folder (created)');
+      assert.ok(!/<xdr:pic>/.test(rz(fs.readFileSync(savedPath))['xl/drawings/drawing1.xml'].toString()), 'a chart without a picture is left out');
+      assert.equal((await call('GET', `/kpi/snapshots/${wk.id}`)).exported_to, savedPath);
+      // from where the workbook is saved
+      const onDisk = path.join(tmp, 'CI Hub.xlsm');
+      fs.writeFileSync(onDisk, wbFile);
+      await assert.rejects(call('POST', '/kpi/load-path', {}), /Set where the workbook is saved/);
+      await call('PATCH', '/settings', { kpi_workbook_path: onDisk });
+      assert.equal((await call('POST', '/kpi/load-path', {})).source_name, 'CI Hub.xlsm');
+      await assert.rejects(call('POST', '/kpi/load-path', { path: path.join(tmp, 'missing.xlsm') }), /Can't find/);
+      await call('DELETE', `/kpi/snapshots/${wk.id}`);
+      assert.equal((await call('GET', '/kpi/snapshots')).length, 0);
+    }
+
     await call('POST', '/shutdown');
     const code = await new Promise((r) => server.once('exit', r));
     assert.equal(code, 0, 'server exits cleanly on shutdown');

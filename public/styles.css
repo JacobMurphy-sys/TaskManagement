@@ -287,7 +287,7 @@ label.f > * { color: var(--text); font-size: 14px; }
 table.dash-projects td { vertical-align: middle; }
 
 /* ---------- narrow screens */
-@media (max-width: 1500px) { #topbar .wide-only { display: none; } }
+@media (max-width: 1500px) { #topbar .wide-only { display: none; } #topnav a { padding: 6px 7px; } }
 @media (max-width: 1300px) { #topnav .lbl { display: none; } #topnav a { padding: 6px 8px; font-size: 1.05rem; } }
 @media (max-width: 900px) {
   .grid.two { grid-template-columns: 1fr; }
@@ -834,3 +834,24 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .form-grid .when-field { grid-column: span 2; }
 .when-row { flex-wrap: nowrap; }
 @media (max-width: 700px) { .form-grid .when-field { grid-column: 1 / -1; } .when-row { flex-wrap: wrap; } }
+
+/* ---------- 📊 KPIs: workbook sheets drawn as in Excel */
+.kpi-tools select { width: auto; }
+.kpi-tools .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.kpi-tools .seg a { padding: 5px 12px; color: var(--text); text-decoration: none; }
+.kpi-tools .seg a.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.kpi-setup { margin: 10px 0; }
+.kpi-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 10px 0 8px; }
+.kpi-meta .spacer { flex: 1; }
+.kpi-meta code { font-size: 11px; }
+.kpi-zoom input { width: 120px; vertical-align: middle; }
+.kpi-sheet-wrap { padding: 12px; overflow: auto; background: #fff; }
+#kpi-sheet { transform-origin: 0 0; }
+.xsheet { position: relative; background: #fff; color: #000; font-family: Calibri, Arial, sans-serif; }
+.xs-grid { position: absolute; inset: 0; pointer-events: none; }
+.xs-grid line { stroke: #e3e3e3; stroke-width: 1; }
+.xc { position: absolute; box-sizing: border-box; display: flex; overflow: visible; padding: 0 2px; line-height: 1.15; }
+.xc.xt { z-index: 1; }
+.xc.xw { overflow: hidden; }
+.xc.xw > span { min-width: 0; width: 100%; }
+.xi, .xchart { position: absolute; z-index: 2; }

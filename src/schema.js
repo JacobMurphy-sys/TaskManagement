@@ -252,6 +252,24 @@ const TABLES = {
   // Library: notes imported from an Obsidian vault (read-only in the app). Their
   // attachments are files in DATA_DIR/library. Not audited: an import replaces many
   // notes at once, and the vault is the record of their history.
+  // Weekly KPI snapshots from the CI workbook: what the A3 and Database sheets showed
+  // (view model, gzipped JSON in base64) and the disconnected A3 (zip in base64).
+  // Not audited: a load replaces a whole week.
+  kpi_snapshots: `
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    week            TEXT    NOT NULL COLLATE NOCASE,
+    year            INTEGER,
+    month           TEXT,
+    source_name     TEXT,
+    source_modified TEXT,
+    model           TEXT    NOT NULL,
+    pkg             TEXT    NOT NULL,
+    exported_at     TEXT,
+    exported_to     TEXT,
+    created_at      TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at      TEXT    NOT NULL DEFAULT (${NOW}),
+    UNIQUE (week)`,
+
   library_docs: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     path        TEXT    NOT NULL,
