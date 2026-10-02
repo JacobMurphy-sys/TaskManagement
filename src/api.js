@@ -546,7 +546,7 @@ router.get('/name-lists', h((req, res) => {
   const owners = db.all("SELECT owner FROM tasks WHERE owner IS NOT NULL AND status <> 'done'").map((r) => r.owner);
   const depts = departmentsList();
   const all = db.all('SELECT * FROM name_list_items ORDER BY sort_order, name');
-  res.json(lists.map((l) => ({ ...l, departments: !!depts && l.id === depts.id, items: all.filter((i) => i.list_id === l.id).map((i) => {
+  res.json(lists.map((l) => ({ ...l, fixed: isFixedList(l), departments: !!depts && l.id === depts.id, items: all.filter((i) => i.list_id === l.id).map((i) => {
     const item = { ...i, active: !!i.active, open_tasks: owners.filter((o) => ownsTask(o, i.name)).length };
     if (depts && l.id === depts.id) {
       // A department's open tasks: ones it owns itself, plus ones owned by anyone in it.
@@ -566,9 +566,13 @@ router.post('/name-lists', h((req, res) => {
   res.status(201).json(insertRow('name_lists', { name, sort_order: sort }));
 }));
 
-// The Departments list is what people's departments point at, so it can't be renamed or deleted.
+// The two built-in lists, People and Departments, keep their names (people's departments
+// come from the Departments list), so they can't be renamed or deleted. Lists you add can.
+const FIXED_LISTS = ['people', 'departments'];
+const isFixedList = (l) => !!l && FIXED_LISTS.includes(String(l.name).toLowerCase());
 const lockedList = (id) => {
-  if (Number(id) === departmentsList()?.id) throw new HttpError(400, 'The Departments list can\'t be renamed or deleted — people\'s departments come from it');
+  const l = db.get('SELECT * FROM name_lists WHERE id = ?', [id]);
+  if (isFixedList(l)) throw new HttpError(400, `The ${l.name} list is built in, so it can't be renamed or deleted`);
 };
 
 router.patch('/name-lists/:id', h((req, res) => {
@@ -578,6 +582,7 @@ router.patch('/name-lists/:id', h((req, res) => {
     f.name = String(req.body.name || '').trim();
     if (!f.name) throw new HttpError(400, 'List name is required');
     if (db.get('SELECT 1 FROM name_lists WHERE name = ? AND id <> ?', [f.name, req.params.id])) throw new HttpError(400, `There's already a list called "${f.name}"`);
+    if (FIXED_LISTS.includes(f.name.toLowerCase())) throw new HttpError(400, `"${f.name}" is the name of a built-in list`);
   }
   if ('sort_order' in req.body) f.sort_order = Number(req.body.sort_order) || 0;
   const row = fresh('name_lists', updateRow('name_lists', req.params.id, f));

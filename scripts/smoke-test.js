@@ -536,6 +536,9 @@ async function waitForServer() {
     assert.equal((await call('GET', '/contacts/teams')).find((x) => x.name === 'Sam Patel').department, 'Maint Eng');
     await assert.rejects(call('DELETE', `/name-list-items/${eng.id}`), /2 people are in Maint Eng/, 'a department with people stays');
     await assert.rejects(call('PATCH', `/name-lists/${depts.id}`, { name: 'Teams' }), /can't be renamed/);
+    await assert.rejects(call('PATCH', `/name-lists/${peopleL.id}`, { name: 'Staff' }), /built in/, 'People keeps its name');
+    await assert.rejects(call('DELETE', `/name-lists/${peopleL.id}`), /built in/);
+    assert.deepEqual((await call('GET', '/name-lists')).map((l) => l.fixed), [true, true]);
     // renaming a person carries through to the project team, leader and sponsor
     const samItem = (await call('GET', '/name-lists'))[0].items.find((i) => i.name === 'Sam Patel');
     await call('PATCH', `/projects/${ownP.id}`, { sponsor: 'sam patel' });
@@ -552,6 +555,8 @@ async function waitForServer() {
     await assert.rejects(call('DELETE', `/name-lists/${depts.id}`), /can't be renamed or deleted/, 'the Departments list stays');
     const sup = await call('POST', '/name-lists', { name: 'Suppliers' });
     await call('POST', `/name-lists/${sup.id}/items`, { name: 'Engineering' });
+    await assert.rejects(call('PATCH', `/name-lists/${sup.id}`, { name: 'people' }), /already a list called/);
+    assert.equal((await call('PATCH', `/name-lists/${sup.id}`, { name: 'Vendors' })).name, 'Vendors', 'own lists can be renamed');
     await call('DELETE', `/name-lists/${sup.id}`);
     assert.equal((await call('GET', '/name-lists')).length, 2);
     assert.equal((await call('GET', `/tasks/${ot.id}`)).owner, 'Sam Patel, Maint Eng', 'deleting a list leaves task owners alone');

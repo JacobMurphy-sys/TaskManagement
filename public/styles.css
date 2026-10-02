@@ -574,9 +574,7 @@ label.button { cursor: pointer; }
 .cb-add { margin: 8px 12px; }
 .cb-row .cb-everyone { margin-left: auto; white-space: nowrap; }
 .people-list.has-dept { grid-column: 1 / -1; }
-.people-list td.pl-who { white-space: nowrap; min-width: 150px; font-weight: 500; }
-.people-list td.pl-who .icon { margin-left: 4px; opacity: .5; }
-.people-list tr:hover td.pl-who .icon { opacity: 1; }
+.people-list td input[name=name] { min-width: 150px; }
 .people-list .pl-fixed { padding: 6px 2px; }
 .people-list select[name=department] { min-width: 130px; width: 100%; }
 .cb-foot { gap: 8px; }
