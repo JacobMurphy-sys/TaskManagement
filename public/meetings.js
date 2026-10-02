@@ -321,8 +321,10 @@ async function copyMinutes(id) {
   // Only the actions still open, as "Action — owner" (no due dates).
   const open = m.actions.filter((a) => a.status !== 'done');
   const actions = open.map((a) => `${a.title}${a.owner ? ` — ${a.owner}` : ''}`);
-  const html = `<h3>${esc(m.title)}</h3><p>${esc(meetingWhen(m))}${m.location ? ` · ${esc(m.location)}` : ''}${head ? `<br>${esc(head)}` : ''}`
-    + `${m.attendees ? `<br><b>Attendees:</b> ${esc(m.attendees)}` : ''}</p>${m.notes ? `<p><b>Notes</b></p>${m.notes}` : ''}`
+  // No date or time in the copy: location, project and attendees under the title.
+  const details = [m.location && esc(m.location), head && esc(head), m.attendees && `<b>Attendees:</b> ${esc(m.attendees)}`].filter(Boolean);
+  const html = `<h3>${esc(m.title)}</h3>${details.length ? `<p>${details.join('<br>')}</p>` : ''}`
+    + `${m.notes ? `<p><b>Notes</b></p>${m.notes}` : ''}`
     + `${actions.length ? `<p><b>Actions agreed</b></p><ul>${actions.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>` : ''}`;
   const tmp = document.createElement('div');
   tmp.innerHTML = m.notes || '';
@@ -330,7 +332,7 @@ async function copyMinutes(id) {
   $$('ul, ol', tmp).forEach((list) => list.before('\n'));
   $$('br', tmp).forEach((br) => br.replaceWith('\n'));
   $$('li, p, div', tmp).forEach((el) => el.append('\n'));
-  const text = [m.title, `${meetingWhen(m)}${m.location ? ` · ${m.location}` : ''}`, head || null, m.attendees && `Attendees: ${m.attendees}`, '',
+  const text = [m.title, m.location || null, head || null, m.attendees && `Attendees: ${m.attendees}`, '',
     m.notes && 'Notes', tmp.textContent.replace(/\n{3,}/g, '\n\n').trim(), '',
     actions.length && 'Actions agreed', ...actions.map((a) => `• ${a}`)].filter((x) => x !== null && x !== undefined && x !== false).join('\n');
   try {
