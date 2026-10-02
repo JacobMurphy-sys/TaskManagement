@@ -318,23 +318,26 @@ async function meetingEditor(id, opts = {}) {
 async function copyMinutes(id) {
   const m = await api.get(`/meetings/${id}`);
   const head = [m.project_name, m.task_title && `re: ${m.task_title}`].filter(Boolean).join(' — ');
-  const actions = m.actions.map((a) => ({ text: `${a.title}${a.owner ? ` — ${a.owner}` : ''}${a.due_at ? ` — due ${fmtDate(a.due_at)}` : ''}`, done: a.status === 'done' }));
+  // Only the actions still open, as "Action — owner" (no due dates).
+  const open = m.actions.filter((a) => a.status !== 'done');
+  const actions = open.map((a) => `${a.title}${a.owner ? ` — ${a.owner}` : ''}`);
   const html = `<h3>${esc(m.title)}</h3><p>${esc(meetingWhen(m))}${m.location ? ` · ${esc(m.location)}` : ''}${head ? `<br>${esc(head)}` : ''}`
     + `${m.attendees ? `<br><b>Attendees:</b> ${esc(m.attendees)}` : ''}</p>${m.notes ? `<p><b>Notes</b></p>${m.notes}` : ''}`
-    + `${actions.length ? `<p><b>Actions agreed</b></p><ul>${actions.map((a) => `<li>${a.done ? '✓ ' : ''}${esc(a.text)}</li>`).join('')}</ul>` : ''}`;
+    + `${actions.length ? `<p><b>Actions agreed</b></p><ul>${actions.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>` : ''}`;
   const tmp = document.createElement('div');
   tmp.innerHTML = m.notes || '';
   $$('li', tmp).forEach((li) => li.prepend(li.parentElement?.tagName === 'OL' ? `${[...li.parentElement.children].indexOf(li) + 1}. ` : '• '));
   $$('ul, ol', tmp).forEach((list) => list.before('\n'));
   $$('br', tmp).forEach((br) => br.replaceWith('\n'));
   $$('li, p, div', tmp).forEach((el) => el.append('\n'));
-  const text = [m.title, `${meetingWhen(m)}${m.location ? ` · ${m.location}` : ''}`, head, m.attendees && `Attendees: ${m.attendees}`, '',
+  const text = [m.title, `${meetingWhen(m)}${m.location ? ` · ${m.location}` : ''}`, head || null, m.attendees && `Attendees: ${m.attendees}`, '',
     m.notes && 'Notes', tmp.textContent.replace(/\n{3,}/g, '\n\n').trim(), '',
-    actions.length && 'Actions agreed', ...actions.map((a) => `${a.done ? '✓' : '•'} ${a.text}`)].filter((x) => x !== null && x !== undefined && x !== false).join('\n');
+    actions.length && 'Actions agreed', ...actions.map((a) => `• ${a}`)].filter((x) => x !== null && x !== undefined && x !== false).join('\n');
   try {
     await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]);
   } catch {
     await navigator.clipboard.writeText(text);
   }
-  toast('Minutes copied — paste into an email or document');
+  const done = m.actions.length - open.length;
+  toast(`Minutes copied${done ? ` (${done} completed action${done === 1 ? '' : 's'} left out)` : ''} — paste into an email or document`);
 }
