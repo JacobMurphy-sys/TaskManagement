@@ -140,6 +140,7 @@ const TASK_SELECT = `
          (SELECT count(*) FROM tasks s WHERE s.parent_id = t.id) AS subtask_count,
          (SELECT count(*) FROM tasks s WHERE s.parent_id = t.id AND s.status = 'done') AS subtask_done,
          (SELECT count(*) FROM notes n WHERE n.task_id = t.id) AS note_count,
+         (SELECT count(*) FROM attachments f WHERE f.task_id = t.id) AS attachment_count,
          (SELECT min(r.remind_at) FROM reminders r WHERE r.task_id = t.id AND r.status = 'pending') AS next_reminder
   FROM tasks t LEFT JOIN projects p ON p.id = t.project_id LEFT JOIN project_phases ph ON ph.id = t.phase_id`;
 const tasks = (where, params = []) => db.all(`${TASK_SELECT} ${where}`, params).map(normTask);
@@ -445,6 +446,8 @@ function moveTask(taskId, projectId) {
   db.run('UPDATE tasks SET parent_id = NULL, sort_order = ? WHERE id = ?', [nextSortOrder(projectId), t.id]);
   db.run(`UPDATE notes SET project_id = ? WHERE task_id IN (${inList})`, [projectId ?? null, ...ids]);
   db.run(`UPDATE meetings SET project_id = ? WHERE task_id IN (${inList})`, [projectId ?? null, ...ids]);
+  db.run(`UPDATE attachments SET project_id = ? WHERE task_id IN (${inList})
+    OR meeting_id IN (SELECT id FROM meetings WHERE task_id IN (${inList}))`, [projectId ?? null, ...ids, ...ids]);
   db.run(`UPDATE reminders SET project_id = ? WHERE task_id IN (${inList})`, [projectId ?? null, ...ids]);
 }
 
@@ -628,6 +631,7 @@ router.get('/tasks/:id', h((req, res) => {
       JOIN tasks t ON t.id = l.task_id WHERE l.depends_on_id = ? ORDER BY t.sort_order, t.id`, [task.id]),
     subtasks: tasks('WHERE t.parent_id = ? ORDER BY t.sort_order, t.id', [task.id]),
     notes: db.all('SELECT * FROM notes WHERE task_id = ? ORDER BY created_at DESC', [task.id]),
+    attachments: db.all('SELECT * FROM attachments WHERE task_id = ? ORDER BY created_at, id', [task.id]),
     meeting: task.meeting_id ? db.get('SELECT id, title, held_at FROM meetings WHERE id = ?', [task.meeting_id]) || null : null,
     meetings: meetingList('m.task_id = ?', [task.id]),
     reminders: db.all('SELECT * FROM reminders WHERE task_id = ? ORDER BY remind_at', [task.id]),
@@ -775,7 +779,8 @@ const meetingList = (where, params = [], order = 'm.held_at DESC, m.id DESC') =>
 function getMeeting(id) {
   const m = db.get(`${MEETING_SELECT} WHERE m.id = ?`, [id]);
   if (!m) throw notFound('Meeting');
-  return { ...m, actions: tasks('WHERE t.meeting_id = ? ORDER BY t.created_at, t.id', [m.id]) };
+  return { ...m, actions: tasks('WHERE t.meeting_id = ? ORDER BY t.created_at, t.id', [m.id]),
+    attachments: db.all('SELECT * FROM attachments WHERE meeting_id = ? ORDER BY created_at, id', [m.id]) };
 }
 
 router.get('/meetings', h((req, res) => {
@@ -835,6 +840,69 @@ router.post('/meetings/:id/actions', h((req, res) => {
     sort_order: nextSortOrder(projectId),
   });
   res.status(201).json(tasks('WHERE t.id = ?', [task.id])[0]);
+}));
+
+// ------------------------------------------------------------------ attachments
+
+const ATTACH_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
+  avif: 'image/avif', pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', log: 'text/plain', mp4: 'video/mp4', mp3: 'audio/mpeg',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', msg: 'application/vnd.ms-outlook', zip: 'application/zip' };
+// Shown in the browser; everything else (including HTML/SVG, which could carry script) downloads.
+const ATTACH_INLINE = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif', 'pdf', 'txt', 'csv', 'log', 'mp4', 'mp3']);
+const attachExt = (name) => (String(name).match(/\.([a-z0-9]{1,8})$/i) || [])[1]?.toLowerCase() || '';
+
+function saveAttachment(req, owner) {
+  if (!Buffer.isBuffer(req.body) || !req.body.length) throw new HttpError(400, 'No file received');
+  const name = path.basename(fileNameHeader(req, 'file')).replace(/[\u0000-\u001f]/g, '').slice(0, 200) || 'file';
+  const safe = name.replace(/[^\w.\- ()]+/g, '_').replace(/^\.+/, '').slice(-80) || 'file';
+  const stored = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}-${safe}`;
+  fs.mkdirSync(config.attachDir, { recursive: true });
+  fs.writeFileSync(path.join(config.attachDir, stored), req.body);
+  try {
+    return insertRow('attachments', { ...owner, name, stored, size: req.body.length, mime: ATTACH_MIME[attachExt(name)] || 'application/octet-stream' });
+  } catch (err) { fs.rmSync(path.join(config.attachDir, stored), { force: true }); throw err; }
+}
+
+const uploadBody = express.raw({ type: () => true, limit: '100mb' });
+router.post('/tasks/:id/attachments', uploadBody, h((req, res) => {
+  const t = db.get('SELECT id, project_id FROM tasks WHERE id = ?', [req.params.id]);
+  if (!t) throw notFound('Task');
+  res.status(201).json(saveAttachment(req, { task_id: t.id, project_id: t.project_id }));
+}));
+router.post('/meetings/:id/attachments', uploadBody, h((req, res) => {
+  const m = db.get('SELECT id, project_id FROM meetings WHERE id = ?', [req.params.id]);
+  if (!m) throw notFound('Meeting');
+  res.status(201).json(saveAttachment(req, { meeting_id: m.id, project_id: m.project_id }));
+}));
+
+router.get('/attachments/:id/file', h((req, res) => {
+  const a = db.get('SELECT * FROM attachments WHERE id = ?', [req.params.id]);
+  if (!a) throw notFound('Attachment');
+  // The live folder, or the copy in the backups folder (e.g. after restoring a backup).
+  const file = [path.join(config.attachDir, a.stored), path.join(backup.FILES_DIR, a.stored)].find((f) => fs.existsSync(f));
+  if (!file || path.basename(a.stored) !== a.stored) throw notFound('The attachment’s file');
+  const inline = ATTACH_INLINE.has(attachExt(a.name)) && req.query.download !== '1';
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Content-Type', inline ? a.mime : (ATTACH_MIME[attachExt(a.name)] || 'application/octet-stream'));
+  res.set('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(a.name)}`);
+  res.sendFile(file);
+}));
+
+router.patch('/attachments/:id', h((req, res) => {
+  const name = String(req.body.name || '').replace(/[\\/\u0000-\u001f]/g, '').trim().slice(0, 200);
+  if (!name) throw new HttpError(400, 'Name is required');
+  const row = fresh('attachments', updateRow('attachments', req.params.id, { name }));
+  if (!row) throw notFound('Attachment');
+  res.json(row);
+}));
+
+router.delete('/attachments/:id', h((req, res) => {
+  const a = db.get('SELECT * FROM attachments WHERE id = ?', [req.params.id]);
+  if (!a) throw notFound('Attachment');
+  db.run('DELETE FROM attachments WHERE id = ?', [a.id]);
+  // The file goes at the next backup, once it has been copied to the backups folder.
+  res.status(204).end();
 }));
 
 // ------------------------------------------------------------------ notes
@@ -2005,7 +2073,7 @@ function describeAudit(e) {
   const label = { projects: 'Project', tasks: d.parent_id ? 'Subtask' : 'Task', notes: 'Note', reminders: 'Reminder',
     ideas: `Idea${d.ref ? ` ${d.ref}` : ''}`, idea_notes: 'Idea note', areas: 'Area', settings: 'Setting',
     project_costs: 'Cost', task_links: 'Dependency', project_team: 'Team member', project_kpis: 'KPI',
-    lookups: 'List item', project_phases: 'Phase', meetings: 'Meeting' }[e.table_name] || e.table_name;
+    lookups: 'List item', project_phases: 'Phase', meetings: 'Meeting', attachments: 'Attachment' }[e.table_name] || e.table_name;
   if (e.table_name === 'project_phases' && e.action === 'UPDATE' && e.old_data?.status !== e.new_data?.status) {
     return `Phase "${d.name}" ${e.new_data.status === 'done' ? 'completed ✓' : 'reopened'}`;
   }

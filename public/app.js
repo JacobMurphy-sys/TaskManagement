@@ -435,6 +435,7 @@ function taskRow(t, p, hideDone) {
       ${t.children.length ? `<span class="small muted" title="Subtasks done">☑ ${t.children.length - open}/${t.children.length}</span>` : ''}
       ${t.next_reminder ? `<span class="small" title="Reminder ${esc(fmtDateTime(t.next_reminder))}">🔔</span>` : ''}
       ${t.note_count ? `<span class="small muted" title="Notes">📝 ${t.note_count}</span>` : ''}
+      ${t.attachment_count ? `<span class="small muted" title="Attachments">📎 ${t.attachment_count}</span>` : ''}
       <span class="row-actions">
         <button class="icon" data-action="rename-task" title="Rename (or double-click the title)">✎</button>
         <button class="icon" data-action="add-subtask" data-id="${t.id}" title="Add subtask">＋ sub</button>
@@ -1593,6 +1594,8 @@ async function taskModal(id) {
         `<a href="#" data-action="open-task" data-id="${b.id}">${esc(b.title)}</a>`).join(', ')}</div>` : ''}
     </div>`}
 
+    ${attachmentsHtml(t.attachments, { kind: 'tasks', id: t.id })}
+
     ${taskMeetingsHtml(t)}
 
     <div class="section">
@@ -1670,6 +1673,7 @@ async function taskModal(id) {
     await taskModal(t.id);
     $('#modal-add-sub').focus();
   });
+  wireAttachments($('#modal-body'), t.attachments, () => taskModal(t.id));
   $('#modal-note').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveTaskNote(t.id); }
   });

@@ -70,4 +70,6 @@ module.exports = {
     keep: Math.max(1, num(env.BACKUP_KEEP, 30)),
   },
   logDir: inData(env.LOG_DIR, 'logs'),
+  // Files attached to tasks and meetings (screenshots, documents…).
+  attachDir: inData(env.ATTACH_DIR, 'attachments'),
 };

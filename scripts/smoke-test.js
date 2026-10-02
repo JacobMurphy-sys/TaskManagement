@@ -352,6 +352,42 @@ async function waitForServer() {
     assert.ok((await call('GET', `/tasks/owner-names?project_id=${tp.id}`)).slice(0, 3).includes('Riya'), 'team offered as owners');
     await call('DELETE', `/projects/${tp.id}`);
 
+    // ---- Attachments on tasks and meetings
+    const attTask = await call('POST', '/tasks', { title: 'With files' });
+    const attUpload = (url, body, name) => fetch(`${BASE}${url}`, { method: 'POST', body,
+      headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(name) } });
+    const pngBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+    let attUp = await attUpload(`/tasks/${attTask.id}/attachments`, pngBytes, 'Screenshot é 1.png');
+    assert.equal(attUp.status, 201);
+    const shot = await attUp.json();
+    assert.deepEqual([shot.name, shot.mime, shot.size], ['Screenshot é 1.png', 'image/png', pngBytes.length]);
+    attUp = await attUpload(`/tasks/${attTask.id}/attachments`, Buffer.from('<script>alert(1)</script>'), 'evil.html');
+    const evil = await attUp.json();
+    assert.equal((await attUpload(`/tasks/${attTask.id}/attachments`, Buffer.alloc(0), 'empty.txt')).status, 400, 'empty upload refused');
+    let attGot = await fetch(`${BASE}/attachments/${shot.id}/file`);
+    assert.equal(attGot.headers.get('content-type'), 'image/png');
+    assert.match(attGot.headers.get('content-disposition'), /^inline/);
+    assert.ok(Buffer.from(await attGot.arrayBuffer()).equals(pngBytes), 'same bytes back');
+    attGot = await fetch(`${BASE}/attachments/${evil.id}/file`);
+    assert.match(attGot.headers.get('content-disposition'), /^attachment/, 'html downloads instead of opening');
+    assert.equal((await call('GET', `/tasks/${attTask.id}`)).attachments.length, 2);
+    assert.equal((await call('GET', '/tasks?standalone=1')).find((x) => x.id === attTask.id).attachment_count, 2);
+    assert.equal((await call('PATCH', `/attachments/${shot.id}`, { name: 'Panel.png' })).name, 'Panel.png');
+    const attMeeting = await call('POST', '/meetings', { task_id: attTask.id, title: 'Review', held_at: new Date().toISOString() });
+    attUp = await attUpload(`/meetings/${attMeeting.id}/attachments`, Buffer.from('a,b\n1,2'), 'data.csv');
+    assert.equal(attUp.status, 201);
+    assert.equal((await call('GET', `/meetings/${attMeeting.id}`)).attachments[0].name, 'data.csv');
+    // backups copy the files; deleted ones are cleared from the live folder but stay in the backup copy
+    await call('DELETE', `/attachments/${evil.id}`);
+    await call('POST', '/backups');
+    const attFiles = fs.readdirSync(path.join(tmp, 'attachments'));
+    assert.equal(attFiles.length, 2, 'unused file removed from the live folder');
+    assert.equal(fs.readdirSync(path.join(tmp, 'backups', 'files')).length, 3, 'all files copied to the backups folder');
+    fs.rmSync(path.join(tmp, 'attachments', attFiles.find((f) => f.endsWith('Screenshot_1.png') || f.includes('Screenshot'))));
+    assert.equal((await fetch(`${BASE}/attachments/${shot.id}/file`)).status, 200, 'served from the backup copy when missing');
+    await call('DELETE', `/tasks/${attTask.id}`);
+    assert.equal((await fetch(`${BASE}/attachments/${shot.id}/file`)).status, 404, 'attachments go with their task');
+
     // ---- Library: an Obsidian vault imported read-only
     const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
     const vault = [

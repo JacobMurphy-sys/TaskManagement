@@ -128,6 +128,7 @@ async function meetingEditor(id, opts = {}) {
       <h3>Notes</h3>
       <div class="rt" id="mt-notes"></div>
     </div>
+    ${attachmentsHtml(m.attachments, { kind: 'meetings', id: m.id })}
     <div class="section">
       <h3>Actions agreed <span class="muted small">— each becomes a ${m.task_id ? 'subtask of the task' : 'task in the project'}, with owner and due date</span></h3>
       <table class="log mt-actions"><tbody>${m.actions.map(actionRow).join('') || ''}</tbody></table>
@@ -165,6 +166,7 @@ async function meetingEditor(id, opts = {}) {
     onChange: (attendees) => save({ attendees: attendees || '' }) });
   const editor = richEditor($('#mt-notes'), m.notes, (html) => save({ notes: html }));
   modal().addEventListener('close', () => editor.flush(), { once: true }); // however it's closed
+  wireAttachments($('#modal-body'), m.attachments, () => { editor.flush(); return meetingEditor(m.id, opts); });
 
   const ownersBox = ownerPicker($('#mt-owner'), { groups, placeholder: 'Owners', bookTitle: 'Who owns this action?' });
   const addAction = async () => {

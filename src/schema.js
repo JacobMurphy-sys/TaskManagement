@@ -167,6 +167,20 @@ const TABLES = {
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
 
+  // Files attached to a task or a meeting. The file itself is DATA_DIR/attachments/<stored>
+  // (mirrored into the backups folder); project_id follows the task or meeting.
+  attachments: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id     INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+    meeting_id  INTEGER REFERENCES meetings(id) ON DELETE CASCADE,
+    project_id  INTEGER,
+    name        TEXT    NOT NULL,
+    stored      TEXT    NOT NULL,
+    mime        TEXT,
+    size        INTEGER,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
   reminders: `
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id   INTEGER REFERENCES projects(id) ON DELETE CASCADE,
@@ -291,6 +305,8 @@ const INDEXES = `
   CREATE INDEX IF NOT EXISTS project_phases_idx ON project_phases(project_id, sort_order);
   CREATE INDEX IF NOT EXISTS tasks_phase_idx   ON tasks(phase_id);
   CREATE INDEX IF NOT EXISTS tasks_meeting_idx ON tasks(meeting_id);
+  CREATE INDEX IF NOT EXISTS attachments_task_idx ON attachments(task_id);
+  CREATE INDEX IF NOT EXISTS attachments_meeting_idx ON attachments(meeting_id);
   CREATE INDEX IF NOT EXISTS meetings_project_idx ON meetings(project_id, held_at);
   CREATE INDEX IF NOT EXISTS meetings_task_idx ON meetings(task_id);
   CREATE INDEX IF NOT EXISTS meetings_held_idx ON meetings(held_at);
@@ -378,7 +394,7 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');

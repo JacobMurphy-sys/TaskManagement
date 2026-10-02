@@ -31,6 +31,24 @@ function exportTables(conn = db.conn) {
   return tables;
 }
 
+// Attachment files are copied into BACKUP_DIR/files (kept even after the attachment is
+// deleted, so restoring an older backup finds its files); files no attachment uses any
+// more are then removed from the live folder.
+const FILES_DIR = path.join(config.backup.dir, 'files');
+function syncAttachmentFiles() {
+  const dir = config.attachDir;
+  if (!fs.existsSync(dir)) return;
+  fs.mkdirSync(FILES_DIR, { recursive: true });
+  const used = new Set(db.conn.prepare('SELECT stored FROM attachments').all().map((r) => r.stored));
+  for (const f of fs.readdirSync(dir)) {
+    const src = path.join(dir, f);
+    if (!fs.statSync(src).isFile()) continue;
+    const dst = path.join(FILES_DIR, f);
+    if (!fs.existsSync(dst)) fs.copyFileSync(src, dst);
+    if (!used.has(f)) fs.rmSync(src, { force: true });
+  }
+}
+
 function runBackup(reason = 'manual') {
   fs.mkdirSync(JSON_DIR, { recursive: true });
   fs.mkdirSync(DB_DIR, { recursive: true });
@@ -49,6 +67,7 @@ function runBackup(reason = 'manual') {
   fs.writeFileSync(jsonFile, JSON.stringify({ created_at: new Date().toISOString(), format: 2, tables: exportTables() }, null, 1));
   prune(JSON_DIR, '.json');
 
+  try { syncAttachmentFiles(); } catch (err) { log.error('Copying attachment files to the backup folder failed', err.message); }
   log.info(`Backup completed (${reason})`, { db: dbFile, json: jsonFile });
   return { db: dbFile, json: jsonFile };
 }
@@ -79,4 +98,4 @@ function schedule() {
   setInterval(check, Math.min(intervalMs, 15 * 60 * 1000)).unref();
 }
 
-module.exports = { runBackup, listBackups, schedule, exportTables, JSON_DIR, DB_DIR };
+module.exports = { runBackup, listBackups, schedule, exportTables, syncAttachmentFiles, JSON_DIR, DB_DIR, FILES_DIR };
