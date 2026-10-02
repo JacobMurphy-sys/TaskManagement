@@ -1298,7 +1298,7 @@ function storeWeek(buf, sourceName, sourceModified) {
   } catch (err) { throw new HttpError(400, err.message); }
   const row = {
     week: w.week, year: w.year, month: w.month, source_name: sourceName || null, source_modified: sourceModified || null,
-    model: zlibSync.gzipSync(JSON.stringify({ views: w.views, sheets: w.sheets, errors: w.errors })).toString('base64'),
+    model: zlibSync.gzipSync(JSON.stringify({ views: w.views, values: w.values, sheets: w.sheets, errors: w.errors })).toString('base64'),
     pkg: w.pkg.toString('base64'), updated_at: nowIso(),
   };
   const old = db.get('SELECT id FROM kpi_snapshots WHERE week = ?', [w.week]);
@@ -1342,6 +1342,52 @@ router.post('/kpi/load-path', h((req, res) => {
   res.status(201).json(storeWeek(buf, path.basename(file), stat.mtime.toISOString()));
 }));
 
+// ---- KPIs worked out from the source files ------------------------------------------------
+
+const kpiData = require('./kpidata');
+const splitWeekends = () => getSettings().kpi_split_weekends === '1';
+
+// Excel's figures for each week, from the newest loaded week that has the Database values.
+function excelVolumes() {
+  const r = db.get('SELECT id, week, model, updated_at FROM kpi_snapshots ORDER BY updated_at DESC LIMIT 1');
+  if (!r) return null;
+  const model = JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8'));
+  const v = model.values || null;
+  if (!v) return { week: r.week, id: r.id, weeks: null };
+  const weeks = {};
+  for (let row = 2; row <= 1000; row++) {
+    const code = v[`B${row}`];
+    if (typeof code !== 'string' || !/^W\d{4}(_\d)?$/.test(code) || row < 40) continue;
+    weeks[code] = Object.fromEntries(Object.entries(kpiData.DATABASE_COLUMNS).map(([key, col]) => [key, typeof v[`${col}${row}`] === 'number' ? v[`${col}${row}`] : null]));
+  }
+  return { week: r.week, id: r.id, loaded_at: r.updated_at, weeks };
+}
+
+router.get('/kpi/calc', h((req, res) => {
+  const year = Number(req.query.year) || new Date().getFullYear();
+  const vol = kpiData.weeklyVolumes(year);
+  res.json({ year, ...vol, sources: kpiData.sourcesStatus(), excel: excelVolumes(), split_weekends: splitWeekends() });
+}));
+
+// Reads the source files that changed (all of them with force). Sources without a file of
+// their own come from the CI workbook's import sheets.
+router.post('/kpi/calc/import', h((req, res) => {
+  const set = getSettings();
+  const results = kpiData.importSources({
+    paths: { perso: set.kpi_src_perso, shipped: set.kpi_src_shipped, remakes: set.kpi_src_remakes },
+    workbook: set.kpi_workbook_path || null, force: !!req.body.force, splitWeekends: splitWeekends(),
+  });
+  log.info('KPI sources imported', results.map((r) => `${r.source}: ${r.status}${r.rows !== undefined ? ` (${r.rows})` : ''}`).join(', '));
+  res.json(results);
+}));
+
+router.post('/kpi/calc/weekends', h((req, res) => {
+  const split = !!req.body.split;
+  setSetting('kpi_split_weekends', split ? '1' : '0');
+  kpiData.rewriteWeeks(split);
+  res.json({ split_weekends: split });
+}));
+
 // The disconnected A3: chart pictures come from the page (PNG, base64). With save,
 // it's also written to the export folder for the week.
 router.post('/kpi/snapshots/:id/export', h((req, res) => {
@@ -1383,6 +1429,9 @@ const SETTING_DEFAULTS = {
   // ({year} {yy} {wk} {week} are filled in from the reporting week).
   kpi_workbook_path: '', kpi_a3_sheet: 'A3 Weekly Report', kpi_db_sheet: 'Database', kpi_week_cell: 'B2',
   kpi_export_dir: '', kpi_export_name: 'A3 {year} WK{wk}.xlsx',
+  // The source files the KPIs are worked out from (blank: use the workbook's import sheets),
+  // and whether weekend days in a week split across two months count in their month's part.
+  kpi_src_perso: '', kpi_src_shipped: '', kpi_src_remakes: '', kpi_split_weekends: '0',
 };
 function getSettings() {
   const out = { ...SETTING_DEFAULTS };

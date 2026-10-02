@@ -300,14 +300,23 @@ function parseSheet(xml, sharedStrings) {
   let maxRow = 0; let maxCol = 0;
   const sharedF = new Map();
   const sheetData = xml.slice(Math.max(0, xml.indexOf('<sheetData')), xml.indexOf('</sheetData>') + 12 || undefined);
-  for (const m of sheetData.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
-    const a = `<c${m[1]}>`;
-    const r = attr(a, 'r');
-    const p = parseRef(r);
-    if (!p) continue;
-    const body = m[2] || '';
-    const t = attr(a, 't') || 'n';
-    const vRaw = body.match(/<v>([\s\S]*?)<\/v>/)?.[1];
+  const colCache = new Map();
+  const colOf = (letters) => { let n = colCache.get(letters); if (n === undefined) { n = colNum(letters); colCache.set(letters, n); } return n; };
+  // One pass over the cells; attributes read with plain string searches (fast on big sheets).
+  const cellRe = /<c\s([^>]*?)(\/>|>([\s\S]*?)<\/c>)/g;
+  const attrOf = (a, name) => { const i = a.indexOf(` ${name}="`) >= 0 ? a.indexOf(` ${name}="`) + name.length + 3 : (a.startsWith(`${name}="`) ? name.length + 2 : -1); if (i < 0) return null; return a.slice(i, a.indexOf('"', i)); };
+  let m;
+  while ((m = cellRe.exec(sheetData))) {
+    const a = m[1];
+    const r = attrOf(a, 'r');
+    const rm = r && /^([A-Z]+)(\d+)$/.exec(r);
+    if (!rm) continue;
+    const p = { col: colOf(rm[1]), row: Number(rm[2]) };
+    const body = m[3] || '';
+    const t = attrOf(a, 't') || 'n';
+    let vRaw;
+    const vs = body.indexOf('<v>');
+    if (vs >= 0) vRaw = body.slice(vs + 3, body.indexOf('</v>', vs));
     let v = null;
     if (t === 's') v = vRaw !== undefined ? sharedStrings()[Number(vRaw)] ?? '' : null;
     else if (t === 'inlineStr') v = textOf(body.match(/<is>[\s\S]*?<\/is>/)?.[0] || '');
@@ -315,18 +324,21 @@ function parseSheet(xml, sharedStrings) {
     else if (t === 'b') v = vRaw === '1';
     else if (t === 'e') v = vRaw !== undefined ? decode(vRaw) : '#N/A';
     else if (vRaw !== undefined && vRaw !== '') v = Number(vRaw);
-    const fm = body.match(/<f\b([^>]*)(?:\/>|>([\s\S]*?)<\/f>)/);
     let f = null;
-    if (fm) {
-      const fa = `<f${fm[1]}>`;
-      f = fm[2] !== undefined ? decode(fm[2]) : null;
-      if (attr(fa, 't') === 'shared') {
-        const si = attr(fa, 'si');
-        if (f) sharedF.set(si, { f, at: p });
-        else if (sharedF.has(si)) f = shiftFormula(sharedF.get(si).f, p.row - sharedF.get(si).at.row, p.col - sharedF.get(si).at.col);
+    if (body.includes('<f')) {
+      const fm = body.match(/<f\b([^>]*)(?:\/>|>([\s\S]*?)<\/f>)/);
+      if (fm) {
+        const fa = `<f${fm[1]}>`;
+        f = fm[2] !== undefined ? decode(fm[2]) : null;
+        if (attr(fa, 't') === 'shared') {
+          const si = attr(fa, 'si');
+          if (f) sharedF.set(si, { f, at: p });
+          else if (sharedF.has(si)) f = shiftFormula(sharedF.get(si).f, p.row - sharedF.get(si).at.row, p.col - sharedF.get(si).at.col);
+        }
       }
     }
-    cells.set(r, { r, row: p.row, col: p.col, s: Number(attr(a, 's') || 0), t: t === 'e' ? 'e' : typeof v === 'string' ? 's' : typeof v === 'boolean' ? 'b' : 'n', v, f });
+    const sAttr = attrOf(a, 's');
+    cells.set(r, { r, row: p.row, col: p.col, s: sAttr ? Number(sAttr) : 0, t: t === 'e' ? 'e' : typeof v === 'string' ? 's' : typeof v === 'boolean' ? 'b' : 'n', v, f });
     if (p.row > maxRow) maxRow = p.row;
     if (p.col > maxCol) maxCol = p.col;
   }

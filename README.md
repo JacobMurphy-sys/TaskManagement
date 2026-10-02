@@ -113,6 +113,12 @@ When an update changes how data is stored, the app upgrades your database automa
 
 Past weeks stay in the list, so any earlier A3 can be viewed or saved again.
 
+**From sources (replacing Excel's refresh, step by step).** The **From sources** tab works the KPIs out itself, straight from the source files, instead of waiting for Excel's Refresh All. First pass: the weekly **volumes** — cards and PIN mailers persoed and shipped (PS, ISI = the German health card, PIN, total) and scrap (remakes).
+- Set each source file's path once (`KPI_persoed_CI.xlsx`, `KPI_shipped_CI.xlsx`, `KPI_2_remakes.xlsx`). Left blank, the matching import sheet of the CI workbook is used instead.
+- **📥 Read changed files** reads only files saved since the last read (the SSRS exports change hourly); it takes seconds, not the 10–15 minutes of a refresh. The rows are kept in the CI Manager's database, but not in backups (they can always be read again).
+- Every figure is checked against Excel's Database sheet from the week loaded on the A3 tab: green when it's the same, red with Excel's figure underneath when not, and a count of how many match. Tick *Only weeks that differ* to see just those.
+- Week codes are worked out, not typed: weeks run Sunday–Saturday (W2639), and a week whose weekdays fall in two months is split into W…_1 and W…_2. Excel's calendar leaves the Saturday and Sunday of a split week out of both parts, so weekend work in those weeks never reaches the report — the page lists it, and a tick box counts those days in their own month's part instead.
+
 ### Project charter
 - **New project** opens the charter form. Fill in the fields marked \* (title, problem definition, goals, sponsor, leader); category, policy deployment, gross margin effect and project ID are optional, and scope / benefits can be added now or later. If you leave *Project ID* blank it's numbered automatically (`PRJ-0001`, …) and you can change it at any time.
 - The project's **📋 Charter** tab shows the whole template. Edit any box in place (it saves as you go). Add team members (name, role, capacity) and KPIs (unit, baseline, target, current) in their tables; press **Enter** on the last row to add one. The milestone plan lists the project's top-level tasks, so give those tasks dates (in the task window or on the Gantt).

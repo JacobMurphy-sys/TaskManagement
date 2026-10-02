@@ -7,6 +7,7 @@
 const kpiState = { zoom: null };
 
 async function renderKpi(arg, tab) {
+  if (arg === 'calc') return renderKpiCalc();
   const [weeks, settings] = await Promise.all([api.get('/kpi/snapshots'), api.get('/settings')]);
   const id = Number(arg) || weeks[0]?.id || null;
   const view = tab === 'database' ? 'database' : 'a3';
@@ -15,7 +16,7 @@ async function renderKpi(arg, tab) {
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 KPIs</h1>
       ${weeks.length ? `<select id="kpi-week" title="Reporting week">${weeks.map((w) => `<option value="${w.id}" ${w.id === snap?.id ? 'selected' : ''}>${esc(w.week)}${w.month ? ` · ${esc(w.month)}` : ''}</option>`).join('')}</select>` : ''}
-      ${snap ? `<div class="seg"><a href="#/kpi/${snap.id}" class="${view === 'a3' ? 'on' : ''}">A3 Weekly Report</a><a href="#/kpi/${snap.id}/database" class="${view === 'database' ? 'on' : ''}">Database</a></div>` : ''}
+      <div class="seg">${snap ? `<a href="#/kpi/${snap.id}" class="${view === 'a3' ? 'on' : ''}">A3 Weekly Report</a><a href="#/kpi/${snap.id}/database" class="${view === 'database' ? 'on' : ''}">Database</a>` : ''}<a href="#/kpi/calc" title="Worked out by the CI Manager from the source files">From sources</a></div>
       <div class="spacer"></div>
       ${settings.kpi_workbook_path ? '<button class="primary" data-kpi="load-path" title="Read the workbook from where it\'s saved">📥 Load this week</button>' : ''}
       <label class="button" title="Choose a copy of the workbook">📂 Load file…<input type="file" accept=".xlsm,.xlsx" hidden id="kpi-file"></label>
@@ -389,4 +390,97 @@ function drawPie(g, gr, box, font, hex) {
     a = b;
   });
   if (gr.kind === 'doughnut') { g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.arc(cx, cy, (r * gr.holeSize) / 100, 0, Math.PI * 2); g.fill(); g.globalCompositeOperation = 'source-over'; }
+}
+
+// ---- From sources: the CI Manager's own figures, checked against Excel's ---------------------
+
+const KPI_VOL_COLS = [
+  ['perso_ps', 'PS'], ['perso_isi', 'ISI'], ['perso_pin', 'PIN'], ['perso_total', 'Total (Cards)'], ['scrap', 'Scrap'],
+  ['shipped_ps', 'PS'], ['shipped_isi', 'ISI'], ['shipped_pin', 'PIN'], ['shipped_total', 'Total (Cards)'],
+];
+const kpiFmt = (key, v) => (v === null || v === undefined ? '' : key === 'scrap' ? Math.round(v).toLocaleString('en-GB') : v.toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
+
+async function renderKpiCalc() {
+  const year = Number(store.get('kpiYear', new Date().getFullYear()));
+  const [calc, settings] = await Promise.all([api.get(`/kpi/calc?year=${year}`), api.get('/settings')]);
+  const xl = calc.excel?.weeks || null;
+  let checked = 0; let differ = 0;
+  const same = (a, b) => Math.abs((a || 0) - (b || 0)) < 1e-6;
+  const rowHtml = (w) => {
+    const ex = xl?.[w.week];
+    const empty = KPI_VOL_COLS.every(([k]) => !w[k]);
+    let rowDiff = false;
+    const cells = KPI_VOL_COLS.map(([k], i) => {
+      let cls = ''; let title = '';
+      if (ex && ex[k] !== null && ex[k] !== undefined) {
+        checked++;
+        if (same(w[k], ex[k])) cls = 'kc-ok';
+        else { cls = 'kc-diff'; differ++; rowDiff = true; title = `Excel: ${kpiFmt(k, ex[k])}`; }
+      }
+      return `<td class="num ${cls}${i === 4 || i === 5 ? ' kc-sep' : ''}" ${title ? `title="${esc(title)}"` : ''}>${kpiFmt(k, w[k])}${cls === 'kc-diff' ? `<span class="kc-was">${esc(kpiFmt(k, ex[k]))}</span>` : ''}</td>`;
+    }).join('');
+    return `<tr class="${empty ? 'kc-empty' : ''} ${rowDiff ? 'kc-rowdiff' : ''} ${w.week === calc.excel?.week ? 'kc-current' : ''}"><td>${esc(w.month)}</td><td><b>${esc(w.week)}</b></td>${cells}</tr>`;
+  };
+  const body = calc.weeks.map(rowHtml).join('');
+  const unlisted = calc.unlisted.filter((u) => u.qty);
+  const srcRow = (s) => `<tr data-src="${s.source}">
+      <td><b>${esc(s.label)}</b><div class="small muted">${esc(s.default_file)}</div></td>
+      <td><input type="text" name="kpi_src_${s.source}" value="${esc(settings[`kpi_src_${s.source}`] || '')}" placeholder="Blank: the workbook's ${esc(s.workbook_sheet)} sheet" title="Full path, e.g. S:\\…\\Source Data\\${esc(s.default_file)}"></td>
+      <td class="small">${s.imported_at ? `${esc(fmtDateTime(s.imported_at))}<div class="muted">${s.file && /\.xlsm$/i.test(s.file) && !settings[`kpi_src_${s.source}`] ? `from the workbook's ${esc(s.workbook_sheet)}` : 'from the file'}</div>` : '<span class="muted">not read yet</span>'}</td>
+      <td class="small">${s.modified ? esc(fmtDateTime(s.modified)) : ''}</td>
+      <td class="num">${s.rows ? s.rows.toLocaleString('en-GB') : ''}${s.skipped ? `<div class="small muted" title="Rows without a date">${s.skipped.toLocaleString('en-GB')} undated</div>` : ''}</td>
+      <td class="small">${s.first_day ? `${esc(s.first_day)} → ${esc(s.last_day)}` : ''}</td></tr>`;
+  main().innerHTML = `
+    <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 KPIs</h1>
+      <div class="seg"><a href="#/kpi">A3 Weekly Report</a><a href="#/kpi/${calc.excel?.id || ''}/database">Database</a><a href="#/kpi/calc" class="on">From sources</a></div>
+      <select id="kc-year" title="Year">${[year - 1, year, year + 1].map((y) => `<option ${y === year ? 'selected' : ''}>${y}</option>`).join('')}</select>
+      <div class="spacer"></div>
+      <button class="primary" data-kc="import" title="Read the source files that changed since last time">📥 Read changed files</button>
+      <button data-kc="force" title="Read every source file again">Read all again</button>
+    </div>
+    <div class="card kc-sources">
+      <h2 style="margin-top:0">Source files <span class="muted small">— the hourly exports the KPIs are worked out from</span></h2>
+      <table class="log"><thead><tr><th>Source</th><th>File</th><th>Last read</th><th>File saved</th><th class="num">Rows</th><th>Dates</th></tr></thead>
+        <tbody>${calc.sources.map(srcRow).join('')}</tbody></table>
+      <p class="small muted">Leave a file blank to use the matching import sheet of the CI workbook (⚙ Setup on the A3 tab) — handy until the paths are set.
+        Only files saved since the last read are read again. Nothing is changed in any file.</p>
+      <label class="row small"><input type="checkbox" id="kc-weekends" ${calc.split_weekends ? 'checked' : ''}>
+        Count Saturdays and Sundays of a week split across two months in their own month's part (W…_1 / W…_2). Excel leaves them out.</label>
+      ${calc.split_weekends ? '<div class="kc-note">Weekend work in split weeks is counted, so those weeks differ from Excel\'s figures by exactly that work.</div>' : ''}
+      ${unlisted.length && !calc.split_weekends ? `<div class="kc-note">⚠ Not in Excel's report: weekend work in split weeks — ${unlisted.map((u) => `<b>${esc(u.week)}</b> ${esc(u.source === 'remakes' ? `${u.qty} scrap` : `${(u.qty / 1000).toFixed(1)}K ${u.source === 'perso' ? 'persoed' : 'shipped'}`)}`).join(', ')}.</div>` : ''}
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div class="row"><h2 style="margin:0">Weekly volumes <span class="muted small">kU (thousands); scrap in units</span></h2><div class="spacer"></div>
+        ${xl ? `<span class="kc-summary ${differ ? 'bad' : 'good'}">${differ ? `⚠ ${differ} of ${checked} figures differ from Excel` : `✔ All ${checked} figures match Excel`}</span>` : ''}
+        <label class="small row"><input type="checkbox" id="kc-only"> Only weeks that differ</label></div>
+      <p class="small muted">${calc.excel ? (xl ? `Checked against Excel's Database sheet from the week loaded on the A3 tab (${esc(calc.excel.week)}, ${esc(fmtDateTime(calc.excel.loaded_at))}). Green: same as Excel; red: different — Excel's figure underneath.`
+        : `Load the week again on the A3 tab to check these figures against Excel's.`) : 'Load a week on the A3 tab to check these figures against Excel\'s.'}</p>
+      <div class="kc-wrap"><table class="log kc-table" id="kc-table"><thead>
+        <tr><th></th><th></th><th colspan="5" class="kc-group">Persoed</th><th colspan="4" class="kc-group kc-sep">Shipped</th></tr>
+        <tr><th>Month</th><th>Week</th>${KPI_VOL_COLS.map(([, l], i) => `<th class="num${i === 4 || i === 5 ? ' kc-sep' : ''}">${esc(l)}</th>`).join('')}</tr></thead>
+        <tbody>${body}</tbody></table></div>
+    </div>`;
+  $('#kc-year').addEventListener('change', (e) => { store.set('kpiYear', Number(e.target.value)); renderKpiCalc(); });
+  $('#kc-only').addEventListener('change', (e) => $('#kc-table').classList.toggle('kc-only', e.target.checked));
+  $('#kc-weekends').addEventListener('change', async (e) => {
+    try { await api.post('/kpi/calc/weekends', { split: e.target.checked }); toast(e.target.checked ? 'Weekend days now counted in their month\'s part' : 'Weekend days of split weeks left out, as in Excel'); } catch (err) { toast(err.message, 'error'); }
+    renderKpiCalc();
+  });
+  $$('.kc-sources input[type=text]').forEach((el) => el.addEventListener('change', async () => {
+    try { await api.patch('/settings', { [el.name]: el.value.trim().replace(/^"|"$/g, '') }); toast('Saved — read the files to use it'); } catch (err) { toast(err.message, 'error'); }
+  }));
+  main().onclick = async (e) => {
+    const b = e.target.closest('[data-kc]');
+    if (!b) return;
+    b.disabled = true;
+    b.textContent = '⏳ Reading…';
+    try {
+      const res = await api.post('/kpi/calc/import', { force: b.dataset.kc === 'force' });
+      const bad = res.filter((r) => r.status === 'error' || r.status === 'missing');
+      const done = res.filter((r) => r.status === 'imported');
+      toast(bad.length ? bad.map((r) => `${r.source}: ${r.error || `can't find ${r.file}`}`).join(' · ')
+        : done.length ? `Read ${done.map((r) => `${r.source} (${r.rows.toLocaleString('en-GB')} rows)`).join(', ')}` : 'Nothing changed since the last read', bad.length ? 'error' : '');
+    } catch (err) { toast(err.message, 'error'); }
+    renderKpiCalc();
+  };
 }

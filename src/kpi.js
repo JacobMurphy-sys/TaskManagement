@@ -410,12 +410,14 @@ function loadWeek(buf, { a3Sheet = 'A3 Weekly Report', dbSheet = 'Database', wee
   const a3cf = conditionalStyles(book, a3);
   const views = { a3: sheetView(book, a3, a3cf) };
   if (dbs) views.database = sheetView(book, dbs, conditionalStyles(book, dbs));
+  // Raw values of the Database sheet, to check the CI Manager's own figures against.
+  const values = dbs ? Object.fromEntries([...dbs.cells.values()].filter((c) => c.v !== null && c.v !== '' && c.t !== 'e').map((c) => [c.r, c.v])) : {};
   const parts = weekParts(week);
   const pkg = buildA3Package(book, a3, a3cf, { title: `A3 Weekly Report ${week}` });
   const errors = [...a3.cells.values()].filter((c) => c.t === 'e').map((c) => `${c.r} ${c.v}`);
   return {
     week, year: parts?.year ?? (typeof cell(dbs, 'B4') === 'number' ? cell(dbs, 'B4') : null),
-    month: typeof cell(dbs, 'A2') === 'string' ? cell(dbs, 'A2') : null, views, pkg,
+    month: typeof cell(dbs, 'A2') === 'string' ? cell(dbs, 'A2') : null, views, values, pkg,
     sheets: { a3: a3Info.name, database: dbInfo?.name || null }, errors,
   };
 }
