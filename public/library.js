@@ -105,7 +105,8 @@ function libTreeHtml(docs, currentId) {
   const draw = (node, prefix) => [...node.folders.entries()].sort((a, b) => cmp(a[0], b[0])).map(([name, child]) => {
     const p = prefix ? `${prefix}/${name}` : name;
     const open = !closed.has(p) || (cur && (cur.folder === p || cur.folder.startsWith(`${p}/`)));
-    return `<details class="lib-folder" data-folder="${esc(p)}" ${open ? 'open' : ''}><summary>📁 ${esc(name)} <span class="muted small">${count(child)}</span></summary>
+    return `<details class="lib-folder" data-folder="${esc(p)}" ${open ? 'open' : ''}><summary>📁 ${esc(name)} <span class="muted small">${count(child)}</span>
+      <button class="icon lib-folder-del" data-lib-del-folder="${esc(p)}" data-count="${count(child)}" title="Remove this folder from the library">🗑</button></summary>
       <div class="lib-children">${draw(child, p)}</div></details>`;
   }).join('') + node.docs.sort((a, b) => cmp(a.title, b.title)).map((d) =>
     `<a class="lib-item ${d.id === currentId ? 'on' : ''}" href="#/library/${d.id}" title="${esc(d.path)}">📄 ${esc(d.title)}</a>`).join('');
@@ -141,7 +142,8 @@ function libDocHtml(d) {
   return `<div class="lib-toolbar row">
       <span class="small muted">📚${d.folder ? ` ${d.folder.split('/').map(esc).join(' <span>›</span> ')}` : ''}</span><div class="spacer"></div>
       <button class="icon" data-action="library-copy-link" data-title="${esc(d.title)}" title="Copy a [[link]] to this note for a task or project description">🔗 Link</button>
-      <button class="icon" data-action="library-print" title="Print this note">🖨 Print</button></div>
+      <button class="icon" data-action="library-print" title="Print this note">🖨 Print</button>
+      <button class="icon" data-lib-del-doc="${d.id}" data-title="${esc(d.title)}" title="Remove this note from the library">🗑 Remove</button></div>
     ${titleInBody ? '' : `<h1 class="lib-title">${esc(d.title)}</h1>`}
     ${props.length || tags.length || aliases.length ? `<div class="lib-props">
       ${aliases.length ? `<div><span>Aliases</span><span>${aliases.map(esc).join(', ')}</span></div>` : ''}
@@ -176,6 +178,38 @@ document.addEventListener('click', (e) => {
 
 // ---- importing the vault --------------------------------------------------------------
 
+// What was removed from the library and stays out of updates, with a way back in.
+function excludedHtml() {
+  const list = state.library?.excluded || [];
+  if (!list.length) return '';
+  return `<div class="section"><h3>Left out of updates <span class="muted small">${list.length}</span></h3>
+    <p class="small muted">Removed from the library earlier. Choose “Include again” and they come back with the next update.</p>
+    <ul class="mini" id="lib-excluded">${list.map((x) => `<li><span class="t">${x.endsWith('/') ? '📁' : '📄'} ${esc(x.replace(/\/$/, '').replace(/\.md$/i, ''))}</span>
+      <button class="link small" data-include="${esc(x)}">Include again</button></li>`).join('')}</ul></div>`;
+}
+
+// Removing a note or a whole folder (they stay in the vault; updates leave them out).
+document.addEventListener('click', async (e) => {
+  const docBtn = e.target.closest('[data-lib-del-doc]');
+  const folderBtn = e.target.closest('[data-lib-del-folder]');
+  if (!docBtn && !folderBtn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  try {
+    if (docBtn) {
+      if (!confirm(`Remove “${docBtn.dataset.title}” from the library?\n\nIt stays in your Obsidian vault, and updates from the vault will leave it out (you can include it again from “Update from vault”).`)) return;
+      await api.del(`/library/docs/${docBtn.dataset.libDelDoc}`);
+      toast(`“${docBtn.dataset.title}” removed from the library`);
+    } else {
+      const f = folderBtn.dataset.libDelFolder;
+      if (!confirm(`Remove the folder “${f}” and its ${folderBtn.dataset.count} note(s), with their attachments, from the library?\n\nThey stay in your Obsidian vault, and updates will leave this folder out (you can include it again from “Update from vault”).`)) return;
+      const r = await api.del(`/library/folder?path=${encodeURIComponent(f)}`);
+      toast(`Folder “${f}” removed (${r?.removed ?? 0} notes)`);
+    }
+  } catch (err) { toast(err.message, 'error'); return; }
+  if (location.hash === '#/library') route(); else location.hash = '#/library';
+}, true);
+
 function libraryImportDialog() {
   const has = state.library?.docs?.length;
   openModal(`
@@ -187,8 +221,17 @@ function libraryImportDialog() {
       ${has ? 'Notes changed since last time are refreshed, new ones added and ones deleted from the vault removed.' : 'Import again at any time to pick up changes.'}</p>
     <div class="row"><label class="button primary">📁 Choose vault folder…<input type="file" id="vault-pick" webkitdirectory multiple hidden></label></div>
     <div id="vault-progress" style="margin-top:12px"></div>
+    ${excludedHtml()}
     ${has ? `<div class="section row"><span class="small muted">${state.library.docs.length} notes in the library now.</span><div class="spacer"></div>
       <button class="danger" id="lib-remove">Remove the library…</button></div>` : ''}`);
+  $('#lib-excluded')?.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-include]');
+    if (!b) return;
+    const r = await api.post('/library/excluded/remove', { path: b.dataset.include });
+    state.library.excluded = r.excluded;
+    b.closest('li').remove();
+    toast(`“${b.dataset.include}” will come back with the next update`);
+  });
   $('#vault-pick').addEventListener('change', (e) => importVaultFiles([...e.target.files]));
   $('#lib-remove')?.addEventListener('click', async () => {
     if (!confirm('Remove all notes and attachments from the library? (Your Obsidian vault is not touched.)')) return;
@@ -248,6 +291,7 @@ async function importVaultFiles(all) {
     const r = await api.post(`/library/import/${id}/finish`);
     box.innerHTML = `<div class="ok-note">✅ <b>${r.notes} notes</b> and ${r.files} attachments are in the library.
       ${state.library?.docs?.length ? `<br><span class="small">${r.added} new · ${r.updated} changed · ${r.unchanged} unchanged · ${r.removed} removed</span>` : ''}
+      ${r.left_out ? `<br><span class="small">${r.left_out} file${r.left_out === 1 ? '' : 's'} left out because you removed them from the library earlier</span>` : ''}
       ${tooBig.length ? `<br><span class="small">Left out (over 55 MB): ${tooBig.map(esc).join(', ')}</span>` : ''}</div>
       <div class="row" style="margin-top:10px"><div class="spacer"></div><a class="button primary" href="#/library" data-action="close-modal-go">Open the library</a></div>`;
     if (location.hash.startsWith('#/library')) route();
@@ -255,3 +299,98 @@ async function importVaultFiles(all) {
     box.innerHTML = `<p class="restore-warn">Import failed: ${esc(err.message)}. The library is unchanged.</p>`;
   }
 }
+
+// ---- Image viewer: click an image in a note to see it full size --------------------
+
+function imageViewer(images, start) {
+  let dlg = $('#lightbox');
+  if (!dlg) {
+    dlg = document.createElement('dialog');
+    dlg.id = 'lightbox';
+    document.body.append(dlg);
+  }
+  let index = start;
+  let scale = 1;
+  let fit = 1;
+  dlg.innerHTML = `<div class="lb-bar">
+      <span class="lb-caption"></span><span class="lb-count small"></span><div class="spacer"></div>
+      <button data-lb="out" title="Zoom out (−)">−</button><button data-lb="fit" title="Fit to screen (0)">Fit</button>
+      <button data-lb="actual" title="Actual size (1)">100%</button><button data-lb="in" title="Zoom in (+)">+</button>
+      <a class="button" data-lb-open target="_blank" rel="noopener" title="Open the original in a new tab">⧉</a>
+      <button data-lb="close" title="Close (Esc)">✕</button></div>
+    <div class="lb-stage"><img alt=""></div>
+    <button class="lb-nav lb-prev" data-lb="prev" title="Previous (←)">‹</button>
+    <button class="lb-nav lb-next" data-lb="next" title="Next (→)">›</button>`;
+  const stage = $('.lb-stage', dlg);
+  const img = $('img', dlg);
+  const apply = (s, focus) => {
+    const old = scale;
+    scale = Math.min(8, Math.max(0.05, s));
+    img.style.width = `${img.naturalWidth * scale}px`;
+    img.style.height = `${img.naturalHeight * scale}px`;
+    stage.classList.toggle('zoomed', scale > fit + 0.001);
+    if (focus) { // keep the point under the mouse in place
+      const r = stage.getBoundingClientRect();
+      const x = focus.x - r.left + stage.scrollLeft;
+      const y = focus.y - r.top + stage.scrollTop;
+      stage.scrollLeft = (x * scale) / old - (focus.x - r.left);
+      stage.scrollTop = (y * scale) / old - (focus.y - r.top);
+    }
+  };
+  const show = (i) => {
+    index = (i + images.length) % images.length;
+    const src = images[index];
+    img.onload = () => {
+      fit = Math.min(1, (stage.clientWidth - 40) / img.naturalWidth, (stage.clientHeight - 40) / img.naturalHeight);
+      apply(fit);
+      stage.scrollTo(0, 0);
+    };
+    img.src = src.src;
+    img.alt = src.alt;
+    $('.lb-caption', dlg).textContent = src.alt || decodeURIComponent(src.src.split(/[=/]/).pop());
+    $('.lb-count', dlg).textContent = images.length > 1 ? `${index + 1} / ${images.length}` : '';
+    $('[data-lb-open]', dlg).href = src.src;
+    $$('.lb-nav', dlg).forEach((b) => { b.hidden = images.length < 2; });
+  };
+  const close = () => { dlg.close(); document.removeEventListener('keydown', keys, true); };
+  const keys = (e) => {
+    if (!dlg.open) return;
+    const k = { ArrowLeft: () => show(index - 1), ArrowRight: () => show(index + 1), '+': () => apply(scale * 1.25), '=': () => apply(scale * 1.25),
+      '-': () => apply(scale / 1.25), 0: () => apply(fit), 1: () => apply(1) }[e.key];
+    if (k) { e.preventDefault(); k(); }
+  };
+  dlg.onclick = (e) => {
+    const b = e.target.closest('[data-lb]');
+    if (b) {
+      ({ close, prev: () => show(index - 1), next: () => show(index + 1), in: () => apply(scale * 1.25),
+        out: () => apply(scale / 1.25), fit: () => apply(fit), actual: () => apply(1) })[b.dataset.lb]();
+      return;
+    }
+    if (e.target === stage || e.target === dlg) close(); // the dark area around the image
+  };
+  // Click the image to switch between fit and actual size; drag to move around a zoomed image.
+  let drag = null;
+  img.onmousedown = (e) => { e.preventDefault(); drag = { x: e.clientX, y: e.clientY, l: stage.scrollLeft, t: stage.scrollTop, moved: false }; };
+  dlg.onmousemove = (e) => {
+    if (!drag) return;
+    if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 4) drag.moved = true;
+    stage.scrollLeft = drag.l - (e.clientX - drag.x);
+    stage.scrollTop = drag.t - (e.clientY - drag.y);
+  };
+  dlg.onmouseup = (e) => {
+    if (drag && !drag.moved && e.target === img) apply(scale > fit + 0.001 ? fit : Math.max(1, fit * 2), { x: e.clientX, y: e.clientY });
+    drag = null;
+  };
+  stage.onwheel = (e) => { e.preventDefault(); apply(scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15), { x: e.clientX, y: e.clientY }); };
+  dlg.oncancel = (e) => { e.preventDefault(); close(); };
+  document.addEventListener('keydown', keys, true);
+  dlg.showModal();
+  show(index);
+}
+
+document.addEventListener('click', (e) => {
+  const img = e.target.closest('.md img');
+  if (!img || img.closest('a')) return;
+  const all = [...img.closest('.md').querySelectorAll('img')].filter((x) => !x.closest('a'));
+  imageViewer(all.map((x) => ({ src: x.src, alt: x.getAttribute('alt') || '' })), all.indexOf(img));
+});

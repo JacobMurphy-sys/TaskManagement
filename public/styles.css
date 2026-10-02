@@ -291,6 +291,9 @@ table.dash-projects td { vertical-align: middle; }
 a.button { display: inline-block; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
   padding: 5px 11px; color: var(--text); text-decoration: none; white-space: nowrap; }
 a.button:hover { border-color: var(--accent); text-decoration: none; }
+label.button { display: inline-block; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 5px 11px; white-space: nowrap; }
+label.button:hover { border-color: var(--accent); }
+a.button.primary, label.button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* ---------- waiting on, links */
 .chip.waiting { color: var(--p3); font-weight: 600; }
@@ -693,3 +696,27 @@ label.button { cursor: pointer; }
 .md .sx-table th.sx-row-head { background: var(--panel-2); font-weight: 600; text-align: left; }
 .md .md-sheet-error { color: var(--danger); background: var(--danger-soft); border-radius: 6px; padding: 6px 10px; margin-bottom: 6px;
   font-family: Consolas, monospace; font-size: 13px; }
+
+/* ---- Library: remove buttons and the image viewer */
+.lib-folder > summary { display: flex; align-items: center; gap: 4px; }
+.lib-folder-del { margin-left: auto; visibility: hidden; padding: 0 4px; font-size: 12px; }
+.lib-folder > summary:hover .lib-folder-del { visibility: visible; }
+.md img { cursor: zoom-in; }
+#lightbox { width: 100vw; height: 100vh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0;
+  background: rgba(10, 12, 16, .97); color: #e5e8ee; overflow: hidden; }
+#lightbox[open] { display: flex; flex-direction: column; }
+#lightbox::backdrop { background: transparent; }
+.lb-bar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: rgba(0, 0, 0, .35); }
+.lb-bar button, .lb-bar .button { background: rgba(255, 255, 255, .1); color: #fff; border: 1px solid rgba(255, 255, 255, .2); min-width: 34px; }
+.lb-bar button:hover, .lb-bar .button:hover { background: rgba(255, 255, 255, .22); }
+.lb-caption { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 50vw; }
+.lb-count { opacity: .7; margin-left: 8px; }
+.lb-stage { flex: 1; overflow: auto; display: grid; place-items: center; }
+.lb-stage img { max-width: none; cursor: zoom-in; user-select: none; background: #fff; box-shadow: 0 4px 30px rgba(0, 0, 0, .5); }
+.lb-stage.zoomed { place-items: start; }
+.lb-stage.zoomed img { cursor: grab; margin: 20px; }
+.lb-stage.zoomed img:active { cursor: grabbing; }
+.lb-nav { position: absolute; top: 50%; transform: translateY(-50%); font-size: 40px; line-height: 1; padding: 8px 14px;
+  background: rgba(0, 0, 0, .4); color: #fff; border: 0; border-radius: 8px; }
+.lb-nav:hover { background: rgba(0, 0, 0, .7); }
+.lb-prev { left: 12px; } .lb-next { right: 12px; }

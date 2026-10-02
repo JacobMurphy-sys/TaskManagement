@@ -398,6 +398,27 @@ async function waitForServer() {
     index = await call('GET', '/library');
     assert.equal(index.docs.find((d) => d.title === 'Lockout').id, lock.id, 'same note keeps its id');
     assert.equal(index.files, 0, 'attachments replaced by the new import');
+    // removing a note or folder keeps it out of later imports until included again
+    const vault2 = [vault[0], vault[1], { path: 'Reference/Sub/Deep.md', text: 'deep' }, { path: 'Reference/pic.png', base64: png }];
+    const importAll = async (files) => {
+      const imp = await call('POST', '/library/import', { source: 'Work vault' });
+      await call('POST', `/library/import/${imp.id}/files`, { files });
+      return call('POST', `/library/import/${imp.id}/finish`);
+    };
+    await importAll(vault2);
+    index = await call('GET', '/library');
+    await call('DELETE', `/library/docs/${index.docs.find((d) => d.title === 'Lockout').id}`);
+    const delFolder = await call('DELETE', '/library/folder?path=Reference');
+    assert.equal(delFolder.removed, 2, 'folder removal includes sub-folders');
+    index = await call('GET', '/library');
+    assert.equal(index.docs.length, 0);
+    assert.deepEqual(index.excluded, ['Procedures/Lockout.md', 'Reference/']);
+    res = await importAll(vault2);
+    assert.deepEqual([res.notes, res.left_out], [0, 4], 'removed note and folder left out of the update');
+    await call('POST', '/library/excluded/remove', { path: 'Reference/' });
+    res = await importAll(vault2);
+    assert.deepEqual([res.notes, res.left_out], [2, 1], 'included again');
+    await assert.rejects(call('DELETE', '/library/folder?path=..'), /Which folder/);
     lib = await call('POST', '/library/import', {});
     await assert.rejects(call('POST', `/library/import/${lib.id}/finish`), /No notes/);
     await call('DELETE', '/library');

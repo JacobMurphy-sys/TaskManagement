@@ -1759,13 +1759,54 @@ function librarySearch(term, limit = 50) {
     }).filter(Boolean).slice(0, limit);
 }
 
+// Notes and folders removed from the library stay out of later imports (until included again).
+const libExcluded = () => parseJson(getSetting('library_excluded')) || [];
+const setLibExcluded = (list) => setSetting('library_excluded', JSON.stringify([...new Set(list)].sort()));
+// Entries are a note path ("Folder/Note.md") or a folder ("Folder/").
+const isLibExcluded = (p, list = libExcluded()) => list.some((x) => (x.endsWith('/') ? `${p}`.toLowerCase().startsWith(x.toLowerCase()) : p.toLowerCase() === x.toLowerCase()));
+
 router.get('/library', h((req, res) => {
   res.json({
     docs: db.all('SELECT id, path, title, folder, tags, updated_at FROM library_docs ORDER BY path COLLATE NOCASE'),
     files: libraryFiles().length,
     imported_at: getSetting('library_imported_at'),
     source: getSetting('library_source'),
+    excluded: libExcluded(),
   });
+}));
+
+// Remove one note (it stays in the vault; later imports leave it out).
+router.delete('/library/docs/:id', h((req, res) => {
+  const doc = db.get('SELECT id, path FROM library_docs WHERE id = ?', [req.params.id]);
+  if (!doc) throw notFound('Note');
+  db.tx(() => {
+    db.run('DELETE FROM library_docs WHERE id = ?', [doc.id]);
+    setLibExcluded([...libExcluded(), doc.path]);
+  });
+  log.info('Library note removed', doc.path);
+  res.status(204).end();
+}));
+
+// Remove a folder: its notes, sub-folders and the attachments stored in it.
+router.delete('/library/folder', h((req, res) => {
+  const folder = cleanLibraryPath(req.query.path);
+  if (!folder) throw new HttpError(400, 'Which folder?');
+  const removed = db.tx(() => {
+    const n = db.run("DELETE FROM library_docs WHERE folder = ? COLLATE NOCASE OR folder LIKE ? ESCAPE '\\'",
+      [folder, `${folder.replace(/[\\%_]/g, (c) => `\\${c}`)}/%`]).changes;
+    setLibExcluded([...libExcluded().filter((x) => !x.toLowerCase().startsWith(`${folder.toLowerCase()}/`)), `${folder}/`]);
+    return n;
+  });
+  fs.rmSync(path.join(LIB_DIR, ...folder.split('/')), { recursive: true, force: true });
+  libFilesCache = null;
+  log.info('Library folder removed', { folder, notes: removed });
+  res.json({ removed });
+}));
+
+// Let a removed note or folder come back with the next import.
+router.post('/library/excluded/remove', h((req, res) => {
+  setLibExcluded(libExcluded().filter((x) => x !== req.body.path));
+  res.json({ excluded: libExcluded() });
 }));
 
 router.get('/library/search', h((req, res) => res.json(librarySearch(String(req.query.q || '').trim()))));
@@ -1821,7 +1862,7 @@ router.post('/library/import', h((req, res) => {
   const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const dir = path.join(config.dataDir, `library-import-${id}`);
   fs.mkdirSync(dir, { recursive: true });
-  libImports.set(id, { dir, docs: new Map(), files: 0, skipped: 0, touched: Date.now(),
+  libImports.set(id, { dir, docs: new Map(), files: 0, skipped: 0, left_out: 0, excluded: libExcluded(), touched: Date.now(),
     source: String(req.body.source || '').slice(0, 200) || null });
   res.status(201).json({ id });
 }));
@@ -1833,6 +1874,7 @@ router.post('/library/import/:id/files', h((req, res) => {
   for (const f of Array.isArray(req.body.files) ? req.body.files : []) {
     const rel = cleanLibraryPath(f.path);
     const ext = rel && md.extOf(rel);
+    if (rel && imp.excluded.length && isLibExcluded(rel, imp.excluded)) { imp.left_out++; continue; }
     if (rel && ext === 'md' && typeof f.text === 'string') { imp.docs.set(rel, f.text.replace(/\r\n?/g, '\n')); continue; }
     if (!rel || !md.ATTACHMENT_EXT.includes(ext) || typeof f.base64 !== 'string') { imp.skipped++; continue; }
     const full = path.join(imp.dir, ...rel.split('/'));
@@ -1846,11 +1888,11 @@ router.post('/library/import/:id/files', h((req, res) => {
 router.post('/library/import/:id/finish', h((req, res) => {
   const imp = libImports.get(req.params.id);
   if (!imp) throw notFound('Import');
-  if (!imp.docs.size) throw new HttpError(400, 'No notes (.md files) were found in that folder');
+  if (!imp.docs.size && !imp.left_out) throw new HttpError(400, 'No notes (.md files) were found in that folder');
   const now = nowIso();
   const result = db.tx(() => {
     const existing = new Map(db.all('SELECT id, path, body FROM library_docs').map((d) => [d.path, d]));
-    const counts = { notes: imp.docs.size, added: 0, updated: 0, unchanged: 0, removed: 0, files: imp.files, skipped: imp.skipped };
+    const counts = { notes: imp.docs.size, added: 0, updated: 0, unchanged: 0, removed: 0, files: imp.files, skipped: imp.skipped, left_out: imp.left_out };
     for (const [p, body] of imp.docs) {
       const meta = md.docMeta(body);
       const row = { title: p.split('/').pop().replace(/\.md$/i, ''), folder: folderOf(p), tags: meta.tags.join(', ') || null,
@@ -1890,7 +1932,7 @@ router.delete('/library', h((req, res) => {
   db.run('DELETE FROM library_docs');
   fs.rmSync(LIB_DIR, { recursive: true, force: true });
   libFilesCache = null;
-  db.run("DELETE FROM settings WHERE key IN ('library_imported_at', 'library_source')");
+  db.run("DELETE FROM settings WHERE key IN ('library_imported_at', 'library_source', 'library_excluded')");
   log.info('Library removed');
   res.status(204).end();
 }));
