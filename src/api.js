@@ -1921,6 +1921,11 @@ function librarySearch(term, limit = 50) {
 }
 
 // Notes and folders removed from the library stay out of later imports (until included again).
+// Column widths set by dragging in a note's tables: { path: { tableNo: { cols, widths } } }.
+// Kept by path, so they survive re-importing the vault; ignored if the table's columns change.
+const libWidths = () => parseJson(getSetting('library_widths')) || {};
+const setLibWidths = (all) => setSetting('library_widths', JSON.stringify(all));
+
 const libExcluded = () => parseJson(getSetting('library_excluded')) || [];
 const setLibExcluded = (list) => setSetting('library_excluded', JSON.stringify([...new Set(list)].sort()));
 // Entries are a note path ("Folder/Note.md") or a folder ("Folder/").
@@ -1943,6 +1948,8 @@ router.delete('/library/docs/:id', h((req, res) => {
   db.tx(() => {
     db.run('DELETE FROM library_docs WHERE id = ?', [doc.id]);
     setLibExcluded([...libExcluded(), doc.path]);
+    const widths = libWidths();
+    if (widths[doc.path]) { delete widths[doc.path]; setLibWidths(widths); }
   });
   log.info('Library note removed', doc.path);
   res.status(204).end();
@@ -1992,8 +1999,27 @@ router.get('/library/docs/:id', h((req, res) => {
     .filter((t) => linkedDocIds(t.description, r).has(doc.id)).map(({ description, ...t }) => t);
   const linkedProjects = db.all("SELECT id, name, description FROM projects WHERE description LIKE '%[[%'")
     .filter((p) => linkedDocIds(p.description, r).has(doc.id)).map(({ id, name }) => ({ id, name }));
-  res.json({ ...doc, html: out.html, headings: out.headings, props: out.props, backlinks,
+  res.json({ ...doc, html: out.html, headings: out.headings, props: out.props, backlinks, col_widths: libWidths()[doc.path] || {},
     linked_tasks: linkedTasks, linked_projects: linkedProjects });
+}));
+
+// Save (widths: [px, …]) or reset (widths: null) the column widths of one table in a note.
+router.patch('/library/docs/:id/widths', h((req, res) => {
+  const doc = db.get('SELECT path FROM library_docs WHERE id = ?', [req.params.id]);
+  if (!doc) throw notFound('Note');
+  const table = Number(req.body.table);
+  if (!Number.isInteger(table) || table < 0 || table > 500) throw new HttpError(400, 'Which table?');
+  const all = libWidths();
+  const mine = all[doc.path] || {};
+  if (req.body.widths == null) delete mine[table];
+  else {
+    const widths = Array.isArray(req.body.widths) ? req.body.widths.map((w) => Math.round(Number(w))) : [];
+    if (!widths.length || widths.length > 100 || widths.some((w) => !Number.isFinite(w) || w < 20 || w > 4000)) throw new HttpError(400, 'Column widths must be 20–4000 px');
+    mine[table] = { cols: widths.length, widths };
+  }
+  if (Object.keys(mine).length) all[doc.path] = mine; else delete all[doc.path];
+  setLibWidths(all);
+  res.json(mine);
 }));
 
 // Attachments (images, PDFs…) of the imported vault.
@@ -2093,7 +2119,7 @@ router.delete('/library', h((req, res) => {
   db.run('DELETE FROM library_docs');
   fs.rmSync(LIB_DIR, { recursive: true, force: true });
   libFilesCache = null;
-  db.run("DELETE FROM settings WHERE key IN ('library_imported_at', 'library_source', 'library_excluded')");
+  db.run("DELETE FROM settings WHERE key IN ('library_imported_at', 'library_source', 'library_excluded', 'library_widths')");
   log.info('Library removed');
   res.status(204).end();
 }));

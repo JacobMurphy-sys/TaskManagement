@@ -426,6 +426,11 @@ async function waitForServer() {
     const libTask = await call('POST', '/tasks', { title: 'Service pump', description: 'Follow [[Lockout]] first' });
     assert.equal((await call('GET', `/library/docs/${lock.id}`)).linked_tasks[0].id, libTask.id, 'used in tasks');
     await call('DELETE', `/tasks/${libTask.id}`);
+    // column widths set by dragging: saved per table, kept across re-imports, reset with null
+    assert.deepEqual(page.col_widths, {});
+    await assert.rejects(call('PATCH', `/library/docs/${lock.id}/widths`, { table: 0, widths: [5, 100] }), /20–4000/);
+    await call('PATCH', `/library/docs/${lock.id}/widths`, { table: 1, widths: [120.4, 300] });
+    assert.deepEqual((await call('GET', `/library/docs/${lock.id}`)).col_widths, { 1: { cols: 2, widths: [120, 300] } });
     // re-import: changed, unchanged, removed; ids kept
     lib = await call('POST', '/library/import', { source: 'Work vault' });
     await call('POST', `/library/import/${lib.id}/files`, { files: [{ ...vault[0], text: `${vault[0].text}\nNew line` }, vault[1]] });
@@ -433,6 +438,8 @@ async function waitForServer() {
     assert.deepEqual([res.added, res.updated, res.unchanged, res.removed], [0, 1, 1, 1]);
     index = await call('GET', '/library');
     assert.equal(index.docs.find((d) => d.title === 'Lockout').id, lock.id, 'same note keeps its id');
+    assert.deepEqual((await call('GET', `/library/docs/${lock.id}`)).col_widths[1].widths, [120, 300], 'widths kept after re-import');
+    assert.deepEqual(await call('PATCH', `/library/docs/${lock.id}/widths`, { table: 1, widths: null }), {}, 'reset');
     assert.equal(index.files, 0, 'attachments replaced by the new import');
     // removing a note or folder keeps it out of later imports until included again
     const vault2 = [vault[0], vault[1], { path: 'Reference/Sub/Deep.md', text: 'deep' }, { path: 'Reference/pic.png', base64: png }];

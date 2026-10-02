@@ -679,6 +679,9 @@ label.button { cursor: pointer; }
 .md hr { border: 0; border-top: 1px solid var(--border); margin: 1.5em 0; }
 .md .md-table { overflow-x: auto; margin: 0 0 1em; }
 .md table { border-collapse: collapse; font-size: 14px; }
+.lib-col-edge .md table, .lib-resizing, .lib-resizing * { cursor: col-resize !important; }
+.lib-resizing { user-select: none; }
+.md table.lib-sized th, .md table.lib-sized td { overflow-wrap: break-word; }
 .md th, .md td { border: 1px solid var(--border); padding: 5px 10px; vertical-align: top; }
 .md th { background: var(--panel-2); font-weight: 600; }
 .md img.md-img { max-width: 100%; height: auto; border-radius: 4px; vertical-align: middle; }

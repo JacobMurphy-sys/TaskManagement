@@ -70,10 +70,125 @@ async function renderLibrary(arg, extra) {
   };
   $('#lib-filter').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(filter, 200); });
   if (state.libFilter) filter();
+  if (doc) libTableSizer($('.lib-doc'), doc);
   const slug = extra && decodeURIComponent(extra);
   const target = slug && $(`#h-${CSS.escape(slug)}`);
   if (target) scrollToEl(target); else main().scrollTop = 0;
   $('.lib-item.on')?.scrollIntoView({ block: 'nearest' });
+}
+
+// ---- Column widths: drag the edge of a column in a note's table to resize it ---------
+// The new widths are saved for that note and used every time it opens, until changed
+// again; double-clicking an edge puts the table back to automatic widths.
+
+// Where each cell sits in the table's grid, allowing for merged cells (colspan / rowspan).
+function tableGrid(table) {
+  const cells = [];
+  const taken = [];
+  [...table.rows].forEach((row, r) => {
+    let c = 0;
+    for (const cell of row.cells) {
+      while (taken[r]?.[c]) c++;
+      const span = Math.max(1, cell.colSpan || 1);
+      // a merge down stops at the end of its section (thead / tbody), as browsers draw it
+      const sec = row.parentElement;
+      const left = sec.rows ? sec.rows.length - row.sectionRowIndex : 1;
+      const down = Math.min(left, cell.rowSpan === 0 ? left : Math.max(1, cell.rowSpan || 1));
+      for (let y = r; y < r + down; y++) for (let x = c; x < c + span; x++) (taken[y] ||= [])[x] = true;
+      cells.push({ cell, col: c, span });
+      c += span;
+    }
+  });
+  return { cells, cols: Math.max(0, ...taken.map((t) => (t ? t.length : 0))) };
+}
+
+// Current column widths in px, measured from the page.
+function measureColumns(table) {
+  const { cells, cols } = tableGrid(table);
+  const widths = Array(cols).fill(0);
+  for (const { cell, col, span } of cells) if (span === 1) widths[col] = Math.max(widths[col], cell.getBoundingClientRect().width);
+  const missing = widths.filter((w) => !w).length;
+  if (missing) { // columns that only appear inside merged cells share what's left
+    const rest = Math.max(0, table.getBoundingClientRect().width - widths.reduce((a, b) => a + b, 0));
+    widths.forEach((w, i) => { if (!w) widths[i] = Math.max(60, rest / missing); });
+  }
+  return widths.map((w) => Math.ceil(w) + 1); // a pixel spare so a tight column doesn't wrap
+}
+
+function applyColumns(table, widths) {
+  table.querySelector('colgroup.lib-cols')?.remove();
+  if (!widths) { table.style.tableLayout = ''; table.style.width = ''; table.classList.remove('lib-sized'); return; }
+  const cg = document.createElement('colgroup');
+  cg.className = 'lib-cols';
+  cg.innerHTML = widths.map((w) => `<col style="width:${w}px">`).join('');
+  table.prepend(cg);
+  table.style.tableLayout = 'fixed';
+  table.style.width = `${widths.reduce((a, b) => a + b, 0)}px`;
+  table.classList.add('lib-sized');
+}
+
+function libTableSizer(root, doc) {
+  const tables = $$('.md table', root);
+  if (!tables.length) return;
+  tables.forEach((t, i) => {
+    const saved = doc.col_widths?.[i];
+    if (saved && saved.cols === tableGrid(t).cols) applyColumns(t, saved.widths);
+  });
+  const bar = $('.lib-toolbar .spacer', root);
+  if (bar) bar.insertAdjacentHTML('afterend', '<span class="small muted" title="Drag the edge of a column to make it wider or narrower. The widths are kept for this note. Double-click an edge to reset the table.">↔ Drag column edges to resize</span>');
+  const EDGE = 6;
+  // The column whose right-hand edge is under the pointer, or null.
+  const edgeAt = (e) => {
+    const cell = e.target.closest?.('th, td');
+    const table = cell?.closest('table');
+    if (!table || !tables.includes(table)) return null;
+    const rect = cell.getBoundingClientRect();
+    const g = tableGrid(table).cells.find((x) => x.cell === cell);
+    if (e.clientX >= rect.right - EDGE) return { table, col: g.col + g.span - 1 };
+    if (e.clientX <= rect.left + EDGE && g.col > 0) return { table, col: g.col - 1 };
+    return null;
+  };
+  const save = async (table, widths) => {
+    try { doc.col_widths = await api.patch(`/library/docs/${doc.id}/widths`, { table: tables.indexOf(table), widths }); } catch (err) { toast(err.message, 'error'); }
+  };
+  root.addEventListener('pointermove', (e) => {
+    if (root.classList.contains('lib-resizing')) return;
+    root.classList.toggle('lib-col-edge', !!edgeAt(e));
+  });
+  root.addEventListener('pointerdown', (e) => {
+    const hit = e.button === 0 && edgeAt(e);
+    if (!hit) return;
+    e.preventDefault();
+    const widths = hit.table.classList.contains('lib-sized')
+      ? [...hit.table.querySelectorAll('colgroup.lib-cols col')].map((c) => parseFloat(c.style.width))
+      : measureColumns(hit.table);
+    const start = e.clientX;
+    const from = widths[hit.col];
+    let moved = false;
+    root.classList.add('lib-resizing');
+    const move = (ev) => {
+      moved = moved || Math.abs(ev.clientX - start) > 2;
+      if (!moved) return;
+      widths[hit.col] = Math.max(40, Math.round(from + ev.clientX - start));
+      applyColumns(hit.table, widths);
+    };
+    const up = () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+      root.classList.remove('lib-resizing');
+      if (moved) save(hit.table, widths);
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+  });
+  root.addEventListener('dblclick', (e) => {
+    const hit = edgeAt(e);
+    if (!hit || !hit.table.classList.contains('lib-sized')) return;
+    e.preventDefault();
+    applyColumns(hit.table, null);
+    save(hit.table, null);
+    toast('Column widths reset');
+  });
 }
 
 const markTerm = (text, q) => {
