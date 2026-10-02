@@ -566,9 +566,15 @@ router.post('/name-lists', h((req, res) => {
   res.status(201).json(insertRow('name_lists', { name, sort_order: sort }));
 }));
 
+// The Departments list is what people's departments point at, so it can't be renamed or deleted.
+const lockedList = (id) => {
+  if (Number(id) === departmentsList()?.id) throw new HttpError(400, 'The Departments list can\'t be renamed or deleted — people\'s departments come from it');
+};
+
 router.patch('/name-lists/:id', h((req, res) => {
   const f = {};
   if ('name' in req.body) {
+    lockedList(req.params.id);
     f.name = String(req.body.name || '').trim();
     if (!f.name) throw new HttpError(400, 'List name is required');
     if (db.get('SELECT 1 FROM name_lists WHERE name = ? AND id <> ?', [f.name, req.params.id])) throw new HttpError(400, `There's already a list called "${f.name}"`);
@@ -580,6 +586,7 @@ router.patch('/name-lists/:id', h((req, res) => {
 }));
 
 router.delete('/name-lists/:id', h((req, res) => {
+  lockedList(req.params.id);
   if (!db.run('DELETE FROM name_lists WHERE id = ?', [req.params.id]).changes) throw notFound('List');
   res.status(204).end();
 }));
@@ -601,7 +608,30 @@ router.post('/name-lists/:id/items', h((req, res) => {
   res.status(201).json({ added: added.length, skipped: wanted.length - added.length });
 }));
 
-// Renaming an entry can also rename it on open tasks that list it as an owner.
+// A contact's new name, carried everywhere the old one is used, so nothing loses its link:
+// task and action owners, meeting attendees, project teams, leaders and sponsors.
+// Returns how many tasks changed.
+function renameEverywhere(from, to) {
+  const same = (n) => String(n || '').trim().toLowerCase() === from.toLowerCase();
+  const swap = (list) => normOwners(splitOwners(list).map((o) => (same(o) ? to : o)));
+  let tasks = 0;
+  for (const t of db.all('SELECT id, owner FROM tasks WHERE owner IS NOT NULL')) {
+    if (!ownsTask(t.owner, from)) continue;
+    db.run('UPDATE tasks SET owner = ? WHERE id = ?', [swap(t.owner), t.id]);
+    tasks++;
+  }
+  for (const m of db.all('SELECT id, attendees FROM meetings WHERE attendees IS NOT NULL')) {
+    if (ownsTask(m.attendees, from)) db.run('UPDATE meetings SET attendees = ? WHERE id = ?', [swap(m.attendees), m.id]);
+  }
+  for (const m of db.all('SELECT id, name FROM project_team')) if (same(m.name)) db.run('UPDATE project_team SET name = ? WHERE id = ?', [to, m.id]);
+  for (const p of db.all('SELECT id, leader, sponsor FROM projects')) {
+    if (same(p.leader)) db.run('UPDATE projects SET leader = ? WHERE id = ?', [to, p.id]);
+    if (same(p.sponsor)) db.run('UPDATE projects SET sponsor = ? WHERE id = ?', [to, p.id]);
+  }
+  return tasks;
+}
+
+// Renaming an entry renames it everywhere it's used (see renameEverywhere).
 router.patch('/name-list-items/:id', h((req, res) => {
   const item = db.get('SELECT * FROM name_list_items WHERE id = ?', [req.params.id]);
   if (!item) throw notFound('Entry');
@@ -627,20 +657,19 @@ router.patch('/name-list-items/:id', h((req, res) => {
         moved++;
       }
     }
-    if (f.name && f.name !== item.name && req.body.rename_tasks) {
-      for (const t of db.all("SELECT id, owner FROM tasks WHERE owner IS NOT NULL AND status <> 'done'")) {
-        if (!ownsTask(t.owner, item.name)) continue;
-        const owner = normOwners(splitOwners(t.owner).map((o) => (o.toLowerCase() === item.name.toLowerCase() ? f.name : o)));
-        db.run('UPDATE tasks SET owner = ? WHERE id = ?', [owner, t.id]);
-        renamed++;
-      }
-    }
+    if (f.name && f.name !== item.name) renamed = renameEverywhere(item.name, f.name);
   });
   res.json({ ...fresh('name_list_items', item), renamed_tasks: renamed, moved_people: moved });
 }));
 
 router.delete('/name-list-items/:id', h((req, res) => {
-  if (!db.run('DELETE FROM name_list_items WHERE id = ?', [req.params.id]).changes) throw notFound('Entry');
+  const item = db.get('SELECT * FROM name_list_items WHERE id = ?', [req.params.id]);
+  if (!item) throw notFound('Entry');
+  if (item.list_id === departmentsList()?.id) {
+    const people = db.get('SELECT count(*) AS n FROM name_list_items WHERE department = ? AND list_id <> ?', [item.name, item.list_id]).n;
+    if (people) throw new HttpError(400, `${people} ${people === 1 ? 'person is' : 'people are'} in ${item.name} — give them another department first, or untick Active to stop offering it`);
+  }
+  db.run('DELETE FROM name_list_items WHERE id = ?', [item.id]);
   res.status(204).end();
 }));
 

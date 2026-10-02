@@ -504,8 +504,12 @@ async function waitForServer() {
     assert.ok(!opts.some((g) => g.label === 'People'), 'empty lists left out');
     assert.ok(!(opts.find((g) => g.label === 'Used before')?.names || []).some((n) => /maintenance|sam patel/i.test(n)), 'no repeats in Used before');
     // rename on open tasks, deactivate, delete
-    const ren = await call('PATCH', `/name-list-items/${dl.items[0].id}`, { name: 'Engineering', rename_tasks: true });
-    assert.equal(ren.renamed_tasks, 1);
+    const doneOt = await call('POST', '/tasks', { project_id: ownP.id, title: 'Old job', owner: 'Maintenance', status: 'done' });
+    const renM = await call('POST', '/meetings', { project_id: ownP.id, title: 'Rename', held_at: new Date().toISOString(), attendees: 'Sam Patel, Maintenance' });
+    const ren = await call('PATCH', `/name-list-items/${dl.items[0].id}`, { name: 'Engineering' });
+    assert.equal(ren.renamed_tasks, 2, 'a rename always reaches every task, done ones too');
+    assert.equal((await call('GET', `/tasks/${doneOt.id}`)).owner, 'Engineering');
+    assert.equal((await call('GET', `/meetings/${renM.id}`)).attendees, 'Sam Patel, Engineering', 'and meeting attendees');
     assert.equal((await call('GET', `/tasks/${ot.id}`)).owner, 'Sam Patel, Engineering', 'renamed on the task');
     // departments for people
     const peopleL = lists[0];
@@ -530,13 +534,27 @@ async function waitForServer() {
     assert.deepEqual((await call('GET', '/name-lists'))[0].items.map((i) => i.department), ['Maint Eng', 'Maint Eng']);
     assert.equal((await call('GET', `/projects/${ownP.id}`)).charter.team[0].department, 'Maint Eng', 'team member shows the department');
     assert.equal((await call('GET', '/contacts/teams')).find((x) => x.name === 'Sam Patel').department, 'Maint Eng');
+    await assert.rejects(call('DELETE', `/name-list-items/${eng.id}`), /2 people are in Maint Eng/, 'a department with people stays');
+    await assert.rejects(call('PATCH', `/name-lists/${depts.id}`, { name: 'Teams' }), /can't be renamed/);
+    // renaming a person carries through to the project team, leader and sponsor
+    const samItem = (await call('GET', '/name-lists'))[0].items.find((i) => i.name === 'Sam Patel');
+    await call('PATCH', `/projects/${ownP.id}`, { sponsor: 'sam patel' });
+    await call('PATCH', `/name-list-items/${samItem.id}`, { name: 'Samuel Patel' });
+    const renP = await call('GET', `/projects/${ownP.id}`);
+    assert.deepEqual([renP.charter.team[0].name, renP.sponsor], ['Samuel Patel', 'Samuel Patel'], 'team and sponsor renamed');
+    assert.equal((await call('GET', `/tasks/${ot.id}`)).owner, 'Samuel Patel, Maint Eng');
+    await call('PATCH', `/name-list-items/${samItem.id}`, { name: 'Sam Patel' });
+    await call('PATCH', `/projects/${ownP.id}`, { sponsor: 'J. Smith' });
     await call('PATCH', `/name-list-items/${jo.id}`, { department: '' });
     assert.equal((await call('GET', '/name-lists'))[0].items[1].department, null, 'department cleared');
     await call('PATCH', `/name-list-items/${dl.items[1].id}`, { active: false });
     assert.ok(!(await call('GET', '/owner-options')).some((g) => g.names.includes('Quality')), 'inactive names not offered');
-    await call('DELETE', `/name-lists/${depts.id}`);
-    assert.equal((await call('GET', '/name-lists')).length, 1);
-    assert.equal((await call('GET', `/tasks/${ot.id}`)).owner, 'Sam Patel, Engineering', 'deleting a list leaves task owners alone');
+    await assert.rejects(call('DELETE', `/name-lists/${depts.id}`), /can't be renamed or deleted/, 'the Departments list stays');
+    const sup = await call('POST', '/name-lists', { name: 'Suppliers' });
+    await call('POST', `/name-lists/${sup.id}/items`, { name: 'Engineering' });
+    await call('DELETE', `/name-lists/${sup.id}`);
+    assert.equal((await call('GET', '/name-lists')).length, 2);
+    assert.equal((await call('GET', `/tasks/${ot.id}`)).owner, 'Sam Patel, Maint Eng', 'deleting a list leaves task owners alone');
     // meeting actions and the export's team counts handle several owners
     const om = await call('POST', '/meetings', { project_id: ownP.id, title: 'Owners', held_at: new Date().toISOString() });
     assert.equal((await call('POST', `/meetings/${om.id}/actions`, { title: 'Both of you', owner: 'Sam Patel; Alex' })).owner, 'Sam Patel, Alex');

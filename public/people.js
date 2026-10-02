@@ -231,7 +231,7 @@ async function renderPeopleSettings(root) {
     ? '<th>Department</th><th>Details</th><th>Active</th><th class="num" title="People with this department">People</th><th class="num" title="Open tasks the department owns, plus those its people own">Open tasks</th><th></th>'
     : `<th>Name</th>${deptList ? '<th>Department</th>' : ''}<th>Details <span class="muted">(role, email, extension…)</span></th><th>Active</th><th class="num" title="Open tasks this name owns">Open tasks</th><th></th>`);
   const row = (l, i) => `<tr data-item="${i.id}" data-name="${esc(i.name)}" data-open="${i.open_tasks}" data-dept="${esc(l.departments ? '' : i.department || '')}" data-members="${i.members?.length || 0}" data-kind="${l.departments ? 'dept' : 'person'}">
-          <td><input type="text" name="name" value="${esc(i.name)}"></td>
+          <td class="pl-who"><span>${esc(i.name)}</span><button class="icon" data-pl-rename="${i.id}" title="Rename — changes it everywhere it's used">✎</button></td>
           ${!l.departments && deptList ? `<td><select name="department" title="Department (from the ${esc(deptList.name)} list)">${deptOptions(i.department)}</select></td>` : ''}
           <td><input type="text" name="detail" value="${esc(i.detail || '')}"></td>
           <td><input type="checkbox" name="active" ${i.active ? 'checked' : ''}></td>
@@ -243,11 +243,13 @@ async function renderPeopleSettings(root) {
     <p class="small muted">Names offered in the 📇 contacts book when you choose a task's <b>owners</b>, a meeting's <b>attendees</b> or a project's team, after the project's own team.
       Make as many lists as you like (e.g. <i>People</i>, <i>Departments</i>, <i>Suppliers</i>). Untick <b>Active</b> to stop offering a name
       without touching tasks that already use it. Tasks can still have names that aren't in any list.
-      ${deptList ? `Give people a <b>Department</b> from the <i>${esc(deptList.name)}</i> list; renaming a department there moves everyone in it.` : 'Add a list called <i>Departments</i> to give people a department.'}</p>
+      Use <b>✎</b> to rename someone: the new name replaces the old one everywhere it's used, so nothing loses its link.
+      ${deptList ? `Give people a <b>Department</b> from the <i>${esc(deptList.name)}</i> list; renaming a department moves everyone in it, and a department can't be removed while people are in it.` : 'Add a list called <i>Departments</i> to give people a department.'}</p>
     <div class="people-lists">${lists.map((l) => `<div class="people-list ${!l.departments && deptList ? 'has-dept' : ''}" data-list="${l.id}">
-      <div class="row"><input type="text" class="pl-name" value="${esc(l.name)}" title="List name">
+      <div class="row">${l.departments ? `<b class="pl-name pl-fixed" title="This list's name is fixed: people's departments come from it">${esc(l.name)}</b>`
+        : `<input type="text" class="pl-name" value="${esc(l.name)}" title="List name">`}
         <span class="small muted">${l.items.length} name${l.items.length === 1 ? '' : 's'}</span><div class="spacer"></div>
-        <button class="icon" data-pl-delete="${l.id}" title="Delete this list">🗑</button></div>
+        ${l.departments ? '' : `<button class="icon" data-pl-delete="${l.id}" title="Delete this list">🗑</button>`}</div>
       <table class="log"><thead><tr>${head(l)}</tr></thead>
         <tbody>${l.items.map((i) => row(l, i)).join('')}</tbody></table>
       ${l.items.length ? '' : '<div class="empty small">No names yet.</div>'}
@@ -263,20 +265,23 @@ async function renderPeopleSettings(root) {
   const reload = () => renderPeopleSettings(root);
   const run = async (fn, msg) => { try { const r = await fn(); if (msg) toast(typeof msg === 'function' ? msg(r) : msg); } catch (err) { toast(err.message, 'error'); } await reload(); };
 
-  $$('.pl-name', root).forEach((el) => el.addEventListener('change', () =>
+  $$('input.pl-name', root).forEach((el) => el.addEventListener('change', () =>
     run(() => api.patch(`/name-lists/${el.closest('[data-list]').dataset.list}`, { name: el.value }), 'List renamed')));
   $$('tr[data-item] input, tr[data-item] select', root).forEach((el) => el.addEventListener('change', () => {
     const tr = el.closest('tr');
-    const body = { [el.name]: el.type === 'checkbox' ? el.checked : el.value };
-    if (el.name === 'name' && Number(tr.dataset.open) && el.value.trim() && el.value.trim() !== tr.dataset.name) {
-      body.rename_tasks = confirm(`“${tr.dataset.name}” owns ${tr.dataset.open} open task(s). Rename it on those tasks too?`);
-    }
-    run(() => api.patch(`/name-list-items/${tr.dataset.item}`, body), (r) => {
-      const also = [r.renamed_tasks && `renamed on ${r.renamed_tasks} task(s)`,
-        r.moved_people && `${r.moved_people} ${r.moved_people === 1 ? 'person' : 'people'} moved to ${r.name}`].filter(Boolean);
-      return also.length ? `Saved — ${also.join(', ')}` : 'Saved';
-    });
+    run(() => api.patch(`/name-list-items/${tr.dataset.item}`, { [el.name]: el.type === 'checkbox' ? el.checked : el.value }), 'Saved');
   }));
+  // Names are fixed text; renaming is deliberate and carries the new name everywhere.
+  const rename = (tr) => {
+    const old = tr.dataset.name;
+    const name = prompt(`Rename “${old}” to:\n\nThe new name replaces the old one everywhere it's used — task and action owners, meeting attendees, project teams, leaders and sponsors${tr.dataset.kind === 'dept' ? ", and everyone in this department" : ''}.`, old);
+    if (!name || name.trim() === old) return;
+    run(() => api.patch(`/name-list-items/${tr.dataset.item}`, { name }), (r) => {
+      const also = [r.renamed_tasks && `${r.renamed_tasks} task${r.renamed_tasks === 1 ? '' : 's'} updated`,
+        r.moved_people && `${r.moved_people} ${r.moved_people === 1 ? 'person' : 'people'} moved`].filter(Boolean);
+      return `Renamed to ${r.name}${also.length ? ` — ${also.join(', ')}` : ''}`;
+    });
+  };
   $$('.pl-new', root).forEach((el) => el.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || !el.value.trim()) return;
     const list = el.closest('[data-list]').dataset.list;
@@ -285,10 +290,10 @@ async function renderPeopleSettings(root) {
   }));
   root.onclick = (e) => { // assigned so re-rendering doesn't stack handlers
     const t = e.target;
-    if (t.closest('[data-pl-remove]')) {
+    if (t.closest('[data-pl-rename]')) rename(t.closest('tr'));
+    else if (t.closest('[data-pl-remove]')) {
       const tr = t.closest('tr');
       if (Number(tr.dataset.open) && !confirm(`Remove “${tr.dataset.name}” from the list? Its ${tr.dataset.open} open task(s) keep it as an owner.`)) return;
-      if (Number(tr.dataset.members) && !confirm(`${tr.dataset.members} people have the department “${tr.dataset.name}”. Remove it from the list anyway? They keep it until you change it.`)) return;
       run(() => api.del(`/name-list-items/${tr.dataset.item}`));
     } else if (t.closest('[data-pl-delete]')) {
       const id = t.closest('[data-pl-delete]').dataset.plDelete;
@@ -348,7 +353,7 @@ async function renderContacts() {
     const deptOk = (tr) => !d || (d === '-' ? !tr.dataset.dept : tr.dataset.dept.toLowerCase() === d);
     $$('#contacts-lists tr[data-item]').forEach((tr) => {
       const isDept = tr.dataset.kind === 'dept';
-      tr.hidden = (!!q && ![...tr.querySelectorAll('input[type=text], select')].some((i) => i.value.toLowerCase().includes(q)))
+      tr.hidden = (!!q && ![tr.dataset.name, ...[...tr.querySelectorAll('input[type=text], select')].map((i) => i.value)].some((v) => v.toLowerCase().includes(q)))
         || (isDept ? !!d && tr.dataset.name.toLowerCase() !== d : !deptOk(tr));
     });
     $$('#contacts-teams tr[data-search]').forEach((tr) => { tr.hidden = (!!q && !tr.dataset.search.includes(q)) || !deptOk(tr); });
