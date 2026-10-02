@@ -165,7 +165,8 @@ const TABLES = {
     attendees   TEXT,
     notes       TEXT,
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
-    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    duration_min INTEGER NOT NULL DEFAULT 60 CHECK (duration_min BETWEEN 5 AND 1440)`,
 
   // Files attached to a task or a meeting. The file itself is DATA_DIR/attachments/<stored>
   // (mirrored into the backups folder); project_id follows the task or meeting.

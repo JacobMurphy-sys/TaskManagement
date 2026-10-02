@@ -79,6 +79,10 @@ function pick(body, keys) {
     if (k === 'due_at') v = toDueIso(v);
     if (k === 'remind_at') v = toIso(v, k);
     if (k === 'held_at') v = toIso(v, 'meeting date/time');
+    if (k === 'duration_min' && v !== null) {
+      v = Number(v);
+      if (!Number.isInteger(v) || v < 5 || v > 1440) throw new HttpError(400, 'Duration must be between 5 minutes and 24 hours');
+    }
     if (k === 'notes' && v !== null) v = sanitizeHtml(v) || null;
     if (k in DATE_FIELDS && v !== null && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new HttpError(400, `Invalid ${DATE_FIELDS[k]}`);
     if (k in MONEY_FIELDS) v = parseMoney(v, MONEY_FIELDS[k]);
@@ -767,7 +771,7 @@ router.delete('/tasks/:id', h((req, res) => {
 
 // ------------------------------------------------------------------ meetings
 
-const MEETING_FIELDS = ['title', 'held_at', 'location', 'attendees', 'notes'];
+const MEETING_FIELDS = ['title', 'held_at', 'location', 'attendees', 'notes', 'duration_min'];
 const MEETING_SELECT = `
   SELECT m.*, p.name AS project_name, t.title AS task_title,
     (SELECT count(*) FROM tasks a WHERE a.meeting_id = m.id) AS action_count,
@@ -784,6 +788,13 @@ function getMeeting(id) {
 }
 
 router.get('/meetings', h((req, res) => {
+  // For the calendar: meetings starting in [from, to) (plus the day before, which may run over).
+  if (req.query.from && req.query.to) {
+    const from = toIso(req.query.from, 'from');
+    const to = toIso(req.query.to, 'to');
+    const dayBefore = new Date(new Date(from).getTime() - 86400000).toISOString();
+    return res.json(meetingList(`m.held_at >= ? AND m.held_at < ? AND (p.id IS NULL OR p.status <> 'archived')`, [dayBefore, to], 'm.held_at, m.id'));
+  }
   if (req.query.project_id) return res.json(meetingList('m.project_id = ?', [req.query.project_id]));
   if (req.query.task_id) return res.json(meetingList('m.task_id = ?', [req.query.task_id]));
   res.json(meetingList('1', [], 'm.held_at DESC, m.id DESC LIMIT 200'));
@@ -802,7 +813,7 @@ router.post('/meetings', h((req, res) => {
     const t = db.get('SELECT project_id FROM tasks WHERE id = ?', [taskId]);
     if (!t) throw notFound('Task');
     projectId = t.project_id;
-  } else if (!projectId) throw new HttpError(400, 'A meeting belongs to a project or a task');
+  } // neither: a meeting of its own (e.g. created on the calendar)
   if (projectId && !db.get('SELECT 1 FROM projects WHERE id = ?', [projectId])) throw notFound('Project');
   const m = insertRow('meetings', { ...fields, title: String(fields.title).trim(), project_id: projectId, task_id: taskId });
   res.status(201).json(getMeeting(m.id));

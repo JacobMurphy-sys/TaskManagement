@@ -556,7 +556,15 @@ async function waitForServer() {
     assert.equal(htmlToText('<b>Agenda</b><ul><li>Costs</li><li>Plan &amp; dates</li></ul><ol><li>a</li><li>b</li></ol>'),
       'Agenda\n• Costs\n• Plan & dates\n\n1. a\n2. b');
     const mp = await call('POST', '/projects', { name: 'Meeting test', ...CHARTER });
-    await assert.rejects(call('POST', '/meetings', { title: 'x', held_at: new Date().toISOString() }), /project or a task/);
+    // Calendar: meetings without a project, durations, a date range
+    const calLone = await call('POST', '/meetings', { title: 'Team catch-up', held_at: '2026-10-05T08:00:00Z', duration_min: 30 });
+    assert.deepEqual([calLone.project_id, calLone.task_id, calLone.duration_min], [null, null, 30], 'meeting of its own');
+    assert.equal((await call('POST', '/meetings', { title: 'Default', held_at: '2026-10-06T08:00:00Z' })).duration_min, 60);
+    await assert.rejects(call('PATCH', `/meetings/${calLone.id}`, { duration_min: 2 }), /between 5 minutes/);
+    assert.equal((await call('POST', `/meetings/${calLone.id}/actions`, { title: 'Book room' })).project_id, null, 'its actions are standalone tasks');
+    const week = await call('GET', '/meetings?from=2026-10-05T00:00:00Z&to=2026-10-06T00:00:00Z');
+    assert.deepEqual(week.map((m) => m.title), ['Team catch-up'], 'range query');
+    for (const m of await call('GET', '/meetings?from=2026-10-05T00:00:00Z&to=2026-10-07T00:00:00Z')) await call('DELETE', `/meetings/${m.id}`);
     await assert.rejects(call('POST', '/meetings', { project_id: mp.id, title: 'x' }), /date and time/);
     await assert.rejects(call('POST', '/meetings', { project_id: mp.id, title: 'x', held_at: 'soon' }), /Invalid meeting date/);
     const mt = await call('POST', '/meetings', { project_id: mp.id, title: 'Kick-off', held_at: '2026-09-29T09:00:00Z',

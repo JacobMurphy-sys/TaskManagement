@@ -256,6 +256,7 @@ async function route() {
     else if (view === 'log') await renderLog();
     else if (view === 'backups') await renderBackups();
     else if (view === 'contacts') await renderContacts();
+    else if (view === 'calendar') await renderCalendar();
     else if (view === 'library') await renderLibrary(rest[0], rest.slice(1).join('/'));
     else if (view === 'search') await renderSearch(decodeURIComponent(rest.join('/')));
     else { state.view = 'dashboard'; renderSidebar(); await renderDashboard(); }
@@ -383,7 +384,7 @@ async function renderDashboard() {
       ${section('dash-blocked', '⛔ Blocked', d.blocked, miniTask, 'Nothing blocked')}
       ${section('dash-waiting', '⏳ Waiting on others', d.waiting, miniTask, 'Not waiting on anyone')}
       ${section('dash-high', '🔥 High-priority tasks', d.high_priority, miniTask, 'No open high-priority tasks')}
-      ${section('dash-meetings', '🗓 Meetings (next 7 days)', d.meetings, (m) => `<li>
+      ${section('dash-meetings', '🗓 Meetings (next 7 days) <a class="small" href="#/calendar" style="font-weight:400">📅 Calendar</a>', d.meetings, (m) => `<li>
           <span class="t" data-action="open-meeting" data-id="${m.id}">${esc(m.title)}</span>
           ${m.project_name ? `<a class="small" href="#/project/${m.project_id}">${esc(m.project_name)}</a>` : ''}
           ${m.task_title ? `<span class="small muted">re: ${esc(m.task_title)}</span>` : ''}

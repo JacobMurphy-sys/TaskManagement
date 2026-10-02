@@ -42,7 +42,8 @@ function richEditor(root, html, onChange) {
   return { flush: () => { if (timer) { clearTimeout(timer); timer = null; onChange(area.innerHTML); } } };
 }
 
-const meetingWhen = (m) => fmtDateTime(m.held_at);
+const meetingEnd = (m) => new Date(new Date(m.held_at).getTime() + (m.duration_min || 60) * 60000);
+const meetingWhen = (m) => `${fmtDateTime(m.held_at)}–${pad(meetingEnd(m).getHours())}:${pad(meetingEnd(m).getMinutes())}`;
 const actionsLabel = (m) => (m.action_count ? `☑ ${m.actions_done}/${m.action_count} action${m.action_count === 1 ? '' : 's'}` : '');
 
 // The Meetings card on a project's Overview tab.
@@ -77,15 +78,25 @@ function taskMeetingsHtml(t) {
 }
 
 // Step 1: title and time. Step 2 (the editor) has notes, attendees and actions.
-function newMeetingDialog({ projectId, taskId }) {
-  const now = new Date();
-  now.setMinutes(Math.floor(now.getMinutes() / 15) * 15, 0, 0);
+const DURATIONS = { 15: '15 min', 30: '30 min', 45: '45 min', 60: '1 hour', 90: '1½ hours', 120: '2 hours', 180: '3 hours',
+  240: '4 hours', 480: 'All day (8 h)' };
+const durationOptions = (current = 60) => options({ ...(DURATIONS[current] ? {} : { [current]: `${current} min` }), ...DURATIONS }, current);
+
+// From a project or task, or from the calendar ({ at, duration, pickProject }), where the
+// project can be chosen (or none).
+function newMeetingDialog({ projectId, taskId, at, duration = 60, pickProject = false }) {
+  const now = at ? new Date(at) : new Date();
+  if (!at) now.setMinutes(Math.floor(now.getMinutes() / 15) * 15, 0, 0);
+  const projects = state.projects.filter((p) => p.status === 'active' || p.status === 'on_hold');
   openModal(`
     <div class="modal-head"><h2 style="margin:0">🗓 New meeting</h2><button class="icon" data-action="close-modal">✕</button></div>
     <form id="meeting-new" class="form-grid">
       <label class="f full">Title<input type="text" name="title" required placeholder="e.g. Weekly progress review" value="Progress meeting"></label>
       <label class="f">Date &amp; time<input type="datetime-local" name="held_at" required value="${toLocalInput(now.toISOString())}"></label>
+      <label class="f">Duration<select name="duration_min">${durationOptions(duration)}</select></label>
       <label class="f">Location <span class="muted small">(optional)</span><input type="text" name="location" placeholder="Room, Teams…"></label>
+      ${pickProject ? `<label class="f">Project<select name="project_id"><option value="">— None (a meeting of its own) —</option>
+        ${projects.map((p) => `<option value="${p.id}" ${p.id === projectId ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>` : ''}
       <div class="full row"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button>
         <button class="primary" type="submit">Create &amp; open</button></div>
     </form>`);
@@ -95,7 +106,8 @@ function newMeetingDialog({ projectId, taskId }) {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(form));
     try {
-      const m = await api.post('/meetings', { ...f, held_at: fromLocalInput(f.held_at), project_id: projectId || null, task_id: taskId || null });
+      const m = await api.post('/meetings', { ...f, held_at: fromLocalInput(f.held_at), duration_min: Number(f.duration_min),
+        project_id: (pickProject ? Number(f.project_id) : projectId) || null, task_id: taskId || null });
       state.modalDirty = true;
       await meetingEditor(m.id, { returnTask: taskId || null });
     } catch (err) { toast(err.message, 'error'); }
@@ -121,6 +133,7 @@ async function meetingEditor(id, opts = {}) {
     <div class="form-grid" id="meeting-form">
       <label class="f full">Title<input type="text" name="title" value="${esc(m.title)}"></label>
       <label class="f">Date &amp; time<input type="datetime-local" name="held_at" value="${toLocalInput(m.held_at)}"></label>
+      <label class="f">Duration<select name="duration_min">${durationOptions(m.duration_min)}</select></label>
       <label class="f">Location<input type="text" name="location" value="${esc(m.location || '')}" placeholder="Room, Teams…"></label>
       <div class="f full"><span>Attendees</span><div id="mt-attendees"></div></div>
     </div>
@@ -159,7 +172,7 @@ async function meetingEditor(id, opts = {}) {
   };
   $$('#meeting-form [name]').forEach((el) => el.addEventListener('change', () => {
     if (el.name === 'title' && !el.value.trim()) { el.value = m.title; return; }
-    save({ [el.name]: el.name === 'held_at' ? fromLocalInput(el.value) : el.value });
+    save({ [el.name]: el.name === 'held_at' ? fromLocalInput(el.value) : el.name === 'duration_min' ? Number(el.value) : el.value });
   }));
   // Attendees: type to search, or 📇 for the contacts book (project team, lists, names used before).
   ownerPicker($('#mt-attendees'), { value: m.attendees, groups, placeholder: 'Add attendee…', bookTitle: 'Choose attendees',
