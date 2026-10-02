@@ -849,7 +849,7 @@ async function waitForServer() {
         'xl/workbook.xml': x(`<?xml version="1.0"?><workbook ${ns}><sheets><sheet name="Database" sheetId="1" r:id="rId1"/><sheet name="A3 Weekly Report" sheetId="2" r:id="rId2"/></sheets><externalReferences><externalReference r:id="rId9"/></externalReferences></workbook>`),
         'xl/_rels/workbook.xml.rels': x('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'),
         'xl/styles.xml': x('<?xml version="1.0"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="0.0%"/></numFmts><fonts count="1"><font><sz val="11"/><color theme="1"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><dxfs count="1"><dxf><font><b/><color rgb="FFFF0000"/></font><fill><patternFill><bgColor rgb="FFFFC7CE"/></patternFill></fill></dxf></dxfs></styleSheet>'),
-        'xl/worksheets/sheet1.xml': x(`<?xml version="1.0"?><worksheet ${ns}><sheetData><row r="2"><c r="A2" t="inlineStr"><is><t>Sept</t></is></c><c r="B2" t="inlineStr"><is><t>W2639</t></is></c></row><row r="9"><c r="B9"><v>0.998</v></c></row><row r="63"><c r="A63" t="inlineStr"><is><t>Mar</t></is></c><c r="B63" t="inlineStr"><is><t>W2614_1</t></is></c><c r="D63"><v>1</v></c><c r="H63"><v>3</v></c></row></sheetData></worksheet>`),
+        'xl/worksheets/sheet1.xml': x(`<?xml version="1.0"?><worksheet ${ns}><sheetData><row r="2"><c r="A2" t="inlineStr"><is><t>Sept</t></is></c><c r="B2" t="inlineStr"><is><t>W2639</t></is></c></row><row r="9"><c r="B9"><v>0.998</v></c></row><row r="63"><c r="A63" t="inlineStr"><is><t>Mar</t></is></c><c r="B63" t="inlineStr"><is><t>W2614_1</t></is></c><c r="D63"><v>1</v></c><c r="H63"><v>3</v></c><c r="O63"><v>100</v></c><c r="P63"><v>41</v></c></row></sheetData></worksheet>`),
         'xl/worksheets/sheet2.xml': x(`<?xml version="1.0"?><worksheet ${ns}><cols><col min="1" max="3" width="15" customWidth="1"/></cols><sheetData>`
           + '<row r="1" ht="30" customHeight="1"><c r="A1" t="str"><f>Database!B2</f><v>W2639</v></c><c r="B1" s="1"><f>[1]Other!A1/2</f><v>0.665</v></c><c r="C1" t="str"><f>"▼"</f><v>▼</v></c></row>'
           + '<row r="2"><c r="A2"><f>SUM(1,2)</f><v>3</v></c><c r="B2" s="1"><v>0.999</v></c></row></sheetData><mergeCells count="1"><mergeCell ref="A3:C3"/></mergeCells>'
@@ -943,9 +943,9 @@ async function waitForServer() {
         ['Bank A', 'Card', 'Live', null, null, null, null, null, null, null]]);
       await call('PATCH', '/settings', { kpi_src_perso: persoF, kpi_src_shipped: shipF, kpi_src_remakes: remF });
       let imp = await call('POST', '/kpi/calc/import', {});
-      assert.deepEqual(imp.map((r) => [r.source, r.status, r.from, r.rows]), [['perso', 'imported', 'file', 5], ['shipped', 'imported', 'file', 1], ['remakes', 'imported', 'file', 2]]);
+      assert.deepEqual(imp.slice(0, 3).map((r) => [r.source, r.status, r.from, r.rows]), [['perso', 'imported', 'file', 5], ['shipped', 'imported', 'file', 1], ['remakes', 'imported', 'file', 2]]);
       assert.equal(imp[2].skipped, 1, 'rows without a date are counted, not used');
-      assert.deepEqual((await call('POST', '/kpi/calc/import', {})).map((r) => r.status), ['unchanged', 'unchanged', 'unchanged'], 'unchanged files aren\'t read again');
+      assert.deepEqual((await call('POST', '/kpi/calc/import', {})).slice(0, 3).map((r) => r.status), ['unchanged', 'unchanged', 'unchanged'], 'unchanged files aren\'t read again');
       assert.equal((await call('POST', '/kpi/calc/import', { force: true }))[0].status, 'imported');
       let calc = await call('GET', '/kpi/calc?year=2026');
       const wkOf = (code) => calc.weeks.find((w) => w.week === code);
@@ -958,6 +958,42 @@ async function waitForServer() {
       calc = await call('GET', '/kpi/calc?year=2026');
       assert.deepEqual([wkOf('W2614_1').perso_ps, wkOf('W2614_2').perso_ps, calc.unlisted.length, calc.split_weekends], [1.3, 0.05, 0, true], 'weekends counted in their month\'s part');
       await call('POST', '/kpi/calc/weekends', { split: false });
+      // OTD from Production's report: typed weeks (dates often missing or day/month swapped)
+      const otdF = src('OTD Report.xlsx', [['Customer'], ['Quantity', 'number'], ['Type'], ['Date', 'date'], ['Week'], ['Month'], ['Reason']], [
+        ['ADY', 50, 'Internal', '2026-03-30', 'W2614_1', 'Mar', 'Card stock out'], ['BEL', 400, 'Internal', '2026-02-04', 'W2614_2', 'Apr', 'Machine Issues'],
+        ['ICA', 100, 'External', null, 'W2614_2', 'Apr', 'customer change request'], ['X', 5, 'Internal', null, null, null, 'no week, no date']]);
+      await call('PATCH', '/settings', { kpi_src_otd: otdF });
+      imp = await call('POST', '/kpi/calc/import', {});
+      assert.deepEqual([imp[3].source, imp[3].status, imp[3].rows, imp[3].skipped], ['otd', 'imported', 3, 1], 'rows with neither week nor date skipped');
+      calc = await call('GET', '/kpi/calc?year=2026');
+      assert.deepEqual([wkOf('W2614_1').otd_internal, wkOf('W2614_1').otd_sc], [0.05, null], 'no OTD % without cards shipped');
+      assert.deepEqual([wkOf('W2614_2').otd_internal, wkOf('W2614_2').otd_external, wkOf('W2614_2').otd_sc, wkOf('W2614_2').otd_global], [0.4, 0.1, 0.5, 0.375],
+        'OTD SC = 1 − internal ÷ shipped; Global includes external; the typed week wins over the date');
+      assert.deepEqual(calc.otd_checks.map((c) => [c.customer, c.date, c.typed_week, c.date_week, c.swapped]), [['BEL', '2026-02-04', 'W2614_2', 'W2606', true]], 'day/month swap spotted');
+      await call('POST', '/kpi/calc/weekends', { split: true });
+      assert.equal((await call('GET', '/kpi/calc?year=2026')).weeks.find((w) => w.week === 'W2614_2').otd_internal, 0.4, 'typed weeks stay put');
+      await call('POST', '/kpi/calc/weekends', { split: false });
+      // typed in each week: HR (Protime) and complaints
+      let man = await call('PUT', '/kpi/manual/w2614_2', { protime: ['7', '33', '35', '', '', ''], hours: 999, contract: '40', temps: '2', cc_major: '1' });
+      assert.deepEqual([man.week, man.hours, man.protime, man.contract, man.temps, man.cc_major, man.cc_critical], ['W2614_2', 600, '[7,33,35,null,null,null]', 40, 2, 1, null],
+        '(Sun + … + Fri) × 7.5 + 37.5 — the days win over a typed total');
+      await assert.rejects(call('PUT', '/kpi/manual/week39', { hours: 1 }), /Not a week code/);
+      await assert.rejects(call('PUT', '/kpi/manual/W2614_2', { temps: -1 }), /0 or more/);
+      calc = await call('GET', '/kpi/calc?year=2026');
+      const w2 = wkOf('W2614_2');
+      assert.deepEqual([w2.hours, w2.hc, w2.complaints, w2.cpms, Math.round(w2.productivity * 1e4) / 1e4], [600, 42, 1, 1250, 0.8333], 'HC, complaints, CPMS per million shipped, cards per hour');
+      assert.equal(wkOf('W2614_1').scrap_rate, 0.002, 'scrap ÷ cards persoed');
+      man = await call('PUT', '/kpi/manual/W2614_2', { protime: [], hours: '612.5' });
+      assert.deepEqual([man.hours, man.protime], [612.5, null], 'or hours typed straight in');
+      // carrying the year so far over from Excel: only weeks with nothing typed, up to Excel's week
+      const copied = await call('POST', '/kpi/manual/from-excel', {});
+      assert.deepEqual(copied, { weeks: 1, fields: 2 });
+      calc = await call('GET', '/kpi/calc?year=2026');
+      assert.deepEqual([wkOf('W2614_1').hours, wkOf('W2614_1').contract, wkOf('W2614_1').productivity], [100, 41, 10]);
+      assert.equal(calc.excel.weeks.W2614_1.hours, 100);
+      assert.deepEqual(await call('POST', '/kpi/manual/from-excel', {}), { weeks: 0, fields: 0 }, 'nothing overwritten');
+      assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'kpi_manual'), 'typed-in figures are audited (and backed up)');
+
       // without file paths, the workbook's import sheets stand in (this workbook has none)
       await call('PATCH', '/settings', { kpi_src_perso: '', kpi_src_shipped: path.join(tmp, 'nope.xlsx') });
       imp = await call('POST', '/kpi/calc/import', { force: true });

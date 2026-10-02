@@ -255,6 +255,22 @@ const TABLES = {
   // Weekly KPI snapshots from the CI workbook: what the A3 and Database sheets showed
   // (view model, gzipped JSON in base64) and the disconnected A3 (zip in base64).
   // Not audited: a load replaces a whole week.
+  // Weekly figures typed in for the KPIs (HR from Protime, complaints until the
+  // Salesforce export is ready). protime: the Sun–Fri "present" counts hours came from.
+  kpi_manual: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    week        TEXT    NOT NULL COLLATE NOCASE,
+    hours       REAL,
+    protime     TEXT,
+    contract    REAL,
+    temps       REAL,
+    cc_critical INTEGER,
+    cc_major    INTEGER,
+    cc_minor    INTEGER,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    UNIQUE (week)`,
+
   kpi_snapshots: `
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     week            TEXT    NOT NULL COLLATE NOCASE,
@@ -414,7 +430,7 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');

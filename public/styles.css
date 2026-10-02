@@ -872,3 +872,11 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .kc-table tr.kc-empty td { color: var(--muted); opacity: .55; }
 .kc-table tr.kc-current td { background: var(--accent-soft); }
 .kc-table.kc-only tbody tr:not(.kc-rowdiff) { display: none; }
+
+.kc-table th.kc-manual, .kc-table td.kc-manual, .kc-manual-key { background: var(--panel-2); }
+.kc-manual-key { padding: 0 4px; border-radius: 3px; }
+.kc-table td.kc-manual.kc-diff { background: var(--danger-soft); }
+.kw-set { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px 10px; }
+.kw-set legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
+.kw-days { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 6px; }
+.kw-set .row .f { flex: 1; }

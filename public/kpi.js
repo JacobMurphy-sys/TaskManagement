@@ -398,30 +398,47 @@ const KPI_VOL_COLS = [
   ['perso_ps', 'PS'], ['perso_isi', 'ISI'], ['perso_pin', 'PIN'], ['perso_total', 'Total (Cards)'], ['scrap', 'Scrap'],
   ['shipped_ps', 'PS'], ['shipped_isi', 'ISI'], ['shipped_pin', 'PIN'], ['shipped_total', 'Total (Cards)'],
 ];
-const kpiFmt = (key, v) => (v === null || v === undefined ? '' : key === 'scrap' ? Math.round(v).toLocaleString('en-GB') : v.toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
+// The second table: OTD, quality, scrap rate and HR. manual: typed in each week.
+const KPI_MORE_COLS = [
+  ['otd_internal', 'Internal', 'OTD'], ['otd_external', 'External'], ['otd_sc', 'OTD SC'], ['otd_global', 'OTD Global'],
+  ['cc_critical', 'Critical', 'Complaints', true], ['cc_major', 'Major', null, true], ['cc_minor', 'Minor', null, true], ['complaints', 'Total'], ['cpms', 'CPMS'],
+  ['scrap_rate', 'Scrap rate', 'Scrap'],
+  ['hours', 'Hours', 'HR', true], ['contract', 'Contract', null, true], ['temps', 'Temps', null, true], ['hc', 'HC'], ['productivity', 'Productivity'],
+];
+const KPI_PCT = { otd_sc: 2, otd_global: 2, scrap_rate: 2 };
+const kpiFmt = (key, v) => {
+  if (v === null || v === undefined || v === '') return '';
+  if (KPI_PCT[key] !== undefined) return `${(v * 100).toFixed(KPI_PCT[key])}%`;
+  if (['scrap', 'cc_critical', 'cc_major', 'cc_minor', 'complaints', 'contract', 'temps', 'hc'].includes(key)) return Math.round(v * 100) / 100 === Math.round(v) ? Math.round(v).toLocaleString('en-GB') : v.toLocaleString('en-GB');
+  if (key === 'hours') return v.toLocaleString('en-GB', { maximumFractionDigits: 2 });
+  if (key === 'cpms') return v.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return v.toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+};
 
 async function renderKpiCalc() {
   const year = Number(store.get('kpiYear', new Date().getFullYear()));
   const [calc, settings] = await Promise.all([api.get(`/kpi/calc?year=${year}`), api.get('/settings')]);
   const xl = calc.excel?.weeks || null;
   let checked = 0; let differ = 0;
-  const same = (a, b) => Math.abs((a || 0) - (b || 0)) < 1e-6;
-  const rowHtml = (w) => {
+  const same = (a, b) => Math.abs((a || 0) - (b || 0)) < 1e-6 * Math.max(1, Math.abs(b || 0));
+  const rowHtml = (w, cols = KPI_VOL_COLS, sepAt = [4, 5], edit = false) => {
     const ex = xl?.[w.week];
-    const empty = KPI_VOL_COLS.every(([k]) => !w[k]);
+    const empty = cols.every(([k]) => !w[k]);
     let rowDiff = false;
-    const cells = KPI_VOL_COLS.map(([k], i) => {
+    const cells = cols.map(([k, , group, manual], i) => {
       let cls = ''; let title = '';
       if (ex && ex[k] !== null && ex[k] !== undefined) {
         checked++;
         if (same(w[k], ex[k])) cls = 'kc-ok';
         else { cls = 'kc-diff'; differ++; rowDiff = true; title = `Excel: ${kpiFmt(k, ex[k])}`; }
       }
-      return `<td class="num ${cls}${i === 4 || i === 5 ? ' kc-sep' : ''}" ${title ? `title="${esc(title)}"` : ''}>${kpiFmt(k, w[k])}${cls === 'kc-diff' ? `<span class="kc-was">${esc(kpiFmt(k, ex[k]))}</span>` : ''}</td>`;
+      return `<td class="num ${cls}${sepAt.includes(i) || (edit && group && i) ? ' kc-sep' : ''}${manual ? ' kc-manual' : ''}" ${title ? `title="${esc(title)}"` : ''}>${kpiFmt(k, w[k])}${cls === 'kc-diff' ? `<span class="kc-was">${esc(kpiFmt(k, ex[k]))}</span>` : ''}</td>`;
     }).join('');
-    return `<tr class="${empty ? 'kc-empty' : ''} ${rowDiff ? 'kc-rowdiff' : ''} ${w.week === calc.excel?.week ? 'kc-current' : ''}"><td>${esc(w.month)}</td><td><b>${esc(w.week)}</b></td>${cells}</tr>`;
+    return `<tr class="${empty ? 'kc-empty' : ''} ${rowDiff ? 'kc-rowdiff' : ''} ${w.week === calc.excel?.week ? 'kc-current' : ''}"><td>${esc(w.month)}</td><td><b>${esc(w.week)}</b></td>${cells}${edit ? `<td><button class="icon" data-kc-edit="${esc(w.week)}" title="Type in this week's figures">✎</button></td>` : ''}</tr>`;
   };
-  const body = calc.weeks.map(rowHtml).join('');
+  const body = calc.weeks.map((w) => rowHtml(w)).join('');
+  const moreBody = calc.weeks.map((w) => rowHtml(w, KPI_MORE_COLS, [], true)).join('');
+  const groups = []; KPI_MORE_COLS.forEach(([, , g]) => { if (g) groups.push({ g, n: 1 }); else groups[groups.length - 1].n++; });
   const unlisted = calc.unlisted.filter((u) => u.qty);
   const srcRow = (s) => `<tr data-src="${s.source}">
       <td><b>${esc(s.label)}</b><div class="small muted">${esc(s.default_file)}</div></td>
@@ -459,9 +476,23 @@ async function renderKpiCalc() {
         <tr><th></th><th></th><th colspan="5" class="kc-group">Persoed</th><th colspan="4" class="kc-group kc-sep">Shipped</th></tr>
         <tr><th>Month</th><th>Week</th>${KPI_VOL_COLS.map(([, l], i) => `<th class="num${i === 4 || i === 5 ? ' kc-sep' : ''}">${esc(l)}</th>`).join('')}</tr></thead>
         <tbody>${body}</tbody></table></div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div class="row"><h2 style="margin:0">OTD, quality and HR</h2><div class="spacer"></div>
+        <button data-kc-copy title="Fill weeks with nothing typed in yet from Excel's Database sheet (the loaded week)">⇩ Copy typed-in figures from Excel</button></div>
+      <p class="small muted">OTD delays (kU) come from the OTD report; OTD SC = 1 − internal delays ÷ cards shipped, OTD Global includes external delays.
+        <span class="kc-manual-key">Shaded</span> columns are typed in each week with ✎ — complaints (until the Salesforce export is ready) and HR (hours from Protime).
+        CPMS = complaints per million cards shipped; scrap rate = scrap ÷ cards persoed; productivity = cards persoed per working hour; HC = contract + temps.</p>
+      ${calc.otd_checks?.length ? `<div class="kc-note">⚠ ${calc.otd_checks.length} row${calc.otd_checks.length === 1 ? '' : 's'} in the OTD report have a date that doesn't fall in the week typed next to it${calc.otd_checks.every((c) => c.swapped) ? ' — in every case the day and month are swapped (e.g. 8 March entered for 3 August)' : ''}. The typed week is used, as Excel does.
+        <details><summary class="small">Show them</summary><table class="log small"><thead><tr><th>Customer</th><th>Type</th><th class="num">Qty</th><th>Date entered</th><th>Week typed</th><th>Week of that date</th></tr></thead><tbody>
+        ${calc.otd_checks.map((c) => `<tr><td>${esc(c.customer || '')}</td><td>${esc(c.type || '')}</td><td class="num">${c.qty.toLocaleString('en-GB')}</td><td>${esc(c.date)}${c.swapped ? ' <span class="muted">(day/month swapped?)</span>' : ''}</td><td>${esc(c.typed_week)}</td><td>${esc(c.date_week)}</td></tr>`).join('')}</tbody></table></details></div>` : ''}
+      <div class="kc-wrap"><table class="log kc-table" id="kc-more"><thead>
+        <tr><th></th><th></th>${groups.map((g, i) => `<th colspan="${g.n}" class="kc-group${i ? ' kc-sep' : ''}">${esc(g.g)}</th>`).join('')}<th></th></tr>
+        <tr><th>Month</th><th>Week</th>${KPI_MORE_COLS.map(([, l, g, manual], i) => `<th class="num${g && i ? ' kc-sep' : ''}${manual ? ' kc-manual' : ''}">${esc(l)}</th>`).join('')}<th></th></tr></thead>
+        <tbody>${moreBody}</tbody></table></div>
     </div>`;
   $('#kc-year').addEventListener('change', (e) => { store.set('kpiYear', Number(e.target.value)); renderKpiCalc(); });
-  $('#kc-only').addEventListener('change', (e) => $('#kc-table').classList.toggle('kc-only', e.target.checked));
+  $('#kc-only').addEventListener('change', (e) => { $('#kc-table').classList.toggle('kc-only', e.target.checked); $('#kc-more').classList.toggle('kc-only', e.target.checked); });
   $('#kc-weekends').addEventListener('change', async (e) => {
     try { await api.post('/kpi/calc/weekends', { split: e.target.checked }); toast(e.target.checked ? 'Weekend days now counted in their month\'s part' : 'Weekend days of split weeks left out, as in Excel'); } catch (err) { toast(err.message, 'error'); }
     renderKpiCalc();
@@ -470,6 +501,13 @@ async function renderKpiCalc() {
     try { await api.patch('/settings', { [el.name]: el.value.trim().replace(/^"|"$/g, '') }); toast('Saved — read the files to use it'); } catch (err) { toast(err.message, 'error'); }
   }));
   main().onclick = async (e) => {
+    const ed = e.target.closest('[data-kc-edit]');
+    if (ed) { kpiWeekForm(calc.weeks.find((w) => w.week === ed.dataset.kcEdit)); return; }
+    if (e.target.closest('[data-kc-copy]')) {
+      try { const r = await api.post('/kpi/manual/from-excel', {}); toast(r.weeks ? `Copied ${r.fields} figures for ${r.weeks} weeks from Excel` : 'Nothing to copy — every week already has its figures'); } catch (err) { toast(err.message, 'error'); }
+      renderKpiCalc();
+      return;
+    }
     const b = e.target.closest('[data-kc]');
     if (!b) return;
     b.disabled = true;
@@ -483,4 +521,49 @@ async function renderKpiCalc() {
     } catch (err) { toast(err.message, 'error'); }
     renderKpiCalc();
   };
+}
+
+// A week's typed-in figures: HR from Protime and complaints.
+function kpiWeekForm(w) {
+  const days = ['Sunday (night)', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  const pt = w.protime || [];
+  const v = (x) => (x === null || x === undefined ? '' : x);
+  openModal(`<h2>${esc(w.week)} <span class="muted small">${esc(w.month)}</span></h2>
+    <form id="kpi-week-form" class="stack">
+      <fieldset class="kw-set"><legend>Working hours — Protime “Present/total”</legend>
+        <div class="kw-days">${days.map((d, i) => `<label class="f">${d}<input type="number" step="0.01" min="0" name="pt${i}" value="${esc(v(pt[i]))}"></label>`).join('')}</div>
+        <div class="row small"><span class="muted">(Sun + Mon + … + Fri) × 7.5 + 37.5 =</span> <b id="kw-hours-calc"></b>
+          <span class="spacer"></span><label class="row">or hours <input type="number" step="0.01" min="0" name="hours" value="${esc(v(w.hours))}" style="width:110px"></label></div>
+      </fieldset>
+      <fieldset class="kw-set"><legend>Headcount (direct employees)</legend>
+        <div class="row"><label class="f">Contract<input type="number" step="1" min="0" name="contract" value="${esc(v(w.contract))}"></label>
+          <label class="f">Temps<input type="number" step="1" min="0" name="temps" value="${esc(v(w.temps))}"></label></div>
+      </fieldset>
+      <fieldset class="kw-set"><legend>Customer complaints opened this week</legend>
+        <div class="row"><label class="f">Critical<input type="number" step="1" min="0" name="cc_critical" value="${esc(v(w.cc_critical))}"></label>
+          <label class="f">Major<input type="number" step="1" min="0" name="cc_major" value="${esc(v(w.cc_major))}"></label>
+          <label class="f">Minor<input type="number" step="1" min="0" name="cc_minor" value="${esc(v(w.cc_minor))}"></label></div>
+      </fieldset>
+      <div class="row"><div class="spacer"></div><button type="button" onclick="closeModal()">Cancel</button><button class="primary" type="submit">Save</button></div>
+    </form>`);
+  const form = $('#kpi-week-form');
+  const calcHours = () => {
+    const n = days.map((_, i) => form[`pt${i}`].value).filter((x) => x !== '').map(Number);
+    $('#kw-hours-calc').textContent = n.length ? (n.reduce((a, b) => a + b, 0) * 7.5 + 37.5).toLocaleString('en-GB', { maximumFractionDigits: 2 }) : '—';
+    form.hours.disabled = n.length > 0;
+  };
+  form.addEventListener('input', calcHours);
+  calcHours();
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = { protime: days.map((_, i) => form[`pt${i}`].value), contract: form.contract.value, temps: form.temps.value,
+      cc_critical: form.cc_critical.value, cc_major: form.cc_major.value, cc_minor: form.cc_minor.value };
+    if (!body.protime.some((x) => x !== '')) body.hours = form.hours.value;
+    try {
+      await api.put(`/kpi/manual/${encodeURIComponent(w.week)}`, body);
+      toast(`${w.week} saved`);
+      state.modalDirty = true;
+      closeModal();
+    } catch (err) { toast(err.message, 'error'); }
+  });
 }

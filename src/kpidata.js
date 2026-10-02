@@ -29,7 +29,13 @@ const SOURCES = {
     label: 'Remakes (scrap)', file: 'KPI_2_remakes.xlsx', sheet: 'KPI_2_remakes', workbook: 'Scrap2.0',
     columns: { customer: 'Customer', type: 'Type', mode: 'Mode', perso_day: 'Perso Date', wo: 'PersoWO', qty: '#remakes', machine: 'Machine', day: 'Date', time: 'Time', vault_wo: 'VaultWO' },
   },
+  // Kept by Production (Table1 of their OTD report); the week is typed in, the date often isn't.
+  otd: {
+    label: 'OTD delays', file: 'OTD Report.xlsx', sheet: 'Table1', workbook: 'OTD2.0', typedWeek: true,
+    columns: { customer: 'Customer', qty: 'Quantity', type: 'Type', day: 'Date', week: 'Week', reason: 'Reason' },
+  },
 };
+const WEEK_RE = /^W\d{4}(_[12])?$/i;
 
 const TABLES = `
   CREATE TABLE IF NOT EXISTS kpi_rows (
@@ -143,11 +149,15 @@ function readSource(name, bufOrBook, { fromWorkbook = false } = {}) {
   const src = SOURCES[name];
   const book = Buffer.isBuffer(bufOrBook) ? readBook(bufOrBook) : bufOrBook;
   const want = fromWorkbook ? src.workbook : src.sheet;
-  const info = book.sheets.find((s) => s.name.toLowerCase() === want.toLowerCase())
-    || (!fromWorkbook ? book.sheets.find((s) => !s.hidden) : null);
-  if (!info) throw new Error(`"${want}" isn't in the file`);
-  const rows = sheetRows(book.sheet(info.name), src.columns);
-  return rows;
+  const named = book.sheets.find((s) => s.name.toLowerCase() === want.toLowerCase());
+  if (fromWorkbook && !named) throw new Error(`"${want}" isn't in the file`);
+  // The named sheet, else the first sheet with the right column headings (a table can sit on any sheet).
+  const order = named ? [named, ...book.sheets.filter((s) => s !== named)] : book.sheets;
+  let firstErr = null;
+  for (const info of order) {
+    try { return sheetRows(book.sheet(info.name), src.columns); } catch (err) { firstErr = firstErr || err; if (fromWorkbook) break; }
+  }
+  throw firstErr || new Error('The file has no sheets');
 }
 
 // Replaces a source's rows. Rows without a usable date are counted as skipped.
@@ -158,13 +168,18 @@ function storeSource(name, rows, meta = {}) {
   const ins = db.conn.prepare('INSERT INTO kpi_rows (source, day, week, customer, type, qty, scrap, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
   db.tx(() => {
     db.run('DELETE FROM kpi_rows WHERE source = ?', [name]);
+    const typed = !!SOURCES[name].typedWeek;
     for (const r of rows) {
       const day = dayOf(r.day);
-      if (!day) { skipped++; continue; }
-      if (!first || day < first) first = day;
-      if (!last || day > last) last = day;
-      const extra = name === 'remakes' ? JSON.stringify({ wo: r.wo ?? null, machine: r.machine ?? null, mode: r.mode ?? null, time: r.time ?? null, perso_day: dayOf(r.perso_day) }) : (r.due !== undefined ? JSON.stringify({ due: dayOf(r.due) }) : null);
-      ins.run(name, day, weekCode(day, { splitWeekends }), r.customer === null ? null : String(r.customer).trim(), r.type === null ? null : String(r.type).trim(),
+      const typedWeek = typed && WEEK_RE.test(String(r.week || '').trim()) ? String(r.week).trim().toUpperCase() : null;
+      if (!day && !typedWeek) { skipped++; continue; }
+      if (day && (!first || day < first)) first = day;
+      if (day && (!last || day > last)) last = day;
+      const dateWeek = day ? weekCode(day, { splitWeekends }) : null;
+      const extra = name === 'remakes' ? JSON.stringify({ wo: r.wo ?? null, machine: r.machine ?? null, mode: r.mode ?? null, time: r.time ?? null, perso_day: dayOf(r.perso_day) })
+        : typed ? JSON.stringify({ reason: r.reason ?? null, typed_week: typedWeek, date_week: dateWeek })
+          : (r.due !== undefined ? JSON.stringify({ due: dayOf(r.due) }) : null);
+      ins.run(name, day || '', typedWeek || dateWeek, r.customer === null ? null : String(r.customer).trim(), r.type === null ? null : String(r.type).trim(),
         Number(r.qty) || 0, Number(r.scrap) || 0, extra);
     }
     db.run(`INSERT INTO kpi_sources (source, file, modified, imported_at, rows, skipped, first_day, last_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -178,8 +193,9 @@ function storeSource(name, rows, meta = {}) {
 // Re-labels stored rows when the weekend setting changes (no need to read the files again).
 function rewriteWeeks(splitWeekends) {
   ensure();
-  const days = db.all('SELECT DISTINCT day FROM kpi_rows');
-  const upd = db.conn.prepare('UPDATE kpi_rows SET week = ? WHERE day = ?');
+  const days = db.all("SELECT DISTINCT day FROM kpi_rows WHERE day <> ''");
+  // rows with a typed week (OTD) keep it
+  const upd = db.conn.prepare(`UPDATE kpi_rows SET week = ? WHERE day = ? AND NOT (source = 'otd' AND json_extract(extra, '$.typed_week') IS NOT NULL)`);
   db.tx(() => { for (const { day } of days) upd.run(weekCode(day, { splitWeekends }), day); });
 }
 
@@ -237,10 +253,35 @@ function weeklyVolumes(year) {
       shipped_ps: k(s?.ps), shipped_isi: k(s?.isi), shipped_pin: k(s?.pin), shipped_total: k((s?.ps || 0) + (s?.isi || 0)),
     };
   });
+  // OTD: delayed quantities by week, internal and external
+  const otd = new Map(db.all(`SELECT week, SUM(CASE WHEN lower(type) = 'internal' THEN qty ELSE 0 END) AS internal,
+      SUM(CASE WHEN lower(type) = 'external' THEN qty ELSE 0 END) AS external FROM kpi_rows WHERE source = 'otd' GROUP BY week`).map((r) => [r.week, r]));
+  const manual = new Map(db.all('SELECT * FROM kpi_manual').map((r) => [r.week.toUpperCase(), r]));
+  const ratio = (a, b) => (b ? a / b : null);
+  for (const w of weeks) {
+    const o = otd.get(w.week);
+    w.otd_internal = k(o?.internal); w.otd_external = k(o?.external);
+    w.otd_sc = w.shipped_total ? 1 - w.otd_internal / w.shipped_total : null;
+    w.otd_global = w.shipped_total ? 1 - (w.otd_internal + w.otd_external) / w.shipped_total : null;
+    const m = manual.get(w.week) || {};
+    w.hours = m.hours ?? null; w.contract = m.contract ?? null; w.temps = m.temps ?? null;
+    w.cc_critical = m.cc_critical ?? null; w.cc_major = m.cc_major ?? null; w.cc_minor = m.cc_minor ?? null;
+    w.complaints = [w.cc_critical, w.cc_major, w.cc_minor].some((v) => v !== null) ? (w.cc_critical || 0) + (w.cc_major || 0) + (w.cc_minor || 0) : null;
+    w.cpms = w.complaints !== null && w.shipped_total ? (w.complaints / (w.shipped_total * 1000)) * 1e6 : null;
+    w.scrap_rate = ratio(w.scrap / 1000, w.perso_total);
+    w.productivity = w.hours ? (w.perso_total * 1000) / w.hours : null;
+    w.hc = w.contract !== null || w.temps !== null ? (w.contract || 0) + (w.temps || 0) : null;
+    w.protime = m.protime ? JSON.parse(m.protime) : null;
+  }
   // activity filed under a week code the report doesn't list (weekends in split weeks)
   const listed = new Set(weeks.map((w) => w.week));
-  const unlisted = sums.filter((r) => !listed.has(r.week) && r.qty).map((r) => ({ source: r.source, week: r.week, ps: r.ps, isi: r.isi, pin: r.pin, qty: r.qty }));
-  return { weeks, unlisted };
+  const unlisted = sums.filter((r) => r.source !== 'otd' && !listed.has(r.week) && r.qty).map((r) => ({ source: r.source, week: r.week, ps: r.ps, isi: r.isi, pin: r.pin, qty: r.qty }));
+  // OTD rows whose date and typed week disagree (dates read as month/day, usually)
+  const otdChecks = db.all(`SELECT customer, qty, type, day, extra FROM kpi_rows WHERE source = 'otd' AND day <> ''`)
+    .map((r) => ({ ...r, ...JSON.parse(r.extra || '{}') })).filter((r) => r.typed_week && r.date_week && r.typed_week !== r.date_week)
+    .map((r) => ({ customer: r.customer, qty: r.qty, type: r.type, date: r.day, typed_week: r.typed_week, date_week: r.date_week,
+      swapped: (() => { const [y, mo, d] = r.day.split('-'); return Number(d) <= 12 && weekCode(`${y}-${d}-${mo}`) === r.typed_week; })() }));
+  return { weeks, unlisted, otd_checks: otdChecks };
 }
 
 function sourcesStatus() {
@@ -250,6 +291,15 @@ function sourcesStatus() {
 }
 
 // Columns of the Database sheet's weekly block (rows 63+, week code in B) these match.
-const DATABASE_COLUMNS = { perso_ps: 'D', perso_isi: 'E', perso_pin: 'F', perso_total: 'G', scrap: 'H', shipped_ps: 'I', shipped_isi: 'J', shipped_pin: 'K', shipped_total: 'L' };
+const DATABASE_COLUMNS = {
+  perso_ps: 'D', perso_isi: 'E', perso_pin: 'F', perso_total: 'G', scrap: 'H', shipped_ps: 'I', shipped_isi: 'J', shipped_pin: 'K', shipped_total: 'L',
+  otd_internal: 'M', otd_external: 'N', hours: 'O', contract: 'P', temps: 'Q', cc_critical: 'R', cc_major: 'S', cc_minor: 'T', complaints: 'U',
+  otd_sc: 'V', otd_global: 'W', cpms: 'X', scrap_rate: 'Y', productivity: 'Z', hc: 'AA',
+};
+// What's typed in each week (the rest is worked out).
+const MANUAL_FIELDS = ['hours', 'contract', 'temps', 'cc_critical', 'cc_major', 'cc_minor'];
+// Working hours from Protime: the "present" counts for Sunday night and Monday–Friday,
+// × 7.5 h per shift, plus 37.5 h — as the workbook's instructions do it.
+const hoursFromProtime = (days) => { const n = days.map(Number).filter((v) => Number.isFinite(v)); return n.length ? Math.round((n.reduce((a, b) => a + b, 0) * 7.5 + 37.5) * 100) / 100 : null; };
 
-module.exports = { SOURCES, DATABASE_COLUMNS, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };
+module.exports = { SOURCES, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };

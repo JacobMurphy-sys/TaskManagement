@@ -1374,11 +1374,60 @@ router.get('/kpi/calc', h((req, res) => {
 router.post('/kpi/calc/import', h((req, res) => {
   const set = getSettings();
   const results = kpiData.importSources({
-    paths: { perso: set.kpi_src_perso, shipped: set.kpi_src_shipped, remakes: set.kpi_src_remakes },
+    paths: { perso: set.kpi_src_perso, shipped: set.kpi_src_shipped, remakes: set.kpi_src_remakes, otd: set.kpi_src_otd },
     workbook: set.kpi_workbook_path || null, force: !!req.body.force, splitWeekends: splitWeekends(),
   });
   log.info('KPI sources imported', results.map((r) => `${r.source}: ${r.status}${r.rows !== undefined ? ` (${r.rows})` : ''}`).join(', '));
   res.json(results);
+}));
+
+// A week's typed-in figures. protime: the Sun–Fri "present" counts (hours are worked out from them).
+router.put('/kpi/manual/:week', h((req, res) => {
+  const week = String(req.params.week).trim().toUpperCase();
+  if (!kpiData.WEEK_RE.test(week)) throw new HttpError(400, 'Not a week code (e.g. W2639 or W2640_1)');
+  const num = (v, label, int) => {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(String(v).replace(',', '.'));
+    if (!Number.isFinite(n) || n < 0) throw new HttpError(400, `${label} must be a number of 0 or more`);
+    return int ? Math.round(n) : n;
+  };
+  const f = {};
+  if ('protime' in req.body) {
+    const days = Array.isArray(req.body.protime) ? req.body.protime.slice(0, 6).map((v, i) => num(v, `Protime ${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'][i]}`)) : [];
+    f.protime = days.some((v) => v !== null) ? JSON.stringify(days) : null;
+    if (f.protime) f.hours = kpiData.hoursFromProtime(days.filter((v) => v !== null));
+  }
+  if ('hours' in req.body && !f.protime) f.hours = num(req.body.hours, 'Working hours');
+  if ('contract' in req.body) f.contract = num(req.body.contract, 'Contract');
+  if ('temps' in req.body) f.temps = num(req.body.temps, 'Temps');
+  for (const k of ['cc_critical', 'cc_major', 'cc_minor']) if (k in req.body) f[k] = num(req.body[k], 'Complaints', true);
+  const old = db.get('SELECT * FROM kpi_manual WHERE week = ?', [week]);
+  const row = old ? fresh('kpi_manual', updateRow('kpi_manual', old.id, f)) : insertRow('kpi_manual', { week, ...f });
+  res.json(row);
+}));
+
+// Fills weeks' typed-in figures from Excel's Database sheet (the loaded week), where
+// nothing's been entered here yet — for carrying the year so far over.
+router.post('/kpi/manual/from-excel', h((req, res) => {
+  const xl = excelVolumes();
+  if (!xl?.weeks) throw new HttpError(400, 'Load a week from the workbook first (A3 tab)');
+  // only up to the week Excel was reporting: later weeks' zeros are just empty formulas
+  const year = kpi.weekParts(xl.week)?.year;
+  const order = year ? kpiData.weeksOf(year).map((w) => w.week) : [];
+  const upTo = order.indexOf(String(xl.week).toUpperCase());
+  let weeks = 0; let fields = 0;
+  db.tx(() => {
+    for (const [week, vals] of Object.entries(xl.weeks)) {
+      if (upTo >= 0 && (order.indexOf(week) < 0 || order.indexOf(week) > upTo)) continue;
+      const old = db.get('SELECT * FROM kpi_manual WHERE week = ?', [week]);
+      const f = {};
+      for (const k of kpiData.MANUAL_FIELDS) if (vals[k] !== null && vals[k] !== undefined && (old?.[k] === null || old?.[k] === undefined)) f[k] = vals[k];
+      if (!Object.keys(f).length) continue;
+      if (old) updateRow('kpi_manual', old.id, f); else insertRow('kpi_manual', { week, ...f });
+      weeks++; fields += Object.keys(f).length;
+    }
+  });
+  res.json({ weeks, fields });
 }));
 
 router.post('/kpi/calc/weekends', h((req, res) => {
@@ -1431,7 +1480,7 @@ const SETTING_DEFAULTS = {
   kpi_export_dir: '', kpi_export_name: 'A3 {year} WK{wk}.xlsx',
   // The source files the KPIs are worked out from (blank: use the workbook's import sheets),
   // and whether weekend days in a week split across two months count in their month's part.
-  kpi_src_perso: '', kpi_src_shipped: '', kpi_src_remakes: '', kpi_split_weekends: '0',
+  kpi_src_perso: '', kpi_src_shipped: '', kpi_src_remakes: '', kpi_src_otd: '', kpi_split_weekends: '0',
 };
 function getSettings() {
   const out = { ...SETTING_DEFAULTS };
