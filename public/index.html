@@ -14,39 +14,46 @@
 <body>
   <aside id="sidebar">
     <div class="brand">✔ CI Manager</div>
-    <input id="search" type="search" placeholder="Search…  ( / )" autocomplete="off">
-    <nav>
-      <a href="#/dashboard" data-nav="dashboard">📋 Dashboard</a>
-      <a href="#/tasks" data-nav="tasks">✅ Tasks</a>
-      <a href="#/calendar" data-nav="calendar">📅 Calendar</a>
-      <a href="#/kanban" data-nav="kanban">🗂 Projects board</a>
-      <a href="#/ideas" data-nav="ideas">💡 Ideation</a>
-      <a href="#/library" data-nav="library">📚 Library</a>
-      <a href="#/report" data-nav="report">📰 Report</a>
-      <a href="#/log" data-nav="log">🕘 Activity log</a>
-      <a href="#/backups" data-nav="backups">💾 Backups</a>
-      <a href="#/contacts" data-nav="contacts">📇 Contacts</a>
-      <a href="#/settings" data-nav="settings">⚙ Settings</a>
-    </nav>
+    <div id="clock" class="small muted"></div>
     <div class="side-head">
       <span>Projects</span>
       <button class="link" data-action="new-project" title="New project">+ New</button>
     </div>
     <ul id="project-list"></ul>
     <label class="small muted show-archived"><input type="checkbox" id="show-archived"> Show archived</label>
-    <button class="link small stop-server" data-action="stop-server" title="Shut down the CI Manager">⏻ Stop server</button>
   </aside>
 
   <div id="page">
     <header id="topbar">
-      <button class="menu-toggle" data-action="toggle-sidebar" aria-label="Menu">☰</button>
-      <div id="clock" class="muted"></div>
+      <button class="menu-toggle" data-action="toggle-sidebar" aria-label="Projects" title="Projects">☰</button>
+      <nav id="topnav">
+        <a href="#/dashboard" data-nav="dashboard" title="Dashboard">📋<span class="lbl"> Dashboard</span></a>
+        <a href="#/tasks" data-nav="tasks" title="Tasks">✅<span class="lbl"> Tasks</span></a>
+        <a href="#/calendar" data-nav="calendar" title="Calendar">📅<span class="lbl"> Calendar</span></a>
+        <a href="#/kanban" data-nav="kanban" title="Projects board">🗂<span class="lbl"> Board</span></a>
+        <a href="#/ideas" data-nav="ideas" title="Ideation">💡<span class="lbl"> Ideas</span></a>
+        <a href="#/library" data-nav="library" title="Library">📚<span class="lbl"> Library</span></a>
+        <a href="#/report" data-nav="report" title="Report">📰<span class="lbl"> Report</span></a>
+        <a href="#/contacts" data-nav="contacts" title="Contacts">📇<span class="lbl"> Contacts</span></a>
+      </nav>
       <div class="spacer"></div>
-      <button id="theme-toggle" class="theme-switch" role="switch" aria-checked="false" data-action="toggle-theme" title="Dark mode on/off">
-        <span class="track"><span class="knob">☀</span></span><span class="lbl">Dark</span></button>
-      <button data-action="quick-note" title="Quick note (N)">📝<span class="lbl"> Quick note</span></button>
-      <button id="notify-btn" data-action="enable-notifications" hidden>🔔<span class="lbl"> Enable desktop alerts</span></button>
+      <input id="search" type="search" placeholder="Search…  ( / )" autocomplete="off">
+      <button data-action="quick-note" title="Quick note (N)">📝<span class="lbl wide-only"> Quick note</span></button>
       <a id="bell" href="#/dashboard" title="Due / overdue tasks">🔔 <span id="bell-count" class="count" hidden>0</span></a>
+      <div class="top-menu">
+        <button id="menu-btn" data-action="toggle-menu" aria-haspopup="true" aria-expanded="false" title="More">⋯</button>
+        <div id="top-menu" class="top-menu-panel" hidden>
+          <a href="#/log" data-nav="log">🕘 Activity log</a>
+          <a href="#/backups" data-nav="backups">💾 Backups</a>
+          <a href="#/settings" data-nav="settings">⚙ Settings</a>
+          <hr>
+          <button id="theme-toggle" class="theme-switch" role="switch" aria-checked="false" data-action="toggle-theme" title="Dark mode on/off">
+            <span class="track"><span class="knob">☀</span></span><span>Dark mode</span></button>
+          <button id="notify-btn" data-action="enable-notifications" hidden>🔔 Enable desktop alerts</button>
+          <hr>
+          <button class="stop-server" data-action="stop-server" title="Shut down the CI Manager">⏻ Stop server</button>
+        </div>
+      </div>
     </header>
     <main id="main"></main>
   </div>

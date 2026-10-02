@@ -236,7 +236,9 @@ function renderSidebar() {
     </a></li>`;
   }).join('') || '<li class="empty small">No projects yet</li>';
   const nav = state.view === 'idea' ? 'ideas' : state.view;
-  $$('#sidebar nav a').forEach((a) => a.classList.toggle('active', a.dataset.nav === nav));
+  $$('#topnav a, #top-menu a').forEach((a) => a.classList.toggle('active', a.dataset.nav === nav));
+  $('#menu-btn').classList.toggle('active', !!$('#top-menu a.active'));
+  toggleMenu(false);
 }
 
 async function route() {
@@ -1814,8 +1816,19 @@ async function setTaskStatus(id, status, openSubtasks = 0) {
   if (modal().open) { state.modalDirty = true; await taskModal($('#task-form')?.dataset.id || id); } else await refresh();
 }
 
+// The ⋯ menu in the top bar (Activity log, Backups, Settings, dark mode, stop server).
+function toggleMenu(open = $('#top-menu').hidden) {
+  $('#top-menu').hidden = !open;
+  $('#menu-btn').setAttribute('aria-expanded', String(open));
+}
+$('#top-menu').addEventListener('click', (e) => { if (e.target.closest('a')) toggleMenu(false); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#top-menu').hidden) { toggleMenu(false); $('#menu-btn').focus(); }
+});
+
 const actions = {
   'toggle-sidebar': () => document.body.classList.toggle('sidebar-open'),
+  'toggle-menu': () => toggleMenu(),
   'new-project': () => projectForm(),
   'edit-project': () => projectForm(state.project),
   'add-phase': () => phaseDialog(state.project, null),
@@ -2142,6 +2155,7 @@ async function runAction(el, e) {
 
 // On a narrow screen the sidebar slides over the page; a click elsewhere closes it.
 document.addEventListener('click', (e) => {
+  if (!$('#top-menu').hidden && !e.target.closest('.top-menu')) toggleMenu(false);
   if (document.body.classList.contains('sidebar-open') && !e.target.closest('#sidebar, [data-action="toggle-sidebar"]')) {
     document.body.classList.remove('sidebar-open');
   }
