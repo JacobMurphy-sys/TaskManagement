@@ -183,8 +183,12 @@ const SHORTCUTS_HELP = 'Shortcuts: <code>!high</code> <code>!crit</code> · <cod
 
 // Web links and Windows paths in text become clickable. Paths (C:\… or \\server\…;
 // wrap in "quotes" if they contain spaces) open in File Explorer via the server.
-const LINK_RE = /(https?:\/\/[^\s<>"']*[^\s<>"'.,;:!?)\]]|mailto:[^\s<>"']+|onenote:[^\s<>"']+|"(?:[A-Za-z]:\\|\\\\)[^"\r\n]+"|(?:[A-Za-z]:\\|\\\\)[^\s<>"']+)/g;
+const LINK_RE = /(\[\[[^\]\n]+\]\]|https?:\/\/[^\s<>"']*[^\s<>"'.,;:!?)\]]|mailto:[^\s<>"']+|onenote:[^\s<>"']+|"(?:[A-Za-z]:\\|\\\\)[^"\r\n]+"|(?:[A-Za-z]:\\|\\\\)[^\s<>"']+)/g;
 function linkHtml(raw) {
+  if (raw.startsWith('[[')) { // [[Procedure name]] -> the note in the 📚 Library
+    const [target, alias] = raw.slice(2, -2).split('|');
+    return `<a class="wikilink" href="#/library/find/${encodeURIComponent(target.trim())}" title="Open in the library">📚 ${esc((alias || target).trim())}</a>`;
+  }
   if (/^(https?|mailto|onenote):/i.test(raw)) {
     return `<a href="${esc(raw)}" target="_blank" rel="noopener noreferrer">${esc(raw)}</a>`;
   }
@@ -252,6 +256,7 @@ async function route() {
     else if (view === 'log') await renderLog();
     else if (view === 'backups') await renderBackups();
     else if (view === 'contacts') await renderContacts();
+    else if (view === 'library') await renderLibrary(rest[0], rest.slice(1).join('/'));
     else if (view === 'search') await renderSearch(decodeURIComponent(rest.join('/')));
     else { state.view = 'dashboard'; renderSidebar(); await renderDashboard(); }
   } catch (err) {
@@ -1414,6 +1419,9 @@ async function renderSearch(q) {
       <div class="card"><h2>Tasks</h2>${r.tasks.length ? `<ul class="mini">${r.tasks.map(miniTask).join('')}</ul>` : '<div class="empty">None</div>'}</div>
       <div class="card"><h2>Ideas</h2>${r.ideas.length ? `<ul class="mini">${r.ideas.map((i) => `<li>
         <span class="t" data-action="open-idea" data-id="${i.id}"><b>${esc(i.ref)}</b> ${esc(i.title)}</span> ${ideaStatusPill(i.status)}</li>`).join('')}</ul>` : '<div class="empty">None</div>'}</div>
+      <div class="card"><h2>Library</h2>${r.library.length ? `<ul class="mini">${r.library.map((d) => `<li style="display:block">
+        <a href="#/library/${d.id}">📄 <b>${esc(d.title)}</b></a> <span class="small muted">${esc(d.folder)}</span>
+        <div class="small muted">${esc(d.snippet)}</div></li>`).join('')}</ul>` : '<div class="empty">None</div>'}</div>
       <div class="card"><h2>Meetings</h2>${r.meetings.length ? `<ul class="mini">${r.meetings.map((m) => `<li style="display:block">
         <span class="t" data-action="open-meeting" data-id="${m.id}">🗓 <b>${esc(m.title)}</b></span>
         <span class="small muted">${esc(fmtDateTime(m.held_at))}${m.project_name ? ` · ${esc(m.project_name)}` : ''}${m.task_title ? ` · ${esc(m.task_title)}` : ''}</span>
@@ -1806,6 +1814,20 @@ const actions = {
   'new-project': () => projectForm(),
   'edit-project': () => projectForm(state.project),
   'add-phase': () => phaseDialog(state.project, null),
+  'library-import': () => libraryImportDialog(),
+  'library-print': () => {
+    document.body.classList.add('printing-doc');
+    $$('.lib-doc details').forEach((d) => { d.dataset.wasOpen = d.open; d.open = true; });
+    window.print();
+    setTimeout(() => {
+      document.body.classList.remove('printing-doc');
+      $$('.lib-doc details').forEach((d) => { d.open = d.dataset.wasOpen === 'true'; });
+    }, 500);
+  },
+  'library-copy-link': async (el) => {
+    await navigator.clipboard.writeText(`[[${el.dataset.title}]]`);
+    toast(`Copied [[${el.dataset.title}]] — paste it into a task or project description`);
+  },
   'toggle-theme': () => {
     setTheme(effectiveTheme() === 'dark' ? 'light' : 'dark');
     if ($('#theme-choice')) $('#theme-choice').value = store.get('theme');

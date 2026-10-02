@@ -233,6 +233,22 @@ const TABLES = {
     updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
     UNIQUE (list_id, name)`,
 
+  // Library: notes imported from an Obsidian vault (read-only in the app). Their
+  // attachments are files in DATA_DIR/library. Not audited: an import replaces many
+  // notes at once, and the vault is the record of their history.
+  library_docs: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    path        TEXT    NOT NULL,
+    title       TEXT    NOT NULL,
+    folder      TEXT    NOT NULL DEFAULT '',
+    body        TEXT    NOT NULL,
+    tags        TEXT,
+    aliases     TEXT,
+    imported_at TEXT    NOT NULL DEFAULT (${NOW}),
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    UNIQUE (path)`,
+
   settings: `
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     key        TEXT    NOT NULL UNIQUE,
@@ -300,6 +316,7 @@ const INDEXES = `
   INSERT INTO name_lists (name, sort_order) SELECT 'Departments', 1
     WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'name_lists_seeded') AND (SELECT count(*) FROM name_lists) = 1;
   INSERT OR IGNORE INTO settings (key, value) VALUES ('name_lists_seeded', '1');
+  CREATE INDEX IF NOT EXISTS library_title_idx ON library_docs(title COLLATE NOCASE);
   CREATE INDEX IF NOT EXISTS name_list_items_idx ON name_list_items(list_id, sort_order);`;
 
 // Status value that means "finished", and the column stamped when it is reached.

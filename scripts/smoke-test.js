@@ -352,6 +352,57 @@ async function waitForServer() {
     assert.ok((await call('GET', `/tasks/owner-names?project_id=${tp.id}`)).slice(0, 3).includes('Riya'), 'team offered as owners');
     await call('DELETE', `/projects/${tp.id}`);
 
+    // ---- Library: an Obsidian vault imported read-only
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const vault = [
+      { path: 'Procedures/Lockout.md', text: '---\ntags: [safety]\naliases: [LOTO]\n---\n# Lockout\n> [!warning] Isolate first\n> Use [[Isolation points#Main valve|the valve]].\n\n- [x] Sign sheet\n![[diagram.png|200]]\n<script>alert(1)</script>' },
+      { path: 'Reference/Isolation points.md', text: '## Main valve\nTurn **clockwise**. Back to [[LOTO]].' },
+      { path: 'Old.md', text: 'to be removed' },
+      { path: 'attachments/diagram.png', base64: png },
+      { path: '.obsidian/app.json', base64: 'e30=' },
+      { path: '../escape.png', base64: png },
+      { path: 'tool.exe', base64: png },
+    ];
+    let lib = await call('POST', '/library/import', { source: 'Work vault' });
+    const sent = await call('POST', `/library/import/${lib.id}/files`, { files: vault });
+    assert.deepEqual([sent.notes, sent.files, sent.skipped], [3, 1, 3], 'hidden, unsafe and unknown files skipped');
+    let res = await call('POST', `/library/import/${lib.id}/finish`);
+    assert.deepEqual([res.added, res.removed], [3, 0]);
+    let index = await call('GET', '/library');
+    assert.equal(index.source, 'Work vault');
+    const lock = index.docs.find((d) => d.title === 'Lockout');
+    const iso = index.docs.find((d) => d.title === 'Isolation points');
+    assert.equal(lock.tags, 'safety');
+    const page = await call('GET', `/library/docs/${lock.id}`);
+    assert.match(page.html, /class="callout callout-warning"/, 'callout');
+    assert.match(page.html, new RegExp(`href="#/library/${iso.id}/main-valve"[^>]*>the valve<`), 'wikilink to a heading, with alias');
+    assert.match(page.html, /<img class="md-img" src="\/api\/library\/file\?p=attachments%2Fdiagram\.png"[^>]*width="200"/, 'embedded image by name');
+    assert.match(page.html, /<input type="checkbox" disabled checked>/, 'read-only checklist');
+    assert.ok(!page.html.includes('<script'), 'raw script escaped');
+    assert.deepEqual(page.backlinks.map((b) => b.title), ['Isolation points'], 'backlink via alias');
+    const img = await fetch(`${BASE}/library/file?p=${encodeURIComponent('attachments/diagram.png')}`);
+    assert.equal(img.status, 200); assert.equal(img.headers.get('content-type'), 'image/png');
+    assert.equal((await fetch(`${BASE}/library/file?p=..%2F..%2Ftest.db`)).status, 404, 'no way out of the library folder');
+    assert.equal((await call('GET', '/library/resolve?t=loto%23Main%20valve')).id, lock.id, 'resolve by alias');
+    assert.equal((await call('GET', '/library/search?q=clockwise'))[0].id, iso.id);
+    assert.ok((await call('GET', '/search?q=isolate')).library.some((d) => d.id === lock.id), 'library in the global search');
+    // a task linking a procedure shows up on the note
+    const libTask = await call('POST', '/tasks', { title: 'Service pump', description: 'Follow [[Lockout]] first' });
+    assert.equal((await call('GET', `/library/docs/${lock.id}`)).linked_tasks[0].id, libTask.id, 'used in tasks');
+    await call('DELETE', `/tasks/${libTask.id}`);
+    // re-import: changed, unchanged, removed; ids kept
+    lib = await call('POST', '/library/import', { source: 'Work vault' });
+    await call('POST', `/library/import/${lib.id}/files`, { files: [{ ...vault[0], text: `${vault[0].text}\nNew line` }, vault[1]] });
+    res = await call('POST', `/library/import/${lib.id}/finish`);
+    assert.deepEqual([res.added, res.updated, res.unchanged, res.removed], [0, 1, 1, 1]);
+    index = await call('GET', '/library');
+    assert.equal(index.docs.find((d) => d.title === 'Lockout').id, lock.id, 'same note keeps its id');
+    assert.equal(index.files, 0, 'attachments replaced by the new import');
+    lib = await call('POST', '/library/import', {});
+    await assert.rejects(call('POST', `/library/import/${lib.id}/finish`), /No notes/);
+    await call('DELETE', '/library');
+    assert.equal((await call('GET', '/library')).docs.length, 0);
+
     // ---- Several owners per task; People & departments lists
     const ownP = await call('POST', '/projects', { name: 'Owners test', ...CHARTER, team: 'Sam Patel, QA' });
     const ot = await call('POST', '/tasks', { project_id: ownP.id, title: 'Shared job', owner: ' Sam Patel ;Maintenance, sam patel,, ' });

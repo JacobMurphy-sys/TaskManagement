@@ -1666,11 +1666,240 @@ router.post('/backups/:kind/:file/restore', h((req, res) => {
   restoreReply(req, res, loadBackup(() => readBackup(b.path)), b.file);
 }));
 
+// ------------------------------------------------------------------ library (Obsidian vault)
+
+const md = require('./markdown');
+const LIB_DIR = path.join(config.dataDir, 'library');
+
+let libFilesCache = null; // relative paths of the attachments in LIB_DIR
+function libraryFiles() {
+  if (libFilesCache) return libFilesCache;
+  const out = [];
+  const walk = (dir, rel) => {
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(path.join(dir, e.name), r); else out.push(r);
+    }
+  };
+  walk(LIB_DIR, '');
+  libFilesCache = out;
+  return out;
+}
+
+const folderOf = (p) => (p && p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
+const joinRel = (from, t) => path.posix.normalize(path.posix.join(folderOf(from), t));
+
+// Finds notes and attachments the way Obsidian does: by name anywhere in the vault
+// (nearest folder first), by path from the vault root, or relative to the note.
+function libraryResolver() {
+  const docs = db.all('SELECT id, path, title, aliases FROM library_docs ORDER BY length(path), path');
+  const byKey = new Map();
+  const add = (k, d) => { const key = k.toLowerCase(); if (!byKey.has(key)) byKey.set(key, []); byKey.get(key).push(d); };
+  for (const d of docs) {
+    add(d.path.replace(/\.md$/i, ''), d);
+    add(d.title, d);
+    for (const a of String(d.aliases || '').split('\n').filter(Boolean)) add(a, d);
+  }
+  const resolveDoc = (target, from = '') => {
+    const t = String(target || '').replace(/\\/g, '/').replace(/\.md$/i, '').replace(/^\.?\//, '').trim();
+    if (!t) return null;
+    const key = t.toLowerCase();
+    let list = !t.startsWith('../') && byKey.get(key);
+    if (!list && from) list = byKey.get(joinRel(from, t).toLowerCase());
+    if (!list && key.includes('/')) list = docs.filter((d) => d.path.toLowerCase().replace(/\.md$/, '').endsWith(`/${key}`));
+    if (!list || !list.length) return null;
+    return list.find((d) => folderOf(d.path) === folderOf(from)) || list[0];
+  };
+  const files = libraryFiles();
+  const byPath = new Map(files.map((f) => [f.toLowerCase(), f]));
+  const byName = new Map();
+  for (const f of files) { const n = f.split('/').pop().toLowerCase(); if (!byName.has(n)) byName.set(n, f); }
+  const resolveFile = (target, from = '') => {
+    const t = String(target || '').replace(/\\/g, '/').replace(/^\.?\//, '').trim();
+    if (!t) return null;
+    const rel = byPath.get(t.toLowerCase()) || byPath.get(joinRel(from, t).toLowerCase()) || byName.get(t.split('/').pop().toLowerCase());
+    return rel ? { url: `/api/library/file?p=${encodeURIComponent(rel)}`, name: rel.split('/').pop(), path: rel } : null;
+  };
+  const bodies = new Map();
+  const loadDoc = (id) => {
+    if (!bodies.has(id)) bodies.set(id, db.get('SELECT body FROM library_docs WHERE id = ?', [id])?.body || '');
+    return bodies.get(id);
+  };
+  return { docs, resolveDoc, resolveFile, loadDoc };
+}
+
+// Ids of the notes a piece of text links to ([[wikilinks]], ![[embeds]], [x](Note.md)).
+const LINKS_IN_TEXT = /!?\[\[([^\]\n]+?)\]\]|\]\(\s*<?([^)>\n]+?\.md(?:#[^)>\n]*)?)>?\s*\)/g;
+function linkedDocIds(text, r, from = '') {
+  const ids = new Set();
+  for (const m of String(text || '').matchAll(LINKS_IN_TEXT)) {
+    let t = m[1] ? m[1].replace(/\\\|/g, '|').split('|')[0] : m[2];
+    try { if (!m[1]) t = decodeURIComponent(t); } catch { /* keep */ }
+    const d = r.resolveDoc(t.split('#')[0], from);
+    if (d) ids.add(d.id);
+  }
+  return ids;
+}
+
+function librarySearch(term, limit = 50) {
+  const q = `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  const low = term.toLowerCase();
+  return db.all(`SELECT id, path, title, folder, tags, body FROM library_docs
+      WHERE title LIKE ? ESCAPE '\\' OR path LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\'
+      ORDER BY (title LIKE ? ESCAPE '\\') DESC, title COLLATE NOCASE`, [q, q, q, q, q])
+    .map((d) => {
+      const text = md.toPlainText(d.body);
+      const at = text.toLowerCase().indexOf(low);
+      const inName = [d.title, d.path, d.tags].some((v) => String(v || '').toLowerCase().includes(low));
+      if (at < 0 && !inName) return null;
+      const snippet = at < 0 ? text.slice(0, 160) : `${at > 60 ? '…' : ''}${text.slice(Math.max(0, at - 60), at + 120)}${at + 120 < text.length ? '…' : ''}`;
+      return { id: d.id, path: d.path, title: d.title, folder: d.folder, tags: d.tags, snippet };
+    }).filter(Boolean).slice(0, limit);
+}
+
+router.get('/library', h((req, res) => {
+  res.json({
+    docs: db.all('SELECT id, path, title, folder, tags, updated_at FROM library_docs ORDER BY path COLLATE NOCASE'),
+    files: libraryFiles().length,
+    imported_at: getSetting('library_imported_at'),
+    source: getSetting('library_source'),
+  });
+}));
+
+router.get('/library/search', h((req, res) => res.json(librarySearch(String(req.query.q || '').trim()))));
+
+// [[Name#Heading]] from a task or project description -> the note it means.
+router.get('/library/resolve', h((req, res) => {
+  const [target, heading = ''] = String(req.query.t || '').split('#');
+  const doc = libraryResolver().resolveDoc(target.split('|')[0]);
+  if (!doc) throw notFound(`“${target}” in the library`);
+  res.json({ id: doc.id, title: doc.title, slug: heading ? md.slugify(heading) : null });
+}));
+
+router.get('/library/docs/:id', h((req, res) => {
+  const doc = db.get('SELECT * FROM library_docs WHERE id = ?', [req.params.id]);
+  if (!doc) throw notFound('Note');
+  const r = libraryResolver();
+  const out = md.renderMarkdown(doc.body, { ...r, path: doc.path, seen: new Set([doc.id]) });
+  const backlinks = db.all('SELECT id, path, title, folder, body FROM library_docs WHERE id <> ? ORDER BY title COLLATE NOCASE', [doc.id])
+    .filter((d) => linkedDocIds(d.body, r, d.path).has(doc.id)).map(({ id, title, folder }) => ({ id, title, folder }));
+  const linkedTasks = db.all(`SELECT t.id, t.title, t.status, t.project_id, t.description, p.name AS project_name FROM tasks t
+      LEFT JOIN projects p ON p.id = t.project_id WHERE t.description LIKE '%[[%' ORDER BY t.status = 'done', t.id DESC`)
+    .filter((t) => linkedDocIds(t.description, r).has(doc.id)).map(({ description, ...t }) => t);
+  const linkedProjects = db.all("SELECT id, name, description FROM projects WHERE description LIKE '%[[%'")
+    .filter((p) => linkedDocIds(p.description, r).has(doc.id)).map(({ id, name }) => ({ id, name }));
+  res.json({ ...doc, html: out.html, headings: out.headings, props: out.props, backlinks,
+    linked_tasks: linkedTasks, linked_projects: linkedProjects });
+}));
+
+// Attachments (images, PDFs…) of the imported vault.
+router.get('/library/file', h((req, res) => {
+  const rel = cleanLibraryPath(req.query.p);
+  const full = rel && path.join(LIB_DIR, ...rel.split('/'));
+  if (!full || !full.startsWith(LIB_DIR + path.sep) || !fs.existsSync(full) || !md.ATTACHMENT_EXT.includes(md.extOf(rel))) throw notFound('File');
+  if (md.extOf(rel) === 'svg') res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:");
+  res.set('Cache-Control', 'no-cache');
+  res.sendFile(full);
+}));
+
+// A vault-relative path, or null if it's unsafe or hidden (.obsidian, .trash, ../…).
+function cleanLibraryPath(p) {
+  const parts = String(p || '').replace(/\\/g, '/').split('/').filter(Boolean);
+  if (!parts.length || parts.some((x) => x === '..' || x.startsWith('.') || /[<>:"|?*\u0000-\u001f]/.test(x))) return null;
+  return parts.join('/');
+}
+
+// Import: begin -> send files in batches -> finish (the library is only replaced at the
+// end, so a cancelled or failed import leaves the current one as it was).
+const libImports = new Map();
+router.post('/library/import', h((req, res) => {
+  for (const [id, imp] of libImports) { // forget abandoned imports
+    if (Date.now() - imp.touched > 2 * 3600 * 1000) { fs.rmSync(imp.dir, { recursive: true, force: true }); libImports.delete(id); }
+  }
+  const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const dir = path.join(config.dataDir, `library-import-${id}`);
+  fs.mkdirSync(dir, { recursive: true });
+  libImports.set(id, { dir, docs: new Map(), files: 0, skipped: 0, touched: Date.now(),
+    source: String(req.body.source || '').slice(0, 200) || null });
+  res.status(201).json({ id });
+}));
+
+router.post('/library/import/:id/files', h((req, res) => {
+  const imp = libImports.get(req.params.id);
+  if (!imp) throw notFound('Import');
+  imp.touched = Date.now();
+  for (const f of Array.isArray(req.body.files) ? req.body.files : []) {
+    const rel = cleanLibraryPath(f.path);
+    const ext = rel && md.extOf(rel);
+    if (rel && ext === 'md' && typeof f.text === 'string') { imp.docs.set(rel, f.text.replace(/\r\n?/g, '\n')); continue; }
+    if (!rel || !md.ATTACHMENT_EXT.includes(ext) || typeof f.base64 !== 'string') { imp.skipped++; continue; }
+    const full = path.join(imp.dir, ...rel.split('/'));
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, Buffer.from(f.base64, 'base64'));
+    imp.files++;
+  }
+  res.json({ notes: imp.docs.size, files: imp.files, skipped: imp.skipped });
+}));
+
+router.post('/library/import/:id/finish', h((req, res) => {
+  const imp = libImports.get(req.params.id);
+  if (!imp) throw notFound('Import');
+  if (!imp.docs.size) throw new HttpError(400, 'No notes (.md files) were found in that folder');
+  const now = nowIso();
+  const result = db.tx(() => {
+    const existing = new Map(db.all('SELECT id, path, body FROM library_docs').map((d) => [d.path, d]));
+    const counts = { notes: imp.docs.size, added: 0, updated: 0, unchanged: 0, removed: 0, files: imp.files, skipped: imp.skipped };
+    for (const [p, body] of imp.docs) {
+      const meta = md.docMeta(body);
+      const row = { title: p.split('/').pop().replace(/\.md$/i, ''), folder: folderOf(p), tags: meta.tags.join(', ') || null,
+        aliases: meta.aliases.join('\n') || null };
+      const ex = existing.get(p);
+      if (!ex) {
+        db.run(`INSERT INTO library_docs (path, title, folder, body, tags, aliases, imported_at, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [p, row.title, row.folder, body, row.tags, row.aliases, now, now, now]);
+        counts.added++;
+      } else {
+        const changed = ex.body !== body;
+        db.run(`UPDATE library_docs SET title = ?, folder = ?, body = ?, tags = ?, aliases = ?, imported_at = ?
+          ${changed ? ', updated_at = ?' : ''} WHERE id = ?`,
+        [row.title, row.folder, body, row.tags, row.aliases, now, ...(changed ? [now] : []), ex.id]);
+        counts[changed ? 'updated' : 'unchanged']++;
+        existing.delete(p);
+      }
+    }
+    for (const ex of existing.values()) db.run('DELETE FROM library_docs WHERE id = ?', [ex.id]);
+    counts.removed = existing.size;
+    setSetting('library_imported_at', now);
+    if (imp.source) setSetting('library_source', imp.source);
+    return counts;
+  });
+  // Swap in the new attachments folder.
+  const old = `${LIB_DIR}.old-${req.params.id}`;
+  if (fs.existsSync(LIB_DIR)) fs.renameSync(LIB_DIR, old);
+  fs.renameSync(imp.dir, LIB_DIR);
+  fs.rmSync(old, { recursive: true, force: true });
+  libFilesCache = null;
+  libImports.delete(req.params.id);
+  log.info('Library imported from the Obsidian vault', { source: imp.source, ...result });
+  res.json(result);
+}));
+
+router.delete('/library', h((req, res) => {
+  db.run('DELETE FROM library_docs');
+  fs.rmSync(LIB_DIR, { recursive: true, force: true });
+  libFilesCache = null;
+  db.run("DELETE FROM settings WHERE key IN ('library_imported_at', 'library_source')");
+  log.info('Library removed');
+  res.status(204).end();
+}));
+
 // ------------------------------------------------------------------ search
 
 router.get('/search', h((req, res) => {
   const term = String(req.query.q || '').trim();
-  if (!term) return res.json({ projects: [], tasks: [], notes: [], ideas: [], meetings: [] });
+  if (!term) return res.json({ projects: [], tasks: [], notes: [], ideas: [], meetings: [], library: [] });
   const q = `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const like = (col) => `${col} LIKE ? ESCAPE '\\'`;
   res.json({
@@ -1681,6 +1910,7 @@ router.get('/search', h((req, res) => {
       WHERE ${like('n.body')} ORDER BY n.created_at DESC LIMIT 30`, [q]),
     ideas: db.all(`${IDEA_SELECT} WHERE ${like('i.title')} OR ${like('i.description')} OR ${like('i.ref')}
       OR i.id IN (SELECT idea_id FROM idea_notes WHERE ${like('body')}) ORDER BY i.id DESC LIMIT 30`, [q, q, q, q]),
+    library: librarySearch(term, 20),
     // Notes are HTML, so match on their text (a search for "b" shouldn't hit every <b>).
     meetings: meetingList(`${like('m.title')} OR ${like('m.attendees')} OR ${like('m.location')} OR m.notes IS NOT NULL`, [q, q, q], 'm.held_at DESC')
       .filter((m) => [m.title, m.attendees, m.location, htmlToText(m.notes)].some((v) => String(v || '').toLowerCase().includes(term.toLowerCase())))

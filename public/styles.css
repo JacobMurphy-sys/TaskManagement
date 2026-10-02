@@ -583,3 +583,108 @@ label.button { cursor: pointer; }
   padding: 2px 4px; font-size: 14px; opacity: .7; }
 .cf-wrap > input + .cf-book:hover { opacity: 1; }
 @media print { .cf-book, .op-book { display: none !important; } }
+
+/* ---- 📚 Library (notes from Obsidian) */
+.lib { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; }
+.lib-aside { position: sticky; top: 0; max-height: calc(100vh - 120px); overflow-y: auto; padding: 10px; }
+.lib-aside #lib-filter { width: 100%; margin-bottom: 8px; }
+.lib-folder > summary { cursor: pointer; padding: 3px 4px; border-radius: 4px; list-style: none; font-weight: 500; }
+.lib-folder > summary::-webkit-details-marker { display: none; }
+.lib-folder > summary::before { content: '▸ '; color: var(--muted); }
+.lib-folder[open] > summary::before { content: '▾ '; }
+.lib-folder > summary:hover, .lib-item:hover, .lib-hit:hover { background: var(--panel-2); }
+.lib-children { padding-left: 12px; border-left: 1px solid var(--border); margin-left: 7px; }
+.lib-item, .lib-hit { display: block; padding: 3px 6px; border-radius: 4px; color: var(--text); text-decoration: none !important;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-hit { white-space: normal; padding: 6px; border-bottom: 1px solid var(--border); }
+.lib-snippet { display: block; margin-top: 2px; }
+.lib-item.on, .lib-hit.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.lib-doc { padding: 22px 34px 30px; min-height: 60vh; }
+.lib-toolbar { gap: 6px; margin-bottom: 4px; }
+.lib-title { font-size: 2em; margin: 6px 0 10px; }
+.lib-props { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 13px; padding: 8px 0 12px;
+  border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+.lib-props > div { display: contents; }
+.lib-props > div > span:first-child { color: var(--muted); }
+.lib-toc { margin: 0 0 14px; font-size: 13px; }
+.lib-toc > summary { cursor: pointer; color: var(--muted); }
+.lib-toc a { display: block; padding: 2px 0; cursor: pointer; }
+.lib-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.lib-foot { margin-top: 30px; padding-top: 12px; border-top: 1px solid var(--border); display: grid; gap: 12px; }
+.lib-foot h3 { margin: 0 0 4px; font-size: 14px; }
+.lib-flash { animation: lib-flash 1.6s ease-out; }
+@keyframes lib-flash { from { background: var(--accent-soft); } to { background: transparent; } }
+.lib-empty { max-width: 640px; }
+.ok-note { border: 1px solid var(--ok); border-radius: 6px; padding: 8px 10px; background: var(--ok-soft); }
+[data-scroll] { cursor: pointer; }
+@media (max-width: 900px) {
+  .lib { grid-template-columns: 1fr; }
+  .lib-aside { position: static; max-height: 40vh; }
+  .lib-doc { padding: 16px; }
+}
+
+/* Rendered Markdown, styled after Obsidian's reading view */
+.md { font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; }
+.md p, .md .md-p { margin: 0 0 .9em; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { line-height: 1.3; margin: 1.4em 0 .5em; font-weight: 700; scroll-margin-top: 12px; }
+.md h1 { font-size: 1.8em; } .md h2 { font-size: 1.5em; } .md h3 { font-size: 1.27em; }
+.md h4 { font-size: 1.1em; } .md h5 { font-size: 1em; } .md h6 { font-size: .9em; color: var(--muted); }
+.md ul, .md ol { margin: 0 0 .9em; padding-left: 1.7em; }
+.md li { margin: .15em 0; }
+.md li > ul, .md li > ol { margin: .15em 0 .2em; }
+.md li.task-item { list-style: none; margin-left: -1.4em; }
+.md li.task-item > input { margin: 0 .35em 0 0; vertical-align: middle; accent-color: var(--accent); }
+.md li.task-item.is-checked { color: var(--muted); text-decoration: line-through; }
+.md li.task-item.is-checked li { text-decoration: none; }
+.md mark { background: rgba(255, 208, 0, .4); color: inherit; padding: 0 1px; border-radius: 2px; }
+.md del { color: var(--muted); }
+.md code { font-family: Consolas, "Cascadia Mono", monospace; font-size: .88em; background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 4px; padding: .05em .3em; }
+.md .md-code { margin: 0 0 1em; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); overflow: hidden; }
+.md .md-code-lang { font-size: 11px; color: var(--muted); padding: 4px 10px 0; text-transform: uppercase; letter-spacing: .04em; }
+.md .md-code pre { margin: 0; padding: 8px 12px 10px; overflow-x: auto; }
+.md .md-code code { background: none; border: 0; padding: 0; font-size: 13px; }
+.md .md-math { font-family: Consolas, monospace; background: var(--panel-2); padding: 8px 12px; border-radius: 6px; margin: 0 0 1em; white-space: pre-wrap; }
+.md blockquote { margin: 0 0 1em; padding: 2px 0 2px 14px; border-left: 3px solid var(--accent); color: var(--muted); }
+.md hr { border: 0; border-top: 1px solid var(--border); margin: 1.5em 0; }
+.md .md-table { overflow-x: auto; margin: 0 0 1em; }
+.md table { border-collapse: collapse; font-size: 14px; }
+.md th, .md td { border: 1px solid var(--border); padding: 5px 10px; vertical-align: top; }
+.md th { background: var(--panel-2); font-weight: 600; }
+.md img.md-img { max-width: 100%; height: auto; border-radius: 4px; vertical-align: middle; }
+.md video.md-video { max-width: 100%; border-radius: 6px; }
+.md .md-tag, .lib-tags .md-tag, .lib-props .md-tag { display: inline-block; background: var(--accent-soft); color: var(--accent); border: 0;
+  border-radius: 999px; padding: 0 .55em; font-size: .85em; line-height: 1.6; cursor: pointer; font-weight: 500; }
+.md a.wikilink, a.wikilink { color: var(--accent); cursor: pointer; text-decoration: none; }
+.md a.wikilink:hover { text-decoration: underline; }
+.wikilink.unresolved { color: var(--muted); text-decoration: underline dotted; cursor: help; }
+.md .md-embed { display: block; border-left: 3px solid var(--border); padding: 4px 0 4px 14px; margin: .4em 0 1em; }
+.md .md-embed-title { display: block; font-size: 12px; margin-bottom: 4px; }
+.md .md-embed-body { display: block; }
+.md .md-pdf iframe { display: block; width: 100%; height: 560px; border: 1px solid var(--border); border-radius: 6px; margin-top: 6px; }
+.md .md-fn-ref a { font-size: .8em; }
+.md .md-footnotes { font-size: .9em; color: var(--muted); }
+/* callouts: colours as in Obsidian */
+.md .callout { --c: 8, 109, 221; border-radius: 6px; background: rgba(var(--c), .1); border-left: 4px solid rgb(var(--c));
+  padding: 10px 14px; margin: 0 0 1em; }
+.md .callout-title { display: flex; gap: 8px; align-items: center; font-weight: 600; color: rgb(var(--c)); }
+.md summary.callout-title { cursor: pointer; list-style: none; }
+.md summary.callout-title::-webkit-details-marker { display: none; }
+.md summary.callout-title::after { content: '›'; margin-left: 4px; transition: transform .15s; }
+.md details.callout[open] > summary.callout-title::after { transform: rotate(90deg); }
+.md .callout-content { margin-top: 6px; }
+.md .callout-content > :last-child { margin-bottom: 0; }
+.md .callout-abstract, .md .callout-tip { --c: 0, 191, 188; }
+.md .callout-success { --c: 8, 185, 78; }
+.md .callout-question, .md .callout-warning { --c: 236, 117, 0; }
+.md .callout-failure, .md .callout-danger, .md .callout-bug { --c: 233, 49, 71; }
+.md .callout-example { --c: 120, 82, 238; }
+.md .callout-quote { --c: 158, 158, 158; }
+@media print {
+  body.printing-doc #main > *:not(.lib), body.printing-doc .lib-aside, body.printing-doc .lib-toolbar,
+  body.printing-doc .lib-toc { display: none !important; }
+  body.printing-doc .lib { display: block; }
+  body.printing-doc .lib-doc { padding: 0; }
+  body.printing-doc .md .callout { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
