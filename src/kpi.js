@@ -422,10 +422,117 @@ function loadWeek(buf, { a3Sheet = 'A3 Weekly Report', dbSheet = 'Database', wee
   };
 }
 
+// ---- the A3 for any week, worked out by the CI Manager -----------------------------------
+
+// The workbook (the last one loaded) is the template: its Database and A3 formulas are
+// re-run for `week`, with the Database weekly block (rows from 63, week code in column B)
+// and the top-5 scrap and top-10 shipped figures taken from the CI Manager's own data.
+// data: { weeks: [{ week, perso_ps, … }], topScrap(week), shippedFor(customer, year, month?), columns: { key: 'D', … } }
+// Parts that still come only from Excel (this month's customer forecast, typed text) are
+// listed in `flags`.
+function buildWeek(buf, week, data, { a3Sheet = 'A3 Weekly Report', dbSheet = 'Database', weekCell = 'B2' } = {}) {
+  const { createCalc } = require('./xlcalc');
+  const book = readBook(buf);
+  const findSheet = (want) => book.sheets.find((x) => x.name.toLowerCase() === String(want).toLowerCase());
+  const a3Info = findSheet(a3Sheet); const dbInfo = findSheet(dbSheet);
+  if (!a3Info || !dbInfo) throw new Error(`The workbook needs the "${a3Sheet}" and "${dbSheet}" sheets`);
+  const a3 = book.sheet(a3Info.name); const dbs = book.sheet(dbInfo.name);
+  const sheets = { [a3Info.name]: Object.assign(a3, { name: a3Info.name }), [dbInfo.name]: Object.assign(dbs, { name: dbInfo.name }) };
+  for (const n of ['DatabaseReferences']) { const i = findSheet(n); if (i) sheets[i.name] = Object.assign(book.sheet(i.name), { name: i.name }); }
+  const templateWeek = String(dbs.cells.get(weekCell)?.v ?? '');
+  const templateMonth = String(dbs.cells.get('A2')?.v ?? '');
+  const parts = weekParts(week);
+  const weekRow = data.weeks.find((w) => w.week === week);
+  if (!weekRow) throw new Error(`${week} isn't a reporting week of ${parts?.year || 'that year'}`);
+  const monthNo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].findIndex((m) => weekRow.month.startsWith(m)) + 1;
+  const sameMonth = templateMonth.slice(0, 3).toLowerCase() === weekRow.month.slice(0, 3).toLowerCase() && templateWeek.slice(0, 3) === week.slice(0, 3);
+  const flags = [];
+  const over = new Map();
+  const put = (ref, v) => over.set(`${dbInfo.name}!${ref}`, v);
+  put(weekCell, week);
+  // weekly block
+  const byCode = new Map(data.weeks.map((w) => [w.week, w]));
+  const blank = { hours: null, contract: null, temps: null, otd_sc: '', otd_global: '', cpms: '', scrap_rate: '', productivity: '' };
+  for (let r = 40; r <= dbs.maxRow; r++) {
+    const code = dbs.cells.get(`B${r}`)?.v;
+    if (typeof code !== 'string' || !/^W\d{4}(_[12])?$/.test(code) || r < 60) continue;
+    const w = byCode.get(code);
+    for (const [key, col] of Object.entries(data.columns)) {
+      const v = w ? w[key] : null;
+      put(`${col}${r}`, v === null || v === undefined ? (key in blank ? blank[key] : 0) : v);
+    }
+  }
+  // top 5 scrap (spilling Z6:AA10 and AC6:AD10)
+  const ts = data.topScrap(week);
+  for (let i = 0; i < 5; i++) {
+    put(`Z${6 + i}`, ts.customers[i]?.[0] ?? ''); put(`AA${6 + i}`, ts.customers[i]?.[1] ?? '');
+    put(`AC${6 + i}`, ts.orders[i]?.[0] ?? ''); put(`AD${6 + i}`, ts.orders[i]?.[1] ?? '');
+  }
+  let noForecast = false;
+  // top 10: cards shipped this month (O) and this year (V) per customer; this month's forecast (N)
+  for (let r = 1; r <= 40; r++) {
+    const o = dbs.cells.get(`O${r}`); const v = dbs.cells.get(`V${r}`); const nC = dbs.cells.get(`N${r}`);
+    const oName = o?.f?.match(/ShippedImport!\$A\$\d+:\$A\$\d+="([^"]+)"/)?.[1];
+    const until = data.weekEnd ? data.weekEnd(week) : null; // month / year to date, as of the reporting week
+    if (oName) put(`O${r}`, data.shippedFor(oName, parts.year, monthNo, until));
+    const vName = v?.f?.match(/\[Customer\],"([^"]+)"/)?.[1];
+    if (vName) put(`V${r}`, data.shippedFor(vName, parts.year, null, until));
+    if (nC?.f && /Forecast/i.test(nC.f) && !sameMonth) { noForecast = true; put(`N${r}`, ''); put(`P${r}`, ''); put(`Q${r}`, ''); } // no forecast for that month yet
+  }
+  if (noForecast) flags.push({ part: 'forecast', text: `The top-10 “% of FC” and “Missing” MTD figures need ${weekRow.month}'s forecast per customer, which only comes from Excel for now (the workbook was on ${templateMonth}) — they're left blank.` });
+  if (week !== templateWeek) flags.push({ part: 'text', text: `The executive summary, comments and other typed text are the workbook's, from ${templateWeek || 'its week'}.` });
+
+  const calc = createCalc(sheets, { recalc: (n) => n === a3Info.name || n === dbInfo.name, override: (sh, ref) => over.get(`${sh}!${ref}`) });
+  const typeOf = (v) => (isErr(v) ? 'e' : typeof v === 'string' ? 's' : typeof v === 'boolean' ? 'b' : 'n');
+  const errorsInA3 = [];
+  const recomputed = (sh, name, isA3) => {
+    const cells = new Map();
+    for (const c of sh.cells.values()) {
+      let v = calc.value(name, c.r);
+      if (isA3 && isErr(v)) { errorsInA3.push(`${c.r} ${v.error}`); v = ''; } // shown blank rather than #DIV/0! on a built A3
+      cells.set(c.r, { ...c, v: isErr(v) ? v.error : v, t: typeOf(v) });
+    }
+    return { ...sh, cells };
+  };
+  const dbNew = recomputed(dbs, dbInfo.name, false);
+  const a3New = recomputed(a3, a3Info.name, true);
+  // charts: series read again from the cells they point at
+  const rangeValues = (text) => {
+    const m = String(text || '').match(/^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?$/);
+    if (!m) return null;
+    const sheet = (m[1] || m[2]).replace(/''/g, "'");
+    const a = parseRef(`${m[3]}${m[4]}`); const b = parseRef(`${m[5] || m[3]}${m[6] || m[4]}`);
+    const out = [];
+    for (let r = a.row; r <= b.row; r++) for (let c = a.col; c <= b.col; c++) { const v = calc.value(sheet, `${colLetters(c)}${r}`); out.push(isErr(v) ? null : v); }
+    return out;
+  };
+  const book2 = Object.create(book);
+  book2.sheet = (n) => (n === a3Info.name ? a3New : n === dbInfo.name ? dbNew : book.sheet(n));
+  book2.chart = (part) => {
+    const spec = book.chart(part);
+    for (const g of spec.groups) for (const s of g.series) {
+      const vals = rangeValues(s.refs?.val); const cats = rangeValues(s.refs?.cat); const name = rangeValues(s.refs?.name);
+      if (vals) s.vals = vals.map((v) => (typeof v === 'number' ? v : null));
+      if (cats) s.cats = cats.map((v) => (v === null || v === undefined ? '' : String(v)));
+      if (name && name[0] !== null && name[0] !== undefined) s.name = String(name[0]);
+      s.ptFormats = {};
+    }
+    return spec;
+  };
+  const a3cf = conditionalStyles(book2, a3New);
+  const views = { a3: sheetView(book2, a3New, a3cf), database: sheetView(book2, dbNew, conditionalStyles(book2, dbNew)) };
+  const values = Object.fromEntries([...dbNew.cells.values()].filter((c) => c.v !== null && c.v !== '' && c.t !== 'e').map((c) => [c.r, c.v]));
+  const pkg = buildA3Package(book2, a3New, a3cf, { title: `A3 Weekly Report ${week}` });
+  return {
+    week, year: parts?.year ?? null, month: weekRow.month, views, values, pkg, sheets: { a3: a3Info.name, database: dbInfo.name },
+    errors: errorsInA3, flags, template_week: templateWeek,
+  };
+}
+
 // "…\{year}\Weekly\WK{wk}" → a real path for this week.
 function fillPattern(pattern, week) {
   const p = weekParts(week) || { yy: '', year: '', wk: '', part: '' };
   return String(pattern || '').replace(/\{year\}/g, p.year).replace(/\{yy\}/g, p.yy).replace(/\{wk\}/g, p.wk).replace(/\{week\}/g, week).replace(/\{part\}/g, p.part);
 }
 
-module.exports = { loadWeek, sheetView, prepareChart, buildA3Package, exportA3, weekParts, fillPattern, colPx, isErr, decode, parseRef, section, resolvePart, relsPathOf };
+module.exports = { loadWeek, buildWeek, sheetView, prepareChart, buildA3Package, exportA3, weekParts, fillPattern, colPx, isErr, decode, parseRef, section, resolvePart, relsPathOf };

@@ -890,3 +890,4 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .kc-table.kc-compact .kc-was { font-size: 10px; }
 .kc-table.kc-kpi { width: auto; }
 .kc-table.kc-kpi td.num, .kc-table.kc-kpi th.num { min-width: 96px; }
+.kpi-flags { margin: 8px 0 0; }

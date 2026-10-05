@@ -282,6 +282,7 @@ const TABLES = {
     pkg             TEXT    NOT NULL,
     exported_at     TEXT,
     exported_to     TEXT,
+    origin          TEXT,
     created_at      TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at      TEXT    NOT NULL DEFAULT (${NOW}),
     UNIQUE (week)`,

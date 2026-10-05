@@ -122,6 +122,10 @@ function criteria(c) {
   if (typeof c === 'number' || typeof c === 'boolean') return (v) => compare(v, c) === 0 && rank(v) === rank(c);
   const m = String(c ?? '').match(/^(<=|>=|<>|<|>|=)?([\s\S]*)$/);
   const op = m[1] || '='; const raw = m[2];
+  if (/^(true|false)$/i.test(raw)) { // "FALSE" matches the logical value, as in Excel
+    const b = raw.toLowerCase() === 'true';
+    return (v) => { const eq = typeof v === 'boolean' ? v === b : typeof v === 'string' && v.toLowerCase() === raw.toLowerCase(); return op === '<>' ? !eq : op === '=' ? eq : false; };
+  }
   const n = raw !== '' && !Number.isNaN(Number(raw)) ? Number(raw) : null;
   if (n !== null) return (v) => { if (typeof v !== 'number') return op === '<>'; const d = v - n; return { '=': d === 0, '<>': d !== 0, '<': d < 0, '>': d > 0, '<=': d <= 0, '>=': d >= 0 }[op]; };
   if ((op === '=' || op === '<>') && /[*?]/.test(raw)) {
@@ -406,4 +410,4 @@ function colorScaleOf(xml, values, book) {
   };
 }
 
-module.exports = { evaluate, parse, conditionalStyles, XlError, isErr, compare, toStr };
+module.exports = { evaluate, parse, conditionalStyles, XlError, isErr, compare, toStr, toNum, toBool, criteria };

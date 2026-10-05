@@ -333,12 +333,13 @@ function parseSheet(xml, sharedStrings) {
     else if (t === 'b') v = vRaw === '1';
     else if (t === 'e') v = vRaw !== undefined ? decode(vRaw) : '#N/A';
     else if (vRaw !== undefined && vRaw !== '') v = Number(vRaw);
-    let f = null;
+    let f = null; let arrayRef = null;
     if (body.includes('<f')) {
       const fm = body.match(/<f\b([^>]*)(?:\/>|>([\s\S]*?)<\/f>)/);
       if (fm) {
         const fa = `<f${fm[1]}>`;
         f = fm[2] !== undefined ? decode(fm[2]) : null;
+        if (attr(fa, 't') === 'array') arrayRef = attr(fa, 'ref'); // a dynamic array: the range it spills over
         if (attr(fa, 't') === 'shared') {
           const si = attr(fa, 'si');
           if (f) sharedF.set(si, { f, at: p });
@@ -347,7 +348,7 @@ function parseSheet(xml, sharedStrings) {
       }
     }
     const sAttr = attrOf(a, 's');
-    cells.set(r, { r, row: p.row, col: p.col, s: sAttr ? Number(sAttr) : 0, t: t === 'e' ? 'e' : typeof v === 'string' ? 's' : typeof v === 'boolean' ? 'b' : 'n', v, f });
+    cells.set(r, { r, row: p.row, col: p.col, s: sAttr ? Number(sAttr) : 0, t: t === 'e' ? 'e' : typeof v === 'string' ? 's' : typeof v === 'boolean' ? 'b' : 'n', v, f, ...(arrayRef ? { arrayRef } : {}) });
     if (p.row > maxRow) maxRow = p.row;
     if (p.col > maxCol) maxCol = p.col;
   }
@@ -502,6 +503,9 @@ function chartSpec(xml, theme) {
         formatCode: decode(valX?.match(/<c:formatCode>([\s\S]*?)<\/c:formatCode>/)?.[1] || 'General'),
         ptFormats: Object.fromEntries([...(valX || '').matchAll(/<c:pt idx="(\d+)" formatCode="([^"]*)"/g)].map((m) => [m[1], decode(m[2])])),
         labels: dLblsOf(s, groupLbls), points: dPts,
+        // the cells each part reads (to work the chart out again for other values)
+        refs: { name: decode(s.match(/<c:tx>[\s\S]*?<c:f>([\s\S]*?)<\/c:f>/)?.[1] || '') || null, cat: decode(catX?.match(/<c:f>([\s\S]*?)<\/c:f>/)?.[1] || '') || null,
+          val: decode(valX?.match(/<c:f>([\s\S]*?)<\/c:f>/)?.[1] || '') || null },
       };
     }).sort((a, b) => a.order - b.order);
     groups.push({ kind, barDir: val('barDir') || 'col', grouping: val('grouping') || (kind === 'line' ? 'standard' : 'clustered'),

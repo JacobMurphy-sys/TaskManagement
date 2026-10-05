@@ -352,6 +352,42 @@ function weeklyVolumes(year) {
   return { weeks, unlisted, otd_checks: otdChecks, otd_uncounted: otdUncounted };
 }
 
+// The week's top five scrap by customer (the three letters after the first in the
+// work order) and by work order — as the Database sheet's top-5 tables, which take the
+// week from the perso date.
+function topScrap(week, n = 5) {
+  ensure();
+  const rows = db.all("SELECT qty, extra FROM kpi_rows WHERE source = 'remakes'").map((r) => ({ qty: r.qty, ...JSON.parse(r.extra || '{}') }))
+    .filter((r) => r.perso_day && weekCode(r.perso_day) === week);
+  const top = (key) => {
+    const m = new Map();
+    for (const r of rows) { const k = key(r); if (!k) continue; m.set(k, (m.get(k) || 0) + (r.qty || 0)); }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, n);
+  };
+  return { customers: top((r) => (r.wo ? String(r.wo).slice(1, 4) : null)), orders: top((r) => r.wo || null) };
+}
+
+// Cards shipped to one customer (exact name, type Card): in a month (1–12) or the whole year.
+// until: last day counted (YYYY-MM-DD), e.g. the end of the reporting week.
+function shippedFor(customer, year, month = null, until = null) {
+  ensure();
+  const like = month ? `${year}-${String(month).padStart(2, '0')}-%` : `${year}-%`;
+  return db.get(`SELECT COALESCE(SUM(qty), 0) AS q FROM kpi_rows WHERE source = 'shipped' AND customer = ? COLLATE NOCASE AND type = 'Card' AND day LIKE ?${until ? ' AND day <= ?' : ''}`,
+    until ? [customer, like, until] : [customer, like]).q;
+}
+
+// The last day of a reporting week (its part, for a split week).
+function weekEnd(week) {
+  const y = 2000 + Number(String(week).slice(1, 3));
+  let last = null;
+  for (let t = Date.UTC(y, 0, 1); t < Date.UTC(y + 1, 0, 1); t += 86400000) {
+    const day = new Date(t).toISOString().slice(0, 10);
+    const c = weekCode(day);
+    if (c === week || c === week.replace(/_[12]$/, '') && weekCode(day, { splitWeekends: true }) === week) last = day;
+  }
+  return last;
+}
+
 // The OTD report rows behind a week's delays.
 function otdRows(week) {
   ensure();
@@ -377,4 +413,4 @@ const MANUAL_FIELDS = ['hours', 'contract', 'temps', 'cc_critical', 'cc_major', 
 // × 7.5 h per shift, plus 37.5 h — as the workbook's instructions do it.
 const hoursFromProtime = (days) => { const n = days.map(Number).filter((v) => Number.isFinite(v)); return n.length ? Math.round((n.reduce((a, b) => a + b, 0) * 7.5 + 37.5) * 100) / 100 : null; };
 
-module.exports = { SOURCES, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, typedWeekCode, monthIndex, otdRows, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };
+module.exports = { SOURCES, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, typedWeekCode, monthIndex, otdRows, topScrap, shippedFor, weekEnd, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };

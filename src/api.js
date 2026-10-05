@@ -1288,7 +1288,9 @@ router.post('/ideas/:id/escalate', h((req, res) => {
 const kpi = require('./kpi');
 const zlibSync = require('zlib');
 const kpiMeta = (r) => ({ id: r.id, week: r.week, year: r.year, month: r.month, source_name: r.source_name, source_modified: r.source_modified,
-  loaded_at: r.updated_at, exported_at: r.exported_at, exported_to: r.exported_to });
+  loaded_at: r.updated_at, exported_at: r.exported_at, exported_to: r.exported_to, origin: r.origin === 'ci' ? 'ci' : 'excel' });
+// The last workbook loaded is kept as the template for A3s the CI Manager builds itself.
+const KPI_TEMPLATE = path.join(config.dataDir, 'kpi', 'template.xlsm');
 
 function storeWeek(buf, sourceName, sourceModified) {
   const set = getSettings();
@@ -1302,7 +1304,8 @@ function storeWeek(buf, sourceName, sourceModified) {
     pkg: w.pkg.toString('base64'), updated_at: nowIso(),
   };
   const old = db.get('SELECT id FROM kpi_snapshots WHERE week = ?', [w.week]);
-  const saved = old ? fresh('kpi_snapshots', updateRow('kpi_snapshots', old.id, { ...row, exported_at: null, exported_to: null })) : insertRow('kpi_snapshots', row);
+  const saved = old ? fresh('kpi_snapshots', updateRow('kpi_snapshots', old.id, { ...row, origin: 'excel', exported_at: null, exported_to: null })) : insertRow('kpi_snapshots', { ...row, origin: 'excel' });
+  try { fs.mkdirSync(path.dirname(KPI_TEMPLATE), { recursive: true }); fs.writeFileSync(KPI_TEMPLATE, buf); setSetting('kpi_template_week', w.week); } catch (err) { log.warn('Could not keep the workbook as the A3 template', err.message); }
   log.info(`KPI week ${w.week} ${old ? 'reloaded' : 'loaded'}`, { from: sourceName });
   return { ...kpiMeta(saved), replaced: !!old, errors: w.errors };
 }
@@ -1349,7 +1352,7 @@ const splitWeekends = () => getSettings().kpi_split_weekends === '1';
 
 // Excel's figures for each week, from the newest loaded week that has the Database values.
 function excelVolumes() {
-  const r = db.get('SELECT id, week, model, updated_at FROM kpi_snapshots ORDER BY updated_at DESC LIMIT 1');
+  const r = db.get("SELECT id, week, model, updated_at FROM kpi_snapshots WHERE COALESCE(origin, 'excel') = 'excel' ORDER BY updated_at DESC LIMIT 1");
   if (!r) return null;
   const model = JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8'));
   const v = model.values || null;
@@ -1428,6 +1431,41 @@ router.post('/kpi/manual/from-excel', h((req, res) => {
     }
   });
   res.json({ weeks, fields });
+}));
+
+// The reporting weeks of a year, with the A3 each has (loaded from Excel or built here).
+router.get('/kpi/weeks', h((req, res) => {
+  const year = Number(req.query.year) || Number(String(getSetting('kpi_template_week') || '').slice(1, 3)) + 2000 || new Date().getFullYear();
+  const have = new Map(db.all('SELECT * FROM kpi_snapshots WHERE year = ?', [year]).map((r) => [r.week.toUpperCase(), kpiMeta(r)]));
+  res.json({ year, template_week: getSetting('kpi_template_week') || null, template: fs.existsSync(KPI_TEMPLATE),
+    weeks: kpiData.weeksOf(year).map((w) => ({ ...w, a3: have.get(w.week) || null })) });
+}));
+
+// The CI Manager's own A3 for a week: the workbook's formulas re-run on the figures
+// worked out from the source files (see kpi.buildWeek). A week loaded from Excel is only
+// replaced when asked (replace: true).
+router.post('/kpi/build', h((req, res) => {
+  const week = String(req.body.week || '').trim().toUpperCase();
+  if (!kpiData.WEEK_RE.test(week)) throw new HttpError(400, 'Not a week code');
+  if (!fs.existsSync(KPI_TEMPLATE)) throw new HttpError(400, 'Load the workbook once (📥 on the A3 tab) — its A3 and Database sheets are the template');
+  const old = db.get('SELECT * FROM kpi_snapshots WHERE week = ?', [week]);
+  if (old && (old.origin || 'excel') === 'excel' && !req.body.replace) throw new HttpError(409, `${week} was loaded from Excel — confirm to replace it with the CI Manager's own figures`);
+  const year = kpi.weekParts(week).year;
+  const set = getSettings();
+  let w;
+  try {
+    w = kpi.buildWeek(fs.readFileSync(KPI_TEMPLATE), week, {
+      weeks: kpiData.weeklyVolumes(year).weeks, topScrap: kpiData.topScrap, shippedFor: kpiData.shippedFor, weekEnd: kpiData.weekEnd, columns: kpiData.DATABASE_COLUMNS,
+    }, { a3Sheet: set.kpi_a3_sheet, dbSheet: set.kpi_db_sheet, weekCell: set.kpi_week_cell });
+  } catch (err) { throw new HttpError(400, err.message); }
+  const row = {
+    week, year: w.year, month: w.month, source_name: 'CI Manager', source_modified: null, origin: 'ci', updated_at: nowIso(), exported_at: null, exported_to: null,
+    model: zlibSync.gzipSync(JSON.stringify({ views: w.views, values: w.values, sheets: w.sheets, errors: w.errors, flags: w.flags, template_week: w.template_week })).toString('base64'),
+    pkg: w.pkg.toString('base64'),
+  };
+  const saved = old ? fresh('kpi_snapshots', updateRow('kpi_snapshots', old.id, row)) : insertRow('kpi_snapshots', row);
+  log.info(`A3 for ${week} built from the source figures`);
+  res.status(201).json({ ...kpiMeta(saved), flags: w.flags });
 }));
 
 router.get('/kpi/calc/otd', h((req, res) => {

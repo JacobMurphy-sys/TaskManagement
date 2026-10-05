@@ -113,6 +113,11 @@ When an update changes how data is stored, the app upgrades your database automa
 
 Past weeks stay in the list, so any earlier A3 can be viewed or saved again.
 
+**Any week of the year, built by the CI Manager.** The week list on the A3 tab shows every reporting week of the year: the ones loaded from Excel (*— Excel*), the ones the CI Manager has built (*— CI Manager*) and the rest. Pick one that isn't built yet and the CI Manager builds its A3 in about a second: it takes the last workbook loaded as the template, puts in that week's figures from **From sources** (volumes, OTD, typed-in HR and quality, top-5 scrap, cards shipped per customer month- and year-to-date as of that week) and re-runs the workbook's own Database and A3 formulas — so the A3 is laid out, coloured and charted exactly as Excel would. It views, saves and downloads like any other week.
+- A note above a built A3 says what still comes from the workbook: the executive summary and other typed text (from the template's week), and, for a week in another month, the top-10 *% of FC* / *Missing* MTD figures (they need that month's customer forecast, which only Excel has for now — they're left blank).
+- **🔄 Rebuild** builds it again after the source files have changed. On a week loaded from Excel, **🔄 Build from sources instead** replaces it with the CI Manager's own figures (after asking). Loading the workbook again puts Excel's copy back.
+- The comparison on **From sources** always checks against the last week loaded **from Excel**, never a built one.
+
 **From sources (replacing Excel's refresh, step by step).** The **From sources** tab works the KPIs out itself, straight from the source files, instead of waiting for Excel's Refresh All. First pass: the weekly **volumes** — cards and PIN mailers persoed and shipped (PS, ISI = the German health card, PIN, total) and scrap (remakes).
 - Set each source file's path once (`KPI_persoed_CI.xlsx`, `KPI_shipped_CI.xlsx`, `KPI_2_remakes.xlsx`). Left blank, the matching import sheet of the CI workbook is used instead.
 - **📥 Read changed files** reads only files saved since the last read (the SSRS exports change hourly); it takes seconds, not the 10–15 minutes of a refresh. The rows are kept in the CI Manager's database, but not in backups (they can always be read again).

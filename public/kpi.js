@@ -8,14 +8,17 @@ const kpiState = { zoom: null };
 
 async function renderKpi(arg, tab) {
   if (arg === 'calc') return renderKpiCalc();
-  const [weeks, settings] = await Promise.all([api.get('/kpi/snapshots'), api.get('/settings')]);
+  const [weeks, settings, year] = await Promise.all([api.get('/kpi/snapshots'), api.get('/settings'), api.get('/kpi/weeks').catch(() => null)]);
   const id = Number(arg) || weeks[0]?.id || null;
   const view = tab === 'database' ? 'database' : 'a3';
   const snap = id ? await api.get(`/kpi/snapshots/${id}`).catch((err) => { toast(err.message, 'error'); return null; }) : null;
   const setupMissing = !settings.kpi_workbook_path || !settings.kpi_export_dir;
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 KPIs</h1>
-      ${weeks.length ? `<select id="kpi-week" title="Reporting week">${weeks.map((w) => `<option value="${w.id}" ${w.id === snap?.id ? 'selected' : ''}>${esc(w.week)}${w.month ? ` · ${esc(w.month)}` : ''}</option>`).join('')}</select>` : ''}
+      ${year?.template && year.weeks.length ? `<select id="kpi-week" title="Reporting week — any week of ${year.year}: from Excel, or built by the CI Manager from the source figures">
+          ${year.weeks.map((w) => `<option value="${w.a3 ? w.a3.id : `build:${esc(w.week)}`}" ${w.a3 && w.a3.id === snap?.id ? 'selected' : ''}>${esc(w.week)} · ${esc(w.month)}${w.a3 ? (w.a3.origin === 'ci' ? ' — CI Manager' : ' — Excel') : ''}</option>`).join('')}
+          ${weeks.filter((w) => !year.weeks.some((y) => y.a3?.id === w.id)).map((w) => `<option value="${w.id}" ${w.id === snap?.id ? 'selected' : ''}>${esc(w.week)}${w.month ? ` · ${esc(w.month)}` : ''} — ${w.origin === 'ci' ? 'CI Manager' : 'Excel'}</option>`).join('')}</select>`
+        : weeks.length ? `<select id="kpi-week" title="Reporting week">${weeks.map((w) => `<option value="${w.id}" ${w.id === snap?.id ? 'selected' : ''}>${esc(w.week)}${w.month ? ` · ${esc(w.month)}` : ''}</option>`).join('')}</select>` : ''}
       <div class="seg">${snap ? `<a href="#/kpi/${snap.id}" class="${view === 'a3' ? 'on' : ''}">A3 Weekly Report</a><a href="#/kpi/${snap.id}/database" class="${view === 'database' ? 'on' : ''}">Database</a>` : ''}<a href="#/kpi/calc" title="Worked out by the CI Manager from the source files">From sources</a></div>
       <div class="spacer"></div>
       ${settings.kpi_workbook_path ? '<button class="primary" data-kpi="load-path" title="Read the workbook from where it\'s saved">📥 Load this week</button>' : ''}
@@ -25,8 +28,12 @@ async function renderKpi(arg, tab) {
       <button data-kpi="setup" title="Where the workbook is and where the A3 is saved">⚙ Setup</button>
     </div>
     <div id="kpi-setup" class="card kpi-setup" ${setupMissing && !weeks.length ? '' : 'hidden'}>${kpiSetupHtml(settings)}</div>
-    ${snap ? `<div class="kpi-meta small muted">${esc(snap.week)} · loaded ${esc(fmtDateTime(snap.loaded_at))} from ${esc(snap.source_name || 'the workbook')}
+    ${snap?.origin === 'ci' && snap.flags?.length ? `<div class="kc-note kpi-flags">Built by the CI Manager from the source figures, with the workbook's formulas and layout.
+        ${snap.flags.map((f) => `<div>• ${esc(f.text)}</div>`).join('')}</div>` : ''}
+    ${snap ? `<div class="kpi-meta small muted">${esc(snap.week)} · ${snap.origin === 'ci' ? `built ${esc(fmtDateTime(snap.loaded_at))} by the CI Manager from the source figures${snap.template_week ? ` (template: the workbook loaded for ${esc(snap.template_week)})` : ''}`
+        : `loaded ${esc(fmtDateTime(snap.loaded_at))} from ${esc(snap.source_name || 'the workbook')}`}
         ${snap.source_modified ? ` (saved ${esc(fmtDateTime(snap.source_modified))})` : ''}
+        <button class="link small" data-kpi="rebuild" title="${snap.origin === 'ci' ? 'Build it again from the latest source figures' : 'Replace the Excel copy with the CI Manager\'s own figures for this week'}">🔄 ${snap.origin === 'ci' ? 'Rebuild' : 'Build from sources instead'}</button>
         ${snap.exported_to ? ` · A3 saved ${esc(fmtDateTime(snap.exported_at))} to <code>${esc(snap.exported_to)}</code>` : ''}
         ${snap.errors?.length ? ` · <span class="chip overdue" title="${esc(snap.errors.join('\n'))}">⚠ ${snap.errors.length} cell${snap.errors.length === 1 ? '' : 's'} with errors</span>` : ''}
         <span class="spacer"></span><span class="kpi-zoom">🔍 <input type="range" id="kpi-zoom" min="25" max="150" step="5"> <button class="link small" data-kpi="fit">Fit</button></span>
@@ -38,7 +45,11 @@ async function renderKpi(arg, tab) {
           values and colours only, charts as pictures, no formulas, links or macros.</p>
         <p class="small muted">Nothing in the workbook is changed. Only the week it's showing is read, so load it once per week.</p></div>`}`;
 
-  $('#kpi-week')?.addEventListener('change', (e) => { location.hash = `#/kpi/${e.target.value}${view === 'database' ? '/database' : ''}`; });
+  $('#kpi-week')?.addEventListener('change', async (e) => {
+    const v = e.target.value;
+    if (v.startsWith('build:')) { await kpiBuild(v.slice(6), false, e.target, view); return; }
+    location.hash = `#/kpi/${v}${view === 'database' ? '/database' : ''}`;
+  });
   $('#kpi-file').addEventListener('change', async (e) => {
     const f = e.target.files[0];
     if (f) await kpiLoad(() => fetch('/api/kpi/load', { method: 'POST', body: f,
@@ -54,6 +65,11 @@ async function renderKpi(arg, tab) {
     if (what === 'load-path') return kpiLoad(() => fetch('/api/kpi/load-path', { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } }), b);
     if (what === 'fit') { kpiState.zoom = null; store.set('kpiZoom', null); applyZoom(); return; }
     if (!snap) return;
+    if (what === 'rebuild') {
+      if (snap.origin !== 'ci' && !confirm(`Replace the Excel copy of ${snap.week} with an A3 built from the CI Manager's own figures?`)) return;
+      await kpiBuild(snap.week, snap.origin !== 'ci', b, view);
+      return;
+    }
     if (what === 'delete') {
       if (!confirm(`Remove ${snap.week} from the CI Manager? The workbook and any saved A3 files aren't touched.`)) return;
       await api.del(`/kpi/snapshots/${snap.id}`);
@@ -591,4 +607,16 @@ async function kpiOtdRows(week) {
         <td>${esc(r.date || '')}${r.date && r.date_week && r.date_week !== week ? ` <span class="chip overdue" title="This date is in ${esc(r.date_week)}">≠ week</span>` : ''}</td>
         <td>${esc(r.week_typed ?? '')}</td><td>${esc(r.month ?? '')}</td><td>${esc(r.reason || '')}</td></tr>`).join('')}</tbody></table>
     <div class="row" style="margin-top:12px"><div class="spacer"></div><button onclick="closeModal()">Close</button></div>`, { wide: true });
+}
+
+// Builds (or rebuilds) a week's A3 from the source figures and shows it.
+async function kpiBuild(week, replace, el, view) {
+  if (el) el.disabled = true;
+  toast(`Building ${week}…`);
+  try {
+    const r = await api.post('/kpi/build', { week, replace });
+    toast(`${week} built from the source figures${r.flags?.length ? ' — see the notes above it' : ''}`);
+    const target = `#/kpi/${r.id}${view === 'database' ? '/database' : ''}`;
+    if (location.hash === target) await route(); else location.hash = target;
+  } catch (err) { toast(err.message, 'error'); if (el) el.disabled = false; await route(); }
 }

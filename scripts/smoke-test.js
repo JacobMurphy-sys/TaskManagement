@@ -1037,6 +1037,39 @@ async function waitForServer() {
       assert.deepEqual(await call('POST', '/kpi/manual/from-excel', {}), { weeks: 0, fields: 0 }, 'nothing overwritten');
       assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'kpi_manual'), 'typed-in figures are audited (and backed up)');
 
+      // ---- the CI Manager's own A3 for any week: the workbook's formulas re-run on the source figures
+      const { createCalc } = require('../src/xlcalc');
+      const cellsOf = (o) => ({ cells: new Map(Object.entries(o).map(([r, c]) => [r, { r, row: Number(r.slice(1)), col: r.charCodeAt(0) - 64, t: typeof c.v === 'string' ? 's' : 'n', ...c }])), maxRow: 9, maxCol: 9 });
+      const fx = createCalc({
+        S: cellsOf({ A1: { v: 'a' }, A2: { v: 'b' }, A3: { v: 'c' }, B1: { v: 1 }, B2: { v: 5 }, B3: { v: 9 },
+          D1: { f: 'FILTER(A1:A3,B1:B3>2)', arrayRef: 'D1:D2', v: 'old' }, D2: { v: 'old' },
+          E1: { f: 'XLOOKUP("c",A1:A3,B1:B3,0)', v: 0 }, E2: { f: 'LET(x,SUM(B1:B3),x*2)', v: 0 }, E3: { f: 'COUNTIFS(B1:B3,">1")', v: 0 },
+          E4: { f: 'SUMPRODUCT((B1:B3>2)*B1:B3)', v: 0 }, E5: { f: 'Missing!A1', v: 42 }, E6: { f: 'INDEX(_xlfn.ANCHORARRAY(D1),2)', v: 0 }, E7: { f: 'C1', v: 7 } }),
+      }, { override: (sh, ref) => (ref === 'B2' ? 6 : undefined) });
+      assert.deepEqual(['D1', 'D2', 'E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7'].map((r) => fx.value('S', r)), ['b', 'c', 9, 32, 2, 15, 42, 'c', 0],
+        'spills, lookups, LET, overrides; a sheet it can\'t see keeps the saved value; an empty cell reads 0');
+      const yr = await call('GET', '/kpi/weeks?year=2026');
+      assert.equal(yr.template, true, 'the loaded workbook is kept as the template');
+      assert.equal(yr.template_week, 'W2639');
+      assert.equal(yr.weeks.find((w) => w.week === 'W2639').a3.origin, 'excel');
+      assert.equal(yr.weeks.find((w) => w.week === 'W2614_1').a3, null);
+      const built = await call('POST', '/kpi/build', { week: 'W2614_1' });
+      assert.deepEqual([built.week, built.origin, built.source_name], ['W2614_1', 'ci', 'CI Manager']);
+      assert.deepEqual(built.flags.map((f) => f.part), ['text'], 'flags what still comes from the workbook');
+      const bsnap = await call('GET', `/kpi/snapshots/${built.id}`);
+      assert.equal(cellAt(bsnap.views.a3, 1, 1)[2], 'W2614_1', 'the A3 recalculated for that week');
+      assert.equal(bsnap.values.B2, 'W2614_1');
+      assert.equal(bsnap.values.D63 ?? 0, wkOf('W2614_1').perso_ps ?? 0, 'the Database block filled from the source figures');
+      assert.equal(bsnap.values.O63, 100, 'typed-in hours');
+      assert.equal(bsnap.template_week, 'W2639');
+      assert.equal((await call('POST', '/kpi/build', { week: 'W2614_1' })).id, built.id, 'rebuilding replaces it');
+      await assert.rejects(call('POST', '/kpi/build', { week: 'W2639' }), /loaded from Excel/);
+      await assert.rejects(call('POST', '/kpi/build', { week: 'nope' }), /Not a week code/);
+      assert.equal((await call('GET', '/kpi/calc?year=2026')).excel.week, 'W2639', 'the Excel comparison ignores weeks the CI Manager built');
+      const bx = await fetch(`${BASE}/kpi/snapshots/${built.id}/export`, { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } });
+      assert.equal(bx.status, 200, 'a built week exports like any other');
+      await call('DELETE', `/kpi/snapshots/${built.id}`);
+
       // without file paths, the workbook's import sheets stand in (this workbook has none)
       await call('PATCH', '/settings', { kpi_src_perso: '', kpi_src_shipped: path.join(tmp, 'nope.xlsx') });
       imp = await call('POST', '/kpi/calc/import', { force: true });
