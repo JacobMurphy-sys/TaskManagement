@@ -135,6 +135,8 @@ Past weeks stay in the list, so any earlier A3 can be viewed or saved again.
 - **Customer forecasts** (month and year forecast per customer, the forecast rows): set the paths of `Benelux Forecast.xlsx` (sheet *LIVE_EU_PAY_CARDS*) and `Amex Forecast.xlsx` (sheet *Sittard*) under **Customer forecasts** on **Sources**, and every A3 built reads them as the workbook's queries would — the file's sheet into the *ForecastImport* / *Sittard* table, with the workbook's own formulas worked out on it — so any month's *% of FC* and *Missing* are filled. Left blank, the workbook's copy (as Excel last refreshed it) is used; it holds the whole year, so other months are filled too.
 - **🔄 Rebuild** builds it again after the source files have changed.
 
+**Notes.** Under each week's A3 is a notes box for anything to remember about that week — follow-ups, what was said in the review, what to change next time. It saves as you type, stays with the week (backed up and in the activity log) and isn't part of the saved A3.
+
 **Editing the A3.** **✎ Edit A3** (on the A3 tab) lets you change a week's A3 by hand:
 - Click a **text box** (executive summary, comments, headcount notes, …) to change its text — **Ctrl+Enter** saves, **Esc** cancels; *Put back the original text* undoes it.
 - Click a **coloured figure** (a KPI or % with conditional colours) to set it **green**, **yellow** or **red** — or *Automatic* to let the formula decide again.

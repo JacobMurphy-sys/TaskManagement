@@ -56,7 +56,9 @@ async function renderKpi(arg, tab) {
           ${snap.text_from ? `<button class="small" data-kpi="copy-text" title="Fill this week's text boxes with the text typed for ${esc(snap.text_from)}">⇩ Start from ${esc(snap.text_from)}'s text</button>` : ''}
           ${Object.keys(snap.edits || {}).length ? '<button class="small link danger" data-kpi="reset-edits">Undo all changes</button>' : ''}
           <a class="button small" href="#/kpi/prepare/${esc(snap.week)}" title="Back to the week's steps">▶ Back to Prepare the week</a></div>` : ''}
-      ${view === 'database' ? dbHtml : '<div class="kpi-sheet-wrap card" id="kpi-wrap"><div id="kpi-sizer"><div id="kpi-sheet"></div></div></div>'}`
+      ${view === 'database' ? dbHtml : `<div class="kpi-sheet-wrap card" id="kpi-wrap"><div id="kpi-sizer"><div id="kpi-sheet"></div></div></div>
+        <div class="card kpi-notes"><div class="row"><h3>Notes — ${esc(snap.week)}</h3><span class="small muted">kept with this week, not in the saved A3</span><span class="spacer"></span><span class="small muted" id="kpi-notes-state">${snap.notes ? `saved ${esc(fmtDateTime(snap.notes.updated_at))}` : ''}</span></div>
+          <textarea id="kpi-notes" rows="5" placeholder="Anything to remember about ${esc(snap.week)} — what to follow up, what was said in the review, what to change next week…">${esc(snap.notes?.text || '')}</textarea></div>`}`
     : view === 'database' ? dbHtml
     : `<div class="card lib-empty"><h2>Weekly KPIs from the CI workbook</h2>
         <p>Load the workbook after refreshing it and choosing the reporting week. The CI Manager keeps a copy of that week's
@@ -76,6 +78,22 @@ async function renderKpi(arg, tab) {
     e.target.value = '';
   });
   if (calc) wireKpiTables();
+  const notesEl = $('#kpi-notes');
+  if (notesEl) {
+    let timer = null; let last = notesEl.value;
+    const fit = () => { notesEl.style.height = 'auto'; notesEl.style.height = `${Math.max(110, notesEl.scrollHeight + 2)}px`; };
+    const saveNotes = async () => {
+      clearTimeout(timer);
+      if (notesEl.value === last) return;
+      const text = notesEl.value; last = text;
+      $('#kpi-notes-state').textContent = 'saving…';
+      try { const r = await api.put(`/kpi/notes/${snap.week}`, { text }); $('#kpi-notes-state').textContent = r ? `saved ${fmtDateTime(r.updated_at)}` : ''; } catch (err) { $('#kpi-notes-state').textContent = ''; toast(err.message, 'error'); last = null; }
+    };
+    notesEl.addEventListener('input', () => { fit(); $('#kpi-notes-state').textContent = 'not saved yet'; clearTimeout(timer); timer = setTimeout(saveNotes, 800); });
+    notesEl.addEventListener('blur', saveNotes);
+    window.addEventListener('hashchange', saveNotes, { once: true }); // leaving the page mid-sentence
+    fit();
+  }
   main().onclick = async (e) => {
     if (!e.target.closest('.kpi-info')) $$('.kpi-info[open]').forEach((d) => { d.open = false; });
     const dt = e.target.closest('[data-kdb-tab]');

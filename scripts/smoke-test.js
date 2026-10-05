@@ -938,6 +938,15 @@ async function waitForServer() {
       assert.deepEqual(Object.keys((await call('GET', `/kpi/snapshots/${wk.id}`)).edits), ['B2', 'C1'], 'back to automatic');
       assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'kpi_edits'), 'changes are audited (and backed up)');
       await call('DELETE', '/kpi/edits/W2639');
+      // notes kept with the week
+      assert.equal((await call('GET', `/kpi/snapshots/${wk.id}`)).notes, null);
+      const nt = await call('PUT', '/kpi/notes/w2639', { text: 'Follow up ING capacity\r\nAsk about DUGX' });
+      assert.equal(nt.text, 'Follow up ING capacity\nAsk about DUGX');
+      assert.equal((await call('GET', `/kpi/snapshots/${wk.id}`)).notes.text, nt.text);
+      assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'kpi_notes'), 'notes are audited (and backed up)');
+      assert.equal(await call('PUT', '/kpi/notes/W2639', { text: '  ' }), null, 'emptied → removed');
+      assert.equal((await call('GET', `/kpi/snapshots/${wk.id}`)).notes, null);
+      await assert.rejects(call('PUT', '/kpi/notes/nope', { text: 'x' }), /Not a week code/);
       assert.deepEqual((await call('GET', `/kpi/snapshots/${wk.id}`)).edits, {}, 'undo all');
       // saved into the week's folder
       await assert.rejects(call('POST', `/kpi/snapshots/${wk.id}/export`, { save: true }), /Set the folder/);

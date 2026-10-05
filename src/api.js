@@ -1321,7 +1321,9 @@ router.get('/kpi/snapshots/:id', h((req, res) => {
   // a week with no typed text of its own can start from the last earlier week that has some
   const textFrom = Object.values(edits).some((e) => e.text !== null) ? null
     : db.get("SELECT week FROM kpi_edits WHERE text IS NOT NULL AND week < ? ORDER BY week DESC LIMIT 1", [r.week])?.week || null;
-  res.json({ ...kpiMeta(r), ...JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8')), edits, text_from: textFrom });
+  const notes = db.get('SELECT text, updated_at FROM kpi_notes WHERE week = ?', [r.week]);
+  res.json({ ...kpiMeta(r), ...JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8')), edits, text_from: textFrom,
+    notes: notes ? { text: notes.text, updated_at: notes.updated_at } : null });
 }));
 
 // ---- changes made by hand on a week's A3 (typed text, KPI colours) ----
@@ -1360,6 +1362,18 @@ router.put('/kpi/edits/:week', h((req, res) => {
   setKpiEdit(week, ref, f);
   res.json(kpiEdits(week));
 }));
+// A week's notes (empty text removes them).
+router.put('/kpi/notes/:week', h((req, res) => {
+  const week = String(req.params.week).trim().toUpperCase();
+  if (!kpiData.WEEK_RE.test(week)) throw new HttpError(400, 'Not a week code');
+  const text = typeof req.body.text === 'string' ? req.body.text.replace(/\r\n?/g, '\n') : '';
+  if (text.length > 20000) throw new HttpError(400, 'Notes are limited to 20,000 characters');
+  const old = db.get('SELECT id FROM kpi_notes WHERE week = ?', [week]);
+  if (!text.trim()) { if (old) db.run('DELETE FROM kpi_notes WHERE id = ?', [old.id]); return res.json(null); }
+  const row = old ? fresh('kpi_notes', updateRow('kpi_notes', old.id, { text })) : fresh('kpi_notes', insertRow('kpi_notes', { week, text }));
+  res.json({ text: row.text, updated_at: row.updated_at });
+}));
+
 // Puts the whole week back as it was worked out.
 router.delete('/kpi/edits/:week', h((req, res) => {
   const week = editWeek(req.params.week);
