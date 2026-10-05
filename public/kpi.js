@@ -24,7 +24,7 @@ async function renderKpi(arg, tab) {
       <div class="row"><div class="seg kc-tabs">${[['source', 'Source', 'What the KPIs are made from, week by week'], ['kpi', 'KPI', 'The KPIs, week by week'],
         ...(snap ? [['tables', 'Report tables', `The report's own tables for ${snap.week} (Database rows 1–57)`], ['sheet', 'Whole sheet', 'The Database sheet as it looks in Excel']] : [])]
         .map(([k, l, t]) => `<button type="button" data-kdb-tab="${k}" class="${dbTab === k ? 'on' : ''}" title="${esc(t)}">${l}</button>`).join('')}</div></div>
-      ${calc ? kpiTablesHtml(calc, dbTab) : dbTab === 'tables' ? kpiReportTablesHtml(snap) : '<div class="kpi-sheet-wrap" id="kpi-wrap"><div id="kpi-sheet"></div></div>'}</div>`;
+      ${calc ? kpiTablesHtml(calc, dbTab) : dbTab === 'tables' ? kpiReportTablesHtml(snap) : '<div class="kpi-sheet-wrap" id="kpi-wrap"><div id="kpi-sizer"><div id="kpi-sheet"></div></div></div>'}</div>`;
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 KPIs</h1>
       ${year?.weeks?.length ? `<select id="kpi-week" title="Reporting week — any week of ${year.year}: from Excel, or built by the CI Manager from the source figures">
@@ -53,7 +53,7 @@ async function renderKpi(arg, tab) {
           Changes are kept with this week (also after 🔄 Rebuild) and go into the saved A3. <span class="kpi-ed-key">Changed by hand</span>
           ${snap.text_from ? `<button class="small" data-kpi="copy-text" title="Fill this week's text boxes with the text typed for ${esc(snap.text_from)}">⇩ Start from ${esc(snap.text_from)}'s text</button>` : ''}
           ${Object.keys(snap.edits || {}).length ? '<button class="small link danger" data-kpi="reset-edits">Undo all changes</button>' : ''}</div>` : ''}
-      ${view === 'database' ? dbHtml : '<div class="kpi-sheet-wrap card" id="kpi-wrap"><div id="kpi-sheet"></div></div>'}`
+      ${view === 'database' ? dbHtml : '<div class="kpi-sheet-wrap card" id="kpi-wrap"><div id="kpi-sizer"><div id="kpi-sheet"></div></div></div>'}`
     : view === 'database' ? dbHtml
     : `<div class="card lib-empty"><h2>Weekly KPIs from the CI workbook</h2>
         <p>Load the workbook after refreshing it and choosing the reporting week. The CI Manager keeps a copy of that week's
@@ -140,11 +140,20 @@ async function renderKpi(arg, tab) {
   const applyZoom = () => {
     const wrap = $('#kpi-wrap');
     if (!wrap) return;
-    const fit = Math.max(0.25, Math.min(1.5, (wrap.clientWidth - 24) / Math.max(1, model.x[model.x.length - 1])));
+    // empty rows / columns before the first content (Excel's margins) aren't shown
+    const used = model.cells.filter((c) => c[2] !== '' || /background:#(?!FFFFFF)|border-/i.test(model.styles[c[3]] || '')); // a white fill shows nothing
+    const x0 = Math.min(...used.map((c) => model.x[c[1] - 1]), ...model.images.map((i) => i.x), ...model.charts.map((c) => c.x), Infinity);
+    const y0 = Math.min(...used.map((c) => model.y[c[0] - 1]), ...model.images.map((i) => i.y), ...model.charts.map((c) => c.y), Infinity);
+    const ox = Number.isFinite(x0) ? Math.max(0, x0 - 4) : 0; const oy = Number.isFinite(y0) ? Math.max(0, y0 - 4) : 0;
+    const fit = Math.max(0.25, Math.min(1.5, (wrap.clientWidth - 24) / Math.max(1, model.x[model.x.length - 1] - ox)));
     const z = view === 'database' ? (kpiState.zoom ?? 1) : (kpiState.zoom ?? fit);
-    sheetEl.style.transform = `scale(${z})`;
-    sheetEl.style.width = `${model.x[model.x.length - 1]}px`;
-    sheetEl.parentElement.style.height = `${model.y[model.y.length - 1] * z + 24}px`;
+    // the scaled sheet's box takes only the room it's drawn in (no empty scroll area beside or below it)
+    const W = model.x[model.x.length - 1]; const H = model.y[model.y.length - 1];
+    sheetEl.style.transform = `translate(${-ox * z}px, ${-oy * z}px) scale(${z})`;
+    sheetEl.style.width = `${W}px`;
+    const sizer = $('#kpi-sizer');
+    sizer.style.width = `${Math.ceil((W - ox) * z)}px`;
+    sizer.style.height = `${Math.ceil((H - oy) * z)}px`;
     zoomEl.value = Math.round(z * 100);
     zoomEl.title = `${Math.round(z * 100)}%`;
   };
