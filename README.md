@@ -120,7 +120,8 @@ Past weeks stay in the list, so any earlier A3 can be viewed or saved again.
 
 **Editing the A3.** **✎ Edit A3** (on the A3 tab) lets you change a week's A3 by hand:
 - Click a **text box** (executive summary, comments, headcount notes, …) to change its text — **Ctrl+Enter** saves, **Esc** cancels; *Put back the original text* undoes it.
-- Click a **coloured figure** (a KPI, ▲/▼ arrow or % with conditional colours) to set it **green**, **orange** or **red** — or *Automatic* to let the formula decide again.
+- Click a **coloured figure** (a KPI or % with conditional colours) to set it **green**, **yellow** or **red** — or *Automatic* to let the formula decide again.
+- Click a **trend symbol** to pick **▲** (green), **▬** (yellow) or **▼** (red): the symbol and its colour always go together. On every A3 the symbols are coloured that way whatever the cell's own colour — the workbook's rules only colour ▲ and ▼ in some cells and ▬ nowhere.
 - Changed cells are outlined in blue in edit mode. Changes belong to that week: they're kept when it's rebuilt or loaded again, go into the saved A3 file, and are backed up and in the activity log. **Undo all changes** puts the week back. A week with no text of its own can **⇩ Start from** the last earlier week's text.
  On a week loaded from Excel, **🔄 Build from sources instead** replaces it with the CI Manager's own figures (after asking). Loading the workbook again puts Excel's copy back.
 - The comparison on **From sources** always checks against the last week loaded **from Excel**, never a built one.

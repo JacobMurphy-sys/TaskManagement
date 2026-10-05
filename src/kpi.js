@@ -269,6 +269,20 @@ function makeStyleBaker(stylesXml, book) {
   };
 }
 
+// The trend symbols carry their own colour: ▲ green, ▼ red, ▬ yellow. The workbook's rules
+// only colour ▲ and ▼ in some cells (and ▬ nowhere), so a symbol could show in whatever
+// colour its cell happened to have.
+const SYMBOL_COLOURS = { '▲': '00B050', '▼': 'FF0000', '▬': 'FFC000' };
+function symbolColours(sheet, cf) {
+  for (const c of sheet.cells.values()) {
+    const colour = typeof c.v === 'string' ? SYMBOL_COLOURS[c.v.trim()] : null;
+    if (!colour) continue;
+    const cur = cf.get(c.r) || {};
+    cf.set(c.r, { ...cur, font: { ...(cur.font || {}), color: colour } });
+  }
+  return cf;
+}
+
 // What can be changed by hand on the A3, per cell shown: 't' typed text (no formula), and
 // for a cell with conditional formats 'f' its text colour or 'b' its fill — e.g. { Z13: 't', E7: 'f' }.
 function editKinds(book, sheet, view) {
@@ -290,7 +304,8 @@ function editKinds(book, sheet, view) {
   for (const [row, col] of view.cells) {
     const ref = `${colLetters(col)}${row}`;
     const c = sheet.cells.get(ref);
-    const k = `${c?.f ? '' : 't'}${mode.get(ref) || ''}`;
+    const symbol = typeof c?.v === 'string' && SYMBOL_COLOURS[c.v.trim()];
+    const k = symbol ? 'fs' : `${c?.f ? '' : 't'}${mode.get(ref) || ''}`;
     if (k) out[ref] = k;
   }
   return out;
@@ -463,7 +478,7 @@ function loadWeek(buf, { a3Sheet = 'A3 Weekly Report', dbSheet = 'Database', wee
   const cell = (sh, ref) => sh?.cells.get(ref)?.v ?? null;
   const week = String(cell(dbs, weekCell) ?? cell(a3, 'C4') ?? '').trim();
   if (!week) throw new Error(`No reporting week found (${dbSheet}!${weekCell} is empty)`);
-  const a3cf = conditionalStyles(book, a3);
+  const a3cf = symbolColours(a3, conditionalStyles(book, a3));
   const views = { a3: sheetView(book, a3, a3cf) };
   views.a3.edit = editKinds(book, a3, views.a3);
   if (dbs) views.database = sheetView(book, dbs, conditionalStyles(book, dbs));
@@ -671,7 +686,7 @@ function buildWeek(buf, week, data, { a3Sheet = 'A3 Weekly Report', dbSheet = 'D
     }
     return spec;
   };
-  const a3cf = conditionalStyles(book2, a3New);
+  const a3cf = symbolColours(a3New, conditionalStyles(book2, a3New));
   const views = { a3: sheetView(book2, a3New, a3cf), database: sheetView(book2, dbNew, conditionalStyles(book2, dbNew)) };
   views.a3.edit = editKinds(book2, a3New, views.a3);
   const values = Object.fromEntries([...dbNew.cells.values()].filter((c) => c.v !== null && c.v !== '' && c.t !== 'e').map((c) => [c.r, c.v]));
@@ -688,4 +703,4 @@ function fillPattern(pattern, week) {
   return String(pattern || '').replace(/\{year\}/g, p.year).replace(/\{yy\}/g, p.yy).replace(/\{wk\}/g, p.wk).replace(/\{week\}/g, week).replace(/\{part\}/g, p.part);
 }
 
-module.exports = { loadWeek, buildWeek, applyEdits, editKinds, forecastSheet, sheetView, prepareChart, buildA3Package, exportA3, weekParts, fillPattern, colPx, isErr, decode, parseRef, section, resolvePart, relsPathOf };
+module.exports = { loadWeek, buildWeek, applyEdits, editKinds, forecastSheet, symbolColours, SYMBOL_COLOURS, sheetView, prepareChart, buildA3Package, exportA3, weekParts, fillPattern, colPx, isErr, decode, parseRef, section, resolvePart, relsPathOf };

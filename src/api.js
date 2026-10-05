@@ -1325,7 +1325,7 @@ router.get('/kpi/snapshots/:id', h((req, res) => {
 }));
 
 // ---- changes made by hand on a week's A3 (typed text, KPI colours) ----
-const KPI_COLORS = { green: '00B050', orange: 'FFC000', red: 'FF0000' };
+const KPI_COLORS = { green: '00B050', yellow: 'FFC000', orange: 'FFC000', red: 'FF0000' };
 const kpiEdits = (week) => Object.fromEntries(db.all('SELECT ref, text, color FROM kpi_edits WHERE week = ? ORDER BY ref', [week]).map((e) => [e.ref.toUpperCase(), { text: e.text, color: e.color }]));
 function setKpiEdit(week, ref, f) {
   const old = db.get('SELECT * FROM kpi_edits WHERE week = ? AND ref = ?', [week, ref]);
@@ -1353,7 +1353,7 @@ router.put('/kpi/edits/:week', h((req, res) => {
   }
   if ('color' in req.body) {
     const c = req.body.color === null ? null : KPI_COLORS[String(req.body.color).toLowerCase()] || (Object.values(KPI_COLORS).includes(String(req.body.color).toUpperCase()) ? String(req.body.color).toUpperCase() : undefined);
-    if (c === undefined) throw new HttpError(400, 'Colour must be green, orange or red');
+    if (c === undefined) throw new HttpError(400, 'Colour must be green, yellow or red');
     f.color = c;
   }
   if (!Object.keys(f).length) throw new HttpError(400, 'Nothing to change');

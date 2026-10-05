@@ -40,7 +40,7 @@ async function renderKpi(arg, tab) {
         ${view === 'a3' ? `<button class="${kpiState.editing ? 'primary' : ''} small" data-kpi="edit" ${snap.views.a3.edit ? '' : 'disabled title="Load this week again (📥) to edit it — it was loaded before editing was possible"'}>✎ ${kpiState.editing ? 'Done editing' : 'Edit A3'}${Object.keys(snap.edits || {}).length ? ` <span class="chip">${Object.keys(snap.edits).length}</span>` : ''}</button>` : ''}
         <span class="kpi-zoom">🔍 <input type="range" id="kpi-zoom" min="25" max="150" step="5"> <button class="link small" data-kpi="fit">Fit</button></span>
         <button class="link small danger" data-kpi="delete" title="Remove this week from the CI Manager">Remove week</button></div>
-      ${view === 'a3' && kpiState.editing ? `<div class="kc-note kpi-edit-bar">✎ <b>Editing ${esc(snap.week)}</b> — click a text box to change it, or a coloured figure to set it green, orange or red.
+      ${view === 'a3' && kpiState.editing ? `<div class="kc-note kpi-edit-bar">✎ <b>Editing ${esc(snap.week)}</b> — click a text box to change it, a coloured figure to set it green, yellow or red, or a trend arrow to pick ▲ ▬ ▼ (each with its colour).
           Changes are kept with this week (also after 🔄 Rebuild) and go into the saved A3. <span class="kpi-ed-key">Changed by hand</span>
           ${snap.text_from ? `<button class="small" data-kpi="copy-text" title="Fill this week's text boxes with the text typed for ${esc(snap.text_from)}">⇩ Start from ${esc(snap.text_from)}'s text</button>` : ''}
           ${Object.keys(snap.edits || {}).length ? '<button class="small link danger" data-kpi="reset-edits">Undo all changes</button>' : ''}</div>` : ''}
@@ -668,7 +668,9 @@ async function kpiBuild(week, replace, el, view) {
 
 // ---- changes made by hand on the A3 ----------------------------------------------------------
 
-const KPI_COLOURS = [['green', '00B050', 'Green'], ['orange', 'FFC000', 'Orange'], ['red', 'FF0000', 'Red']];
+const KPI_COLOURS = [['green', '00B050', 'Green'], ['yellow', 'FFC000', 'Yellow'], ['red', 'FF0000', 'Red']];
+// trend symbols: the symbol and its colour go together
+const KPI_SYMBOLS = [['▲', '00B050', 'Up — green'], ['▬', 'FFC000', 'Level — yellow'], ['▼', 'FF0000', 'Down — red']];
 const xlRef = (row, col) => { let s = ''; for (let n = col; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return `${s}${row}`; };
 
 // The sheet view with a week's edits in: typed text in place, chosen colours as text colour
@@ -707,7 +709,9 @@ function kpiEditCell(snap, model, el, done) {
   pop.innerHTML = `<div class="row small muted"><b>${esc(ref)}</b><span class="spacer"></span>${cur.text !== undefined && cur.text !== null || cur.color ? '<span class="kpi-ed-key">changed by hand</span>' : ''}</div>
     ${kind.includes('t') ? `<textarea rows="${Math.min(12, Math.max(3, text.split('\n').length + 1))}">${esc(text)}</textarea>
       ${cur.text !== null && cur.text !== undefined ? `<div class="small muted">Was: ${original ? esc(original.length > 120 ? `${original.slice(0, 120)}…` : original) : '<i>empty</i>'}</div>` : ''}` : ''}
-    ${/[fb]/.test(kind) ? `<div class="kpi-swatches">${KPI_COLOURS.map(([name, hex, label]) => `<button type="button" data-colour="${name}" class="${cur.color === hex ? 'on' : ''}" title="${label}"><i style="background:#${hex}"></i>${label}</button>`).join('')}
+    ${kind.includes('s') ? `<div class="kpi-swatches">${KPI_SYMBOLS.map(([sym, hex, label]) => `<button type="button" data-symbol="${sym}" class="${cur.text === sym ? 'on' : ''}" title="${label}"><b style="color:#${hex}">${sym}</b>${label.split(' — ')[0]}</button>`).join('')}
+      <button type="button" data-symbol="" class="${cur.text ? '' : 'on'}" title="As the workbook's formula gives it">Automatic</button></div>`
+    : /[fb]/.test(kind) ? `<div class="kpi-swatches">${KPI_COLOURS.map(([name, hex, label]) => `<button type="button" data-colour="${name}" class="${cur.color === hex ? 'on' : ''}" title="${label}"><i style="background:#${hex}"></i>${label}</button>`).join('')}
       <button type="button" data-colour="" class="${cur.color ? '' : 'on'}" title="As the conditional format colours it">Automatic</button></div>` : ''}
     <div class="row">${kind.includes('t') ? '<button class="primary small" data-pop="save">Save</button>' : ''}
       ${cur.text !== null && cur.text !== undefined ? '<button class="small link" data-pop="revert" title="Put back the workbook\'s text">Put back the original text</button>' : ''}
@@ -733,6 +737,11 @@ function kpiEditCell(snap, model, el, done) {
   };
   setTimeout(() => { document.addEventListener('mousedown', outside, true); document.addEventListener('keydown', keys, true); });
   pop.addEventListener('click', (e) => {
+    const sy = e.target.closest('[data-symbol]');
+    if (sy) {
+      const sym = KPI_SYMBOLS.find(([x]) => x === sy.dataset.symbol);
+      return save(sym ? { text: sym[0], color: sym[1] } : { text: null, color: null });
+    }
     const sw = e.target.closest('[data-colour]');
     if (sw) {
       const colour = sw.dataset.colour || null;

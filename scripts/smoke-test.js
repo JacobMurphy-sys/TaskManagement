@@ -910,12 +910,18 @@ async function waitForServer() {
       assert.ok(out['xl/media/chart0.png'] && /<xdr:pic>[\s\S]*r:embed="rIdChart0"/.test(out['xl/drawings/drawing1.xml'].toString()), 'chart replaced by its picture, same place');
       assert.ok(!/graphicFrame|CIM-CHART/.test(out['xl/drawings/drawing1.xml'].toString()));
       // changes made by hand: typed text and KPI colours
-      assert.deepEqual(snap.views.a3.edit, { B1: 'f', C1: 'f', B2: 'tf' }, 'what can be changed: typed cells, figures with conditional colours');
+      assert.deepEqual(snap.views.a3.edit, { B1: 'f', C1: 'fs', B2: 'tf' }, 'what can be changed: typed cells, figures with conditional colours, trend symbols');
+      {
+        const sym = new Map([['A1', { r: 'A1', v: '▬' }], ['A2', { r: 'A2', v: '▼' }], ['A3', { r: 'A3', v: '▲ ' }], ['A4', { r: 'A4', v: 'x' }]]);
+        const cfs = require('../src/kpi').symbolColours({ cells: sym }, new Map([['A2', { font: { color: 'FFCC00', b: true }, fill: { color: 'FFC7CE' } }]]));
+        assert.deepEqual(Object.fromEntries(cfs), { A1: { font: { color: 'FFC000' } }, A2: { font: { color: 'FF0000', b: true }, fill: { color: 'FFC7CE' } }, A3: { font: { color: '00B050' } } },
+          'a trend symbol shows in its own colour, whatever its cell or the rules give');
+      }
       let ed = await call('PUT', '/kpi/edits/W2639', { ref: 'b2', text: '0.5' });
       ed = await call('PUT', '/kpi/edits/W2639', { ref: 'B1', color: 'orange' });
-      ed = await call('PUT', '/kpi/edits/W2639', { ref: 'C1', color: 'green' });
-      assert.deepEqual(ed, { B1: { text: null, color: 'FFC000' }, B2: { text: '0.5', color: null }, C1: { text: null, color: '00B050' } });
-      await assert.rejects(call('PUT', '/kpi/edits/W2639', { ref: 'B1', color: 'purple' }), /green, orange or red/);
+      ed = await call('PUT', '/kpi/edits/W2639', { ref: 'C1', text: '▲', color: 'green' });
+      assert.deepEqual(ed, { B1: { text: null, color: 'FFC000' }, B2: { text: '0.5', color: null }, C1: { text: '▲', color: '00B050' } });
+      await assert.rejects(call('PUT', '/kpi/edits/W2639', { ref: 'B1', color: 'purple' }), /green, yellow or red/);
       await assert.rejects(call('PUT', '/kpi/edits/W2639', { ref: 'nope', text: 'x' }), /cell reference/);
       await assert.rejects(call('PUT', '/kpi/edits/W2601', { ref: 'B1', text: 'x' }), /not found/i);
       assert.deepEqual((await call('GET', `/kpi/snapshots/${wk.id}`)).edits.B1, { text: null, color: 'FFC000' });
@@ -927,7 +933,7 @@ async function waitForServer() {
       assert.match(edXml, /<c r="B2" s="\d+"><v>0.5<\/v><\/c>/, 'a typed number stays a number');
       assert.match(fontOf('B1'), /FFFFC000/, 'the chosen colour in the file');
       assert.match(fontOf('C1'), /FF00B050/);
-      assert.match(edXml, /<c r="C1" s="\d+" t="inlineStr"><is><t xml:space="preserve">▼<\/t>/, 'the value stays');
+      assert.match(edXml, /<c r="C1" s="\d+" t="inlineStr"><is><t xml:space="preserve">▲<\/t>/, 'a symbol chosen with its colour');
       await call('PUT', '/kpi/edits/W2639', { ref: 'B1', color: null });
       assert.deepEqual(Object.keys((await call('GET', `/kpi/snapshots/${wk.id}`)).edits), ['B2', 'C1'], 'back to automatic');
       assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'kpi_edits'), 'changes are audited (and backed up)');
