@@ -1434,10 +1434,25 @@ router.post('/kpi/manual/from-excel', h((req, res) => {
 }));
 
 // The reporting weeks of a year, with the A3 each has (loaded from Excel or built here).
+// The workbook a week is built from: the last one loaded, or (loaded before templates were
+// kept) the one at the saved workbook path, which is then kept as the template.
+const workbookPath = () => String(getSettings().kpi_workbook_path || '').trim().replace(/^"|"$/g, '');
+const hasTemplate = () => fs.existsSync(KPI_TEMPLATE) || (!!workbookPath() && fs.existsSync(workbookPath()));
+function templateWorkbook() {
+  if (fs.existsSync(KPI_TEMPLATE)) return fs.readFileSync(KPI_TEMPLATE);
+  const file = workbookPath();
+  if (!file || !fs.existsSync(file)) return null;
+  const buf = fs.readFileSync(file);
+  try { fs.mkdirSync(path.dirname(KPI_TEMPLATE), { recursive: true }); fs.writeFileSync(KPI_TEMPLATE, buf); } catch (err) { log.warn('Could not keep the workbook as the A3 template', err.message); }
+  return buf;
+}
+
 router.get('/kpi/weeks', h((req, res) => {
-  const year = Number(req.query.year) || Number(String(getSetting('kpi_template_week') || '').slice(1, 3)) + 2000 || new Date().getFullYear();
+  const tw = String(getSetting('kpi_template_week') || '').match(/^W(\d\d)/i);
+  const year = Number(req.query.year) || (tw ? 2000 + Number(tw[1]) : null)
+    || db.get('SELECT year FROM kpi_snapshots WHERE year IS NOT NULL ORDER BY updated_at DESC LIMIT 1')?.year || new Date().getFullYear();
   const have = new Map(db.all('SELECT * FROM kpi_snapshots WHERE year = ?', [year]).map((r) => [r.week.toUpperCase(), kpiMeta(r)]));
-  res.json({ year, template_week: getSetting('kpi_template_week') || null, template: fs.existsSync(KPI_TEMPLATE),
+  res.json({ year, template_week: getSetting('kpi_template_week') || null, template: hasTemplate(),
     weeks: kpiData.weeksOf(year).map((w) => ({ ...w, a3: have.get(w.week) || null })) });
 }));
 
@@ -1447,14 +1462,15 @@ router.get('/kpi/weeks', h((req, res) => {
 router.post('/kpi/build', h((req, res) => {
   const week = String(req.body.week || '').trim().toUpperCase();
   if (!kpiData.WEEK_RE.test(week)) throw new HttpError(400, 'Not a week code');
-  if (!fs.existsSync(KPI_TEMPLATE)) throw new HttpError(400, 'Load the workbook once (📥 on the A3 tab) — its A3 and Database sheets are the template');
+  const template = templateWorkbook();
+  if (!template) throw new HttpError(400, 'Load the workbook once (📥 Load this week) — its A3 and Database sheets are the template for the weeks the CI Manager builds');
   const old = db.get('SELECT * FROM kpi_snapshots WHERE week = ?', [week]);
   if (old && (old.origin || 'excel') === 'excel' && !req.body.replace) throw new HttpError(409, `${week} was loaded from Excel — confirm to replace it with the CI Manager's own figures`);
   const year = kpi.weekParts(week).year;
   const set = getSettings();
   let w;
   try {
-    w = kpi.buildWeek(fs.readFileSync(KPI_TEMPLATE), week, {
+    w = kpi.buildWeek(template, week, {
       weeks: kpiData.weeklyVolumes(year).weeks, topScrap: kpiData.topScrap, shippedFor: kpiData.shippedFor, weekEnd: kpiData.weekEnd, columns: kpiData.DATABASE_COLUMNS,
     }, { a3Sheet: set.kpi_a3_sheet, dbSheet: set.kpi_db_sheet, weekCell: set.kpi_week_cell });
   } catch (err) { throw new HttpError(400, err.message); }
@@ -1464,6 +1480,7 @@ router.post('/kpi/build', h((req, res) => {
     pkg: w.pkg.toString('base64'),
   };
   const saved = old ? fresh('kpi_snapshots', updateRow('kpi_snapshots', old.id, row)) : insertRow('kpi_snapshots', row);
+  if (w.template_week && !getSetting('kpi_template_week')) setSetting('kpi_template_week', w.template_week);
   log.info(`A3 for ${week} built from the source figures`);
   res.status(201).json({ ...kpiMeta(saved), flags: w.flags });
 }));

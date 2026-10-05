@@ -1069,6 +1069,16 @@ async function waitForServer() {
       const bx = await fetch(`${BASE}/kpi/snapshots/${built.id}/export`, { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } });
       assert.equal(bx.status, 200, 'a built week exports like any other');
       await call('DELETE', `/kpi/snapshots/${built.id}`);
+      // a workbook loaded before templates were kept: the one at the saved path stands in
+      fs.rmSync(path.join(tmp, 'kpi', 'template.xlsm'));
+      await call('PATCH', '/settings', { kpi_template_week: '' });
+      const yr2 = await call('GET', '/kpi/weeks');
+      assert.deepEqual([yr2.year, yr2.template, yr2.weeks.length > 50], [2026, true, true], 'every week listed, the year from the weeks loaded');
+      const built2 = await call('POST', '/kpi/build', { week: 'W2614_1' });
+      assert.equal(built2.origin, 'ci');
+      assert.ok(fs.existsSync(path.join(tmp, 'kpi', 'template.xlsm')), 'and is kept as the template');
+      assert.equal((await call('GET', '/kpi/weeks')).template_week, 'W2639');
+      await call('DELETE', `/kpi/snapshots/${built2.id}`);
 
       // without file paths, the workbook's import sheets stand in (this workbook has none)
       await call('PATCH', '/settings', { kpi_src_perso: '', kpi_src_shipped: path.join(tmp, 'nope.xlsx') });
