@@ -432,7 +432,8 @@ async function renderKpiCalc() {
         if (same(w[k], ex[k])) cls = 'kc-ok';
         else { cls = 'kc-diff'; differ++; rowDiff = true; title = `Excel: ${kpiFmt(k, ex[k])}`; }
       }
-      return `<td class="num ${cls}${sepAt.includes(i) || (edit && group && i) ? ' kc-sep' : ''}${manual ? ' kc-manual' : ''}" ${title ? `title="${esc(title)}"` : ''}>${kpiFmt(k, w[k])}${cls === 'kc-diff' ? `<span class="kc-was">${esc(kpiFmt(k, ex[k]))}</span>` : ''}</td>`;
+      const drill = (k === 'otd_internal' || k === 'otd_external') && w[k] ? ` data-kc-otd="${esc(w.week)}"` : '';
+      return `<td class="num ${cls}${sepAt.includes(i) || (edit && group && i) ? ' kc-sep' : ''}${manual ? ' kc-manual' : ''}${drill ? ' kc-click' : ''}"${drill} ${title ? `title="${esc(title)}"` : (drill ? 'title="Show the OTD report rows"' : '')}>${kpiFmt(k, w[k])}${cls === 'kc-diff' ? `<span class="kc-was">${esc(kpiFmt(k, ex[k]))}</span>` : ''}</td>`;
     }).join('');
     return `<tr class="${empty ? 'kc-empty' : ''} ${rowDiff ? 'kc-rowdiff' : ''} ${w.week === calc.excel?.week ? 'kc-current' : ''}"><td>${esc(w.month)}</td><td><b>${esc(w.week)}</b></td>${cells}${edit ? `<td><button class="icon" data-kc-edit="${esc(w.week)}" title="Type in this week's figures">✎</button></td>` : ''}</tr>`;
   };
@@ -483,6 +484,10 @@ async function renderKpiCalc() {
       <p class="small muted">OTD delays (kU) come from the OTD report; OTD SC = 1 − internal delays ÷ cards shipped, OTD Global includes external delays.
         <span class="kc-manual-key">Shaded</span> columns are typed in each week with ✎ — complaints (until the Salesforce export is ready) and HR (hours from Protime).
         CPMS = complaints per million cards shipped; scrap rate = scrap ÷ cards persoed; productivity = cards persoed per working hour; HC = contract + temps.</p>
+      ${calc.otd_uncounted?.length ? `<div class="kc-note">⚠ ${calc.otd_uncounted.length} row${calc.otd_uncounted.length === 1 ? ' isn\'t' : 's aren\'t'} counted in any week (${(calc.otd_uncounted.reduce((t, r) => t + (r.qty || 0), 0) / 1000).toFixed(1)}K):
+          the Week column is empty, isn't a week number, or names a split week without saying which part (_1 / _2). Excel doesn't count them either. Fill in the week in the OTD report and read it again.
+        <details><summary class="small">Show them</summary><table class="log small"><thead><tr><th>Customer</th><th>Type</th><th class="num">Volume</th><th>Date</th><th>Week typed</th><th>Month</th><th>Reason</th><th>Why</th><th>Week of the date</th></tr></thead><tbody>
+        ${calc.otd_uncounted.map((c) => `<tr><td>${esc(c.customer || '')}</td><td>${esc(c.type || '')}</td><td class="num">${(c.qty || 0).toLocaleString('en-GB')}</td><td>${esc(c.date || '')}</td><td>${esc(c.week_typed || '—')}</td><td>${esc(c.month ?? '')}</td><td>${esc(c.reason || '')}</td><td>${esc(c.why)}</td><td class="muted">${esc(c.date_week || '')}</td></tr>`).join('')}</tbody></table></details></div>` : ''}
       ${calc.otd_checks?.length ? `<div class="kc-note">⚠ ${calc.otd_checks.length} row${calc.otd_checks.length === 1 ? '' : 's'} in the OTD report have a date that doesn't fall in the week typed next to it${calc.otd_checks.every((c) => c.swapped) ? ' — in every case the day and month are swapped (e.g. 8 March entered for 3 August)' : ''}. The typed week is used, as Excel does.
         <details><summary class="small">Show them</summary><table class="log small"><thead><tr><th>Customer</th><th>Type</th><th class="num">Qty</th><th>Date entered</th><th>Week typed</th><th>Week of that date</th></tr></thead><tbody>
         ${calc.otd_checks.map((c) => `<tr><td>${esc(c.customer || '')}</td><td>${esc(c.type || '')}</td><td class="num">${c.qty.toLocaleString('en-GB')}</td><td>${esc(c.date)}${c.swapped ? ' <span class="muted">(day/month swapped?)</span>' : ''}</td><td>${esc(c.typed_week)}</td><td>${esc(c.date_week)}</td></tr>`).join('')}</tbody></table></details></div>` : ''}
@@ -501,6 +506,8 @@ async function renderKpiCalc() {
     try { await api.patch('/settings', { [el.name]: el.value.trim().replace(/^"|"$/g, '') }); toast('Saved — read the files to use it'); } catch (err) { toast(err.message, 'error'); }
   }));
   main().onclick = async (e) => {
+    const od = e.target.closest('[data-kc-otd]');
+    if (od) { kpiOtdRows(od.dataset.kcOtd); return; }
     const ed = e.target.closest('[data-kc-edit]');
     if (ed) { kpiWeekForm(calc.weeks.find((w) => w.week === ed.dataset.kcEdit)); return; }
     if (e.target.closest('[data-kc-copy]')) {
@@ -566,4 +573,18 @@ function kpiWeekForm(w) {
       closeModal();
     } catch (err) { toast(err.message, 'error'); }
   });
+}
+
+// The OTD report rows behind a week's delays.
+async function kpiOtdRows(week) {
+  const rows = await api.get(`/kpi/calc/otd?week=${encodeURIComponent(week)}`);
+  const sum = (t) => rows.filter((r) => String(r.type || '').toLowerCase() === t).reduce((a, r) => a + (r.qty || 0), 0);
+  openModal(`<h2>OTD report — ${esc(week)}</h2>
+    <p class="small muted">Rows counted in ${esc(week)}: the week typed in the report's Week column. Internal ${sum('internal').toLocaleString('en-GB')} · External ${sum('external').toLocaleString('en-GB')}.
+      Rows whose Type is neither Internal nor External aren't added up.</p>
+    <table class="log small"><thead><tr><th>Customer</th><th class="num">Volume</th><th>Type</th><th>Date</th><th>Week typed</th><th>Month</th><th>Reason</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr><td>${esc(r.customer || '')}</td><td class="num">${(r.qty || 0).toLocaleString('en-GB')}</td><td>${esc(r.type || '')}</td>
+        <td>${esc(r.date || '')}${r.date && r.date_week && r.date_week !== week ? ` <span class="chip overdue" title="This date is in ${esc(r.date_week)}">≠ week</span>` : ''}</td>
+        <td>${esc(r.week_typed ?? '')}</td><td>${esc(r.month ?? '')}</td><td>${esc(r.reason || '')}</td></tr>`).join('')}</tbody></table>
+    <div class="row" style="margin-top:12px"><div class="spacer"></div><button onclick="closeModal()">Close</button></div>`, { wide: true });
 }

@@ -964,12 +964,28 @@ async function waitForServer() {
         ['ICA', 100, 'External', null, 'W2614_2', 'Apr', 'customer change request'], ['X', 5, 'Internal', null, null, null, 'no week, no date']]);
       await call('PATCH', '/settings', { kpi_src_otd: otdF });
       imp = await call('POST', '/kpi/calc/import', {});
-      assert.deepEqual([imp[3].source, imp[3].status, imp[3].rows, imp[3].skipped], ['otd', 'imported', 3, 1], 'rows with neither week nor date skipped');
+      assert.deepEqual([imp[3].source, imp[3].status, imp[3].rows, imp[3].skipped], ['otd', 'imported', 4, 0]);
       calc = await call('GET', '/kpi/calc?year=2026');
       assert.deepEqual([wkOf('W2614_1').otd_internal, wkOf('W2614_1').otd_sc], [0.05, null], 'no OTD % without cards shipped');
       assert.deepEqual([wkOf('W2614_2').otd_internal, wkOf('W2614_2').otd_external, wkOf('W2614_2').otd_sc, wkOf('W2614_2').otd_global], [0.4, 0.1, 0.5, 0.375],
         'OTD SC = 1 − internal ÷ shipped; Global includes external; the typed week wins over the date');
       assert.deepEqual(calc.otd_checks.map((c) => [c.customer, c.date, c.typed_week, c.date_week, c.swapped]), [['BEL', '2026-02-04', 'W2614_2', 'W2606', true]], 'day/month swap spotted');
+      assert.deepEqual(calc.otd_uncounted.map((c) => [c.customer, c.qty, c.why]), [['X', 5, 'no week typed']], 'a row without a week isn\'t counted (as in Excel), but listed');
+      assert.deepEqual((await call('GET', '/kpi/calc/otd?week=W2614_2')).map((r) => [r.customer, r.qty, r.date_week]), [['ICA', 100, null], ['BEL', 400, 'W2606']], 'the rows behind a week');
+      // week numbers typed other ways; a date never decides the week
+      const otd2 = src('OTD Report 2.xlsx', [['Customer'], ['Quantity', 'number'], ['Type'], ['Date', 'date'], ['Week'], ['Month'], ['Reason']], [
+        ['A', 1000, 'Internal', '2026-10-09', '37', 'Sept', 'swapped date, week typed as a number'], ['B', 2000, 'Internal', null, 'Wk 14', 'Mar', 'split week: part from the month'],
+        ['C', 3000, 'Internal', '2026-11-09', null, 'Sept', 'no week: not counted, even though the date reads as November'], ['D', 4000, 'External', null, 'W2614', 'Apr', 'plain code for a split week']]);
+      await call('PATCH', '/settings', { kpi_src_otd: otd2 });
+      await call('POST', '/kpi/calc/import', {});
+      calc = await call('GET', '/kpi/calc?year=2026');
+      assert.deepEqual([wkOf('W2637').otd_internal, wkOf('W2614_1').otd_internal, wkOf('W2645').otd_internal, wkOf('W2646').otd_internal], [1, 2, 0, 0], 'no delays in future weeks from misread dates');
+      assert.deepEqual(calc.otd_uncounted.map((c) => [c.customer, c.why]), [['C', 'no week typed'], ['D', 'split week — which part?']]);
+      assert.deepEqual(['W2639', '2639', '39', 39, 'Week 39', '39.0'].map((v) => kd.typedWeekCode(v, { year: 2026 })), Array(6).fill('W2639'));
+      assert.deepEqual([kd.typedWeekCode('40', { year: 2026, month: 'Sept' }), kd.typedWeekCode('40', { year: 2026, month: 10 }), kd.typedWeekCode('x', { year: 2026 })], ['W2640_1', 'W2640_2', null]);
+      await call('PATCH', '/settings', { kpi_src_otd: otdF });
+      await call('POST', '/kpi/calc/import', {});
+      calc = await call('GET', '/kpi/calc?year=2026');
       await call('POST', '/kpi/calc/weekends', { split: true });
       assert.equal((await call('GET', '/kpi/calc?year=2026')).weeks.find((w) => w.week === 'W2614_2').otd_internal, 0.4, 'typed weeks stay put');
       await call('POST', '/kpi/calc/weekends', { split: false });

@@ -880,3 +880,5 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .kw-set legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
 .kw-days { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 6px; }
 .kw-set .row .f { flex: 1; }
+.kc-table td.kc-click { cursor: pointer; text-decoration: underline dotted; }
+.kc-table td.kc-click:hover { background: var(--accent-soft); }

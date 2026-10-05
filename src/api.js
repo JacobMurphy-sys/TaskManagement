@@ -1430,6 +1430,12 @@ router.post('/kpi/manual/from-excel', h((req, res) => {
   res.json({ weeks, fields });
 }));
 
+router.get('/kpi/calc/otd', h((req, res) => {
+  const week = String(req.query.week || '').trim().toUpperCase();
+  if (!kpiData.WEEK_RE.test(week)) throw new HttpError(400, 'Not a week code');
+  res.json(kpiData.otdRows(week));
+}));
+
 router.post('/kpi/calc/weekends', h((req, res) => {
   const split = !!req.body.split;
   setSetting('kpi_split_weekends', split ? '1' : '0');

@@ -31,8 +31,8 @@ const SOURCES = {
   },
   // Kept by Production (Table1 of their OTD report); the week is typed in, the date often isn't.
   otd: {
-    label: 'OTD delays', file: 'OTD Report.xlsx', sheet: 'Table1', workbook: 'OTD2.0', typedWeek: true,
-    columns: { customer: 'Customer', qty: 'Quantity', type: 'Type', day: 'Date', week: 'Week', reason: 'Reason' },
+    label: 'OTD delays', file: 'OTD Report.xlsx', sheet: 'Table1', workbook: 'OTD2.0', typedWeek: true, optional: ['month', 'reason'],
+    columns: { customer: 'Customer', qty: 'Quantity', type: 'Type', day: 'Date', week: 'Week', month: 'Month', reason: 'Reason' },
   },
 };
 const WEEK_RE = /^W\d{4}(_[12])?$/i;
@@ -99,6 +99,51 @@ function weekCode(day, { splitWeekends = false } = {}) {
   return `${code}_${d.getUTCMonth() === monday.getUTCMonth() ? 1 : 2}`;
 }
 
+// A week typed by hand (the OTD report's Week column) → a week code, or null.
+// Takes W2639, 2639, W2640_1, W39, Wk 39, Week 39 or just 39. With only a week number the
+// year comes from the date (or the year given), and for a week split across two months
+// the part (_1/_2) from the date, else from the Month column.
+const MONTH_NAMES = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+function monthIndex(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'number' && v >= 1 && v <= 12) return v - 1;
+  const t = String(v).trim().toLowerCase();
+  if (/^\d{1,2}$/.test(t) && Number(t) >= 1 && Number(t) <= 12) return Number(t) - 1;
+  const i = MONTH_NAMES.findIndex((m) => t.startsWith(m));
+  return i >= 0 ? i : null;
+}
+function typedWeekCode(value, { day = null, month = null, year = null } = {}) {
+  if (value === null || value === undefined) return null;
+  const t = String(value).trim().toUpperCase().replace(/\s+/g, ' ');
+  if (!t) return null;
+  let m = t.match(/^W?(\d{2})(\d{2})(?:_([12]))?$/);
+  let yy; let n; let part;
+  if (m) { [, yy, n, part] = m; return Number(n) >= 1 && Number(n) <= 53 ? `W${yy}${n}${part ? `_${part}` : ''}` : null; } // a full code: as typed
+  else {
+    m = t.match(/^(?:W|WK|WEEK)?\.? ?(\d{1,2})(?:\.0+)?(?:_([12]))?$/);
+    if (!m) return null;
+    n = Number(m[1]); part = m[2];
+    const y = day ? Number(day.slice(0, 4)) : year;
+    if (!y) return null;
+    yy = String(y).slice(2);
+  }
+  if (n < 1 || n > 53) return null;
+  const code = `W${yy}${String(n).padStart(2, '0')}`;
+  if (part) return `${code}_${part}`;
+  // A split week needs its part: from the date when it falls in that week, else the month.
+  const y = 2000 + Number(yy);
+  const jan1 = new Date(Date.UTC(y, 0, 1));
+  const sunday = new Date(jan1); sunday.setUTCDate(1 - jan1.getUTCDay() + (n - 1) * 7);
+  const monday = new Date(sunday); monday.setUTCDate(sunday.getUTCDate() + 1);
+  const friday = new Date(sunday); friday.setUTCDate(sunday.getUTCDate() + 5);
+  if (monday.getUTCMonth() === friday.getUTCMonth()) return code;
+  if (day && weekCode(day).startsWith(code)) return weekCode(day).includes('_') ? weekCode(day) : `${code}_${new Date(`${day}T00:00:00Z`).getUTCMonth() === monday.getUTCMonth() ? 1 : 2}`;
+  const mi = monthIndex(month);
+  if (mi === monday.getUTCMonth()) return `${code}_1`;
+  if (mi === friday.getUTCMonth()) return `${code}_2`;
+  return code; // can't tell which part: left as the plain week (shown as not counted)
+}
+
 // The reporting weeks of a year, in order, with their month (as the Database sheet lists them).
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
 function weeksOf(year) {
@@ -119,14 +164,15 @@ function weeksOf(year) {
 // ---- reading a source ---------------------------------------------------------------------
 
 // Rows of a sheet as objects keyed by our names, from the row holding the column headings.
-function sheetRows(sheet, columns) {
-  const want = Object.entries(columns);
+function sheetRows(sheet, columns, optional = []) {
+  const all = Object.entries(columns);
+  const want = all.filter(([k]) => !optional.includes(k));
   const norm = (s) => String(s ?? '').trim().toLowerCase();
   let headerRow = 0; let at = null;
   for (let r = 1; r <= Math.min(sheet.maxRow, 30) && !at; r++) {
     const heads = new Map();
     for (let c = 1; c <= sheet.maxCol; c++) { const v = sheet.cells.get(`${colLetters(c)}${r}`)?.v; if (v !== null && v !== undefined) heads.set(norm(v), c); }
-    if (want.every(([, h]) => heads.has(norm(h)))) { headerRow = r; at = Object.fromEntries(want.map(([k, h]) => [k, heads.get(norm(h))])); }
+    if (want.every(([, h]) => heads.has(norm(h)))) { headerRow = r; at = Object.fromEntries(all.filter(([, h]) => heads.has(norm(h))).map(([k, h]) => [k, heads.get(norm(h))])); }
   }
   if (!at) {
     const missing = want.map(([, h]) => h);
@@ -155,7 +201,7 @@ function readSource(name, bufOrBook, { fromWorkbook = false } = {}) {
   const order = named ? [named, ...book.sheets.filter((s) => s !== named)] : book.sheets;
   let firstErr = null;
   for (const info of order) {
-    try { return sheetRows(book.sheet(info.name), src.columns); } catch (err) { firstErr = firstErr || err; if (fromWorkbook) break; }
+    try { return sheetRows(book.sheet(info.name), src.columns, src.optional); } catch (err) { firstErr = firstErr || err; if (fromWorkbook) break; }
   }
   throw firstErr || new Error('The file has no sheets');
 }
@@ -171,15 +217,18 @@ function storeSource(name, rows, meta = {}) {
     const typed = !!SOURCES[name].typedWeek;
     for (const r of rows) {
       const day = dayOf(r.day);
-      const typedWeek = typed && WEEK_RE.test(String(r.week || '').trim()) ? String(r.week).trim().toUpperCase() : null;
-      if (!day && !typedWeek) { skipped++; continue; }
+      const typedWeek = typed ? typedWeekCode(r.week, { day, month: r.month, year: meta.year || new Date().getFullYear() }) : null;
+      // OTD rows are counted in the week typed against them, as Excel does: a row without a
+      // usable week isn't counted (week ''), however its date reads — it's listed instead.
+      if (typed && !typedWeek && !day && (r.week === null || r.week === undefined || r.week === '') && !Number(r.qty)) { skipped++; continue; }
+      if (!typed && !day) { skipped++; continue; }
       if (day && (!first || day < first)) first = day;
       if (day && (!last || day > last)) last = day;
       const dateWeek = day ? weekCode(day, { splitWeekends }) : null;
       const extra = name === 'remakes' ? JSON.stringify({ wo: r.wo ?? null, machine: r.machine ?? null, mode: r.mode ?? null, time: r.time ?? null, perso_day: dayOf(r.perso_day) })
-        : typed ? JSON.stringify({ reason: r.reason ?? null, typed_week: typedWeek, date_week: dateWeek })
+        : typed ? JSON.stringify({ reason: r.reason ?? null, typed_week: typedWeek, date_week: dateWeek, week_raw: r.week ?? null, month_raw: r.month ?? null })
           : (r.due !== undefined ? JSON.stringify({ due: dayOf(r.due) }) : null);
-      ins.run(name, day || '', typedWeek || dateWeek, r.customer === null ? null : String(r.customer).trim(), r.type === null ? null : String(r.type).trim(),
+      ins.run(name, day || '', typed ? (typedWeek || '') : dateWeek, r.customer === null ? null : String(r.customer).trim(), r.type === null ? null : String(r.type).trim(),
         Number(r.qty) || 0, Number(r.scrap) || 0, extra);
     }
     db.run(`INSERT INTO kpi_sources (source, file, modified, imported_at, rows, skipped, first_day, last_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -195,7 +244,7 @@ function rewriteWeeks(splitWeekends) {
   ensure();
   const days = db.all("SELECT DISTINCT day FROM kpi_rows WHERE day <> ''");
   // rows with a typed week (OTD) keep it
-  const upd = db.conn.prepare(`UPDATE kpi_rows SET week = ? WHERE day = ? AND NOT (source = 'otd' AND json_extract(extra, '$.typed_week') IS NOT NULL)`);
+  const upd = db.conn.prepare("UPDATE kpi_rows SET week = ? WHERE day = ? AND source <> 'otd'");
   db.tx(() => { for (const { day } of days) upd.run(weekCode(day, { splitWeekends }), day); });
 }
 
@@ -277,11 +326,24 @@ function weeklyVolumes(year) {
   const listed = new Set(weeks.map((w) => w.week));
   const unlisted = sums.filter((r) => r.source !== 'otd' && !listed.has(r.week) && r.qty).map((r) => ({ source: r.source, week: r.week, ps: r.ps, isi: r.isi, pin: r.pin, qty: r.qty }));
   // OTD rows whose date and typed week disagree (dates read as month/day, usually)
-  const otdChecks = db.all(`SELECT customer, qty, type, day, extra FROM kpi_rows WHERE source = 'otd' AND day <> ''`)
-    .map((r) => ({ ...r, ...JSON.parse(r.extra || '{}') })).filter((r) => r.typed_week && r.date_week && r.typed_week !== r.date_week)
+  const otdRows = db.all("SELECT customer, qty, type, day, week, extra FROM kpi_rows WHERE source = 'otd'").map((r) => ({ ...r, ...JSON.parse(r.extra || '{}') }));
+  // not counted: no usable week typed, or a split week without telling which part
+  const otdUncounted = otdRows.filter((r) => !r.week || !listed.has(r.week)).map((r) => ({
+    customer: r.customer, qty: r.qty, type: r.type, date: r.day || null, week_typed: r.week_raw === null || r.week_raw === undefined ? '' : String(r.week_raw),
+    month: r.month_raw ?? null, reason: r.reason ?? null, date_week: r.date_week || null,
+    why: !r.week ? (r.week_raw === null || r.week_raw === undefined || r.week_raw === '' ? 'no week typed' : 'week not recognised') : 'split week — which part?',
+  }));
+  const otdChecks = otdRows.filter((r) => r.day && r.week && r.typed_week && r.date_week && r.typed_week !== r.date_week)
     .map((r) => ({ customer: r.customer, qty: r.qty, type: r.type, date: r.day, typed_week: r.typed_week, date_week: r.date_week,
       swapped: (() => { const [y, mo, d] = r.day.split('-'); return Number(d) <= 12 && weekCode(`${y}-${d}-${mo}`) === r.typed_week; })() }));
-  return { weeks, unlisted, otd_checks: otdChecks };
+  return { weeks, unlisted, otd_checks: otdChecks, otd_uncounted: otdUncounted };
+}
+
+// The OTD report rows behind a week's delays.
+function otdRows(week) {
+  ensure();
+  return db.all("SELECT customer, qty, type, day, extra FROM kpi_rows WHERE source = 'otd' AND week = ? ORDER BY day, customer", [week])
+    .map((r) => { const e = JSON.parse(r.extra || '{}'); return { customer: r.customer, qty: r.qty, type: r.type, date: r.day || null, week_typed: e.week_raw ?? null, month: e.month_raw ?? null, reason: e.reason ?? null, date_week: e.date_week || null }; });
 }
 
 function sourcesStatus() {
@@ -302,4 +364,4 @@ const MANUAL_FIELDS = ['hours', 'contract', 'temps', 'cc_critical', 'cc_major', 
 // × 7.5 h per shift, plus 37.5 h — as the workbook's instructions do it.
 const hoursFromProtime = (days) => { const n = days.map(Number).filter((v) => Number.isFinite(v)); return n.length ? Math.round((n.reduce((a, b) => a + b, 0) * 7.5 + 37.5) * 100) / 100 : null; };
 
-module.exports = { SOURCES, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };
+module.exports = { SOURCES, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, typedWeekCode, monthIndex, otdRows, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };
