@@ -464,7 +464,7 @@ function exportA3(pkg, images = {}) {
 function weekParts(code) {
   const m = String(code || '').match(/W?(\d{2})(\d{2})(?:_(\d))?/i);
   if (!m) return null;
-  return { yy: m[1], year: 2000 + Number(m[1]), wk: m[2], part: m[3] || '' };
+  return { yy: m[1], year: 2000 + Number(m[1]), wk: m[2], part: m[3] || '', wkp: m[3] ? `${m[2]}_${m[3]}` : m[2] };
 }
 
 function loadWeek(buf, { a3Sheet = 'A3 Weekly Report', dbSheet = 'Database', weekCell = 'B2' } = {}) {
@@ -697,10 +697,24 @@ function buildWeek(buf, week, data, { a3Sheet = 'A3 Weekly Report', dbSheet = 'D
   };
 }
 
-// "…\{year}\Weekly\WK{wk}" → a real path for this week.
+// "…\{year}\Weekly\WK{wk}" → a real path for this week. {wk} is the week as the folders
+// are named: 04, 39, or 14_1 / 14_2 for a week split across two months ({num}: just 14).
 function fillPattern(pattern, week) {
-  const p = weekParts(week) || { yy: '', year: '', wk: '', part: '' };
-  return String(pattern || '').replace(/\{year\}/g, p.year).replace(/\{yy\}/g, p.yy).replace(/\{wk\}/g, p.wk).replace(/\{week\}/g, week).replace(/\{part\}/g, p.part);
+  const p = weekParts(week) || { yy: '', year: '', wk: '', part: '', wkp: '' };
+  return String(pattern || '').replace(/\{year\}/g, p.year).replace(/\{yy\}/g, p.yy).replace(/\{wk\}/g, p.wkp).replace(/\{num\}/g, p.wk)
+    .replace(/\{week\}/g, week).replace(/\{part\}/g, p.part);
+}
+// Where a week's A3 is saved: the A3 folder, its week folder (unless the folder pattern
+// already names the week) and the file name. Null without an A3 folder.
+function exportTarget(set, week) {
+  const base = String(set.kpi_export_dir || '').trim();
+  if (!base) return null;
+  const path = require('path');
+  let dir = fillPattern(base, week).trim();
+  const sub = String(set.kpi_export_sub ?? 'WK{wk}').trim();
+  if (sub && !/\{(wk|num|week)\}/.test(base)) dir = path.join(dir, fillPattern(sub, week).replace(/[/:*?"<>|]/g, '-'));
+  const name = fillPattern(set.kpi_export_name || 'A3 {year} WK{wk}.xlsx', week).replace(/[\\/:*?"<>|]/g, '-');
+  return { dir, name, path: path.join(dir, name) };
 }
 
-module.exports = { loadWeek, buildWeek, applyEdits, editKinds, forecastSheet, symbolColours, SYMBOL_COLOURS, sheetView, prepareChart, buildA3Package, exportA3, weekParts, fillPattern, colPx, isErr, decode, parseRef, section, resolvePart, relsPathOf };
+module.exports = { loadWeek, buildWeek, applyEdits, editKinds, forecastSheet, symbolColours, SYMBOL_COLOURS, sheetView, prepareChart, buildA3Package, exportA3, weekParts, fillPattern, exportTarget, colPx, isErr, decode, parseRef, section, resolvePart, relsPathOf };

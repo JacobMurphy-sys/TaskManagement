@@ -158,17 +158,29 @@ function kpiSetupHtml(s) {
     <div class="form-grid">
       <label class="f full">Workbook (where it's saved)<input type="text" name="kpi_workbook_path" value="${esc(s.kpi_workbook_path)}" placeholder="e.g. S:\\…\\CI Hub.xlsm">
         <span class="small muted">Used by 📥 Load this week. Save the workbook in Excel after refreshing and picking the week — the CI Manager reads the values Excel saved.</span></label>
-      <label class="f full">Save the A3 in<input type="text" name="kpi_export_dir" value="${esc(s.kpi_export_dir)}" placeholder="e.g. S:\\…\\Weekly - Monthly OPS Report\\{year}\\Weekly\\WK{wk}">
-        <span class="small muted">{year} → 2026, {wk} → 39, {week} → W2639. Missing folders are created.</span></label>
+      <label class="f full">A3 folder — the one holding the week folders (WK04, WK05, …)<input type="text" name="kpi_export_dir" value="${esc(s.kpi_export_dir)}" placeholder="e.g. S:\\…\\Weekly - Monthly OPS Report\\{year}\\Weekly">
+        <span class="small muted">{year} → 2026, so the same setting carries on into next year's folder. Missing folders are created.</span></label>
+      <label class="f">Week folder<input type="text" name="kpi_export_sub" value="${esc(s.kpi_export_sub ?? 'WK{wk}')}" placeholder="WK{wk}"></label>
       <label class="f">File name<input type="text" name="kpi_export_name" value="${esc(s.kpi_export_name)}" placeholder="A3 {year} WK{wk}.xlsx"></label>
+      <div class="f full small muted">{wk} is the week as the folders are named — 04, 39, or 14_1 / 14_2 for a week split across two months ({num}: the number alone). {year} → 2026, {week} → W2639.
+        <div id="kpi-export-preview" class="kpi-export-preview"></div></div>
       <label class="f">A3 sheet<input type="text" name="kpi_a3_sheet" value="${esc(s.kpi_a3_sheet)}"></label>
       <label class="f">Database sheet<input type="text" name="kpi_db_sheet" value="${esc(s.kpi_db_sheet)}"></label>
       <label class="f">Reporting week cell (on the Database sheet)<input type="text" name="kpi_week_cell" value="${esc(s.kpi_week_cell)}"></label>
     </div>`;
 }
+async function kpiExportPreview() {
+  const el = $('#kpi-export-preview');
+  if (!el) return;
+  const list = await api.get('/kpi/export-preview').catch(() => []);
+  el.innerHTML = list.length && list[0].path ? `Saves as:${list.map((x) => `<div><b>${esc(x.week)}</b> → <code>${esc(x.path)}</code></div>`).join('')}`
+    : 'Set the A3 folder to see where each week is saved.';
+}
 function wireKpiSetup() {
+  kpiExportPreview();
   $$('#kpi-setup input').forEach((el) => el.addEventListener('change', async () => {
     try { await api.patch('/settings', { [el.name]: el.value }); toast('Saved'); } catch (err) { toast(err.message, 'error'); }
+    if (/^kpi_export_/.test(el.name)) kpiExportPreview();
     if (el.name === 'kpi_workbook_path' || el.name === 'kpi_export_dir') await route(); // what's shown depends on these
   }));
 }

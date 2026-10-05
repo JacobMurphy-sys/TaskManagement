@@ -948,6 +948,16 @@ async function waitForServer() {
       assert.ok(fs.existsSync(savedPath), 'written to the WK folder (created)');
       assert.ok(!/<xdr:pic>/.test(rz(fs.readFileSync(savedPath))['xl/drawings/drawing1.xml'].toString()), 'a chart without a picture is left out');
       assert.equal((await call('GET', `/kpi/snapshots/${wk.id}`)).exported_to, savedPath);
+      // the A3 folder holding the week folders: WK04, WK39, WK14_1 / WK14_2
+      await call('PATCH', '/settings', { kpi_export_dir: path.join(tmp, 'OPS2', '{year}', 'Weekly'), kpi_export_name: 'SC Site {year} WK{wk}.xlsx' });
+      const pv = await call('GET', '/kpi/export-preview');
+      assert.deepEqual(pv.map((x) => [x.week, x.path]), [['W2639', path.join(tmp, 'OPS2', '2026', 'Weekly', 'WK39', 'SC Site 2026 WK39.xlsx')],
+        ['W2604', path.join(tmp, 'OPS2', '2026', 'Weekly', 'WK04', 'SC Site 2026 WK04.xlsx')], ['W2614_1', path.join(tmp, 'OPS2', '2026', 'Weekly', 'WK14_1', 'SC Site 2026 WK14_1.xlsx')]],
+        'week folders and names as they are: two digits, a split week with its part');
+      const { exportTarget } = require('../src/kpi');
+      assert.equal(exportTarget({ kpi_export_dir: 'X', kpi_export_sub: '', kpi_export_name: 'A {num} {wk}.xlsx' }, 'W2614_2').path, path.join('X', 'A 14 14_2.xlsx'), 'no week folder; {num} the number alone');
+      await fetch(`${BASE}/kpi/snapshots/${wk.id}/export`, { method: 'POST', body: JSON.stringify({ save: true }), headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } });
+      assert.ok(fs.existsSync(pv[0].path), 'saved there');
       // from where the workbook is saved
       const onDisk = path.join(tmp, 'CI Hub.xlsm');
       fs.writeFileSync(onDisk, wbFile);

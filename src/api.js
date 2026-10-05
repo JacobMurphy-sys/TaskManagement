@@ -1580,6 +1580,16 @@ router.post('/kpi/calc/weekends', h((req, res) => {
   res.json({ split_weekends: split });
 }));
 
+// Where the A3s would be saved, for a few kinds of week (the latest, a split one, a single-digit one).
+router.get('/kpi/export-preview', h((req, res) => {
+  const set = getSettings();
+  const last = db.get('SELECT week FROM kpi_snapshots ORDER BY year DESC, week DESC LIMIT 1')?.week;
+  const yy = last ? last.slice(1, 3) : String(new Date().getFullYear()).slice(2);
+  const split = kpiData.weeksOf(2000 + Number(yy)).find((w) => /_1$/.test(w.week) && w.week.slice(3, 5) !== '01')?.week;
+  const weeks = [...new Set([last, `W${yy}04`, split].filter(Boolean))];
+  res.json(weeks.map((week) => ({ week, path: kpi.exportTarget(set, week)?.path || null })));
+}));
+
 // The disconnected A3: chart pictures come from the page (PNG, base64). With save,
 // it's also written to the export folder for the week.
 router.post('/kpi/snapshots/:id/export', h((req, res) => {
@@ -1598,11 +1608,12 @@ router.post('/kpi/snapshots/:id/export', h((req, res) => {
   }
   const file = kpi.exportA3(pkg, images);
   const set = getSettings();
-  const name = kpi.fillPattern(set.kpi_export_name || 'A3 {year} WK{wk}.xlsx', r.week).replace(/[\\/:*?"<>|]/g, '-');
+  const target = kpi.exportTarget(set, r.week);
+  const name = target?.name || kpi.exportTarget({ ...set, kpi_export_dir: '.' }, r.week).name;
   let savedTo = null;
   if (req.body.save) {
-    const dir = kpi.fillPattern(set.kpi_export_dir, r.week).trim();
-    if (!dir) throw new HttpError(400, 'Set the folder the A3 is saved to first');
+    if (!target) throw new HttpError(400, 'Set the folder the A3 is saved to first');
+    const { dir } = target;
     try {
       fs.mkdirSync(dir, { recursive: true });
       savedTo = path.join(dir, name);
@@ -1626,7 +1637,7 @@ const SETTING_DEFAULTS = {
   // Weekly KPIs: where the CI workbook is, its sheets, and where the A3 copy is saved
   // ({year} {yy} {wk} {week} are filled in from the reporting week).
   kpi_workbook_path: '', kpi_a3_sheet: 'A3 Weekly Report', kpi_db_sheet: 'Database', kpi_week_cell: 'B2',
-  kpi_export_dir: '', kpi_export_name: 'A3 {year} WK{wk}.xlsx',
+  kpi_export_dir: '', kpi_export_sub: 'WK{wk}', kpi_export_name: 'A3 {year} WK{wk}.xlsx',
   // The source files the KPIs are worked out from (blank: use the workbook's import sheets),
   // and whether weekend days in a week split across two months count in their month's part.
   kpi_src_perso: '', kpi_src_shipped: '', kpi_src_remakes: '', kpi_src_otd: '', kpi_split_weekends: '0',
