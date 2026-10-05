@@ -394,16 +394,18 @@ function drawPie(g, gr, box, font, hex) {
 
 // ---- From sources: the CI Manager's own figures, checked against Excel's ---------------------
 
-const KPI_VOL_COLS = [
-  ['perso_ps', 'PS'], ['perso_isi', 'ISI'], ['perso_pin', 'PIN'], ['perso_total', 'Total (Cards)'], ['scrap', 'Scrap'],
-  ['shipped_ps', 'PS'], ['shipped_isi', 'ISI'], ['shipped_pin', 'PIN'], ['shipped_total', 'Total (Cards)'],
+// [key, heading, group (starts a new group), typed in each week]
+// Source: the figures the KPIs are made from, in the Database sheet's order.
+const KPI_SOURCE_COLS = [
+  ['perso_ps', 'PS', 'Perso Vol'], ['perso_isi', 'ISI'], ['perso_pin', 'PIN'], ['perso_total', 'Total'], ['scrap', 'Scrap'],
+  ['shipped_ps', 'PS', 'Shipped Vol'], ['shipped_isi', 'ISI'], ['shipped_pin', 'PIN'], ['shipped_total', 'Total'], ['otd_internal', 'Delay Int.'], ['otd_external', 'Delay Ext.'],
+  ['hours', 'Hours', 'HR', true], ['contract', 'Contract', null, true], ['temps', 'Temps', null, true],
+  ['cc_critical', 'Critical', 'Quality', true], ['cc_major', 'Major', null, true], ['cc_minor', 'Minor', null, true], ['complaints', 'Total'],
 ];
-// The second table: OTD, quality, scrap rate and HR. manual: typed in each week.
-const KPI_MORE_COLS = [
-  ['otd_internal', 'Internal', 'OTD'], ['otd_external', 'External'], ['otd_sc', 'OTD SC'], ['otd_global', 'OTD Global'],
-  ['cc_critical', 'Critical', 'Complaints', true], ['cc_major', 'Major', null, true], ['cc_minor', 'Minor', null, true], ['complaints', 'Total'], ['cpms', 'CPMS'],
-  ['scrap_rate', 'Scrap rate', 'Scrap'],
-  ['hours', 'Hours', 'HR', true], ['contract', 'Contract', null, true], ['temps', 'Temps', null, true], ['hc', 'HC'], ['productivity', 'Productivity'],
+// KPI: what's reported.
+const KPI_KPI_COLS = [
+  ['otd_sc', 'OTD SC', 'OTD'], ['otd_global', 'OTD Global'], ['cpms', 'CPMS', 'Quality'], ['scrap_rate', 'Scrap %', 'Scrap'],
+  ['productivity', 'Productivity', 'HR'], ['hc', 'Headcount'],
 ];
 const KPI_PCT = { otd_sc: 2, otd_global: 2, scrap_rate: 2 };
 const kpiFmt = (key, v) => {
@@ -421,7 +423,7 @@ async function renderKpiCalc() {
   const xl = calc.excel?.weeks || null;
   let checked = 0; let differ = 0;
   const same = (a, b) => Math.abs((a || 0) - (b || 0)) < 1e-6 * Math.max(1, Math.abs(b || 0));
-  const rowHtml = (w, cols = KPI_VOL_COLS, sepAt = [4, 5], edit = false) => {
+  const rowHtml = (w, cols, edit = false) => {
     const ex = xl?.[w.week];
     const empty = cols.every(([k]) => !w[k]);
     let rowDiff = false;
@@ -433,13 +435,18 @@ async function renderKpiCalc() {
         else { cls = 'kc-diff'; differ++; rowDiff = true; title = `Excel: ${kpiFmt(k, ex[k])}`; }
       }
       const drill = (k === 'otd_internal' || k === 'otd_external') && w[k] ? ` data-kc-otd="${esc(w.week)}"` : '';
-      return `<td class="num ${cls}${sepAt.includes(i) || (edit && group && i) ? ' kc-sep' : ''}${manual ? ' kc-manual' : ''}${drill ? ' kc-click' : ''}"${drill} ${title ? `title="${esc(title)}"` : (drill ? 'title="Show the OTD report rows"' : '')}>${kpiFmt(k, w[k])}${cls === 'kc-diff' ? `<span class="kc-was">${esc(kpiFmt(k, ex[k]))}</span>` : ''}</td>`;
+      return `<td class="num ${cls}${group && i ? ' kc-sep' : ''}${manual ? ' kc-manual' : ''}${drill ? ' kc-click' : ''}"${drill} ${title ? `title="${esc(title)}"` : (drill ? 'title="Show the OTD report rows"' : '')}>${kpiFmt(k, w[k])}${cls === 'kc-diff' ? `<span class="kc-was">${esc(kpiFmt(k, ex[k]))}</span>` : ''}</td>`;
     }).join('');
     return `<tr class="${empty ? 'kc-empty' : ''} ${rowDiff ? 'kc-rowdiff' : ''} ${w.week === calc.excel?.week ? 'kc-current' : ''}"><td>${esc(w.month)}</td><td><b>${esc(w.week)}</b></td>${cells}${edit ? `<td><button class="icon" data-kc-edit="${esc(w.week)}" title="Type in this week's figures">✎</button></td>` : ''}</tr>`;
   };
-  const body = calc.weeks.map((w) => rowHtml(w)).join('');
-  const moreBody = calc.weeks.map((w) => rowHtml(w, KPI_MORE_COLS, [], true)).join('');
-  const groups = []; KPI_MORE_COLS.forEach(([, , g]) => { if (g) groups.push({ g, n: 1 }); else groups[groups.length - 1].n++; });
+  const tab = store.get('kcTab', 'source') === 'kpi' ? 'kpi' : 'source';
+  const sourceBody = calc.weeks.map((w) => rowHtml(w, KPI_SOURCE_COLS, true)).join('');
+  const sourceChecked = checked; const sourceDiffer = differ;
+  const kpiBody = calc.weeks.map((w) => rowHtml(w, KPI_KPI_COLS)).join('');
+  const cols = tab === 'kpi' ? KPI_KPI_COLS : KPI_SOURCE_COLS;
+  const shown = tab === 'kpi' ? { checked: checked - sourceChecked, differ: differ - sourceDiffer } : { checked: sourceChecked, differ: sourceDiffer };
+  const groups = []; cols.forEach(([, , g]) => { if (g) groups.push({ g, n: 1 }); else groups[groups.length - 1].n++; });
+  const otherDiffer = tab === 'kpi' ? sourceDiffer : differ - sourceDiffer;
   const unlisted = calc.unlisted.filter((u) => u.qty);
   const srcRow = (s) => `<tr data-src="${s.source}">
       <td><b>${esc(s.label)}</b><div class="small muted">${esc(s.default_file)}</div></td>
@@ -468,36 +475,31 @@ async function renderKpiCalc() {
       ${unlisted.length && !calc.split_weekends ? `<div class="kc-note">⚠ Not in Excel's report: weekend work in split weeks — ${unlisted.map((u) => `<b>${esc(u.week)}</b> ${esc(u.source === 'remakes' ? `${u.qty} scrap` : `${(u.qty / 1000).toFixed(1)}K ${u.source === 'perso' ? 'persoed' : 'shipped'}`)}`).join(', ')}.</div>` : ''}
     </div>
     <div class="card" style="margin-top:12px">
-      <div class="row"><h2 style="margin:0">Weekly volumes <span class="muted small">kU (thousands); scrap in units</span></h2><div class="spacer"></div>
-        ${xl ? `<span class="kc-summary ${differ ? 'bad' : 'good'}">${differ ? `⚠ ${differ} of ${checked} figures differ from Excel` : `✔ All ${checked} figures match Excel`}</span>` : ''}
-        <label class="small row"><input type="checkbox" id="kc-only"> Only weeks that differ</label></div>
-      <p class="small muted">${calc.excel ? (xl ? `Checked against Excel's Database sheet from the week loaded on the A3 tab (${esc(calc.excel.week)}, ${esc(fmtDateTime(calc.excel.loaded_at))}). Green: same as Excel; red: different — Excel's figure underneath.`
-        : `Load the week again on the A3 tab to check these figures against Excel's.`) : 'Load a week on the A3 tab to check these figures against Excel\'s.'}</p>
-      <div class="kc-wrap"><table class="log kc-table" id="kc-table"><thead>
-        <tr><th></th><th></th><th colspan="5" class="kc-group">Persoed</th><th colspan="4" class="kc-group kc-sep">Shipped</th></tr>
-        <tr><th>Month</th><th>Week</th>${KPI_VOL_COLS.map(([, l], i) => `<th class="num${i === 4 || i === 5 ? ' kc-sep' : ''}">${esc(l)}</th>`).join('')}</tr></thead>
-        <tbody>${body}</tbody></table></div>
-    </div>
-    <div class="card" style="margin-top:12px">
-      <div class="row"><h2 style="margin:0">OTD, quality and HR</h2><div class="spacer"></div>
-        <button data-kc-copy title="Fill weeks with nothing typed in yet from Excel's Database sheet (the loaded week)">⇩ Copy typed-in figures from Excel</button></div>
-      <p class="small muted">OTD delays (kU) come from the OTD report; OTD SC = 1 − internal delays ÷ cards shipped, OTD Global includes external delays.
-        <span class="kc-manual-key">Shaded</span> columns are typed in each week with ✎ — complaints (until the Salesforce export is ready) and HR (hours from Protime).
-        CPMS = complaints per million cards shipped; scrap rate = scrap ÷ cards persoed; productivity = cards persoed per working hour; HC = contract + temps.</p>
-      ${calc.otd_uncounted?.length ? `<div class="kc-note">⚠ ${calc.otd_uncounted.length} row${calc.otd_uncounted.length === 1 ? ' isn\'t' : 's aren\'t'} counted in any week (${(calc.otd_uncounted.reduce((t, r) => t + (r.qty || 0), 0) / 1000).toFixed(1)}K):
+      <div class="row">
+        <div class="seg kc-tabs"><button type="button" data-kc-tab="source" class="${tab === 'source' ? 'on' : ''}">Source</button><button type="button" data-kc-tab="kpi" class="${tab === 'kpi' ? 'on' : ''}">KPI</button></div>
+        ${xl ? `<span class="kc-summary ${shown.differ ? 'bad' : 'good'}">${shown.differ ? `⚠ ${shown.differ} of ${shown.checked} figures differ from Excel` : `✔ All ${shown.checked} figures match Excel`}</span>
+          ${otherDiffer ? `<span class="small muted">(${otherDiffer} on the ${tab === 'kpi' ? 'Source' : 'KPI'} tab)</span>` : ''}` : ''}
+        <div class="spacer"></div>
+        <label class="small row"><input type="checkbox" id="kc-only" ${store.get('kcOnly', false) ? 'checked' : ''}> Only weeks that differ</label>
+        ${tab === 'source' ? '<button data-kc-copy title="Fill weeks with nothing typed in yet from Excel\'s Database sheet (the loaded week)">⇩ Copy typed-in figures from Excel</button>' : ''}</div>
+      <p class="small muted">${tab === 'source'
+        ? `Volumes in kU (thousands), scrap in units. Delays come from the OTD report (click one to see its rows). <span class="kc-manual-key">Shaded</span> columns are typed in each week with ✎ — HR (hours from Protime) and complaints (until the Salesforce export is ready).`
+        : 'OTD SC = 1 − internal delays ÷ cards shipped (OTD Global includes external delays) · CPMS = complaints per million cards shipped · Scrap % = scrap ÷ cards persoed · Productivity = cards persoed per working hour · Headcount = contract + temps.'}
+        ${calc.excel ? (xl ? ` Checked against Excel's Database sheet (${esc(calc.excel.week)}, loaded ${esc(fmtDateTime(calc.excel.loaded_at))}): green = same, red = different, with Excel's figure underneath.` : ' Load the week again on the A3 tab to check these against Excel.') : ' Load a week on the A3 tab to check these against Excel.'}</p>
+      ${tab === 'source' && calc.otd_uncounted?.length ? `<div class="kc-note">⚠ ${calc.otd_uncounted.length} OTD row${calc.otd_uncounted.length === 1 ? ' isn\'t' : 's aren\'t'} counted in any week (${(calc.otd_uncounted.reduce((t, r) => t + (r.qty || 0), 0) / 1000).toFixed(1)}K):
           the Week column is empty, isn't a week number, or names a split week without saying which part (_1 / _2). Excel doesn't count them either. Fill in the week in the OTD report and read it again.
         <details><summary class="small">Show them</summary><table class="log small"><thead><tr><th>Customer</th><th>Type</th><th class="num">Volume</th><th>Date</th><th>Week typed</th><th>Month</th><th>Reason</th><th>Why</th><th>Week of the date</th></tr></thead><tbody>
         ${calc.otd_uncounted.map((c) => `<tr><td>${esc(c.customer || '')}</td><td>${esc(c.type || '')}</td><td class="num">${(c.qty || 0).toLocaleString('en-GB')}</td><td>${esc(c.date || '')}</td><td>${esc(c.week_typed || '—')}</td><td>${esc(c.month ?? '')}</td><td>${esc(c.reason || '')}</td><td>${esc(c.why)}</td><td class="muted">${esc(c.date_week || '')}</td></tr>`).join('')}</tbody></table></details></div>` : ''}
-      ${calc.otd_checks?.length ? `<div class="kc-note">⚠ ${calc.otd_checks.length} row${calc.otd_checks.length === 1 ? '' : 's'} in the OTD report have a date that doesn't fall in the week typed next to it${calc.otd_checks.every((c) => c.swapped) ? ' — in every case the day and month are swapped (e.g. 8 March entered for 3 August)' : ''}. The typed week is used, as Excel does.
+      ${tab === 'source' && calc.otd_checks?.length ? `<div class="kc-note">⚠ ${calc.otd_checks.length} row${calc.otd_checks.length === 1 ? '' : 's'} in the OTD report have a date that doesn't fall in the week typed next to it${calc.otd_checks.every((c) => c.swapped) ? ' — in every case the day and month are swapped (e.g. 8 March entered for 3 August)' : ''}. The typed week is used, as Excel does.
         <details><summary class="small">Show them</summary><table class="log small"><thead><tr><th>Customer</th><th>Type</th><th class="num">Qty</th><th>Date entered</th><th>Week typed</th><th>Week of that date</th></tr></thead><tbody>
         ${calc.otd_checks.map((c) => `<tr><td>${esc(c.customer || '')}</td><td>${esc(c.type || '')}</td><td class="num">${c.qty.toLocaleString('en-GB')}</td><td>${esc(c.date)}${c.swapped ? ' <span class="muted">(day/month swapped?)</span>' : ''}</td><td>${esc(c.typed_week)}</td><td>${esc(c.date_week)}</td></tr>`).join('')}</tbody></table></details></div>` : ''}
-      <div class="kc-wrap"><table class="log kc-table" id="kc-more"><thead>
-        <tr><th></th><th></th>${groups.map((g, i) => `<th colspan="${g.n}" class="kc-group${i ? ' kc-sep' : ''}">${esc(g.g)}</th>`).join('')}<th></th></tr>
-        <tr><th>Month</th><th>Week</th>${KPI_MORE_COLS.map(([, l, g, manual], i) => `<th class="num${g && i ? ' kc-sep' : ''}${manual ? ' kc-manual' : ''}">${esc(l)}</th>`).join('')}<th></th></tr></thead>
-        <tbody>${moreBody}</tbody></table></div>
+      <div class="kc-wrap"><table class="log kc-table kc-compact ${tab === 'kpi' ? 'kc-kpi' : ''} ${store.get('kcOnly', false) ? 'kc-only' : ''}" id="kc-table"><thead>
+        <tr><th></th><th></th>${groups.map((g, i) => `<th colspan="${g.n}" class="kc-group${i ? ' kc-sep' : ''}">${esc(g.g)}</th>`).join('')}${tab === 'source' ? '<th></th>' : ''}</tr>
+        <tr><th>Month</th><th>Week</th>${cols.map(([, l, g, manual], i) => `<th class="num${g && i ? ' kc-sep' : ''}${manual ? ' kc-manual' : ''}">${esc(l)}</th>`).join('')}${tab === 'source' ? '<th></th>' : ''}</tr></thead>
+        <tbody>${tab === 'kpi' ? kpiBody : sourceBody}</tbody></table></div>
     </div>`;
   $('#kc-year').addEventListener('change', (e) => { store.set('kpiYear', Number(e.target.value)); renderKpiCalc(); });
-  $('#kc-only').addEventListener('change', (e) => { $('#kc-table').classList.toggle('kc-only', e.target.checked); $('#kc-more').classList.toggle('kc-only', e.target.checked); });
+  $('#kc-only').addEventListener('change', (e) => { store.set('kcOnly', e.target.checked); $('#kc-table').classList.toggle('kc-only', e.target.checked); });
   $('#kc-weekends').addEventListener('change', async (e) => {
     try { await api.post('/kpi/calc/weekends', { split: e.target.checked }); toast(e.target.checked ? 'Weekend days now counted in their month\'s part' : 'Weekend days of split weeks left out, as in Excel'); } catch (err) { toast(err.message, 'error'); }
     renderKpiCalc();
@@ -506,6 +508,8 @@ async function renderKpiCalc() {
     try { await api.patch('/settings', { [el.name]: el.value.trim().replace(/^"|"$/g, '') }); toast('Saved — read the files to use it'); } catch (err) { toast(err.message, 'error'); }
   }));
   main().onclick = async (e) => {
+    const tb = e.target.closest('[data-kc-tab]');
+    if (tb) { store.set('kcTab', tb.dataset.kcTab); renderKpiCalc(); return; }
     const od = e.target.closest('[data-kc-otd]');
     if (od) { kpiOtdRows(od.dataset.kcOtd); return; }
     const ed = e.target.closest('[data-kc-edit]');
