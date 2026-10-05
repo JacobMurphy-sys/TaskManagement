@@ -943,3 +943,29 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .kpi-export-preview { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
 .kpi-export-preview code { font-size: 12px; }
 #kpi-sizer { overflow: hidden; }
+/* ▶ Prepare the week */
+.kp-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 14px 0 10px; }
+.kp-top h2 { margin: 0; font-size: 18px; }
+.kp-steps { display: flex; flex-direction: column; gap: 10px; max-width: 980px; }
+.kp-step { padding: 12px 14px; border-left: 4px solid var(--border); }
+.kp-step.kp-done { border-left-color: var(--ok); }
+.kp-step.kp-todo { border-left-color: var(--accent); }
+.kp-step.kp-warn { border-left-color: var(--warn); }
+.kp-step.kp-wait { opacity: .6; }
+.kp-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.kp-head h3 { margin: 0; font-size: 15px; }
+.kp-num { width: 24px; height: 24px; border-radius: 50%; background: var(--panel-2); border: 1px solid var(--border); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+.kp-pill { margin-left: auto; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--panel-2); color: var(--muted); white-space: nowrap; }
+.kp-pill.kp-done { background: var(--ok-soft); color: var(--ok); }
+.kp-pill.kp-todo { background: var(--accent-soft); color: var(--accent); }
+.kp-pill.kp-warn { background: var(--warn-soft); color: var(--warn); }
+.kp-body { margin: 8px 0 0 34px; display: flex; flex-direction: column; gap: 6px; }
+.kp-actions { margin: 10px 0 0 34px; display: flex; flex-wrap: wrap; gap: 8px; }
+.kp-src { display: inline-block; margin: 0 14px 4px 0; }
+.kp-src.bad { color: var(--danger); }
+.kp-figs { display: flex; flex-wrap: wrap; gap: 8px; }
+.kp-figs > div { border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; min-width: 110px; display: flex; flex-direction: column; }
+.kp-figs span { font-size: 11.5px; color: var(--muted); }
+.kp-figs b { font-size: 16px; }
+.kp-figs small { font-size: 11px; color: var(--muted); }
+.kp-top select { width: auto; }

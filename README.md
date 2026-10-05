@@ -106,6 +106,16 @@ When an update changes how data is stored, the app upgrades your database automa
 
 ### Weekly KPIs (A3)
 
+**▶ Prepare this week — the weekly routine without Excel.** On the A3 tab, **▶ Prepare this week** opens the week's steps, each with where it stands (✔ done, ● to do, ⚠ needs a look) and the one action it needs. It opens on the last finished week; any other week can be picked.
+1. **Latest source files** — read when the page opens (only files saved since the last read; a few seconds). Shows when each export was saved, a missing forecast file, and OTD report rows to check.
+2. **Typed in** — working hours (Protime), headcount and complaints for the week; ✎ fills them in.
+3. **At a glance** — the week's shipped and persoed volumes, OTD SC, scrap rate, CPMS, productivity and headcount, from the source files.
+4. **Build the A3** — the report's own formulas worked out on the week's figures (a few seconds). Marked *out of date* when figures were read or typed in after it was built — 🔄 Rebuild brings them in. A week loaded from Excel can be built from the source files instead.
+5. **Executive summary and comments** — ✎ Edit the A3 to write this week's text (or start from the last week's); *Back to Prepare the week* returns here.
+6. **Save the A3** — into the week's folder, showing the exact path; marked when the A3 changed after it was saved.
+
+The workbook is needed once, for the A3's layout and formulas (📥 Load from Excel); after that the weekly figures come from the source files.
+
 1. In Excel, refresh the CI workbook and pick the reporting week as usual, then **save** it (the CI Manager reads the values Excel saved; nothing is recalculated).
 2. In the CI Manager open **📊 KPIs** → **Sources** once (every file location is set there): where the workbook is saved, and where the A3s go — the **A3 folder** that holds the week folders (e.g. `S:\…\Weekly - Monthly OPS Report\{year}\Weekly`), the **week folder** (`WK{wk}`) and the **file name** (e.g. `SC … {year} WK{wk}.xlsx`). `{wk}` is the week as the folders are named — `04`, `39`, or `14_1` / `14_2` for a week split across two months (`{num}`: the number alone); `{year}` → 2026, so next year's folder follows on its own; `{week}` → W2639. The page shows where the latest, a single-digit and a split week would be saved; missing folders are created. The sheet names and the cell holding the week (`Database!B2`) can be changed there too.
 3. **📥 Load this week** (or **📂 Load file…** for a copy). Loading a week again replaces it.

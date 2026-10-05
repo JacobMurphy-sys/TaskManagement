@@ -1122,6 +1122,20 @@ async function waitForServer() {
       assert.equal(bsnap.values.O63, 100, 'typed-in hours');
       assert.equal(bsnap.template_week, 'W2639');
       assert.equal((await call('POST', '/kpi/build', { week: 'W2614_1' })).id, built.id, 'rebuilding replaces it');
+      // ▶ Prepare the week: where each step stands
+      let prep = await call('GET', '/kpi/prepare?week=W2614_1');
+      assert.equal(prep.week, 'W2614_1');
+      assert.ok(prep.weeks.length && prep.default_week, 'a choice of weeks, the last finished one first');
+      assert.deepEqual([prep.snap.origin, prep.snap.stale, prep.snap.saved_current, prep.snap.text_edited], ['ci', false, false, 0]);
+      assert.equal(prep.figures.week, 'W2614_1');
+      await call('PUT', '/kpi/manual/W2614_1', { temps: '3' });
+      assert.equal((await call('GET', '/kpi/prepare?week=W2614_1')).snap.stale, true, 'typed in since it was built → out of date');
+      await call('POST', '/kpi/build', { week: 'W2614_1' });
+      prep = await call('GET', '/kpi/prepare?week=W2614_1');
+      assert.equal(prep.snap.stale, false);
+      assert.equal(prep.manual.temps, 3);
+      assert.equal((await call('GET', '/kpi/prepare?week=W2613')).snap, null, 'a week without an A3');
+      assert.equal((await call('GET', '/kpi/prepare?week=nonsense')).week, prep.default_week, 'a bad week falls back to the last finished one');
       await assert.rejects(call('POST', '/kpi/build', { week: 'W2639' }), /loaded from Excel/);
       await assert.rejects(call('POST', '/kpi/build', { week: 'nope' }), /Not a week code/);
       assert.equal((await call('GET', '/kpi/calc?year=2026')).excel.week, 'W2639', 'the Excel comparison ignores weeks the CI Manager built');

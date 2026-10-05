@@ -8,6 +8,7 @@ const kpiState = { zoom: null };
 
 async function renderKpi(arg, tab) {
   if (arg === 'calc' || arg === 'sources') return renderKpiSources();
+  if (arg === 'prepare') return renderKpiPrepare(tab);
   const [weeks, settings, year] = await Promise.all([api.get('/kpi/snapshots'), api.get('/settings'), api.get('/kpi/weeks').catch(() => null)]);
   const id = Number(arg) || weeks[0]?.id || null;
   const view = tab === 'database' ? 'database' : 'a3';
@@ -33,7 +34,8 @@ async function renderKpi(arg, tab) {
         : weeks.length ? `<select id="kpi-week" title="Reporting week">${weeks.map((w) => `<option value="${w.id}" ${w.id === snap?.id ? 'selected' : ''}>${esc(w.week)}${w.month ? ` · ${esc(w.month)}` : ''}</option>`).join('')}</select>` : ''}
       <div class="seg"><a href="#/kpi/${snap?.id || ''}" class="${view === 'a3' ? 'on' : ''}">A3 Weekly Report</a><a href="#/kpi/${snap?.id || 0}/database" class="${view === 'database' ? 'on' : ''}">Database</a><a href="#/kpi/sources" title="Where the workbook, the source files and the forecasts are">Sources</a></div>
       <div class="spacer"></div>
-      ${settings.kpi_workbook_path ? '<button class="primary" data-kpi="load-path" title="Read the workbook from where it\'s saved">📥 Load this week</button>' : ''}
+      <a class="button primary" href="#/kpi/prepare" title="Read the latest exports, fill in the week, build its A3 and save it — step by step">▶ Prepare this week</a>
+      ${settings.kpi_workbook_path ? '<button data-kpi="load-path" title="Read the workbook from where it\'s saved (Excel\'s own copy of the week)">📥 Load from Excel</button>' : ''}
       <label class="button" title="Choose a copy of the workbook">📂 Load file…<input type="file" accept=".xlsm,.xlsx" hidden id="kpi-file"></label>
       ${snap ? `<button data-kpi="save" ${settings.kpi_export_dir ? '' : 'disabled title="Set the export folder on Sources first"'}>💾 Save A3 to folder</button>
         <button data-kpi="download" title="Download the A3 (values only, charts as pictures)">⬇ A3</button>` : ''}
@@ -52,7 +54,8 @@ async function renderKpi(arg, tab) {
       ${view === 'a3' && kpiState.editing ? `<div class="kc-note kpi-edit-bar">✎ <b>Editing ${esc(snap.week)}</b> — click a text box to change it, a coloured figure to set it green, yellow or red, or a trend arrow to pick ▲ ▬ ▼ (each with its colour).
           Changes are kept with this week (also after 🔄 Rebuild) and go into the saved A3. <span class="kpi-ed-key">Changed by hand</span>
           ${snap.text_from ? `<button class="small" data-kpi="copy-text" title="Fill this week's text boxes with the text typed for ${esc(snap.text_from)}">⇩ Start from ${esc(snap.text_from)}'s text</button>` : ''}
-          ${Object.keys(snap.edits || {}).length ? '<button class="small link danger" data-kpi="reset-edits">Undo all changes</button>' : ''}</div>` : ''}
+          ${Object.keys(snap.edits || {}).length ? '<button class="small link danger" data-kpi="reset-edits">Undo all changes</button>' : ''}
+          <a class="button small" href="#/kpi/prepare/${esc(snap.week)}" title="Back to the week's steps">▶ Back to Prepare the week</a></div>` : ''}
       ${view === 'database' ? dbHtml : '<div class="kpi-sheet-wrap card" id="kpi-wrap"><div id="kpi-sizer"><div id="kpi-sheet"></div></div></div>'}`
     : view === 'database' ? dbHtml
     : `<div class="card lib-empty"><h2>Weekly KPIs from the CI workbook</h2>
@@ -954,4 +957,122 @@ function kpiNotices(snap) {
   }
   if (snap.exported_to) info.push(`A3 saved ${esc(fmtDateTime(snap.exported_at))} to <code>${esc(snap.exported_to)}</code>.`);
   return { info, actions };
+}
+
+// ---- ▶ Prepare this week: the weekly routine, step by step, without Excel ----------------------
+
+let kpiPrepRead = 0; // when this page last read the exports (it reads them once when opened)
+async function renderKpiPrepare(weekArg) {
+  const q = weekArg ? `?week=${encodeURIComponent(weekArg)}` : '';
+  // read the changed exports first (a few seconds at most), unless just done
+  if (Date.now() - kpiPrepRead > 5 * 60 * 1000) {
+    main().innerHTML = '<div class="card" style="margin-top:12px">⏳ Reading the latest source files…</div>';
+    try { kpiImportToast(await api.post('/kpi/calc/import', {}), true); } catch (err) { toast(err.message, 'error'); }
+    kpiPrepRead = Date.now();
+  }
+  const p = await api.get(`/kpi/prepare${q}`);
+  const w = p.week; const snap = p.snap; const f = p.figures || {}; const m = p.manual || {};
+  const ago = (t) => (t ? fmtDateTime(t) : '—');
+  const pill = (state, text) => `<span class="kp-pill kp-${state}">${state === 'done' ? '✔' : state === 'todo' ? '●' : state === 'warn' ? '⚠' : '·'} ${text}</span>`;
+  const step = (n, title, state, status, body, actions = '') => `<section class="card kp-step kp-${state}">
+      <div class="kp-head"><span class="kp-num">${n}</span><h3>${title}</h3>${pill(state, status)}</div>
+      ${body ? `<div class="kp-body">${body}</div>` : ''}${actions ? `<div class="kp-actions">${actions}</div>` : ''}</section>`;
+
+  // 1. source files
+  const bad = p.sources.filter((x) => !x.imported_at);
+  const newest = p.sources.map((x) => x.modified).filter(Boolean).sort().pop();
+  const fcBad = p.forecasts.filter((x) => x.path && !x.found);
+  const s1 = step(1, 'Latest source files', bad.length || fcBad.length ? 'warn' : 'done',
+    bad.length ? `${bad.length} not read` : fcBad.length ? 'a forecast file is missing' : `read ${ago(p.last_read)}`,
+    `<div class="small">${p.sources.map((x) => `<span class="kp-src ${x.imported_at ? '' : 'bad'}" title="${esc(x.file || x.default_file)}">${esc(x.label)} <span class="muted">${x.modified ? `saved ${esc(fmtDateTime(x.modified))}` : 'not read'}</span></span>`).join('')}</div>
+      ${newest ? `<div class="small muted">Newest export saved ${esc(fmtDateTime(newest))}.</div>` : ''}
+      ${fcBad.length ? `<div class="small" style="color:var(--danger)">⚠ Can't find ${fcBad.map((x) => esc(x.label)).join(' and ')} — the workbook's copy will be used.</div>` : ''}
+      ${p.otd.checks || p.otd.uncounted ? `<div class="small">⚠ OTD report: ${[p.otd.checks ? `${p.otd.checks} row${p.otd.checks === 1 ? '' : 's'} for ${esc(w)} dated in another week` : '', p.otd.uncounted ? `${p.otd.uncounted} row${p.otd.uncounted === 1 ? '' : 's'} without a usable week` : ''].filter(Boolean).join(' · ')} — <a href="#/kpi/sources">check on Sources</a></div>` : ''}`,
+    '<button data-kp="read">📥 Read changed files</button><a class="button" href="#/kpi/sources">Sources</a>');
+
+  // 2. typed in
+  const has = (k) => m[k] !== null && m[k] !== undefined;
+  const missing = [!has('hours') && 'working hours', !(has('contract') || has('temps')) && 'headcount', !(has('cc_critical') || has('cc_major') || has('cc_minor')) && 'complaints'].filter(Boolean);
+  const s2 = step(2, `Typed in for ${esc(w)}`, missing.length ? 'todo' : 'done', missing.length ? `${missing.join(', ')} to fill in` : 'filled in',
+    `<div class="kp-figs">
+      <div><span>Working hours</span><b>${has('hours') ? kpiFmt('hours', m.hours) : '—'}</b>${m.protime ? '<small>from Protime</small>' : ''}</div>
+      <div><span>Headcount</span><b>${has('contract') || has('temps') ? `${m.contract ?? 0} + ${m.temps ?? 0}` : '—'}</b><small>contract + temps</small></div>
+      <div><span>Complaints</span><b>${has('cc_critical') || has('cc_major') || has('cc_minor') ? `${m.cc_critical ?? 0} / ${m.cc_major ?? 0} / ${m.cc_minor ?? 0}` : '—'}</b><small>critical / major / minor</small></div></div>
+      ${missing.includes('complaints') ? '<div class="small muted">No complaints this week? Fill in 0 so it\'s clear they were checked.</div>' : ''}`,
+    `<button class="${missing.length ? 'primary' : ''}" data-kp="manual">✎ ${missing.length ? 'Fill in' : 'Change'}</button>`);
+
+  // 3. the week at a glance
+  const glance = [['Shipped', 'shipped_total', 'kU'], ['Persoed', 'perso_total', 'kU'], ['OTD SC', 'otd_sc'], ['Scrap rate', 'scrap_rate'], ['CPMS', 'cpms'], ['Productivity', 'productivity'], ['Headcount', 'hc']];
+  const s3 = step(3, `${esc(w)} at a glance`, 'info', 'from the source files',
+    `<div class="kp-figs">${glance.map(([l, k, u]) => `<div><span>${l}</span><b>${f[k] === null || f[k] === undefined || f[k] === '' ? '—' : kpiFmt(k, f[k])}</b>${u ? `<small>${u}</small>` : ''}</div>`).join('')}</div>`,
+    '<a class="button" href="#/kpi/0/database">Database</a>');
+
+  // 4. the A3
+  let s4;
+  if (!p.template) s4 = step(4, 'Build the A3', 'warn', 'needs the workbook once', '<div class="small">The A3 is built from the report workbook\'s layout and formulas. Load the workbook once (📥 Load from Excel, or Load file… on the A3 tab) — after that it isn\'t needed each week.</div>', '<a class="button" href="#/kpi">A3 tab</a>');
+  else if (!snap) s4 = step(4, 'Build the A3', 'todo', 'not built yet', `<div class="small muted">Takes a few seconds — the report's own formulas worked out on ${esc(w)}'s figures.</div>`, `<button class="primary" data-kp="build">▶ Build ${esc(w)}</button>`);
+  else if (snap.origin !== 'ci') s4 = step(4, 'Build the A3', 'done', 'loaded from Excel', `<div class="small">${esc(w)} is Excel's copy, loaded ${esc(ago(snap.loaded_at))}. Build it from the source files instead to stop relying on Excel's refresh.</div>`, `<a class="button" href="#/kpi/${snap.id}">Open the A3</a><button data-kp="build-replace">🔄 Build from sources instead</button>`);
+  else {
+    const actionFlags = snap.flags.filter((x) => x.part === 'forecast');
+    s4 = step(4, 'Build the A3', snap.stale ? 'todo' : actionFlags.length ? 'warn' : 'done', snap.stale ? 'out of date' : `built ${ago(snap.loaded_at)}`,
+      `${snap.stale ? `<div class="small">Figures have been read or typed in since it was built (${esc(ago(snap.loaded_at))}) — rebuild to bring them in.</div>` : ''}
+        ${actionFlags.map((x) => `<div class="small" style="color:var(--danger)">⚠ ${esc(x.text)}</div>`).join('')}
+        ${snap.errors.length ? `<div class="small">⚠ ${snap.errors.length} cell${snap.errors.length === 1 ? '' : 's'} came out as an error (shown blank).</div>` : ''}`,
+      `<a class="button" href="#/kpi/${snap.id}">Open the A3</a><button class="${snap.stale ? 'primary' : ''}" data-kp="build">🔄 Rebuild</button>`);
+  }
+
+  // 5. the text
+  const s5 = !snap ? step(5, 'Executive summary and comments', 'wait', 'after building', '') : snap.text_edited
+    ? step(5, 'Executive summary and comments', 'done', `${snap.text_edited} box${snap.text_edited === 1 ? '' : 'es'} written for ${esc(w)}`, '', `<button data-kp="edit">✎ Edit the A3</button>`)
+    : step(5, 'Executive summary and comments', 'todo', snap.origin === 'ci' ? `still ${esc(snap.template_week || 'the template')}'s text` : 'as in Excel',
+      `<div class="small muted">Click a text box on the A3 to change it; trend arrows and coloured figures can be adjusted there too.</div>`,
+      `<button class="primary" data-kp="edit">✎ Edit the A3</button>${snap.text_from ? `<button data-kp="copy-text">⇩ Start from ${esc(snap.text_from)}'s text</button>` : ''}`);
+
+  // 6. save
+  const s6 = !snap ? step(6, 'Save the A3', 'wait', 'after building', '')
+    : step(6, 'Save the A3', snap.saved_current ? 'done' : 'todo', snap.saved_current ? `saved ${ago(snap.exported_at)}` : snap.exported_at ? 'changed since it was saved' : 'not saved yet',
+      p.export_path ? `<div class="small">Saves as <code>${esc(p.export_path)}</code></div>` : '<div class="small">⚠ Set the A3 folder on <a href="#/kpi/sources">Sources</a> first.</div>',
+      `<button class="${snap.saved_current ? '' : 'primary'}" data-kp="save" ${p.export_path ? '' : 'disabled'}>💾 Save A3 to folder</button><button data-kp="download">⬇ Download</button>`);
+
+  main().innerHTML = `
+    <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 KPIs</h1>
+      <div class="seg"><a href="#/kpi">A3 Weekly Report</a><a href="#/kpi/0/database">Database</a><a href="#/kpi/sources">Sources</a></div>
+      <div class="spacer"></div>
+    </div>
+    <div class="kp-top"><h2>▶ Prepare the week</h2>
+      <select id="kp-week" title="Reporting week">${p.weeks.map((x) => `<option value="${esc(x.week)}" ${x.week === w ? 'selected' : ''}>${esc(x.week)} · ${esc(x.month)}${x.week === p.default_week ? ' — last finished week' : x.end && x.end >= p.today ? ' — this week, not finished' : ''}</option>`).join('')}</select>
+      <span class="small muted">From the source files to the saved A3, without Excel.</span></div>
+    <div class="kp-steps">${s1}${s2}${s3}${s4}${s5}${s6}</div>`;
+
+  $('#kp-week').addEventListener('change', (e) => { location.hash = `#/kpi/prepare/${e.target.value}`; });
+  main().onclick = async (e) => {
+    const b = e.target.closest('[data-kp]');
+    if (!b) return;
+    const what = b.dataset.kp;
+    const busy = (text) => { b.disabled = true; b.textContent = text; };
+    try {
+      if (what === 'read') { busy('⏳ Reading…'); kpiImportToast(await api.post('/kpi/calc/import', {})); kpiPrepRead = Date.now(); }
+      if (what === 'manual') { const calc = await api.get(`/kpi/calc?year=${2000 + Number(w.slice(1, 3))}`); kpiWeekForm(calc.weeks.find((x) => x.week === w) || { week: w, month: '' }); return; }
+      if (what === 'build' || what === 'build-replace') {
+        if (what === 'build-replace' && !confirm(`Replace Excel's copy of ${w} with an A3 built from the source files?`)) return;
+        busy('⏳ Building…');
+        const r = await api.post('/kpi/build', { week: w, replace: what === 'build-replace' });
+        toast(`${w} built from the source files`);
+        void r;
+      }
+      if (what === 'edit') { kpiState.editing = true; location.hash = `#/kpi/${snap.id}`; return; }
+      if (what === 'copy-text') { const r = await api.post(`/kpi/edits/${w}/copy`, { from: snap.text_from }); toast(`${r.copied} text box${r.copied === 1 ? '' : 'es'} filled from ${snap.text_from}`); }
+      if (what === 'save' || what === 'download') { const full = await api.get(`/kpi/snapshots/${snap.id}`); await kpiExport(full, what === 'save', b); if (what === 'download') return; }
+    } catch (err) { toast(err.message, 'error'); }
+    renderKpiPrepare(w);
+  };
+}
+
+// A short message about what reading the source files did.
+function kpiImportToast(res, quiet = false) {
+  const bad = res.filter((r) => r.status === 'error' || r.status === 'missing');
+  const done = res.filter((r) => r.status === 'imported');
+  if (bad.length) toast(bad.map((r) => `${r.source}: ${r.error || `can't find ${r.file}`}`).join(' · '), 'error');
+  else if (done.length) toast(`Read ${done.map((r) => `${r.source} (${r.rows.toLocaleString('en-GB')} rows)`).join(', ')}`);
+  else if (!quiet) toast('Nothing changed since the last read');
 }

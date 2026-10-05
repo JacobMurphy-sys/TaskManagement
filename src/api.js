@@ -1514,6 +1514,49 @@ function forecastFiles() {
   });
 }
 
+// ▶ Prepare this week: where each step stands for a week (by default the last one finished).
+router.get('/kpi/prepare', h((req, res) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const thisYear = new Date().getFullYear();
+  const list = [...(new Date().getMonth() === 0 ? kpiData.weeksOf(thisYear - 1).slice(-6) : []), ...kpiData.weeksOf(thisYear)]
+    .map((w) => ({ ...w, end: kpiData.weekEnd(w.week) }));
+  const done = list.filter((w) => w.end && w.end < today);
+  const fallback = done[done.length - 1]?.week || list[0]?.week;
+  let week = String(req.query.week || '').trim().toUpperCase() || fallback;
+  if (!kpiData.WEEK_RE.test(week)) week = fallback;
+  const year = 2000 + Number(week.slice(1, 3));
+  const vol = kpiData.weeklyVolumes(year);
+  const figures = vol.weeks.find((w) => w.week === week) || null;
+  const sources = kpiData.sourcesStatus();
+  const lastRead = sources.map((x) => x.imported_at).filter(Boolean).sort().pop() || null;
+  const manual = db.get('SELECT * FROM kpi_manual WHERE week = ?', [week]);
+  const r = db.get('SELECT * FROM kpi_snapshots WHERE week = ?', [week]);
+  let snap = null;
+  if (r) {
+    const model = JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8'));
+    const edits = kpiEdits(week);
+    const lastEdit = db.get('SELECT MAX(updated_at) AS t FROM kpi_edits WHERE week = ?', [week])?.t || null;
+    const textEdited = Object.values(edits).filter((e) => e.text !== null && !/^[▲▼▬]$/.test(e.text)).length;
+    const changed = [lastEdit, r.updated_at].filter(Boolean).sort().pop();
+    snap = {
+      ...kpiMeta(r), flags: model.flags || [], errors: model.errors || [], template_week: model.template_week || null,
+      // built before the latest figures were read or typed in
+      stale: r.origin === 'ci' && [lastRead, manual?.updated_at].some((t) => t && t > r.updated_at),
+      text_edited: textEdited, edits: Object.keys(edits).length,
+      text_from: textEdited ? null : db.get('SELECT week FROM kpi_edits WHERE text IS NOT NULL AND week < ? ORDER BY week DESC LIMIT 1', [week])?.week || null,
+      saved_current: !!r.exported_at && r.exported_at >= changed,
+    };
+  }
+  const target = kpi.exportTarget(getSettings(), week);
+  res.json({
+    week, today, default_week: fallback, weeks: list.filter((w) => !w.end || w.end <= today || w.week === week).slice(-12).reverse(),
+    figures, manual: manual ? { ...manual, protime: parseJson(manual.protime) } : null,
+    sources, forecasts: forecastStatus(), last_read: lastRead,
+    otd: { uncounted: vol.otd_uncounted.length, checks: vol.otd_checks.filter((c) => c.typed_week === week).length },
+    snap, template: hasTemplate(), export_path: target?.path || null,
+  });
+}));
+
 // The reporting weeks of a year, with the A3 each has (loaded from Excel or built here).
 // The workbook a week is built from: the last one loaded, or (loaded before templates were
 // kept) the one at the saved workbook path, which is then kept as the template.
