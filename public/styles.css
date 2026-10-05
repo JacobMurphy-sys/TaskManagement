@@ -915,11 +915,28 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .kpi-info > summary:hover, .kpi-info[open] > summary { background: var(--accent-soft); }
 .kpi-info-pop { position: absolute; z-index: 40; left: 0; top: 24px; width: min(520px, 80vw); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
   font-size: 12.5px; color: var(--text); box-shadow: 0 8px 24px rgba(0, 0, 0, .2); white-space: normal; }
-/* Database tab: the report's own tables */
 .kdb .kc-tabs { margin-bottom: 8px; }
-.kdb-group h3 { font-size: 14px; margin: 16px 0 8px; scroll-margin-top: 70px; }
+/* Database tab: the report's own tables, in the site's style */
+.kdb-group h3 { font-size: 15px; margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); scroll-margin-top: 70px; }
 .kdb-grid { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
-.kdb-table { border: 1px solid var(--border); border-radius: 8px; padding: 8px; max-width: 100%; background: #fff; color: #1d2330; }
+.kdb-grid.kdb-tight { gap: 16px; }
+.kdb-card { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--panel); max-width: 100%; margin-bottom: 12px; }
+.kdb-grid > .kdb-card { margin-bottom: 0; }
 .kdb-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
 .kdb-scroll { overflow-x: auto; max-width: 100%; }
-.kdb-scroll > div { position: relative; }
+.kdb-t { font-size: 12.5px; }
+.kdb-t th, .kdb-t td { padding: 3px 8px; white-space: nowrap; }
+.kdb-t td:first-child { color: var(--text); }
+.kdb-t .kdb-group-row td { background: var(--panel-2); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
+.kdb-t .kdb-now { background: var(--accent-soft); }
+.kdb-t .kdb-now-row td { background: var(--accent-soft); }
+.kdb-t .kdb-target-row td { color: var(--muted); }
+.kdb-ok { color: var(--ok); font-weight: 600; }
+.kdb-bad { color: var(--danger); font-weight: 600; }
+.kdb-warn { color: #d39b00; font-weight: 600; }
+.kdb-tiles { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.kdb-tile { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; min-width: 120px; background: var(--panel); }
+.kdb-tile-l { font-size: 11.5px; color: var(--muted); }
+.kdb-tile-v { font-size: 18px; font-weight: 700; }
+.kdb-tile-s { font-size: 11.5px; color: var(--muted); }
+.kdb-grid .kdb-t { width: auto; }

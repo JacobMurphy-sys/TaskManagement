@@ -628,45 +628,125 @@ async function kpiTablesClick(e, calc) {
 
 // ---- Database tab: the report's own tables (Database rows 1–57) for the week -------------------
 
-// Where each table sits on the Database sheet, grouped as the report uses them.
-const KPI_DB_TABLES = [
-  ['The week', [['Reporting week', 'A1:B4'], ['Targets', 'A8:B17'], ['This month, week by week', 'C1:J18']]],
-  ['Customers', [['Top 10 customers — month to date', 'L2:Q15'], ['Top 10 customers — year to date', 'S2:X15'], ['Top 5 scrap', 'Z2:AD10']]],
-  ['Forecast & budget', [['Forecast figures', 'A21:P24'], ['Budget figures', 'A26:P29'], ['Working days per month', 'A31:P31'], ['Year to date', 'R21:U26']]],
-  ['Trend arrows', [['PS — expected vs shipped and persoed', 'A33:K40'], ['ISI, PIN and total cards', 'M41:AL48']]],
-  ['Charts & quality', [['KPI chart data (last 5 weeks)', 'A42:I56'], ['Quality report tables', 'W20:AL35'], ['Monthly overview', 'K50:Y54']]],
-];
-const xlRange = (a1) => {
-  const [a, b] = a1.split(':').map((r) => { const m = r.match(/^([A-Z]+)(\d+)$/); return { col: [...m[1]].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0), row: Number(m[2]) }; });
-  return { top: a.row, left: a.col, bottom: b.row, right: b.col };
-};
-// A rectangle of a sheet view, as a view of its own.
-function subSheetView(m, r) {
-  const right = Math.min(r.right, m.cols.length); const bottom = Math.min(r.bottom, m.rows.length);
-  if (right < r.left || bottom < r.top) return null;
-  const x0 = m.x[r.left - 1]; const y0 = m.y[r.top - 1];
-  const cells = m.cells.filter((c) => c[0] >= r.top && c[0] <= bottom && c[1] >= r.left && c[1] <= right).map((c) => {
-    const n = [...c]; n[0] = c[0] - r.top + 1; n[1] = c[1] - r.left + 1; n[4] = Math.min(c[4], bottom - c[0] + 1); n[5] = Math.min(c[5], right - c[1] + 1); return n;
-  });
-  if (!cells.some((c) => c[2] !== '')) return null;
-  return { ...m, cols: m.cols.slice(r.left - 1, right), rows: m.rows.slice(r.top - 1, bottom), x: m.x.slice(r.left - 1, right + 1).map((v) => v - x0),
-    y: m.y.slice(r.top - 1, bottom + 1).map((v) => v - y0), cells, images: [], charts: [], showGrid: false };
-}
+// The report's own tables (the Database sheet's rows 1–57), drawn from their values. The
+// cell references are where the workbook keeps each figure.
+const KPI_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function kpiReportTablesHtml(snap) {
-  const m = snap.views.database;
-  if (!m) return '<p class="muted">This week has no Database sheet.</p>';
-  let n = 0;
-  const groups = KPI_DB_TABLES.map(([group, tables]) => {
-    const cards = tables.map(([title, a1]) => {
-      const v = subSheetView(m, xlRange(a1));
-      if (!v) return '';
-      const id = `kdb-t${n++}`;
-      return `<div class="kdb-table" id="${id}-card"><div class="kdb-title">${esc(title)} <span class="muted small">${esc(a1)}</span></div><div class="kdb-scroll"><div id="${id}">${sheetViewHtml(v, id)}</div></div></div>`;
-    }).join('');
-    return cards ? `<section class="kdb-group"><h3>${esc(group)}</h3><div class="kdb-grid">${cards}</div></section>` : '';
-  }).join('');
-  return `<p class="small muted">The report's own tables from the Database sheet (rows 1–57) for ${esc(snap.week)}, as they're worked out for the A3.
-      ${KPI_DB_TABLES.map(([g]) => `<a href="#" data-kdb-jump="${esc(g)}">${esc(g)}</a>`).join(' · ')}</p>${groups}`;
+  const V = snap.values || {};
+  const raw = (ref) => V[ref];
+  const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+  const fmt = (v, d = 1, kind = 'n') => {
+    if (!isNum(v)) return v === undefined || v === null || v === '' ? '<span class="muted">–</span>' : esc(String(v));
+    const n = kind === '%' ? v * 100 : v;
+    return `${n.toLocaleString('en-GB', { minimumFractionDigits: d, maximumFractionDigits: d })}${kind === '%' ? '%' : ''}`;
+  };
+  const col = (letters, add = 0) => { let n = [...letters].reduce((t, ch) => t * 26 + ch.charCodeAt(0) - 64, 0) + add; let out = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) out = String.fromCharCode(65 + ((n - 1) % 26)) + out; return out; };
+  const cols = (from, count) => Array.from({ length: count }, (_, i) => col(from, i));
+  const week = raw('B2'); const monthName = String(raw('A2') || '');
+  const monthIdx = KPI_MONTHS.findIndex((m) => monthName.slice(0, 3).toLowerCase() === m.toLowerCase());
+  const targets = { otd: raw('B9'), cpms: raw('B10'), scrap: raw('B11'), prod: raw('B12'), hc: raw('B13') };
+  // good / bad against a target (higher or lower is better)
+  const vs = (v, t, higher) => (!isNum(v) || !isNum(t) ? '' : (higher ? v >= t : v <= t) ? 'kdb-ok' : 'kdb-bad');
+  const sign = (v) => (!isNum(v) ? '' : v < 0 ? 'kdb-bad' : 'kdb-ok');
+  const arrow = (v) => { const t = String(v ?? '').trim(); return t === '▲' ? '<span class="kdb-ok">▲</span>' : t === '▼' ? '<span class="kdb-bad">▼</span>' : t === '▬' ? '<span class="kdb-warn">▬</span>' : esc(t); };
+  const tile = (label, value, cls = '', sub = '') => `<div class="kdb-tile"><div class="kdb-tile-l">${esc(label)}</div><div class="kdb-tile-v ${cls}">${value}</div>${sub ? `<div class="kdb-tile-s">${sub}</div>` : ''}</div>`;
+  const card = (title, body, note = '') => `<div class="kdb-card"><div class="kdb-title">${esc(title)}${note ? ` <span class="muted small">${note}</span>` : ''}</div>${body}</div>`;
+  const table = (head, rows, cls = '') => `<div class="kdb-scroll"><table class="log kdb-t ${cls}"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+
+  // ---- the week
+  const weekCols = cols('E', 5).filter((c) => raw(`${c}1`));
+  const wkHead = `<th></th>${weekCols.map((c) => `<th class="num${raw(`${c}1`) === week ? ' kdb-now' : ''}">${esc(raw(`${c}1`))}</th>`).join('')}<th class="num">${esc(monthName || 'Month')} total</th>`;
+  const ROWS = [
+    ['Perso (kU)', [[2, 'PS', 1], [3, 'ISI', 1], [4, 'PIN', 1]]],
+    ['Shipped (kU)', [[5, 'PS', 1], [6, 'ISI', 1], [7, 'PIN', 1]]],
+    ['OTD', [[8, 'Internal delays (kU)', 1], [9, 'External delays (kU)', 1], [10, 'OTD SC', 1, '%', (v) => vs(v, targets.otd, true)], [11, 'OTD Global', 1, '%', (v) => vs(v, targets.otd, true)]]],
+    ['Quality', [[12, 'Complaints', 0], [13, 'CPMS', 2, 'n', (v) => vs(v, targets.cpms, false)]]],
+    ['Scrap', [[14, 'Scrap (units)', 0], [15, 'Scrap rate', 2, '%', (v) => vs(v, targets.scrap, false)]]],
+    ['HR', [[16, 'Hours worked', 1], [17, 'Productivity', 1, 'n', (v) => vs(v, targets.prod, true)], [18, 'Headcount', 0]]],
+  ];
+  const wkBody = ROWS.map(([group, rows]) => `<tr class="kdb-group-row"><td colspan="${weekCols.length + 2}">${esc(group)}</td></tr>`
+    + rows.map(([r, label, d, kind = 'n', cls]) => `<tr><td>${esc(label)}</td>${[...weekCols, 'J'].map((c) => {
+      const v = raw(`${c}${r}`);
+      return `<td class="num${raw(`${c}1`) === week ? ' kdb-now' : ''} ${cls ? cls(v) : ''}">${fmt(v, c === 'J' && r === 18 ? 1 : d, kind)}</td>`;
+    }).join('')}</tr>`).join('')).join('');
+  const theWeek = `<div class="kdb-tiles">
+      ${tile('Reporting week', esc(week || '–'), '', esc(`${monthName} ${raw('B4') || ''}`))}
+      ${tile('Working days', fmt(raw('L5'), 0), '', `of ${fmt(raw('A4'), 0)} this month · ${fmt(raw('S5'), 0)} this year`)}
+      ${tile('OTD target', fmt(targets.otd, 1, '%'))}${tile('CPMS target', fmt(targets.cpms, 2))}${tile('Scrap rate target', fmt(targets.scrap, 2, '%'))}
+      ${tile('Productivity target', fmt(targets.prod, 0))}${tile('Headcount target', fmt(targets.hc, 0))}</div>
+    <div class="kdb-tiles">
+      ${tile('OTD SC — year to date', fmt(raw('U22'), 1, '%'), vs(raw('U22'), targets.otd, true))}${tile('OTD customer — year to date', fmt(raw('U23'), 1, '%'), vs(raw('U23'), targets.otd, true))}
+      ${tile('CPMS — year to date', fmt(raw('U24'), 2), vs(raw('U24'), targets.cpms, false))}${tile('Scrap rate — year to date', fmt(raw('U25'), 2, '%'), vs(raw('U25'), targets.scrap, false))}
+      ${tile('Productivity — year to date', fmt(raw('U26'), 1), vs(raw('U26'), targets.prod, true))}</div>
+    ${card('This month, week by week', table(wkHead, wkBody, 'kdb-weeks'), 'green / red: against the targets')}`;
+
+  // ---- customers
+  const top = (title, c, days) => {
+    const [name, , fc, act, pc, miss] = cols(c, 6);
+    const rows = Array.from({ length: 10 }, (_, i) => 6 + i).filter((r) => raw(`${name}${r}`)).map((r) => `<tr><td>${esc(raw(`${name}${r}`))}</td>
+      <td class="num">${fmt(raw(`${fc}${r}`), 0)}</td><td class="num">${fmt(raw(`${act}${r}`), 0)}</td>
+      <td class="num ${sign(raw(`${miss}${r}`))}">${isNum(raw(`${pc}${r}`)) ? fmt(raw(`${pc}${r}`) / 100, 1, '%') : fmt(raw(`${pc}${r}`))}</td>
+      <td class="num ${sign(raw(`${miss}${r}`))}">${fmt(raw(`${miss}${r}`), 1)}</td></tr>`).join('');
+    return card(title, table('<th>Customer</th><th class="num">Forecast</th><th class="num">Actual</th><th class="num">% of forecast</th><th class="num">Missing (kU)</th>', rows),
+      `${fmt(raw(days), 0)} working days so far · missing = behind (red) or ahead (green) of the forecast at this pace`);
+  };
+  const scrapRows = (a, b) => Array.from({ length: 5 }, (_, i) => 6 + i).filter((r) => raw(`${a}${r}`)).map((r) => `<tr><td>${esc(raw(`${a}${r}`))}</td><td class="num">${fmt(raw(`${b}${r}`), 0)}</td></tr>`).join('');
+  const customers = `<div class="kdb-grid">${top('Top 10 customers — month to date', 'L', 'L5')}${top('Top 10 customers — year to date', 'S', 'S5')}</div>
+    <div class="kdb-grid">${card(`Top 5 scrap — ${week || 'this week'}`, `<div class="kdb-grid kdb-tight">${table('<th>Customer</th><th class="num">Scrap</th>', scrapRows('Z', 'AA'))}${table('<th>Work order</th><th class="num">Scrap</th>', scrapRows('AC', 'AD'))}</div>`)}</div>`;
+
+  // ---- forecast & budget, by month
+  const mCols = cols('E', 12);
+  const monthHead = `<th></th>${KPI_MONTHS.map((m, i) => `<th class="num${i === monthIdx ? ' kdb-now' : ''}">${m}</th>`).join('')}<th class="num">Year</th>`;
+  const mRow = (label, r, d = 1) => {
+    const vals = mCols.map((c) => raw(`${c}${r}`));
+    const sum = vals.filter(isNum).reduce((t, v) => t + v, 0);
+    return `<tr><td>${esc(label)}</td>${vals.map((v, i) => `<td class="num${i === monthIdx ? ' kdb-now' : ''}">${fmt(v, d)}</td>`).join('')}<td class="num"><b>${fmt(sum, d)}</b></td></tr>`;
+  };
+  const fcBody = `<tr class="kdb-group-row"><td colspan="14">Forecast (kU)</td></tr>${mRow('PS', 22)}${mRow('ISI', 23)}${mRow('PIN', 24)}
+    <tr class="kdb-group-row"><td colspan="14">Budget (kU)</td></tr>${mRow('PS', 27)}${mRow('ISI', 28)}${mRow('PIN', 29)}
+    <tr class="kdb-group-row"><td colspan="14">Calendar</td></tr>${mRow('Working days', 31, 0)}`;
+  const forecast = card('Forecast, budget and working days by month', table(monthHead, fcBody, 'kdb-months'));
+
+  // ---- trend arrows: expected (forecast pace) vs shipped and persoed
+  const trend = (title, first, rows, daily, mtd) => {
+    const [wk, exp, sh, shd, sha, pe, ped, pea] = cols(first, 8);
+    const line = (r, label) => `<tr${raw(`${wk}${r}`) === week ? ' class="kdb-now-row"' : ''}><td>${esc(label ?? raw(`${wk}${r}`) ?? '')}</td><td class="num">${fmt(raw(`${exp}${r}`), 1)}</td>
+      <td class="num">${fmt(raw(`${sh}${r}`), 1)}</td><td class="num">${fmt(raw(`${shd}${r}`), 0, '%')}</td><td>${arrow(raw(`${sha}${r}`))}</td>
+      <td class="num">${fmt(raw(`${pe}${r}`), 1)}</td><td class="num">${fmt(raw(`${ped}${r}`), 0, '%')}</td><td>${arrow(raw(`${pea}${r}`))}</td></tr>`;
+    const body = rows.filter((r) => raw(`${wk}${r}`)).map((r) => line(r)).join('') + line(mtd, 'Month to date');
+    return card(title, table('<th>Week</th><th class="num">Expected</th><th class="num">Shipped</th><th class="num">vs exp.</th><th></th><th class="num">Persoed</th><th class="num">vs exp.</th><th></th>', body),
+      isNum(raw(daily)) ? `expected ${fmt(raw(daily), 1)} kU a working day` : '');
+  };
+  const trends = `<div class="kdb-grid">${trend('PS', 'D', [34, 35, 36, 37, 38], 'E39', 40)}${trend('ISI', 'M', [42, 43, 44, 45, 46], 'N47', 48)}
+    ${trend('PIN', 'V', [42, 43, 44, 45, 46], 'W47', 48)}${trend('Total cards', 'AE', [42, 43, 44, 45, 46], 'AF47', 48)}</div>`;
+
+  // ---- quality and KPI history
+  const qCols = cols('Z', 12);
+  const qRow = (label, r, d, kind, ytdRef, cls) => `<tr><td>${esc(label)}</td>${qCols.map((c, i) => {
+    const v = raw(`${c}${r}`);
+    return `<td class="num${i === monthIdx ? ' kdb-now' : ''} ${i > monthIdx ? '' : cls ? cls(v) : ''}">${i > monthIdx && monthIdx >= 0 ? '<span class="muted">–</span>' : fmt(v, d, kind)}</td>`;
+  }).join('')}<td class="num"><b>${fmt(raw(ytdRef), d, kind)}</b></td></tr>`;
+  const qBody = `<tr class="kdb-group-row"><td colspan="14">Quality</td></tr>${qRow('CPMS', 22, 2, 'n', 'AL24', (v) => vs(v, targets.cpms, false))}${qRow('Complaints', 23, 0, 'n', 'AL23')}
+    <tr class="kdb-group-row"><td colspan="14">On-time delivery</td></tr>${qRow('OTD SC', 28, 1, '%', 'AL30', (v) => vs(v, targets.otd, true))}${qRow('OTD customer', 29, 1, '%', 'AL31', (v) => vs(v, targets.otd, true))}
+    ${qRow('Internal delays (kU)', 33, 1, 'n', 'AL33')}${qRow('External delays (kU)', 34, 1, 'n', 'AL34')}${qRow('Total delays (kU)', 35, 1, 'n', 'AL35')}`;
+  const quality = card('Quality and delivery by month', table(monthHead.replace('>Year<', '>Year to date<'), qBody, 'kdb-months'));
+  const oCols = cols('M', 12);
+  const oRow = (label, r, d) => `<tr><td>${esc(label)}</td>${oCols.map((c, i) => `<td class="num${i === monthIdx ? ' kdb-now' : ''}">${monthIdx >= 0 && i > monthIdx ? '<span class="muted">–</span>' : fmt(raw(`${c}${r}`), d)}</td>`).join('')}<td class="num"><b>${fmt(raw(`Y${r}`), d)}</b></td></tr>`;
+  const overview = card('Monthly overview', table(monthHead, `${oRow('Shipped (kU)', 51, 1)}${oRow('Persoed (kU)', 52, 1)}${oRow('Remakes (units)', 53, 0)}${oRow('Hours', 54, 1)}`, 'kdb-months'));
+  const gCols = cols('E', 5).filter((c) => raw(`${c}42`));
+  const G = [['OTD SC', 43, 1, '%', (v) => vs(v, targets.otd, true)], ['OTD target', 44, 1, '%'], ['Complaints — minor', 45, 0], ['Complaints — major', 46, 0], ['Complaints — critical', 47, 0],
+    ['CPMS', 48, 2, 'n', (v) => vs(v, targets.cpms, false)], ['CPMS target', 49, 2], ['Scrap rate', 50, 2, '%', (v) => vs(v, targets.scrap, false)], ['Scrap target', 51, 2, '%'],
+    ['Productivity', 52, 1, 'n', (v) => vs(v, targets.prod, true)], ['Productivity target', 53, 0], ['Contract', 54, 0], ['Temps', 55, 0], ['HC target', 56, 0]];
+  const graphs = card('KPI chart data — the last 5 weeks on the A3 charts', table(`<th></th>${gCols.map((c) => `<th class="num${raw(`${c}42`) === week ? ' kdb-now' : ''}">${esc(raw(`${c}42`))}</th>`).join('')}`,
+    G.map(([label, r, d, kind = 'n', cls]) => `<tr${/target/i.test(label) ? ' class="kdb-target-row"' : ''}><td>${esc(label)}</td>${gCols.map((c) => { const v = raw(`${c}${r}`); return `<td class="num${raw(`${c}42`) === week ? ' kdb-now' : ''} ${cls ? cls(v) : ''}">${fmt(v, d, kind)}</td>`; }).join('')}</tr>`).join('')));
+
+  const groups = [
+    ['The week', theWeek], ['Customers', customers], ['Forecast & budget', forecast], ['Trend arrows', trends],
+    ['Quality & history', `${quality}${overview}<div class="kdb-grid">${graphs}</div>`],
+  ];
+  return `<p class="small muted">The figures behind ${esc(snap.week)}'s A3 — the report's own tables on the Database sheet (rows 1–57). Jump to:
+      ${groups.map(([g]) => `<a href="#" data-kdb-jump="${esc(g)}">${esc(g)}</a>`).join(' · ')}</p>
+    ${groups.map(([g, html]) => `<section class="kdb-group"><h3>${esc(g)}</h3>${html}</section>`).join('')}`;
 }
 
 // A week's typed-in figures: HR from Protime and complaints.
