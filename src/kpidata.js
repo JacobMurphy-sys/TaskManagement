@@ -35,6 +35,12 @@ const SOURCES = {
     columns: { customer: 'Customer', qty: 'Quantity', type: 'Type', day: 'Date', week: 'Week', month: 'Month', reason: 'Reason' },
   },
 };
+// Customer forecasts: read when an A3 is built, into the workbook sheet its query fills
+// (the file's sheet, first row as headers, into the Excel table of that name).
+const FORECASTS = {
+  benelux: { label: 'BeNeLux forecast', file: 'Benelux Forecast.xlsx', sheet: 'LIVE_EU_PAY_CARDS', table: 'ForecastImport', workbook: 'BeNeLux Forecast' },
+  amex: { label: 'Amex forecast', file: 'Amex Forecast.xlsx', sheet: 'Sittard', table: 'Sittard', workbook: 'Amex Forecast' },
+};
 const WEEK_RE = /^W\d{4}(_[12])?$/i;
 
 const TABLES = `
@@ -413,4 +419,4 @@ const MANUAL_FIELDS = ['hours', 'contract', 'temps', 'cc_critical', 'cc_major', 
 // × 7.5 h per shift, plus 37.5 h — as the workbook's instructions do it.
 const hoursFromProtime = (days) => { const n = days.map(Number).filter((v) => Number.isFinite(v)); return n.length ? Math.round((n.reduce((a, b) => a + b, 0) * 7.5 + 37.5) * 100) / 100 : null; };
 
-module.exports = { SOURCES, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, typedWeekCode, monthIndex, otdRows, topScrap, shippedFor, weekEnd, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };
+module.exports = { SOURCES, FORECASTS, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, typedWeekCode, monthIndex, otdRows, topScrap, shippedFor, weekEnd, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };

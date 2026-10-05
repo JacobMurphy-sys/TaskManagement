@@ -4,7 +4,7 @@
 // format colours, charts) and a disconnected copy of the A3 — values only, colours
 // fixed, charts as pictures, no formulas, links, queries or macros.
 
-const { readBook, decode, attr, colLetters, parseRef, items, section, resolvePart, relsPathOf } = require('./xlsxread');
+const { readBook, decode, attr, colLetters, colNum, parseRef, items, section, resolvePart, relsPathOf, shiftFormula } = require('./xlsxread');
 const { conditionalStyles, isErr } = require('./xlformula');
 const { formatValue } = require('./numfmt');
 const { zip, readZip, xmlEsc } = require('./xlsx');
@@ -269,6 +269,62 @@ function makeStyleBaker(stylesXml, book) {
   };
 }
 
+// What can be changed by hand on the A3, per cell shown: 't' typed text (no formula), and
+// for a cell with conditional formats 'f' its text colour or 'b' its fill — e.g. { Z13: 't', E7: 'f' }.
+function editKinds(book, sheet, view) {
+  const mode = new Map();
+  const R = view.rows.length; const C = view.cols.length;
+  for (const rule of sheet.cf || []) {
+    const dxf = rule.dxfId !== null && rule.dxfId !== undefined ? book.styles.dxfs[rule.dxfId] : null;
+    const fill = dxf ? !!dxf.fill?.color : /<fill\b[\s\S]*?Color\b/.test(rule.dxfXml || '');
+    const font = dxf ? !!dxf.font?.color : /<font\b[\s\S]*?<color\b/.test(rule.dxfXml || '');
+    if (!fill && !font) continue;
+    for (const r of rule.ranges) {
+      for (let row = r.top; row <= Math.min(r.bottom, R); row++) for (let col = r.left; col <= Math.min(r.right, C); col++) {
+        const ref = `${colLetters(col)}${row}`;
+        if (font || mode.get(ref) === 'f') mode.set(ref, 'f'); else mode.set(ref, 'b');
+      }
+    }
+  }
+  const out = {};
+  for (const [row, col] of view.cells) {
+    const ref = `${colLetters(col)}${row}`;
+    const c = sheet.cells.get(ref);
+    const k = `${c?.f ? '' : 't'}${mode.get(ref) || ''}`;
+    if (k) out[ref] = k;
+  }
+  return out;
+}
+
+// Hand-made changes written into the A3 file: { ref: { text, color } } — text replaces the
+// cell's value (a number stays a number), color its conditional-format colour (text or fill,
+// as kinds says).
+function applyEdits(pkg, edits, kinds = {}) {
+  const list = Object.entries(edits || {});
+  if (!list.length) return pkg;
+  const files = readZip(pkg);
+  const sPath = 'xl/worksheets/sheet1.xml';
+  const baker = makeStyleBaker(files['xl/styles.xml'].toString('utf8'));
+  let xml = files[sPath].toString('utf8');
+  for (const [ref, e] of list) {
+    const re = new RegExp(`<c\\b(?=[^>]*\\sr="${ref}")([^>]*?)(?:/>|>([\\s\\S]*?)</c>)`);
+    xml = xml.replace(re, (whole, attrs, body) => {
+      let s = Number(attr(`<c${attrs}>`, 's') || 0);
+      if (e.color) s = baker.bake(s, (kinds[ref] || '').includes('b') ? { fill: { color: e.color } } : { font: { color: e.color } });
+      const sAttr = s ? ` s="${s}"` : '';
+      if (e.text === null || e.text === undefined) return whole.replace(/\ss="\d+"/, '').replace(/^(<c\b[^>]*?\sr="[^"]*")/, `$1${sAttr}`);
+      const wasNumber = body !== undefined && !/\bt="/.test(attrs) && /<v>/.test(body);
+      const n = Number(String(e.text).trim());
+      if (e.text === '') return `<c r="${ref}"${sAttr}/>`;
+      if (wasNumber && String(e.text).trim() !== '' && Number.isFinite(n)) return `<c r="${ref}"${sAttr}><v>${n}</v></c>`;
+      return `<c r="${ref}"${sAttr} t="inlineStr"><is><t xml:space="preserve">${xmlEsc(String(e.text))}</t></is></c>`;
+    });
+  }
+  files[sPath] = Buffer.from(xml, 'utf8');
+  files['xl/styles.xml'] = Buffer.from(baker.xml, 'utf8');
+  return zip(files);
+}
+
 // A workbook with only the A3: values instead of formulas, conditional format colours
 // written in as plain formats, pictures kept and each chart a placeholder that
 // exportA3() swaps for a picture of it.
@@ -409,6 +465,7 @@ function loadWeek(buf, { a3Sheet = 'A3 Weekly Report', dbSheet = 'Database', wee
   if (!week) throw new Error(`No reporting week found (${dbSheet}!${weekCell} is empty)`);
   const a3cf = conditionalStyles(book, a3);
   const views = { a3: sheetView(book, a3, a3cf) };
+  views.a3.edit = editKinds(book, a3, views.a3);
   if (dbs) views.database = sheetView(book, dbs, conditionalStyles(book, dbs));
   // Raw values of the Database sheet, to check the CI Manager's own figures against.
   const values = dbs ? Object.fromEntries([...dbs.cells.values()].filter((c) => c.v !== null && c.v !== '' && c.t !== 'e').map((c) => [c.r, c.v])) : {};
@@ -420,6 +477,78 @@ function loadWeek(buf, { a3Sheet = 'A3 Weekly Report', dbSheet = 'Database', wee
     month: typeof cell(dbs, 'A2') === 'string' ? cell(dbs, 'A2') : null, views, values, pkg,
     sheets: { a3: a3Info.name, database: dbInfo?.name || null }, errors,
   };
+}
+
+// ---- forecast files ---------------------------------------------------------------------------
+
+// A forecast sheet as the workbook's query would leave it after a refresh from `buf`: the
+// file's sheet (from its first filled cell), first row as headers — a blank one is
+// "ColumnN", a date reads dd/mm/yyyy, as Power Query writes them — put where the workbook's
+// table starts. The table's own formula columns (e.g. the customer and month the report
+// groups by) are carried down every row; the rest of the workbook's sheet (the formulas
+// beside or under the table) is kept.
+function forecastSheet(tpl, table, buf, spec) {
+  const fb = readBook(buf);
+  const info = fb.sheets.find((x) => x.name.toLowerCase() === spec.sheet.toLowerCase());
+  if (!info) throw new Error(`${spec.file} has no sheet called "${spec.sheet}" (it has ${fb.sheets.map((x) => x.name).join(', ')})`);
+  const src = fb.sheet(info.name);
+  const filled = (v) => v !== null && v !== undefined && v !== '';
+  let top = Infinity; let left = Infinity; let right = 0; let bottom = 0;
+  for (const c of src.cells.values()) if (filled(c.v)) { top = Math.min(top, c.row); left = Math.min(left, c.col); right = Math.max(right, c.col); bottom = Math.max(bottom, c.row); }
+  if (top === Infinity) throw new Error(`The "${info.name}" sheet of ${spec.file} is empty`);
+  const T = table.range;
+  const width = right - left + 1; const height = bottom - top + 1;
+  const cells = new Map();
+  const put = (row, col, v, extra = {}) => { const r = `${colLetters(col)}${row}`; cells.set(r, { r, row, col, s: 0, t: typeof v === 'string' ? 's' : typeof v === 'boolean' ? 'b' : 'n', v, f: null, ...extra }); };
+  const ddmmyyyy = (n) => { const d = new Date(Math.round((n - 25569) * 86400000)); const p2 = (x) => String(x).padStart(2, '0'); return `${p2(d.getUTCDate())}/${p2(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`; };
+  const headers = [];
+  for (let k = 0; k < width; k++) {
+    const v = src.cells.get(`${colLetters(left + k)}${top}`)?.v;
+    const h = !filled(v) ? `Column${k + 1}` : typeof v === 'number' && v > 20000 && v < 80000 ? ddmmyyyy(v) : String(v);
+    headers.push(h); put(T.top, T.left + k, h);
+  }
+  for (const c of src.cells.values()) {
+    if (c.row <= top || c.col < left || !filled(c.v)) continue;
+    put(T.top + c.row - top, T.left + c.col - left, c.v, c.t === 'e' ? { t: 'e' } : {});
+  }
+  const dataBottom = T.top + height - 1;
+  // the table's formula columns, past the file's own columns
+  const colOf = new Map(headers.map((h, k) => [h.toLowerCase(), T.left + k]));
+  let next = T.left + width;
+  for (let col = T.left; col <= T.right; col++) {
+    const first = tpl.cells.get(`${colLetters(col)}${T.top + 1}`);
+    if (!first?.f || col < T.left + width) continue;
+    const head = tpl.cells.get(`${colLetters(col)}${T.top}`)?.v ?? `Column${col - T.left + 1}`;
+    const at = next++;
+    put(T.top, at, head);
+    colOf.set(String(head).toLowerCase(), at);
+    // a plain reference to another table column in the same row follows that column (by its header)
+    const tplHead = (k) => tpl.cells.get(`${colLetters(k)}${T.top}`)?.v;
+    const moved = first.f.replace(/("(?:[^"]|"")*")|((?:'(?:[^']|'')+'|[A-Za-z_][\w.]*)!)?(\$?)([A-Z]{1,3})(\$?)(\d+)(?![\w(])/g, (m, str, sheet, d1, letters, d2, rowNo, offset, whole) => {
+      if (str || sheet || Number(rowNo) !== T.top + 1 || /[\w.]/.test(whole[offset - 1] || '')) return m;
+      const k = colNum(letters); if (k < T.left || k > T.right) return m;
+      const c = colOf.get(String(tplHead(k) ?? '').toLowerCase());
+      return c ? `${d1}${colLetters(c)}${d2}${rowNo}` : m;
+    });
+    // Table[[#This Row],[Name]] / [@Name] → the cell in that row (written for the first data row)
+    const f0 = moved.replace(/(?:[A-Za-z_][\w.]*)?\[\[#This Row\],\[([^\]]+)\]\]|(?:[A-Za-z_][\w.]*)?\[@\[?([^\]]+?)\]?\]/g, (m, a, b) => {
+      const c = colOf.get(String(a || b).trim().toLowerCase());
+      if (!c) throw new Error(`The ${spec.workbook} formula column "${head}" uses "${a || b}", which isn't a column of ${spec.file}`);
+      return `${colLetters(c)}${T.top + 1}`;
+    });
+    for (let row = T.top + 1; row <= dataBottom; row++) put(row, at, null, { f: shiftFormula(f0, row - T.top - 1, 0), v: null });
+  }
+  const tableRight = next - 1;
+  // the rest of the workbook's sheet (formulas beside or under the table)
+  let overlap = 0;
+  for (const c of tpl.cells.values()) {
+    if (c.row >= T.top && c.row <= T.bottom && c.col >= T.left && c.col <= T.right) continue;
+    if (c.row >= T.top && c.row <= dataBottom && c.col >= T.left && c.col <= tableRight) { overlap++; continue; }
+    cells.set(c.r, c);
+  }
+  let maxRow = 0; let maxCol = 0;
+  for (const c of cells.values()) { if (c.row > maxRow) maxRow = c.row; if (c.col > maxCol) maxCol = c.col; }
+  return { name: tpl.name, cells, maxRow, maxCol, rows: new Map(), cols: [], merges: [], recalc: true, read: { rows: height - 1, columns: width, overlap } };
 }
 
 // ---- the A3 for any week, worked out by the CI Manager -----------------------------------
@@ -438,7 +567,11 @@ function buildWeek(buf, week, data, { a3Sheet = 'A3 Weekly Report', dbSheet = 'D
   if (!a3Info || !dbInfo) throw new Error(`The workbook needs the "${a3Sheet}" and "${dbSheet}" sheets`);
   const a3 = book.sheet(a3Info.name); const dbs = book.sheet(dbInfo.name);
   const sheets = { [a3Info.name]: Object.assign(a3, { name: a3Info.name }), [dbInfo.name]: Object.assign(dbs, { name: dbInfo.name }) };
-  for (const n of ['DatabaseReferences']) { const i = findSheet(n); if (i) sheets[i.name] = Object.assign(book.sheet(i.name), { name: i.name }); }
+  for (const n of ['DatabaseReferences', 'BeNeLux Forecast', 'Amex Forecast']) {
+    const i = findSheet(n);
+    // a forecast read from its file replaces the workbook's copy: read that copy only when needed
+    if (i) Object.defineProperty(sheets, i.name, { enumerable: true, configurable: true, get: () => { const sh = Object.assign(book.sheet(i.name), { name: i.name }); Object.defineProperty(sheets, i.name, { value: sh, enumerable: true, writable: true, configurable: true }); return sh; } });
+  }
   const templateWeek = String(dbs.cells.get(weekCell)?.v ?? '');
   const templateMonth = String(dbs.cells.get('A2')?.v ?? '');
   const parts = weekParts(week);
@@ -447,6 +580,25 @@ function buildWeek(buf, week, data, { a3Sheet = 'A3 Weekly Report', dbSheet = 'D
   const monthNo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].findIndex((m) => weekRow.month.startsWith(m)) + 1;
   const sameMonth = templateMonth.slice(0, 3).toLowerCase() === weekRow.month.slice(0, 3).toLowerCase() && templateWeek.slice(0, 3) === week.slice(0, 3);
   const flags = [];
+  // customer forecasts: from their files when set (data.forecasts: [{ spec, buf, file, modified }]),
+  // else the workbook's own copy, as Excel last refreshed it
+  const fcSheets = [];
+  for (const f of data.forecasts || []) {
+    const info = findSheet(f.spec.workbook);
+    if (!info) continue;
+    fcSheets.push(info.name);
+    if (!f.buf) { if (f.error) flags.push({ part: 'forecast', text: `${f.spec.label}: ${f.error} — the workbook's copy is used.` }); continue; }
+    try {
+      const table = book.tables().find((t) => t.name.toLowerCase() === f.spec.table.toLowerCase() && t.sheet.toLowerCase() === info.name.toLowerCase());
+      if (!table) throw new Error(`the workbook has no "${f.spec.table}" table on its ${info.name} sheet to put it in`);
+      const R = table.range; // the table's own rows aren't needed from the workbook, only its first (the formulas)
+      const tpl = Object.assign(book.sheet(info.name, { skipRows: (n) => n > R.top + 1 && n <= R.bottom }), { name: info.name });
+      Object.defineProperty(sheets, info.name, { value: forecastSheet(tpl, table, f.buf, f.spec), enumerable: true, writable: true, configurable: true });
+      flags.push({ part: 'forecast-file', text: `${f.spec.label} read from ${f.file}${f.modified ? ` (saved ${String(f.modified).slice(0, 16).replace('T', ' ')})` : ''}.` });
+    } catch (err) { flags.push({ part: 'forecast', text: `${f.spec.label} couldn't be read from ${f.file}: ${err.message} — the workbook's copy is used.` }); }
+  }
+  const fcFromWorkbook = fcSheets.filter((n) => !sheets[n].recalc);
+  if (fcFromWorkbook.length) flags.push({ part: 'forecast-workbook', text: `Customer forecasts (${fcFromWorkbook.join(', ')}) are the workbook's copy, as Excel last refreshed them — set the forecast files on From sources to read them directly.` });
   const over = new Map();
   const put = (ref, v) => over.set(`${dbInfo.name}!${ref}`, v);
   put(weekCell, week);
@@ -477,12 +629,12 @@ function buildWeek(buf, week, data, { a3Sheet = 'A3 Weekly Report', dbSheet = 'D
     if (oName) put(`O${r}`, data.shippedFor(oName, parts.year, monthNo, until));
     const vName = v?.f?.match(/\[Customer\],"([^"]+)"/)?.[1];
     if (vName) put(`V${r}`, data.shippedFor(vName, parts.year, null, until));
-    if (nC?.f && /Forecast/i.test(nC.f) && !sameMonth) { noForecast = true; put(`N${r}`, ''); put(`P${r}`, ''); put(`Q${r}`, ''); } // no forecast for that month yet
+    if (nC?.f && /Forecast/i.test(nC.f) && !sameMonth && !Object.keys(sheets).some((n) => /forecast/i.test(n))) { noForecast = true; put(`N${r}`, ''); put(`P${r}`, ''); put(`Q${r}`, ''); } // no forecast for that month yet
   }
   if (noForecast) flags.push({ part: 'forecast', text: `The top-10 “% of FC” and “Missing” MTD figures need ${weekRow.month}'s forecast per customer, which only comes from Excel for now (the workbook was on ${templateMonth}) — they're left blank.` });
-  if (week !== templateWeek) flags.push({ part: 'text', text: `The executive summary, comments and other typed text are the workbook's, from ${templateWeek || 'its week'}.` });
+  if (week !== templateWeek) flags.push({ part: 'text', text: `The executive summary, comments and other typed text start as the workbook's, from ${templateWeek || 'its week'} — change them with ✎ Edit A3.` });
 
-  const calc = createCalc(sheets, { recalc: (n) => n === a3Info.name || n === dbInfo.name, override: (sh, ref) => over.get(`${sh}!${ref}`) });
+  const calc = createCalc(sheets, { recalc: (n) => n === a3Info.name || n === dbInfo.name || !!sheets[n]?.recalc, override: (sh, ref) => over.get(`${sh}!${ref}`) });
   const typeOf = (v) => (isErr(v) ? 'e' : typeof v === 'string' ? 's' : typeof v === 'boolean' ? 'b' : 'n');
   const errorsInA3 = [];
   const recomputed = (sh, name, isA3) => {
@@ -521,6 +673,7 @@ function buildWeek(buf, week, data, { a3Sheet = 'A3 Weekly Report', dbSheet = 'D
   };
   const a3cf = conditionalStyles(book2, a3New);
   const views = { a3: sheetView(book2, a3New, a3cf), database: sheetView(book2, dbNew, conditionalStyles(book2, dbNew)) };
+  views.a3.edit = editKinds(book2, a3New, views.a3);
   const values = Object.fromEntries([...dbNew.cells.values()].filter((c) => c.v !== null && c.v !== '' && c.t !== 'e').map((c) => [c.r, c.v]));
   const pkg = buildA3Package(book2, a3New, a3cf, { title: `A3 Weekly Report ${week}` });
   return {
@@ -535,4 +688,4 @@ function fillPattern(pattern, week) {
   return String(pattern || '').replace(/\{year\}/g, p.year).replace(/\{yy\}/g, p.yy).replace(/\{wk\}/g, p.wk).replace(/\{week\}/g, week).replace(/\{part\}/g, p.part);
 }
 
-module.exports = { loadWeek, buildWeek, sheetView, prepareChart, buildA3Package, exportA3, weekParts, fillPattern, colPx, isErr, decode, parseRef, section, resolvePart, relsPathOf };
+module.exports = { loadWeek, buildWeek, applyEdits, editKinds, forecastSheet, sheetView, prepareChart, buildA3Package, exportA3, weekParts, fillPattern, colPx, isErr, decode, parseRef, section, resolvePart, relsPathOf };

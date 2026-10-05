@@ -1317,7 +1317,67 @@ router.get('/kpi/snapshots', h((req, res) => {
 router.get('/kpi/snapshots/:id', h((req, res) => {
   const r = db.get('SELECT * FROM kpi_snapshots WHERE id = ?', [req.params.id]);
   if (!r) throw notFound('Week');
-  res.json({ ...kpiMeta(r), ...JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8')) });
+  const edits = kpiEdits(r.week);
+  // a week with no typed text of its own can start from the last earlier week that has some
+  const textFrom = Object.values(edits).some((e) => e.text !== null) ? null
+    : db.get("SELECT week FROM kpi_edits WHERE text IS NOT NULL AND week < ? ORDER BY week DESC LIMIT 1", [r.week])?.week || null;
+  res.json({ ...kpiMeta(r), ...JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8')), edits, text_from: textFrom });
+}));
+
+// ---- changes made by hand on a week's A3 (typed text, KPI colours) ----
+const KPI_COLORS = { green: '00B050', orange: 'FFC000', red: 'FF0000' };
+const kpiEdits = (week) => Object.fromEntries(db.all('SELECT ref, text, color FROM kpi_edits WHERE week = ? ORDER BY ref', [week]).map((e) => [e.ref.toUpperCase(), { text: e.text, color: e.color }]));
+function setKpiEdit(week, ref, f) {
+  const old = db.get('SELECT * FROM kpi_edits WHERE week = ? AND ref = ?', [week, ref]);
+  const next = { text: old?.text ?? null, color: old?.color ?? null, ...f };
+  if (next.text === null && next.color === null) { if (old) db.run('DELETE FROM kpi_edits WHERE id = ?', [old.id]); return; }
+  if (old) updateRow('kpi_edits', old.id, f); else insertRow('kpi_edits', { week, ref, ...next });
+}
+const editWeek = (raw) => {
+  const week = String(raw).trim().toUpperCase();
+  if (!kpiData.WEEK_RE.test(week)) throw new HttpError(400, 'Not a week code');
+  if (!db.get('SELECT id FROM kpi_snapshots WHERE week = ?', [week])) throw notFound('Week');
+  return week;
+};
+// { ref, text } changes a typed box (null puts the workbook's text back); { ref, color }
+// sets a KPI's colour: green, orange or red (null: as its conditional format gives).
+router.put('/kpi/edits/:week', h((req, res) => {
+  const week = editWeek(req.params.week);
+  const ref = String(req.body.ref || '').trim().toUpperCase();
+  if (!/^[A-Z]{1,3}[1-9]\d{0,5}$/.test(ref)) throw new HttpError(400, 'Not a cell reference');
+  const f = {};
+  if ('text' in req.body) {
+    if (req.body.text !== null && typeof req.body.text !== 'string') throw new HttpError(400, 'Text must be text');
+    if (req.body.text && req.body.text.length > 5000) throw new HttpError(400, 'That text is too long (5,000 characters at most)');
+    f.text = req.body.text === null ? null : req.body.text.replace(/\r\n?/g, '\n');
+  }
+  if ('color' in req.body) {
+    const c = req.body.color === null ? null : KPI_COLORS[String(req.body.color).toLowerCase()] || (Object.values(KPI_COLORS).includes(String(req.body.color).toUpperCase()) ? String(req.body.color).toUpperCase() : undefined);
+    if (c === undefined) throw new HttpError(400, 'Colour must be green, orange or red');
+    f.color = c;
+  }
+  if (!Object.keys(f).length) throw new HttpError(400, 'Nothing to change');
+  setKpiEdit(week, ref, f);
+  res.json(kpiEdits(week));
+}));
+// Puts the whole week back as it was worked out.
+router.delete('/kpi/edits/:week', h((req, res) => {
+  const week = editWeek(req.params.week);
+  for (const e of db.all('SELECT id FROM kpi_edits WHERE week = ?', [week])) db.run('DELETE FROM kpi_edits WHERE id = ?', [e.id]);
+  res.json({});
+}));
+// Starts a week's typed text from another week's (boxes this week hasn't changed yet).
+router.post('/kpi/edits/:week/copy', h((req, res) => {
+  const week = editWeek(req.params.week);
+  const from = String(req.body.from || '').trim().toUpperCase();
+  const mine = kpiEdits(week);
+  let n = 0;
+  for (const e of db.all('SELECT ref, text FROM kpi_edits WHERE week = ? AND text IS NOT NULL', [from])) {
+    const ref = e.ref.toUpperCase();
+    if (mine[ref]?.text !== null && mine[ref]?.text !== undefined) continue;
+    setKpiEdit(week, ref, { text: e.text }); n++;
+  }
+  res.json({ copied: n, edits: kpiEdits(week) });
 }));
 
 router.delete('/kpi/snapshots/:id', h((req, res) => {
@@ -1369,7 +1429,7 @@ function excelVolumes() {
 router.get('/kpi/calc', h((req, res) => {
   const year = Number(req.query.year) || new Date().getFullYear();
   const vol = kpiData.weeklyVolumes(year);
-  res.json({ year, ...vol, sources: kpiData.sourcesStatus(), excel: excelVolumes(), split_weekends: splitWeekends() });
+  res.json({ year, ...vol, sources: kpiData.sourcesStatus(), forecasts: forecastStatus(), excel: excelVolumes(), split_weekends: splitWeekends() });
 }));
 
 // Reads the source files that changed (all of them with force). Sources without a file of
@@ -1433,6 +1493,27 @@ router.post('/kpi/manual/from-excel', h((req, res) => {
   res.json({ weeks, fields });
 }));
 
+// The customer forecast files, as set (they're read when an A3 is built).
+const cleanPath = (p) => String(p || '').trim().replace(/^"|"$/g, '');
+function forecastStatus() {
+  const set = getSettings();
+  return Object.entries(kpiData.FORECASTS).map(([key, spec]) => {
+    const file = cleanPath(set[`kpi_fc_${key}`]);
+    let stat = null; try { stat = file ? fs.statSync(file) : null; } catch { /* not there */ }
+    return { key, label: spec.label, default_file: spec.file, sheet: spec.sheet, workbook_sheet: spec.workbook, path: file || null, found: !!stat, modified: stat ? stat.mtime.toISOString() : null };
+  });
+}
+function forecastFiles() {
+  const set = getSettings();
+  return Object.entries(kpiData.FORECASTS).map(([key, spec]) => {
+    const file = cleanPath(set[`kpi_fc_${key}`]);
+    if (!file) return { spec };
+    try { return { spec, file: path.basename(file), modified: fs.statSync(file).mtime.toISOString(), buf: fs.readFileSync(file) }; } catch (err) {
+      return { spec, file: path.basename(file), error: err.code === 'ENOENT' ? `can't find ${file}` : err.message };
+    }
+  });
+}
+
 // The reporting weeks of a year, with the A3 each has (loaded from Excel or built here).
 // The workbook a week is built from: the last one loaded, or (loaded before templates were
 // kept) the one at the saved workbook path, which is then kept as the template.
@@ -1472,6 +1553,7 @@ router.post('/kpi/build', h((req, res) => {
   try {
     w = kpi.buildWeek(template, week, {
       weeks: kpiData.weeklyVolumes(year).weeks, topScrap: kpiData.topScrap, shippedFor: kpiData.shippedFor, weekEnd: kpiData.weekEnd, columns: kpiData.DATABASE_COLUMNS,
+      forecasts: forecastFiles(),
     }, { a3Sheet: set.kpi_a3_sheet, dbSheet: set.kpi_db_sheet, weekCell: set.kpi_week_cell });
   } catch (err) { throw new HttpError(400, err.message); }
   const row = {
@@ -1508,7 +1590,13 @@ router.post('/kpi/snapshots/:id/export', h((req, res) => {
     const m = String(data || '').match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
     if (m) images[index] = Buffer.from(m[1], 'base64');
   }
-  const file = kpi.exportA3(Buffer.from(r.pkg, 'base64'), images);
+  const edits = kpiEdits(r.week);
+  let pkg = Buffer.from(r.pkg, 'base64');
+  if (Object.keys(edits).length) {
+    const model = JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8'));
+    pkg = kpi.applyEdits(pkg, edits, model.views?.a3?.edit || {});
+  }
+  const file = kpi.exportA3(pkg, images);
   const set = getSettings();
   const name = kpi.fillPattern(set.kpi_export_name || 'A3 {year} WK{wk}.xlsx', r.week).replace(/[\\/:*?"<>|]/g, '-');
   let savedTo = null;
@@ -1542,6 +1630,8 @@ const SETTING_DEFAULTS = {
   // The source files the KPIs are worked out from (blank: use the workbook's import sheets),
   // and whether weekend days in a week split across two months count in their month's part.
   kpi_src_perso: '', kpi_src_shipped: '', kpi_src_remakes: '', kpi_src_otd: '', kpi_split_weekends: '0',
+  // The customer forecast files (blank: the workbook's copy of them).
+  kpi_fc_benelux: '', kpi_fc_amex: '',
 };
 function getSettings() {
   const out = { ...SETTING_DEFAULTS };

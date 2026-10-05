@@ -249,12 +249,15 @@ function readBook(buf) {
   const parsed = new Map();
   const book = { zip: z, sheets, theme, styles, date1904, workbookXml: wbXml };
 
-  book.sheet = (name) => {
-    if (parsed.has(name)) return parsed.get(name);
+  // skipRows(n) → true leaves that row out (a big table that's about to be replaced is not read).
+  book.sheet = (name, { skipRows } = {}) => {
+    if (!skipRows && parsed.has(name)) return parsed.get(name);
     const info = sheets.find((s) => s.name === name);
     if (!info) return null;
-    const xml = z.text(info.file);
+    let xml = z.text(info.file);
+    if (skipRows) xml = xml.replace(/<row\b[^>]*?\br="(\d+)"[^>]*?(?:\/>|>[\s\S]*?<\/row>)/g, (m, n) => (skipRows(Number(n)) ? '' : m));
     const sheet = parseSheet(xml, sharedStrings);
+    if (skipRows) { sheet.name = name; sheet.file = info.file; return sheet; }
     sheet.name = name;
     sheet.file = info.file;
     sheet.xml = xml;

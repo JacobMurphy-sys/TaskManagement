@@ -36,8 +36,14 @@ async function renderKpi(arg, tab) {
         <button class="link small" data-kpi="rebuild" title="${snap.origin === 'ci' ? 'Build it again from the latest source figures' : 'Replace the Excel copy with the CI Manager\'s own figures for this week'}">🔄 ${snap.origin === 'ci' ? 'Rebuild' : 'Build from sources instead'}</button>
         ${snap.exported_to ? ` · A3 saved ${esc(fmtDateTime(snap.exported_at))} to <code>${esc(snap.exported_to)}</code>` : ''}
         ${snap.errors?.length ? ` · <span class="chip overdue" title="${esc(snap.errors.join('\n'))}">⚠ ${snap.errors.length} cell${snap.errors.length === 1 ? '' : 's'} with errors</span>` : ''}
-        <span class="spacer"></span><span class="kpi-zoom">🔍 <input type="range" id="kpi-zoom" min="25" max="150" step="5"> <button class="link small" data-kpi="fit">Fit</button></span>
+        <span class="spacer"></span>
+        ${view === 'a3' ? `<button class="${kpiState.editing ? 'primary' : ''} small" data-kpi="edit" ${snap.views.a3.edit ? '' : 'disabled title="Load this week again (📥) to edit it — it was loaded before editing was possible"'}>✎ ${kpiState.editing ? 'Done editing' : 'Edit A3'}${Object.keys(snap.edits || {}).length ? ` <span class="chip">${Object.keys(snap.edits).length}</span>` : ''}</button>` : ''}
+        <span class="kpi-zoom">🔍 <input type="range" id="kpi-zoom" min="25" max="150" step="5"> <button class="link small" data-kpi="fit">Fit</button></span>
         <button class="link small danger" data-kpi="delete" title="Remove this week from the CI Manager">Remove week</button></div>
+      ${view === 'a3' && kpiState.editing ? `<div class="kc-note kpi-edit-bar">✎ <b>Editing ${esc(snap.week)}</b> — click a text box to change it, or a coloured figure to set it green, orange or red.
+          Changes are kept with this week (also after 🔄 Rebuild) and go into the saved A3. <span class="kpi-ed-key">Changed by hand</span>
+          ${snap.text_from ? `<button class="small" data-kpi="copy-text" title="Fill this week's text boxes with the text typed for ${esc(snap.text_from)}">⇩ Start from ${esc(snap.text_from)}'s text</button>` : ''}
+          ${Object.keys(snap.edits || {}).length ? '<button class="small link danger" data-kpi="reset-edits">Undo all changes</button>' : ''}</div>` : ''}
       <div class="kpi-sheet-wrap card" id="kpi-wrap"><div id="kpi-sheet"></div></div>`
     : `<div class="card lib-empty"><h2>Weekly KPIs from the CI workbook</h2>
         <p>Load the workbook after refreshing it and choosing the reporting week. The CI Manager keeps a copy of that week's
@@ -65,6 +71,16 @@ async function renderKpi(arg, tab) {
     if (what === 'load-path') return kpiLoad(() => fetch('/api/kpi/load-path', { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } }), b);
     if (what === 'fit') { kpiState.zoom = null; store.set('kpiZoom', null); applyZoom(); return; }
     if (!snap) return;
+    if (what === 'edit') { kpiState.editing = !kpiState.editing; await route(); return; }
+    if (what === 'copy-text') {
+      try { const r = await api.post(`/kpi/edits/${snap.week}/copy`, { from: snap.text_from }); toast(`${r.copied} text box${r.copied === 1 ? '' : 'es'} filled from ${snap.text_from}`); } catch (err) { toast(err.message, 'error'); }
+      await route(); return;
+    }
+    if (what === 'reset-edits') {
+      if (!confirm(`Undo every change made by hand on ${snap.week}'s A3? Its text and colours go back to what the workbook and the formulas give.`)) return;
+      try { await api.del(`/kpi/edits/${snap.week}`); toast('Changes undone'); } catch (err) { toast(err.message, 'error'); }
+      await route(); return;
+    }
     if (what === 'rebuild') {
       if (snap.origin !== 'ci' && !confirm(`Replace the Excel copy of ${snap.week} with an A3 built from the CI Manager's own figures?`)) return;
       await kpiBuild(snap.week, snap.origin !== 'ci', b, view);
@@ -82,8 +98,28 @@ async function renderKpi(arg, tab) {
   if (!snap) return;
   const model = snap.views[view] || snap.views.a3;
   const sheetEl = $('#kpi-sheet');
-  sheetEl.innerHTML = sheetViewHtml(model, 'kpi-sheet');
-  drawSheetCharts(sheetEl, model);
+  const paint = () => {
+    const m = view === 'a3' ? withKpiEdits(model, snap.edits) : model;
+    sheetEl.innerHTML = sheetViewHtml(m, 'kpi-sheet');
+    drawSheetCharts(sheetEl, m);
+    if (view === 'a3' && kpiState.editing && model.edit) {
+      sheetEl.classList.add('kpi-editing');
+      $$('[data-cell]', sheetEl).forEach((el) => {
+        const [r, c] = el.dataset.cell.split(':').map(Number);
+        const ref = xlRef(r, c); const k = model.edit[ref];
+        if (!k) return;
+        el.dataset.ref = ref;
+        el.classList.add(k.includes('t') ? 'ed-t' : 'ed-c');
+        if (snap.edits?.[ref]) el.classList.add('ed-done');
+      });
+    } else sheetEl.classList.remove('kpi-editing');
+  };
+  paint();
+  sheetEl.onclick = (e) => {
+    const el = kpiState.editing && view === 'a3' && e.target.closest('[data-ref]');
+    if (!el) return;
+    kpiEditCell(snap, model, el, async (edits) => { snap.edits = edits; paint(); });
+  };
   kpiState.zoom = store.get('kpiZoom', null);
   const zoomEl = $('#kpi-zoom');
   const applyZoom = () => {
@@ -180,7 +216,7 @@ function sheetViewHtml(m, scope) {
     const w = m.x[Math.min(col - 1 + cs, m.x.length - 1)] - left; const h = m.y[Math.min(row - 1 + rs, m.y.length - 1)] - top;
     if (w <= 0 || h <= 0) return '';
     const turn = rot === 255 ? 'writing-mode:vertical-lr;text-orientation:upright;' : rot ? `writing-mode:vertical-rl;${rot > 90 ? '' : 'transform:rotate(180deg);'}` : '';
-    return `<div class="xc xs${s}${text ? ' xt' : ''}${m.styles[s].includes('pre-wrap') ? ' xw' : ''}" style="left:${left}px;top:${top}px;width:${w}px;height:${h}px;${turn}">${text ? `<span>${esc(text)}</span>` : ''}</div>`;
+    return `<div class="xc xs${s}${text ? ' xt' : ''}${m.styles[s].includes('pre-wrap') ? ' xw' : ''}" data-cell="${row}:${col}" style="left:${left}px;top:${top}px;width:${w}px;height:${h}px;${turn}">${text ? `<span>${esc(text)}</span>` : ''}</div>`;
   }).join('');
   const images = m.images.map((im) => `<img class="xi" src="${im.src}" alt="" style="left:${im.x}px;top:${im.y}px;width:${im.w}px;height:${im.h}px">`).join('');
   const charts = m.charts.map((c, i) => `<canvas class="xchart" data-chart="${i}" style="left:${c.x}px;top:${c.y}px;width:${c.w}px;height:${c.h}px"></canvas>`).join('');
@@ -483,6 +519,11 @@ async function renderKpiCalc() {
       <h2 style="margin-top:0">Source files <span class="muted small">— the hourly exports the KPIs are worked out from</span></h2>
       <table class="log"><thead><tr><th>Source</th><th>File</th><th>Last read</th><th>File saved</th><th class="num">Rows</th><th>Dates</th></tr></thead>
         <tbody>${calc.sources.map(srcRow).join('')}</tbody></table>
+      <h3 class="kc-sub">Customer forecasts <span class="muted small">— read each time an A3 is built (month and year forecast per customer, the forecast rows)</span></h3>
+      <table class="log"><thead><tr><th>Forecast</th><th>File</th><th>File saved</th></tr></thead><tbody>
+        ${(calc.forecasts || []).map((f) => `<tr><td><b>${esc(f.label)}</b><div class="small muted">${esc(f.default_file)} · sheet ${esc(f.sheet)}</div></td>
+          <td><input type="text" name="kpi_fc_${esc(f.key)}" value="${esc(f.path || '')}" placeholder="Blank: the workbook's ${esc(f.workbook_sheet)} sheet, as Excel last refreshed it" title="Full path, e.g. S:\\public\\Forecast Central\\${esc(f.default_file)}"></td>
+          <td class="small">${f.path ? (f.found ? esc(fmtDateTime(f.modified)) : '<span style="color:var(--danger)">⚠ can\'t find this file</span>') : '<span class="muted">the workbook\'s copy</span>'}</td></tr>`).join('')}</tbody></table>
       <p class="small muted">Leave a file blank to use the matching import sheet of the CI workbook (⚙ Setup on the A3 tab) — handy until the paths are set.
         Only files saved since the last read are read again. Nothing is changed in any file.</p>
       <label class="row small"><input type="checkbox" id="kc-weekends" ${calc.split_weekends ? 'checked' : ''}>
@@ -521,7 +562,11 @@ async function renderKpiCalc() {
     renderKpiCalc();
   });
   $$('.kc-sources input[type=text]').forEach((el) => el.addEventListener('change', async () => {
-    try { await api.patch('/settings', { [el.name]: el.value.trim().replace(/^"|"$/g, '') }); toast('Saved — read the files to use it'); } catch (err) { toast(err.message, 'error'); }
+    try {
+      await api.patch('/settings', { [el.name]: el.value.trim().replace(/^"|"$/g, '') });
+      toast(el.name.startsWith('kpi_fc_') ? 'Saved — used the next time an A3 is built (🔄 Rebuild)' : 'Saved — read the files to use it');
+      if (el.name.startsWith('kpi_fc_')) renderKpiCalc();
+    } catch (err) { toast(err.message, 'error'); }
   }));
   main().onclick = async (e) => {
     const tb = e.target.closest('[data-kc-tab]');
@@ -619,4 +664,84 @@ async function kpiBuild(week, replace, el, view) {
     const target = `#/kpi/${r.id}${view === 'database' ? '/database' : ''}`;
     if (location.hash === target) await route(); else location.hash = target;
   } catch (err) { toast(err.message, 'error'); if (el) el.disabled = false; await route(); }
+}
+
+// ---- changes made by hand on the A3 ----------------------------------------------------------
+
+const KPI_COLOURS = [['green', '00B050', 'Green'], ['orange', 'FFC000', 'Orange'], ['red', 'FF0000', 'Red']];
+const xlRef = (row, col) => { let s = ''; for (let n = col; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return `${s}${row}`; };
+
+// The sheet view with a week's edits in: typed text in place, chosen colours as text colour
+// (or fill, where the conditional format sets the fill).
+function withKpiEdits(m, edits) {
+  if (!edits || !Object.keys(edits).length) return m;
+  const styles = [...m.styles];
+  const restyle = (s, prop, hex) => {
+    const css = `${styles[s].split(';').filter((d) => !d.startsWith(`${prop}:`)).join(';')};${prop}:#${hex}`;
+    const at = styles.indexOf(css);
+    if (at >= 0) return at;
+    styles.push(css);
+    return styles.length - 1;
+  };
+  const cells = m.cells.map((c) => {
+    const ref = xlRef(c[0], c[1]); const e = edits[ref];
+    if (!e) return c;
+    const n = [...c];
+    if (e.text !== null && e.text !== undefined) n[2] = e.text;
+    if (e.color) n[3] = restyle(n[3], (m.edit?.[ref] || '').includes('b') ? 'background' : 'color', e.color);
+    return n;
+  });
+  return { ...m, cells, styles };
+}
+
+// The little editor over a cell: its text (a typed box) and/or its colour (a KPI).
+function kpiEditCell(snap, model, el, done) {
+  $('#kpi-pop')?.remove();
+  const ref = el.dataset.ref; const kind = model.edit[ref] || '';
+  const cur = snap.edits?.[ref] || {};
+  const original = model.cells.find((c) => c[0] === Number(el.dataset.cell.split(':')[0]) && c[1] === Number(el.dataset.cell.split(':')[1]))?.[2] ?? '';
+  const text = cur.text ?? original;
+  const pop = document.createElement('div');
+  pop.id = 'kpi-pop';
+  pop.className = 'kpi-pop card';
+  pop.innerHTML = `<div class="row small muted"><b>${esc(ref)}</b><span class="spacer"></span>${cur.text !== undefined && cur.text !== null || cur.color ? '<span class="kpi-ed-key">changed by hand</span>' : ''}</div>
+    ${kind.includes('t') ? `<textarea rows="${Math.min(12, Math.max(3, text.split('\n').length + 1))}">${esc(text)}</textarea>
+      ${cur.text !== null && cur.text !== undefined ? `<div class="small muted">Was: ${original ? esc(original.length > 120 ? `${original.slice(0, 120)}…` : original) : '<i>empty</i>'}</div>` : ''}` : ''}
+    ${/[fb]/.test(kind) ? `<div class="kpi-swatches">${KPI_COLOURS.map(([name, hex, label]) => `<button type="button" data-colour="${name}" class="${cur.color === hex ? 'on' : ''}" title="${label}"><i style="background:#${hex}"></i>${label}</button>`).join('')}
+      <button type="button" data-colour="" class="${cur.color ? '' : 'on'}" title="As the conditional format colours it">Automatic</button></div>` : ''}
+    <div class="row">${kind.includes('t') ? '<button class="primary small" data-pop="save">Save</button>' : ''}
+      ${cur.text !== null && cur.text !== undefined ? '<button class="small link" data-pop="revert" title="Put back the workbook\'s text">Put back the original text</button>' : ''}
+      <span class="spacer"></span><button class="small" data-pop="close">${kind.includes('t') ? 'Cancel' : 'Close'}</button></div>`;
+  document.body.append(pop);
+  const r = el.getBoundingClientRect();
+  const w = Math.min(Math.max(r.width + 16, kind.includes('t') ? 360 : 260), window.innerWidth - 16);
+  pop.style.width = `${w}px`;
+  pop.style.left = `${Math.max(8, Math.min(r.left - 8, window.innerWidth - w - 8))}px`;
+  const ph = pop.offsetHeight;
+  pop.style.top = `${r.bottom + 6 + ph < window.innerHeight ? r.bottom + 6 : Math.max(8, r.top - ph - 6)}px`;
+  const ta = $('textarea', pop);
+  if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+  const close = () => { pop.remove(); document.removeEventListener('mousedown', outside, true); document.removeEventListener('keydown', keys, true); };
+  const outside = (e) => { if (!pop.contains(e.target)) close(); };
+  const save = async (body) => {
+    try { const edits = await api.put(`/kpi/edits/${snap.week}`, { ref, ...body }); close(); await done(edits); } catch (err) { toast(err.message, 'error'); }
+  };
+  const saveText = () => save({ text: ta.value === original ? null : ta.value });
+  const keys = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && ta) { e.preventDefault(); saveText(); }
+  };
+  setTimeout(() => { document.addEventListener('mousedown', outside, true); document.addEventListener('keydown', keys, true); });
+  pop.addEventListener('click', (e) => {
+    const sw = e.target.closest('[data-colour]');
+    if (sw) {
+      const colour = sw.dataset.colour || null;
+      return save(ta && ta.value !== text ? { color: colour, text: ta.value === original ? null : ta.value } : { color: colour });
+    }
+    const b = e.target.closest('[data-pop]');
+    if (!b) return;
+    if (b.dataset.pop === 'close') close();
+    if (b.dataset.pop === 'save') saveText();
+    if (b.dataset.pop === 'revert') save({ text: null });
+  });
 }

@@ -271,6 +271,18 @@ const TABLES = {
     updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
     UNIQUE (week)`,
 
+  // Changes made by hand on a week's A3: a typed text box (text) or a KPI's colour (color,
+  // a hex RGB) in place of what its conditional format gives.
+  kpi_edits: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    week        TEXT    NOT NULL COLLATE NOCASE,
+    ref         TEXT    NOT NULL COLLATE NOCASE,
+    text        TEXT,
+    color       TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    UNIQUE (week, ref)`,
+
   kpi_snapshots: `
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     week            TEXT    NOT NULL COLLATE NOCASE,
@@ -431,7 +443,7 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_edits'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');

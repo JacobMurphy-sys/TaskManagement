@@ -117,7 +117,18 @@ function createCalc(sheets, { recalc = () => true, override = () => undefined } 
     const p = parseRef(a); const q = parseRef(b || a);
     return { sheet, top: Math.min(p.row, q.row), bottom: Math.max(p.row, q.row), left: Math.min(p.col, q.col), right: Math.max(p.col, q.col) };
   };
+  // Ranges are read once per run (the values don't change while it runs): large lookup
+  // tables like the forecast are read by dozens of formulas.
+  const gridCache = new Map();
   const refGrid = (r) => {
+    const key = `${String(r.ref.sheet).toLowerCase()}!${r.ref.top},${r.ref.left},${r.ref.bottom},${r.ref.right}`;
+    const hit = gridCache.get(key);
+    if (hit) return hit;
+    const g = readGrid(r);
+    if ((g.h * g.w) > 50) gridCache.set(key, g);
+    return g;
+  };
+  const readGrid = (r) => {
     const sh = sheetOf(r.ref.sheet);
     const bottom = Math.min(r.ref.bottom, Math.max(sh?.maxRow || 0, r.ref.top));
     const right = Math.min(r.ref.right, Math.max(sh?.maxCol || 0, r.ref.left));
@@ -142,6 +153,21 @@ function createCalc(sheets, { recalc = () => true, override = () => undefined } 
     return new Grid(rows);
   }
   const single = (single1) => (v) => (isGrid(v) || isRef(v) ? grid(v).map((x) => { try { return single1(x); } catch (e) { if (isErr(e)) return e; throw e; } }) : single1(v));
+
+  function ifsOnce(kind, target, ranges, crits) {
+    for (const k of crits) if (isErr(k)) throw k;
+    const conds = ranges.map((range, j) => ({ range, test: criteria(crits[j]) }));
+    const len = conds[0]?.range.length ?? target?.length ?? 0;
+    let t = 0; let c = 0;
+    for (let i = 0; i < len; i++) {
+      if (!conds.every((k) => k.test(k.range[i] ?? null))) continue;
+      c++;
+      if (target && typeof target[i] === 'number') t += target[i];
+    }
+    if (kind === 'COUNTIFS') return c;
+    if (kind === 'AVERAGEIFS') { if (!c) throw ERR('#DIV/0!'); return t / c; }
+    return t;
+  }
 
   // ---- evaluation ---------------------------------------------------------------------------
   function ev(n, ctx) {
@@ -264,18 +290,15 @@ function createCalc(sheets, { recalc = () => true, override = () => undefined } 
       case 'SUMIFS': case 'COUNTIFS': case 'AVERAGEIFS': {
         const start = n.v === 'COUNTIFS' ? 0 : 1;
         const target = n.v === 'COUNTIFS' ? null : grid(raw(0)).flat();
-        const conds = [];
-        for (let i = start; i + 1 < n.args.length; i += 2) conds.push({ range: grid(raw(i)).flat(), test: criteria(val(i + 1)) });
-        const len = conds[0]?.range.length ?? target?.length ?? 0;
-        let t = 0; let c = 0;
-        for (let i = 0; i < len; i++) {
-          if (!conds.every((k) => k.test(k.range[i] ?? null))) continue;
-          c++;
-          if (target && typeof target[i] === 'number') t += target[i];
+        const ranges = []; const crit = [];
+        for (let i = start; i + 1 < n.args.length; i += 2) { ranges.push(grid(raw(i)).flat()); crit.push(raw(i + 1)); }
+        // a list of criteria ({"ING","ING - Campaign"}) gives one result per item, as in Excel
+        const many = crit.findIndex((k) => (isGrid(k) || (isRef(k) && !single1(k))) && grid(k).h * grid(k).w > 1);
+        if (many >= 0) {
+          const G = grid(crit[many]);
+          return G.map((item) => ifsOnce(n.v, target, ranges, crit.map((k, j) => (j === many ? item : one(k)))));
         }
-        if (n.v === 'COUNTIFS') return c;
-        if (n.v === 'AVERAGEIFS') { if (!c) throw ERR('#DIV/0!'); return t / c; }
-        return t;
+        return ifsOnce(n.v, target, ranges, crit.map((k) => one(k)));
       }
       case 'INDEX': {
         const G = grid(raw(0));

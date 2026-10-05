@@ -909,6 +909,30 @@ async function waitForServer() {
       assert.match(xfs[red], /numFmtId="164"/, 'number format kept');
       assert.ok(out['xl/media/chart0.png'] && /<xdr:pic>[\s\S]*r:embed="rIdChart0"/.test(out['xl/drawings/drawing1.xml'].toString()), 'chart replaced by its picture, same place');
       assert.ok(!/graphicFrame|CIM-CHART/.test(out['xl/drawings/drawing1.xml'].toString()));
+      // changes made by hand: typed text and KPI colours
+      assert.deepEqual(snap.views.a3.edit, { B1: 'f', C1: 'f', B2: 'tf' }, 'what can be changed: typed cells, figures with conditional colours');
+      let ed = await call('PUT', '/kpi/edits/W2639', { ref: 'b2', text: '0.5' });
+      ed = await call('PUT', '/kpi/edits/W2639', { ref: 'B1', color: 'orange' });
+      ed = await call('PUT', '/kpi/edits/W2639', { ref: 'C1', color: 'green' });
+      assert.deepEqual(ed, { B1: { text: null, color: 'FFC000' }, B2: { text: '0.5', color: null }, C1: { text: null, color: '00B050' } });
+      await assert.rejects(call('PUT', '/kpi/edits/W2639', { ref: 'B1', color: 'purple' }), /green, orange or red/);
+      await assert.rejects(call('PUT', '/kpi/edits/W2639', { ref: 'nope', text: 'x' }), /cell reference/);
+      await assert.rejects(call('PUT', '/kpi/edits/W2601', { ref: 'B1', text: 'x' }), /not found/i);
+      assert.deepEqual((await call('GET', `/kpi/snapshots/${wk.id}`)).edits.B1, { text: null, color: 'FFC000' });
+      const edX = rz(Buffer.from(await (await fetch(`${BASE}/kpi/snapshots/${wk.id}/export`, { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } })).arrayBuffer()));
+      const edXml = edX['xl/worksheets/sheet1.xml'].toString(); const edSt = edX['xl/styles.xml'].toString();
+      const edXfs = [...edSt.match(/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/)[1].matchAll(/<xf\b[^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g)].map((m) => m[0]);
+      const edFonts = [...edSt.match(/<fonts\b[^>]*>([\s\S]*?)<\/fonts>/)[1].matchAll(/<font\b[\s\S]*?<\/font>/g)].map((m) => m[0]);
+      const fontOf = (ref) => edFonts[Number(edXfs[Number(edXml.match(new RegExp(`<c r="${ref}" s="(\\d+)"`))[1])].match(/fontId="(\d+)"/)[1])];
+      assert.match(edXml, /<c r="B2" s="\d+"><v>0.5<\/v><\/c>/, 'a typed number stays a number');
+      assert.match(fontOf('B1'), /FFFFC000/, 'the chosen colour in the file');
+      assert.match(fontOf('C1'), /FF00B050/);
+      assert.match(edXml, /<c r="C1" s="\d+" t="inlineStr"><is><t xml:space="preserve">▼<\/t>/, 'the value stays');
+      await call('PUT', '/kpi/edits/W2639', { ref: 'B1', color: null });
+      assert.deepEqual(Object.keys((await call('GET', `/kpi/snapshots/${wk.id}`)).edits), ['B2', 'C1'], 'back to automatic');
+      assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'kpi_edits'), 'changes are audited (and backed up)');
+      await call('DELETE', '/kpi/edits/W2639');
+      assert.deepEqual((await call('GET', `/kpi/snapshots/${wk.id}`)).edits, {}, 'undo all');
       // saved into the week's folder
       await assert.rejects(call('POST', `/kpi/snapshots/${wk.id}/export`, { save: true }), /Set the folder/);
       await call('PATCH', '/settings', { kpi_export_dir: path.join(tmp, 'OPS', '{year}', 'Weekly', 'WK{wk}'), kpi_export_name: 'SC {year} WK{wk}.xlsx' });
@@ -1048,6 +1072,25 @@ async function waitForServer() {
       }, { override: (sh, ref) => (ref === 'B2' ? 6 : undefined) });
       assert.deepEqual(['D1', 'D2', 'E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7'].map((r) => fx.value('S', r)), ['b', 'c', 9, 32, 2, 15, 42, 'c', 0],
         'spills, lookups, LET, overrides; a sheet it can\'t see keeps the saved value; an empty cell reads 0');
+      // a forecast file read as the workbook's query would: first row as headers, into the table
+      {
+        const { forecastSheet } = require('../src/kpi');
+        const tpl = cellsOf({ A1: { v: 'Cust_Nm' }, B1: { v: 'Line_Month' }, C1: { v: 'Line_Qty' }, D1: { v: 'Short' }, E1: { v: 'Mon' },
+          A2: { v: 'Old' }, B2: { v: 1 }, C2: { v: 5 }, D2: { f: 'UPPER(LEFT(ForecastImport[[#This Row],[Cust_Nm]],3))', v: 'OLD' }, E2: { f: 'CHOOSE(B2,"Jan","Feb","Mar")', v: 'Jan' },
+          G1: { f: 'SUMIFS(A:A,E:E,"Feb")', v: 0 } });
+        Object.assign(tpl, { name: 'BeNeLux Forecast', maxRow: 2, maxCol: 7 });
+        const file = buildXlsx([{ name: 'LIVE', columns: [{ header: 'Line_Qty', type: 'number' }, { header: 'Line_Month', type: 'number' }, { header: 'Cust_Nm' }], rows: [[100, 2, 'Belfius'], [50, 1, 'ING'], [7, 2, 'ING']] }]);
+        const sh = forecastSheet(tpl, { range: { top: 1, left: 1, bottom: 2, right: 5 } }, file, { file: 'Benelux Forecast.xlsx', sheet: 'live', workbook: 'BeNeLux Forecast' });
+        const fc = createCalc({ 'BeNeLux Forecast': sh });
+        assert.deepEqual(['A1', 'A2', 'C4', 'D1', 'D2', 'E2', 'D3', 'E4', 'G1'].map((r) => fc.value('BeNeLux Forecast', r)), ['Line_Qty', 100, 'ING', 'Short', 'BEL', 'Feb', 'ING', 'Feb', 107],
+          'columns by the file\'s order, the table\'s formula columns carried down by header, formulas outside the table kept');
+        assert.equal(sh.read.rows, 3);
+        const amex = buildXlsx([{ name: 'Sittard', columns: [{ header: '' }, { header: '' }, { header: 'x', type: 'number' }], rows: [['TOTAL', 'Total', 9]] }]);
+        const files2 = rz(amex); files2['xl/worksheets/sheet1.xml'] = Buffer.from(files2['xl/worksheets/sheet1.xml'].toString().replace(/<c r="C1"[^>]*>[\s\S]*?<\/c>/, '<c r="C1"><v>46023</v></c>'));
+        const am = forecastSheet(Object.assign(cellsOf({ A1: { v: 'Column1' } }), { name: 'Amex Forecast', maxRow: 1, maxCol: 1 }), { range: { top: 1, left: 1, bottom: 2, right: 3 } }, mkZip(files2), { file: 'Amex Forecast.xlsx', sheet: 'Sittard', workbook: 'Amex Forecast' });
+        assert.deepEqual(['A1', 'B1', 'C1', 'C2'].map((r) => am.cells.get(r)?.v), ['Column1', 'Column2', '01/01/2026', 9], 'blank headers ColumnN, dates as dd/mm/yyyy text');
+        assert.throws(() => forecastSheet(tpl, { range: { top: 1, left: 1, bottom: 2, right: 5 } }, file, { file: 'x.xlsx', sheet: 'Other', workbook: 'BeNeLux Forecast' }), /no sheet called "Other"/);
+      }
       const yr = await call('GET', '/kpi/weeks?year=2026');
       assert.equal(yr.template, true, 'the loaded workbook is kept as the template');
       assert.equal(yr.template_week, 'W2639');
