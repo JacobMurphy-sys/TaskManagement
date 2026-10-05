@@ -800,14 +800,14 @@ function kpiWeekForm(w) {
     <form id="kpi-week-form" class="stack">
       <fieldset class="kw-set"><legend>Working hours — Protime “Present/total”</legend>
         <div class="kw-days">${days.map((d, i) => `<label class="f">${d}<input type="number" step="0.01" min="0" name="pt${i}" value="${esc(v(pt[i]))}"></label>`).join('')}</div>
-        <div class="row small"><span class="muted">(Sun + Mon + … + Fri) × 7.5 + 37.5 =</span> <b id="kw-hours-calc"></b>
+        <div class="row small"><span class="muted" title="Each person present works 7.5 h; the full-time support staff add 7.5 h for each weekday (Mon–Fri) with a count">(Sun + Mon + … + Fri) × 7.5 + 7.5 per weekday filled in =</span> <b id="kw-hours-calc"></b>
           <span class="spacer"></span><label class="row">or hours <input type="number" step="0.01" min="0" name="hours" value="${esc(v(w.hours))}" style="width:110px"></label></div>
       </fieldset>
       <fieldset class="kw-set"><legend>Headcount (direct employees)</legend>
         <div class="row"><label class="f">Contract<input type="number" step="1" min="0" name="contract" value="${esc(v(w.contract))}"></label>
           <label class="f">Temps<input type="number" step="1" min="0" name="temps" value="${esc(v(w.temps))}"></label></div>
       </fieldset>
-      <fieldset class="kw-set"><legend>Customer complaints opened this week</legend>
+      <fieldset class="kw-set"><legend>Customer complaints opened this week <span class="muted small">— left blank counts as 0</span></legend>
         <div class="row"><label class="f">Critical<input type="number" step="1" min="0" name="cc_critical" value="${esc(v(w.cc_critical))}"></label>
           <label class="f">Major<input type="number" step="1" min="0" name="cc_major" value="${esc(v(w.cc_major))}"></label>
           <label class="f">Minor<input type="number" step="1" min="0" name="cc_minor" value="${esc(v(w.cc_minor))}"></label></div>
@@ -816,8 +816,10 @@ function kpiWeekForm(w) {
     </form>`);
   const form = $('#kpi-week-form');
   const calcHours = () => {
-    const n = days.map((_, i) => form[`pt${i}`].value).filter((x) => x !== '').map(Number);
-    $('#kw-hours-calc').textContent = n.length ? (n.reduce((a, b) => a + b, 0) * 7.5 + 37.5).toLocaleString('en-GB', { maximumFractionDigits: 2 }) : '—';
+    const vals = days.map((_, i) => form[`pt${i}`].value);
+    const n = vals.filter((x) => x !== '').map(Number);
+    const weekdays = vals.slice(1).filter((x) => x !== '' && Number(x) > 0).length; // support staff, Mon–Fri
+    $('#kw-hours-calc').textContent = n.length ? (n.reduce((a, b) => a + b, 0) * 7.5 + weekdays * 7.5).toLocaleString('en-GB', { maximumFractionDigits: 2 }) : '—';
     form.hours.disabled = n.length > 0;
   };
   form.addEventListener('input', calcHours);
@@ -1010,13 +1012,13 @@ async function renderKpiPrepare(weekArg) {
 
   // 2. typed in
   const has = (k) => m[k] !== null && m[k] !== undefined;
-  const missing = [!has('hours') && 'working hours', !(has('contract') || has('temps')) && 'headcount', !(has('cc_critical') || has('cc_major') || has('cc_minor')) && 'complaints'].filter(Boolean);
+  const missing = [!has('hours') && 'working hours', !(has('contract') || has('temps')) && 'headcount'].filter(Boolean);
+  const noComplaints = !(has('cc_critical') || has('cc_major') || has('cc_minor'));
   const s2 = step(2, `Typed in for ${esc(w)}`, missing.length ? 'todo' : 'done', missing.length ? `${missing.join(', ')} to fill in` : 'filled in',
     `<div class="kp-figs">
       <div><span>Working hours</span><b>${has('hours') ? kpiFmt('hours', m.hours) : '—'}</b>${m.protime ? '<small>from Protime</small>' : ''}</div>
       <div><span>Headcount</span><b>${has('contract') || has('temps') ? `${m.contract ?? 0} + ${m.temps ?? 0}` : '—'}</b><small>contract + temps</small></div>
-      <div><span>Complaints</span><b>${has('cc_critical') || has('cc_major') || has('cc_minor') ? `${m.cc_critical ?? 0} / ${m.cc_major ?? 0} / ${m.cc_minor ?? 0}` : '—'}</b><small>critical / major / minor</small></div></div>
-      ${missing.includes('complaints') ? '<div class="small muted">No complaints this week? Fill in 0 so it\'s clear they were checked.</div>' : ''}`,
+      <div><span>Complaints</span><b>${m.cc_critical ?? 0} / ${m.cc_major ?? 0} / ${m.cc_minor ?? 0}</b><small>${noComplaints ? 'none entered — counted as 0' : 'critical / major / minor'}</small></div></div>`,
     `<button class="${missing.length ? 'primary' : ''}" data-kp="manual">✎ ${missing.length ? 'Fill in' : 'Change'}</button>`);
 
   // 3. the week at a glance

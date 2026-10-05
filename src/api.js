@@ -1472,7 +1472,7 @@ router.put('/kpi/manual/:week', h((req, res) => {
   if ('protime' in req.body) {
     const days = Array.isArray(req.body.protime) ? req.body.protime.slice(0, 6).map((v, i) => num(v, `Protime ${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'][i]}`)) : [];
     f.protime = days.some((v) => v !== null) ? JSON.stringify(days) : null;
-    if (f.protime) f.hours = kpiData.hoursFromProtime(days.filter((v) => v !== null));
+    if (f.protime) f.hours = kpiData.hoursFromProtime(days);
   }
   if ('hours' in req.body && !f.protime) f.hours = num(req.body.hours, 'Working hours');
   if ('contract' in req.body) f.contract = num(req.body.contract, 'Contract');
@@ -1564,7 +1564,7 @@ router.get('/kpi/prepare', h((req, res) => {
   const target = kpi.exportTarget(getSettings(), week);
   res.json({
     week, today, default_week: fallback, weeks: list.filter((w) => !w.end || w.end <= today || w.week === week).slice(-12).reverse(),
-    figures, manual: manual ? { ...manual, protime: parseJson(manual.protime) } : null,
+    figures, manual: manual ? { ...manual, protime: parseJson(manual.protime), hours: manual.protime ? kpiData.hoursFromProtime(parseJson(manual.protime)) ?? manual.hours : manual.hours } : null,
     sources, forecasts: forecastStatus(), last_read: lastRead,
     otd: { uncounted: vol.otd_uncounted.length, checks: vol.otd_checks.filter((c) => c.typed_week === week).length },
     snap, template: hasTemplate(), export_path: target?.path || null,

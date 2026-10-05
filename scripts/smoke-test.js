@@ -1067,13 +1067,22 @@ async function waitForServer() {
       await call('POST', '/kpi/calc/weekends', { split: false });
       // typed in each week: HR (Protime) and complaints
       let man = await call('PUT', '/kpi/manual/w2614_2', { protime: ['7', '33', '35', '', '', ''], hours: 999, contract: '40', temps: '2', cc_major: '1' });
-      assert.deepEqual([man.week, man.hours, man.protime, man.contract, man.temps, man.cc_major, man.cc_critical], ['W2614_2', 600, '[7,33,35,null,null,null]', 40, 2, 1, null],
-        '(Sun + … + Fri) × 7.5 + 37.5 — the days win over a typed total');
+      assert.deepEqual([man.week, man.hours, man.protime, man.contract, man.temps, man.cc_major, man.cc_critical], ['W2614_2', 577.5, '[7,33,35,null,null,null]', 40, 2, 1, null],
+        '(7 + 33 + 35) × 7.5 + 7.5 for each weekday with a count (Mon, Tue) — the days win over a typed total');
+      const { hoursFromProtime } = require('../src/kpidata');
+      assert.equal(hoursFromProtime([2, 30, 30, 30, 30, 30]), 1140 + 37.5, 'a full week: the support staff\'s 37.5 h');
+      assert.equal(hoursFromProtime(['', 30, 0, 30, '', '']), 450 + 15, 'a weekday at 0 (closed) adds no support hours');
       await assert.rejects(call('PUT', '/kpi/manual/week39', { hours: 1 }), /Not a week code/);
       await assert.rejects(call('PUT', '/kpi/manual/W2614_2', { temps: -1 }), /0 or more/);
       calc = await call('GET', '/kpi/calc?year=2026');
       const w2 = wkOf('W2614_2');
-      assert.deepEqual([w2.hours, w2.hc, w2.complaints, w2.cpms, Math.round(w2.productivity * 1e4) / 1e4], [600, 42, 1, 1250, 0.8333], 'HC, complaints, CPMS per million shipped, cards per hour');
+      assert.deepEqual([w2.hours, w2.hc, w2.complaints, w2.cpms, Math.round(w2.productivity * 1e4) / 1e4], [577.5, 42, 1, 1250, 0.8658], 'HC, complaints, CPMS per million shipped, cards per hour');
+      assert.equal(wkOf('W2615').complaints, 0, 'no complaints typed in → 0');
+      await call('PUT', '/kpi/manual/W2614_2', { cc_major: '' });
+      calc = await call('GET', '/kpi/calc?year=2026');
+      assert.deepEqual([wkOf('W2614_2').complaints, wkOf('W2614_2').cpms], [0, 0], 'and CPMS 0 for a week with cards shipped');
+      await call('PUT', '/kpi/manual/W2614_2', { cc_major: '1' });
+      calc = await call('GET', '/kpi/calc?year=2026');
       assert.equal(wkOf('W2614_1').scrap_rate, 0.002, 'scrap ÷ cards persoed');
       man = await call('PUT', '/kpi/manual/W2614_2', { protime: [], hours: '612.5' });
       assert.deepEqual([man.hours, man.protime], [612.5, null], 'or hours typed straight in');

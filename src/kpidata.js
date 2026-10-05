@@ -332,10 +332,12 @@ function weeklyVolumes(year) {
     w.otd_sc = w.shipped_total ? 1 - w.otd_internal / w.shipped_total : null;
     w.otd_global = w.shipped_total ? 1 - (w.otd_internal + w.otd_external) / w.shipped_total : null;
     const m = manual.get(w.week) || {};
-    w.hours = m.hours ?? null; w.contract = m.contract ?? null; w.temps = m.temps ?? null;
+    // hours from the Protime counts when typed (worked out again, so a change of rule applies to every week)
+    w.hours = m.protime ? hoursFromProtime(JSON.parse(m.protime)) ?? m.hours ?? null : m.hours ?? null; w.contract = m.contract ?? null; w.temps = m.temps ?? null;
     w.cc_critical = m.cc_critical ?? null; w.cc_major = m.cc_major ?? null; w.cc_minor = m.cc_minor ?? null;
-    w.complaints = [w.cc_critical, w.cc_major, w.cc_minor].some((v) => v !== null) ? (w.cc_critical || 0) + (w.cc_major || 0) + (w.cc_minor || 0) : null;
-    w.cpms = w.complaints !== null && w.shipped_total ? (w.complaints / (w.shipped_total * 1000)) * 1e6 : null;
+    // complaints not typed in count as none (0)
+    w.complaints = (w.cc_critical || 0) + (w.cc_major || 0) + (w.cc_minor || 0);
+    w.cpms = w.shipped_total ? (w.complaints / (w.shipped_total * 1000)) * 1e6 : null;
     w.scrap_rate = ratio(w.scrap / 1000, w.perso_total);
     w.productivity = w.hours ? (w.perso_total * 1000) / w.hours : null;
     w.hc = w.contract !== null || w.temps !== null ? (w.contract || 0) + (w.temps || 0) : null;
@@ -415,8 +417,15 @@ const DATABASE_COLUMNS = {
 };
 // What's typed in each week (the rest is worked out).
 const MANUAL_FIELDS = ['hours', 'contract', 'temps', 'cc_critical', 'cc_major', 'cc_minor'];
-// Working hours from Protime: the "present" counts for Sunday night and Monday–Friday,
-// × 7.5 h per shift, plus 37.5 h — as the workbook's instructions do it.
-const hoursFromProtime = (days) => { const n = days.map(Number).filter((v) => Number.isFinite(v)); return n.length ? Math.round((n.reduce((a, b) => a + b, 0) * 7.5 + 37.5) * 100) / 100 : null; };
+// Working hours from Protime: days = the "present" counts for [Sunday night, Monday, …, Friday].
+// Each person present works a 7.5 h shift, plus 7.5 h for the full-time support staff on each
+// weekday (Mon–Fri) with a count above 0 — not a flat 37.5 h, so a short week isn't overstated.
+const hoursFromProtime = (days) => {
+  const val = (v) => (v === null || v === undefined || v === '' ? null : Number(v));
+  const all = (days || []).slice(0, 6).map(val).filter((v) => Number.isFinite(v));
+  if (!all.length) return null;
+  const weekdays = (days || []).slice(1, 6).map(val).filter((v) => Number.isFinite(v) && v > 0).length;
+  return Math.round((all.reduce((a, b) => a + b, 0) * 7.5 + weekdays * 7.5) * 100) / 100;
+};
 
 module.exports = { SOURCES, FORECASTS, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, typedWeekCode, monthIndex, otdRows, topScrap, shippedFor, weekEnd, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };
