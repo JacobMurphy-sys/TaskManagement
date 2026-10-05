@@ -613,7 +613,7 @@ function buildWeek(buf, week, data, { a3Sheet = 'A3 Weekly Report', dbSheet = 'D
     } catch (err) { flags.push({ part: 'forecast', text: `${f.spec.label} couldn't be read from ${f.file}: ${err.message} — the workbook's copy is used.` }); }
   }
   const fcFromWorkbook = fcSheets.filter((n) => !sheets[n].recalc);
-  if (fcFromWorkbook.length) flags.push({ part: 'forecast-workbook', text: `Customer forecasts (${fcFromWorkbook.join(', ')}) are the workbook's copy, as Excel last refreshed them — set the forecast files on From sources to read them directly.` });
+  if (fcFromWorkbook.length) flags.push({ part: 'forecast-workbook', text: `${fcFromWorkbook.join(' and ')}: the workbook's copy, as Excel last refreshed it.` });
   const over = new Map();
   const put = (ref, v) => over.set(`${dbInfo.name}!${ref}`, v);
   put(weekCell, week);

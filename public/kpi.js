@@ -13,6 +13,7 @@ async function renderKpi(arg, tab) {
   const view = tab === 'database' ? 'database' : 'a3';
   const snap = id ? await api.get(`/kpi/snapshots/${id}`).catch((err) => { toast(err.message, 'error'); return null; }) : null;
   const setupMissing = !settings.kpi_workbook_path || !settings.kpi_export_dir;
+  const notes = snap ? kpiNotices(snap) : { info: [], actions: [] };
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 KPIs</h1>
       ${year?.weeks?.length ? `<select id="kpi-week" title="Reporting week — any week of ${year.year}: from Excel, or built by the CI Manager from the source figures">
@@ -28,13 +29,11 @@ async function renderKpi(arg, tab) {
       <button data-kpi="setup" title="Where the workbook is and where the A3 is saved">⚙ Setup</button>
     </div>
     <div id="kpi-setup" class="card kpi-setup" ${setupMissing && !weeks.length ? '' : 'hidden'}>${kpiSetupHtml(settings)}</div>
-    ${snap?.origin === 'ci' && snap.flags?.length ? `<div class="kc-note kpi-flags">Built by the CI Manager from the source figures, with the workbook's formulas and layout.
-        ${snap.flags.map((f) => `<div>• ${esc(f.text)}</div>`).join('')}</div>` : ''}
-    ${snap ? `<div class="kpi-meta small muted">${esc(snap.week)} · ${snap.origin === 'ci' ? `built ${esc(fmtDateTime(snap.loaded_at))} by the CI Manager from the source figures${snap.template_week ? ` (template: the workbook loaded for ${esc(snap.template_week)})` : ''}`
-        : `loaded ${esc(fmtDateTime(snap.loaded_at))} from ${esc(snap.source_name || 'the workbook')}`}
-        ${snap.source_modified ? ` (saved ${esc(fmtDateTime(snap.source_modified))})` : ''}
+    ${notes.actions.length ? `<div class="kpi-actions">${notes.actions.map((a) => `<div class="kpi-action"><span>⚠ ${a.text}</span>${a.buttons}</div>`).join('')}</div>` : ''}
+    ${snap ? `<div class="kpi-meta small muted">${esc(snap.week)} · ${snap.origin === 'ci' ? `built ${esc(fmtDateTime(snap.loaded_at))} from the source figures` : `loaded ${esc(fmtDateTime(snap.loaded_at))} from Excel`}
+        <details class="kpi-info"><summary title="Where this A3 came from">ⓘ</summary><div class="kpi-info-pop card">${notes.info.map((t) => `<div>${t}</div>`).join('')}</div></details>
         <button class="link small" data-kpi="rebuild" title="${snap.origin === 'ci' ? 'Build it again from the latest source figures' : 'Replace the Excel copy with the CI Manager\'s own figures for this week'}">🔄 ${snap.origin === 'ci' ? 'Rebuild' : 'Build from sources instead'}</button>
-        ${snap.exported_to ? ` · A3 saved ${esc(fmtDateTime(snap.exported_at))} to <code>${esc(snap.exported_to)}</code>` : ''}
+        ${snap.exported_to ? ` · <span title="${esc(snap.exported_to)}">💾 saved ${esc(fmtDateTime(snap.exported_at))}</span>` : ''}
         ${snap.errors?.length ? ` · <span class="chip overdue" title="${esc(snap.errors.join('\n'))}">⚠ ${snap.errors.length} cell${snap.errors.length === 1 ? '' : 's'} with errors</span>` : ''}
         <span class="spacer"></span>
         ${view === 'a3' ? `<button class="${kpiState.editing ? 'primary' : ''} small" data-kpi="edit" ${snap.views.a3.edit ? '' : 'disabled title="Load this week again (📥) to edit it — it was loaded before editing was possible"'}>✎ ${kpiState.editing ? 'Done editing' : 'Edit A3'}${Object.keys(snap.edits || {}).length ? ` <span class="chip">${Object.keys(snap.edits).length}</span>` : ''}</button>` : ''}
@@ -64,6 +63,7 @@ async function renderKpi(arg, tab) {
   });
   wireKpiSetup(settings);
   main().onclick = async (e) => {
+    if (!e.target.closest('.kpi-info')) $$('.kpi-info[open]').forEach((d) => { d.open = false; });
     const b = e.target.closest('[data-kpi]');
     if (!b) return;
     const what = b.dataset.kpi;
@@ -753,4 +753,30 @@ function kpiEditCell(snap, model, el, done) {
     if (b.dataset.pop === 'save') saveText();
     if (b.dataset.pop === 'revert') save({ text: null });
   });
+}
+
+// What's said about a week's A3: notes about where its parts came from (behind ⓘ), and
+// notices that need something done (shown above it, each with its action).
+function kpiNotices(snap) {
+  const info = []; const actions = [];
+  const hasText = Object.values(snap.edits || {}).some((e) => e.text !== null && e.text !== undefined && !/^[▲▼▬]$/.test(e.text));
+  if (snap.origin === 'ci') {
+    info.push(`Built ${esc(fmtDateTime(snap.loaded_at))} by the CI Manager from the source figures, with the workbook's formulas and layout${snap.template_week ? ` (template: the workbook loaded for ${esc(snap.template_week)})` : ''}.`);
+  } else {
+    info.push(`Loaded ${esc(fmtDateTime(snap.loaded_at))} from ${esc(snap.source_name || 'the workbook')}${snap.source_modified ? ` (saved ${esc(fmtDateTime(snap.source_modified))})` : ''}.`);
+  }
+  for (const f of snap.flags || []) {
+    if (f.part === 'text') {
+      const from = snap.template_week || 'the template';
+      if (hasText) info.push(`Typed text: changed for this week; boxes not changed are the workbook's, from ${esc(from)}.`);
+      else if (!kpiState.editing) {
+        actions.push({ text: `The text boxes (executive summary, comments…) still show ${esc(from)}'s text.`,
+          buttons: `<button class="small" data-kpi="edit">✎ Update the text</button>${snap.text_from ? `<button class="small" data-kpi="copy-text" title="Fill the text boxes with what was typed for ${esc(snap.text_from)}">⇩ Use ${esc(snap.text_from)}'s text</button>` : ''}` });
+      }
+    } else if (f.part === 'forecast') {
+      actions.push({ text: esc(f.text), buttons: '<a class="button small" href="#/kpi/calc">Set the forecast files</a>' });
+    } else info.push(esc(f.text));
+  }
+  if (snap.exported_to) info.push(`A3 saved ${esc(fmtDateTime(snap.exported_at))} to <code>${esc(snap.exported_to)}</code>.`);
+  return { info, actions };
 }
