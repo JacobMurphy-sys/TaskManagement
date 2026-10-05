@@ -983,6 +983,33 @@ async function waitForServer() {
       assert.deepEqual(calc.otd_uncounted.map((c) => [c.customer, c.why]), [['C', 'no week typed'], ['D', 'split week — which part?']]);
       assert.deepEqual(['W2639', '2639', '39', 39, 'Week 39', '39.0'].map((v) => kd.typedWeekCode(v, { year: 2026 })), Array(6).fill('W2639'));
       assert.deepEqual([kd.typedWeekCode('40', { year: 2026, month: 'Sept' }), kd.typedWeekCode('40', { year: 2026, month: 10 }), kd.typedWeekCode('x', { year: 2026 })], ['W2640_1', 'W2640_2', null]);
+      // the report's Table1 only: a helper "Week" column beside it (O) is never read
+      const tblSheet = (rows) => `<?xml version="1.0"?><worksheet ${ns}><sheetData>${rows.map((cells, i) => `<row r="${i + 1}">${cells.map(([ref, v]) => (typeof v === 'number'
+        ? `<c r="${ref}${i + 1}"><v>${v}</v></c>` : `<c r="${ref}${i + 1}" t="inlineStr"><is><t>${v}</t></is></c>`)).join('')}</row>`).join('')}</sheetData><tableParts count="1"><tablePart r:id="rId1"/></tableParts></worksheet>`;
+      const head = [['A', 'Customer'], ['B', 'Quantity'], ['C', 'Type'], ['E', 'Week'], ['F', 'Month'], ['G', 'Reason'], ['O', 'Week']];
+      const tableBook = mkZip({
+        '[Content_Types].xml': book['[Content_Types].xml'], '_rels/.rels': book['_rels/.rels'],
+        'xl/workbook.xml': x(`<?xml version="1.0"?><workbook ${ns}><sheets><sheet name="Delays" sheetId="1" r:id="rId1"/></sheets></workbook>`),
+        'xl/_rels/workbook.xml.rels': x('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'),
+        'xl/worksheets/sheet1.xml': x(tblSheet([head, [['A', 'KBC'], ['B', 7000], ['C', 'Internal'], ['E', 'W2620'], ['F', 'May'], ['O', 'W2652']],
+          [['A', 'ING'], ['B', 3000], ['C', 'Internal'], ['E', 'W2621'], ['O', 'W2653_1']], [['O', 'W2601']], [['A', 'below the table'], ['B', 99], ['C', 'Internal'], ['E', 'W2622']]])),
+        'xl/worksheets/_rels/sheet1.xml.rels': x('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table1.xml"/></Relationships>'),
+        'xl/tables/table1.xml': x('<?xml version="1.0"?><table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="1" name="Table1" displayName="Table1" ref="A1:G3"><tableColumns count="7"/></table>'),
+      });
+      const otd3 = path.join(tmp, 'OTD Report 3.xlsx');
+      fs.writeFileSync(otd3, tableBook);
+      await call('PATCH', '/settings', { kpi_src_otd: otd3 });
+      await call('POST', '/kpi/calc/import', {});
+      calc = await call('GET', '/kpi/calc?year=2026');
+      assert.deepEqual([wkOf('W2620').otd_internal, wkOf('W2621').otd_internal, wkOf('W2622').otd_internal, wkOf('W2652').otd_internal, wkOf('W2653_1').otd_internal],
+        [7, 3, 0, 0, 0], 'only Table1 is read: not the helper Week column O, nor rows below the table');
+      // no table: the left-most of two "Week" headings
+      const noTable = mkZip({ ...Object.fromEntries(Object.entries(rz(tableBook)).filter(([k]) => !/table|sheet1\.xml\.rels/.test(k))),
+        'xl/worksheets/sheet1.xml': x(tblSheet([head, [['A', 'KBC'], ['B', 7000], ['C', 'Internal'], ['E', 'W2620'], ['O', 'W2652']]]).replace(/<tableParts[\s\S]*?<\/tableParts>/, '')) });
+      fs.writeFileSync(otd3, noTable);
+      await call('POST', '/kpi/calc/import', { force: true });
+      calc = await call('GET', '/kpi/calc?year=2026');
+      assert.deepEqual([wkOf('W2620').otd_internal, wkOf('W2652').otd_internal], [7, 0], 'the first Week column, not a later one');
       await call('PATCH', '/settings', { kpi_src_otd: otdF });
       await call('POST', '/kpi/calc/import', {});
       calc = await call('GET', '/kpi/calc?year=2026');

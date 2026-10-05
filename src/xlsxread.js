@@ -290,6 +290,15 @@ function readBook(buf) {
   };
 
   book.chart = (part) => chartSpec(z.text(part) || '', theme);
+
+  // The Excel tables (ListObjects) in the workbook: { name, sheet, ref, range }.
+  book.tables = () => sheets.flatMap((info) => items(z.text(relsPathOf(info.file)) || '', 'Relationship')
+    .filter((r) => /\/table$/.test(attr(r, 'Type') || ''))
+    .map((r) => {
+      const xml = z.text(resolvePart(info.file, attr(r, 'Target'))) || '';
+      const open = xml.match(/<table\b[^>]*>/)?.[0] || '';
+      return { name: attr(open, 'name'), displayName: attr(open, 'displayName'), sheet: info.name, ref: attr(open, 'ref'), range: parseSqref(attr(open, 'ref'))[0] || null };
+    }));
   return book;
 }
 

@@ -31,7 +31,7 @@ const SOURCES = {
   },
   // Kept by Production (Table1 of their OTD report); the week is typed in, the date often isn't.
   otd: {
-    label: 'OTD delays', file: 'OTD Report.xlsx', sheet: 'Table1', workbook: 'OTD2.0', typedWeek: true, optional: ['month', 'reason'],
+    label: 'OTD delays', file: 'OTD Report.xlsx', sheet: 'Table1', table: 'Table1', workbook: 'OTD2.0', typedWeek: true, optional: ['day', 'month', 'reason'],
     columns: { customer: 'Customer', qty: 'Quantity', type: 'Type', day: 'Date', week: 'Week', month: 'Month', reason: 'Reason' },
   },
 };
@@ -164,23 +164,27 @@ function weeksOf(year) {
 // ---- reading a source ---------------------------------------------------------------------
 
 // Rows of a sheet as objects keyed by our names, from the row holding the column headings.
-function sheetRows(sheet, columns, optional = []) {
+// range: only look inside it (an Excel table's cells, headings on its first row).
+// When a heading appears twice, the left-most column is used.
+function sheetRows(sheet, columns, optional = [], range = null) {
   const all = Object.entries(columns);
   const want = all.filter(([k]) => !optional.includes(k));
   const norm = (s) => String(s ?? '').trim().toLowerCase();
+  const left = range?.left || 1; const right = range ? Math.min(range.right, sheet.maxCol) : sheet.maxCol;
+  const top = range?.top || 1; const bottom = range ? Math.min(range.bottom, sheet.maxRow) : sheet.maxRow;
   let headerRow = 0; let at = null;
-  for (let r = 1; r <= Math.min(sheet.maxRow, 30) && !at; r++) {
+  for (let r = top; r <= (range ? top : Math.min(sheet.maxRow, 30)) && !at; r++) {
     const heads = new Map();
-    for (let c = 1; c <= sheet.maxCol; c++) { const v = sheet.cells.get(`${colLetters(c)}${r}`)?.v; if (v !== null && v !== undefined) heads.set(norm(v), c); }
+    for (let c = left; c <= right; c++) { const v = sheet.cells.get(`${colLetters(c)}${r}`)?.v; if (v !== null && v !== undefined && !heads.has(norm(v))) heads.set(norm(v), c); }
     if (want.every(([, h]) => heads.has(norm(h)))) { headerRow = r; at = Object.fromEntries(all.filter(([, h]) => heads.has(norm(h))).map(([k, h]) => [k, heads.get(norm(h))])); }
   }
   if (!at) {
     const missing = want.map(([, h]) => h);
-    throw new Error(`Can't find the columns ${missing.join(', ')} in "${sheet.name}"`);
+    throw new Error(`Can't find the columns ${missing.join(', ')} in "${sheet.name}"${range ? ' (in its table)' : ''}`);
   }
   const out = [];
   const letters = Object.fromEntries(Object.entries(at).map(([k, c]) => [k, colLetters(c)]));
-  for (let r = headerRow + 1; r <= sheet.maxRow; r++) {
+  for (let r = headerRow + 1; r <= bottom; r++) {
     const row = {};
     let any = false;
     for (const [k, l] of Object.entries(letters)) { const v = sheet.cells.get(`${l}${r}`)?.v ?? null; row[k] = v; if (v !== null && v !== '') any = true; }
@@ -195,8 +199,17 @@ function readSource(name, bufOrBook, { fromWorkbook = false } = {}) {
   const src = SOURCES[name];
   const book = Buffer.isBuffer(bufOrBook) ? readBook(bufOrBook) : bufOrBook;
   const want = fromWorkbook ? src.workbook : src.sheet;
+  // An Excel table by that name: just its cells, so helper columns next to it are never read.
+  if (!fromWorkbook && src.table) {
+    const t = book.tables().find((x) => [x.name, x.displayName].some((n) => String(n || '').toLowerCase() === src.table.toLowerCase()));
+    if (t?.range) return sheetRows(book.sheet(t.sheet), src.columns, src.optional, t.range);
+  }
   const named = book.sheets.find((s) => s.name.toLowerCase() === want.toLowerCase());
   if (fromWorkbook && !named) throw new Error(`"${want}" isn't in the file`);
+  if (fromWorkbook) { // the import sheet's table (what Power Query loaded), if it has one
+    const t = book.tables().find((x) => x.sheet === named.name && x.range);
+    if (t) return sheetRows(book.sheet(t.sheet), src.columns, src.optional, t.range);
+  }
   // The named sheet, else the first sheet with the right column headings (a table can sit on any sheet).
   const order = named ? [named, ...book.sheets.filter((s) => s !== named)] : book.sheets;
   let firstErr = null;
