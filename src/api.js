@@ -625,6 +625,9 @@ function renameEverywhere(from, to) {
     db.run('UPDATE tasks SET owner = ? WHERE id = ?', [swap(t.owner), t.id]);
     tasks++;
   }
+  for (const t of db.all('SELECT id, waiting_on FROM tasks WHERE waiting_on IS NOT NULL')) {
+    if (ownsTask(t.waiting_on, from)) db.run('UPDATE tasks SET waiting_on = ? WHERE id = ?', [swap(t.waiting_on), t.id]);
+  }
   for (const m of db.all('SELECT id, attendees FROM meetings WHERE attendees IS NOT NULL')) {
     if (ownsTask(m.attendees, from)) db.run('UPDATE meetings SET attendees = ? WHERE id = ?', [swap(m.attendees), m.id]);
   }

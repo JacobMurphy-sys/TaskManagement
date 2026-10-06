@@ -549,7 +549,10 @@ async function waitForServer() {
     // renaming a person carries through to the project team, leader and sponsor
     const samItem = (await call('GET', '/name-lists'))[0].items.find((i) => i.name === 'Sam Patel');
     await call('PATCH', `/projects/${ownP.id}`, { sponsor: 'sam patel' });
+    await call('PATCH', `/tasks/${ot.id}`, { waiting_on: 'Sam Patel, Purchasing' });
     await call('PATCH', `/name-list-items/${samItem.id}`, { name: 'Samuel Patel' });
+    assert.equal((await call('GET', `/tasks/${ot.id}`)).waiting_on, 'Samuel Patel, Purchasing', 'and the people a task is waiting on');
+    await call('PATCH', `/tasks/${ot.id}`, { waiting_on: null });
     const renP = await call('GET', `/projects/${ownP.id}`);
     assert.deepEqual([renP.charter.team[0].name, renP.sponsor], ['Samuel Patel', 'Samuel Patel'], 'team and sponsor renamed');
     assert.equal((await call('GET', `/tasks/${ot.id}`)).owner, 'Samuel Patel, Maint Eng');

@@ -1562,13 +1562,12 @@ async function taskModal(id) {
       <label class="f">Start date<input type="date" name="start_date" value="${esc(t.start_date || '')}"></label>
       <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(t.due_at)}"></label>
       <div class="f full"><span>Owners <span class="muted small">— one or more people or departments</span></span><div id="owner-pick"></div></div>
-      <label class="f">Waiting on<input type="text" name="waiting_on" list="waiting-names" autocomplete="off" placeholder="person or team" value="${esc(t.waiting_on)}"></label>
+      <div class="f"><span>Waiting on <span class="muted small">— from the contacts, or type a name</span></span><div id="waiting-pick"></div></div>
       ${t.parent_id ? '' : `<label class="f">Project<select name="project_id" title="Move this task (and its subtasks) to another project">
         <option value="">✅ Tasks (no project)</option>${projectChoices.map((x) => `<option value="${x.id}" ${x.id === t.project_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>`}
       ${phases.length && !t.parent_id ? `<label class="f">Phase<select name="phase_id" title="Which phase of the project this task (and its subtasks) belongs to">
         <option value="">— No phase —</option>${phases.map((ph, i) => `<option value="${ph.id}" ${ph.id === t.phase_id ? 'selected' : ''}>${i + 1}. ${esc(ph.name)}${ph.status === 'done' ? ' ✓' : ''}</option>`).join('')}</select></label>` : ''}
       ${t.parent_id && t.phase_name ? `<div class="f small muted" style="align-self:end">🧭 Phase: <b>${esc(t.phase_name)}</b> (from its parent task)</div>` : ''}
-      <datalist id="waiting-names">${waitingNames.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
     </div>
     ${t.waiting_on && t.waiting_since ? `<div class="small muted" style="margin-top:6px">⏳ Waiting on <b>${esc(t.waiting_on)}</b> since ${esc(fmtDate(t.waiting_since))} (${daysSince(t.waiting_since)} days)</div>` : ''}
     ${t.recurrence ? `<div class="small muted" style="margin-top:6px">🔁 Repeats ${esc(REPEAT[t.recurrence].toLowerCase())}: ticking it off creates the next one${t.next_task_id ? ' (next occurrence already created)' : ''}.</div>` : ''}
@@ -1635,6 +1634,15 @@ async function taskModal(id) {
     flag?.classList.add('show');
     setTimeout(() => flag?.classList.remove('show'), 1200);
   };
+  // Waiting on: the contacts (people and departments), plus names waited on before that aren't in them.
+  const known = new Set(ownerGroups.flatMap((g) => g.names.map((n) => n.toLowerCase())));
+  const earlier = waitingNames.filter((n) => !known.has(String(n).toLowerCase()));
+  ownerPicker($('#waiting-pick'), { value: t.waiting_on, groups: [...ownerGroups, ...(earlier.length ? [{ label: 'Waited on before', names: earlier }] : [])],
+    placeholder: 'Person or team', bookTitle: 'Waiting on whom?',
+    onChange: async (waiting_on) => {
+      try { await api.patch(`/tasks/${t.id}`, { waiting_on }); state.modalDirty = true; } catch (err) { toast(err.message, 'error'); }
+      if (modal().open) taskModal(t.id); // shows since when
+    } });
   ownerPicker($('#owner-pick'), { value: t.owner, groups: ownerGroups, placeholder: "Who's responsible?",
     onChange: async (owner) => {
       try { await api.patch(`/tasks/${t.id}`, { owner }); state.modalDirty = true; flagSaved(); } catch (err) { toast(err.message, 'error'); }
