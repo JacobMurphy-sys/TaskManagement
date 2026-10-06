@@ -1001,3 +1001,6 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .pl-filters input[type=search] { width: auto; flex: 1 1 260px; max-width: 440px; }
 .pl-speeds input { width: 100%; box-sizing: border-box; min-width: 90px; }
 .pl-speeds td { vertical-align: middle; }
+.pl-cap td, .pl-cap th { white-space: nowrap; }
+.pl-machines td:nth-child(3), .pl-machines td:nth-child(4) { width: 1%; white-space: nowrap; }
+.pl-machines label { white-space: nowrap; }

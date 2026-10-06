@@ -161,6 +161,71 @@ function project(running, queue, { rate, lines = 1, start = 360, end = 1320, day
   return true;
 }
 
+// ---- machines ------------------------------------------------------------------------------------
+
+// A machine runs the product types listed (card Type, e.g. "DOD, Laser"); none listed = any type.
+const typesOf = (m) => String(m.types || '').split(/[,;/]/).map((t) => t.trim().toLowerCase()).filter(Boolean);
+const canRun = (m, type) => { const t = typesOf(m); return !t.length || t.includes(String(type || '').trim().toLowerCase()); };
+
+// Plans each card line on a machine: jobs in the list's order (running first), each line on the
+// machine able to run its type that comes free first. A job finishes with its last line.
+// Lines no machine can run (or without a time) are left unplanned and their job flagged.
+function projectMachines(running, queue, machines, { start = 360, end = 1320, days = [1, 2, 3, 4, 5] }, now = new Date()) {
+  const active = machines.filter((m) => m.active !== 0 && m.active !== false);
+  if (!active.length) return false;
+  const cal = { start, end, days };
+  const free = new Map(active.map((m) => [m.id, now]));
+  const load = new Map(active.map((m) => [m.id, { id: m.id, name: m.name, types: m.types, cards: 0, minutes: 0, lines: 0, until: null }]));
+  for (const j of [...running, ...queue]) {
+    let last = null; let first = null; let unplanned = 0; let minutes = 0;
+    for (const a of j.articles) {
+      const type = a.card?.type || null;
+      const able = active.filter((m) => canRun(m, type));
+      if (!able.length || a.minutes === null) { a.machine = null; unplanned++; continue; }
+      const m = able.reduce((best, x) => (free.get(x.id) < free.get(best.id) ? x : best));
+      const s = addWorking(free.get(m.id), 0, cal) || free.get(m.id);
+      const f = addWorking(free.get(m.id), a.minutes, cal);
+      if (!f) { unplanned++; continue; }
+      free.set(m.id, f);
+      const l = load.get(m.id); l.cards += a.qty; l.minutes += a.minutes; l.lines++; l.until = f.toISOString();
+      a.machine = m.name; a.start_at = s.toISOString(); a.finish_at = f.toISOString();
+      minutes += a.minutes;
+      if (!first || s < first) first = s;
+      if (!last || f > last) last = f;
+    }
+    j.machines = [...new Set(j.articles.map((a) => a.machine).filter(Boolean))];
+    j.unplanned = unplanned;
+    j.plan_minutes = minutes;
+    j.start_at = first ? first.toISOString() : null;
+    j.finish_at = last && !unplanned ? last.toISOString() : null;
+    j.late_minutes = j.finish_at && j.deadline ? Math.round((last - localDate(j.deadline)) / 60000) : null;
+  }
+  return [...load.values()];
+}
+
+// The most a day's work can make, per product type: each machine able to run it, for the
+// working day, at that type's speed (the open cards' average at their speeds). Machines that
+// run several types count for each of them — the ceiling for that type on its own.
+function capacityByType(lines, machines, { start = 360, end = 1320, days = [1, 2, 3, 4, 5] }) {
+  const active = machines.filter((m) => m.active !== 0 && m.active !== false);
+  const hours = Math.max(0, end - start) / 60;
+  const types = new Map();
+  for (const l of lines) {
+    const type = l.card?.type || null;
+    if (!type) continue;
+    const t = types.get(type.toLowerCase()) || { type, cards: 0, minutes: 0, lines: 0 };
+    t.cards += l.qty; t.lines++; if (l.minutes !== null) t.minutes += l.minutes;
+    types.set(type.toLowerCase(), t);
+  }
+  return [...types.values()].map((t) => {
+    const able = active.filter((m) => canRun(m, t.type));
+    const speed = t.minutes > 0 ? t.cards / (t.minutes / 60) : null; // cards per hour on one machine
+    const perDay = speed ? Math.round(speed * hours * able.length) : null;
+    return { type: t.type, cards: t.cards, lines: t.lines, machines: able.map((m) => m.name), speed: speed ? Math.round(speed) : null, hours_per_day: hours, work_days: days.length,
+      max_per_day: perDay, days_of_work: perDay ? Math.round((t.cards / perDay) * 10) / 10 : null };
+  }).sort((a, b) => b.cards - a.cards);
+}
+
 // Cards due by each deadline (day + cut-off), in time order, with the running total.
 function loadByDeadline(jobs) {
   const slots = new Map();
@@ -287,4 +352,4 @@ function readSource({ file, uploaded }) {
   return { status: 'ok', file: target, name: path.basename(target), uploaded: !file, modified: stat.mtime.toISOString(), read_at: cache.read_at, ...cache.parsed };
 }
 
-module.exports = { readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS };
+module.exports = { projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS };

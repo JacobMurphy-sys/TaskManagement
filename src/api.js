@@ -1706,17 +1706,45 @@ router.get('/plan', h((req, res) => {
   const db_ = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
   const cardsDb = { status: db_.status, file: db_.file || null, name: db_.name || null, modified: db_.modified || null, table: db_.table || null, count: db_.count || 0, error: db_.error || null, columns: db_.columns || null };
   const rules = db.all('SELECT * FROM plan_speeds ORDER BY type, material, sides');
-  if (src.status !== 'ok') return res.json({ source, cards_db: cardsDb, rules, combos: [], capacity, mode: req.query.mode === 'bau' ? 'bau' : 'fifo', running: [], queue: [], slots: [] });
+  if (src.status !== 'ok') return res.json({ machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: req.query.mode === 'bau' ? 'bau' : 'fifo', running: [], queue: [], slots: [] });
   const mode = req.query.mode === 'bau' ? 'bau' : 'fifo';
   const lines = planning.withSpeeds(src.lines.map((l) => ({ ...l })), db_.status === 'ok' ? db_.cards : null, rules, capacity.rate);
   const unknown = db_.status === 'ok' ? [...new Set(lines.filter((l) => !l.card).map((l) => l.article))] : [];
   const jobs = planning.jobsOf(lines);
   const running = planning.order(jobs.filter((j) => j.running), 'fifo');
   const queue = planning.order(jobs.filter((j) => !j.running), mode);
-  const projected = planning.project(running, queue, capacity, new Date());
-  res.json({ source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length, averaged: lines.some((l) => l.speed_from === 'average'),
+  const machines = db.all('SELECT * FROM plan_machines ORDER BY sort_order, id');
+  // with machines: each card line planned on a machine that runs its type; else spread over the lines running
+  const machineLoad = machines.some((m) => m.active) ? planning.projectMachines(running, queue, machines, capacity, new Date()) : false;
+  const projected = machineLoad ? true : planning.project(running, queue, capacity, new Date());
+  const types = [...new Set(db_.status === 'ok' ? [...db_.cards.values()].map((c) => c.type).filter(Boolean) : [])].sort();
+  res.json({ machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
+    source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length, averaged: lines.some((l) => l.speed_from === 'average'),
     capacity, mode, projected, now: new Date().toISOString(), running, queue, slots: planning.loadByDeadline([...running, ...queue]) });
 }));
+// The machines and the product types each runs ("DOD, Laser"; blank = any).
+const machineFields = (b) => {
+  const f = {};
+  if ('name' in b) { f.name = String(b.name || '').trim(); if (!f.name) throw new HttpError(400, 'Give the machine a name'); }
+  if ('types' in b) f.types = String(b.types || '').split(/[,;]/).map((t) => t.trim()).filter(Boolean).join(', ') || null;
+  if ('active' in b) f.active = b.active ? 1 : 0;
+  return f;
+};
+router.post('/plan/machines', h((req, res) => {
+  const f = machineFields({ name: req.body.name, types: req.body.types, active: req.body.active ?? true });
+  const order = (db.get('SELECT MAX(sort_order) AS m FROM plan_machines')?.m ?? -1) + 1;
+  res.status(201).json(fresh('plan_machines', insertRow('plan_machines', { ...f, sort_order: order })));
+}));
+router.patch('/plan/machines/:id', h((req, res) => {
+  const old = db.get('SELECT * FROM plan_machines WHERE id = ?', [req.params.id]);
+  if (!old) throw notFound('Machine');
+  res.json(fresh('plan_machines', updateRow('plan_machines', old.id, machineFields(req.body))));
+}));
+router.delete('/plan/machines/:id', h((req, res) => {
+  if (!db.run('DELETE FROM plan_machines WHERE id = ?', [req.params.id]).changes) throw notFound('Machine');
+  res.status(204).end();
+}));
+
 // Production speeds by kind of card (type × material × print sides; blank = any).
 const speedFields = (b) => {
   const t = (v) => (v === null || v === undefined ? null : String(v).trim() || null);
