@@ -107,9 +107,13 @@ function jobsOf(lines) {
 }
 
 // FIFO: deadline, then WO. BAU: due day, then High/Normal/Low, then cut-off, then WO.
-function order(jobs, mode = 'fifo') {
+function order(jobs, mode = 'fifo', pins = []) {
   const rank = (j) => PRIO_RANK[String(j.prio).toLowerCase()] ?? 3;
+  // pinned jobs first, in the order they were pinned
+  const pinAt = new Map(pins.map((k, i) => [k, i]));
+  for (const j of jobs) j.pinned = pinAt.has(j.key);
   const by = (a, b) => {
+    if (pinAt.has(a.key) || pinAt.has(b.key)) return (pinAt.get(a.key) ?? 1e9) - (pinAt.get(b.key) ?? 1e9);
     if ((a.due || '9') !== (b.due || '9') && mode === 'bau') return (a.due || '9') < (b.due || '9') ? -1 : 1;
     if (mode === 'bau' && rank(a) !== rank(b)) return rank(a) - rank(b);
     if ((a.deadline || '9') !== (b.deadline || '9')) return (a.deadline || '9') < (b.deadline || '9') ? -1 : 1;
@@ -178,7 +182,7 @@ const localDate = (s) => { const [d, tm] = s.split('T'); const [y, m, dd] = d.sp
 
 // Projects each job's finish in the given order (running jobs first), from `now`, with
 // rate cards/hour per line × lines. Adds start, finish, late_minutes (vs deadline) to each.
-function project(running, queue, { rate, lines = 1, start = 360, end = 1320, days = [1, 2, 3, 4, 5] }, now = new Date()) {
+function project(running, queue, { rate, lines = 1, start = 360, end = 1320, days = [1, 2, 3, 4, 5], buffer = 0 }, now = new Date()) {
   const nLines = Math.max(1, Number(lines) || 1);
   const perHour = Number(rate) * nLines;
   const all = [...running, ...queue];
@@ -193,7 +197,7 @@ function project(running, queue, { rate, lines = 1, start = 360, end = 1320, day
     const finish = addWorking(t, minutes, cal);
     j.start_at = startAt.toISOString();
     j.finish_at = finish ? finish.toISOString() : null;
-    j.late_minutes = finish && j.deadline ? Math.round((finish - localDate(j.deadline)) / 60000) : null;
+    j.late_minutes = finish && j.deadline ? Math.round((finish - localDate(j.deadline)) / 60000 + (Number(buffer) || 0)) : null;
     if (finish) t = finish;
   }
   return true;
@@ -208,12 +212,13 @@ const canRun = (m, type) => { const t = typesOf(m); return !t.length || t.includ
 // Plans each card line on a machine: jobs in the list's order (running first), each line on the
 // machine able to run its type that comes free first. A job finishes with its last line.
 // Lines no machine can run (or without a time) are left unplanned and their job flagged.
-function projectMachines(running, queue, machines, { start = 360, end = 1320, days = [1, 2, 3, 4, 5] }, now = new Date()) {
+function projectMachines(running, queue, machines, { start = 360, end = 1320, days = [1, 2, 3, 4, 5], buffer = 0, changeover = 0 }, now = new Date()) {
   const active = machines.filter((m) => m.active !== 0 && m.active !== false);
   if (!active.length) return false;
   const cal = { start, end, days };
   const free = new Map(active.map((m) => [m.id, now]));
-  const load = new Map(active.map((m) => [m.id, { id: m.id, name: m.name, types: m.types, cards: 0, minutes: 0, lines: 0, until: null, days: {} }]));
+  const lastKind = new Map(); // what each machine ran last: a change of type or material costs a change-over
+  const load = new Map(active.map((m) => [m.id, { id: m.id, name: m.name, types: m.types, cards: 0, minutes: 0, lines: 0, setups: 0, until: null, days: {} }]));
   for (const j of [...running, ...queue]) {
     let last = null; let first = null; let unplanned = 0; let minutes = 0;
     for (const a of j.articles) {
@@ -224,17 +229,21 @@ function projectMachines(running, queue, machines, { start = 360, end = 1320, da
       if (a.minutes === null) { a.unplanned = 'speed'; unplanned++; continue; }
       if (!able.length) { a.unplanned = 'machine'; unplanned++; continue; }
       const m = able.reduce((best, x) => (free.get(x.id) < free.get(best.id) ? x : best));
+      const kind = `${String(type || '').toLowerCase()}|${String(a.card?.material || '').toLowerCase()}`;
+      const setup = changeover > 0 && lastKind.has(m.id) && lastKind.get(m.id) !== kind ? Number(changeover) : 0;
       const s = addWorking(free.get(m.id), 0, cal) || free.get(m.id);
-      const f = addWorking(free.get(m.id), a.minutes, cal);
+      const f = addWorking(free.get(m.id), a.minutes + setup, cal);
       if (!f) { a.unplanned = 'time'; unplanned++; continue; }
       free.set(m.id, f);
-      const l = load.get(m.id); l.cards += a.qty; l.minutes += a.minutes; l.lines++; l.until = f.toISOString();
+      lastKind.set(m.id, kind);
+      a.setup = setup;
+      const l = load.get(m.id); l.cards += a.qty; l.minutes += a.minutes + setup; l.lines++; if (setup) l.setups++; l.until = f.toISOString();
       for (const [day, min] of Object.entries(minutesByDay(s, f, cal))) { // booked per day (cards in proportion)
         const d = l.days[day] || (l.days[day] = { minutes: 0, cards: 0 });
-        d.minutes += min; d.cards += a.minutes ? (a.qty * min) / a.minutes : 0;
+        d.minutes += min; d.cards += a.minutes + setup ? (a.qty * min) / (a.minutes + setup) : 0;
       }
       a.machine = m.name; a.start_at = s.toISOString(); a.finish_at = f.toISOString();
-      minutes += a.minutes;
+      minutes += a.minutes + setup;
       if (!first || s < first) first = s;
       if (!last || f > last) last = f;
     }
@@ -244,7 +253,8 @@ function projectMachines(running, queue, machines, { start = 360, end = 1320, da
     j.plan_minutes = minutes;
     j.start_at = first ? first.toISOString() : null;
     j.finish_at = last && !unplanned ? last.toISOString() : null;
-    j.late_minutes = j.finish_at && j.deadline ? Math.round((last - localDate(j.deadline)) / 60000) : null;
+    // late when it finishes after the deadline less the buffer (packing, dispatch)
+    j.late_minutes = j.finish_at && j.deadline ? Math.round((last - localDate(j.deadline)) / 60000 + (Number(buffer) || 0)) : null;
   }
   return [...load.values()];
 }

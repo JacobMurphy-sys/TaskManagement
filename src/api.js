@@ -1714,7 +1714,8 @@ router.get('/plan', h((req, res) => {
   const src = planning.readSource({ file: cleanPath(set.plan_src) || null, uploaded: PLAN_UPLOAD });
   recordPlan(src);
   const capacity = { rate: Number(set.plan_rate) || null, lines: Number(set.plan_lines) || 1, start: planTime(set.plan_day_start, 360), end: planTime(set.plan_day_end, 1320),
-    days: String(set.plan_days || '1,2,3,4,5').split(',').map(Number).filter((d) => d >= 0 && d <= 6) };
+    days: String(set.plan_days || '1,2,3,4,5').split(',').map(Number).filter((d) => d >= 0 && d <= 6),
+    buffer: Math.max(0, Number(set.plan_buffer) || 0), changeover: Math.max(0, Number(set.plan_changeover) || 0) };
   const source = { status: src.status, file: src.file || null, name: src.name || null, uploaded: !!src.uploaded, modified: src.modified || null, read_at: src.read_at || null, error: src.error || null,
     lines: src.lines?.length || 0, skipped: src.skipped || [] };
   const db_ = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
@@ -1726,7 +1727,11 @@ router.get('/plan', h((req, res) => {
   const unknown = db_.status === 'ok' ? [...new Set(lines.filter((l) => !l.card).map((l) => l.article))] : [];
   const jobs = planning.jobsOf(lines);
   const running = planning.order(jobs.filter((j) => j.running), 'fifo');
-  const queue = planning.order(jobs.filter((j) => !j.running), mode);
+  // pins for jobs no longer in the export are cleared
+  const keys = new Set(jobs.map((j) => j.key));
+  const pinRows = db.all('SELECT * FROM plan_pins ORDER BY id');
+  for (const pr of pinRows) if (!keys.has(pr.key)) db.run('DELETE FROM plan_pins WHERE id = ?', [pr.id]);
+  const queue = planning.order(jobs.filter((j) => !j.running), mode, pinRows.filter((pr) => keys.has(pr.key)).map((pr) => pr.key));
   const machines = db.all('SELECT * FROM plan_machines ORDER BY sort_order, id');
   // with machines: each card line planned on a machine that runs its type; else spread over the lines running
   const machineLoad = machines.some((m) => m.active) ? planning.projectMachines(running, queue, machines, capacity, new Date()) : false;
@@ -1785,6 +1790,18 @@ router.delete('/plan/speeds/:id', h((req, res) => {
   res.status(204).end();
 }));
 
+// 📌 Pinning a job puts it at the front of the queue (in pin order) until it's unpinned or done.
+router.post('/plan/pins', h((req, res) => {
+  const key = String(req.body.key || '').trim();
+  if (!/^\S+\/\S*$/.test(key)) throw new HttpError(400, 'Not a job (work order / job)');
+  if (!db.get('SELECT id FROM plan_pins WHERE key = ?', [key])) insertRow('plan_pins', { key });
+  res.status(201).json({ ok: true });
+}));
+router.delete('/plan/pins', h((req, res) => {
+  db.run('DELETE FROM plan_pins WHERE key = ?', [String(req.query.key || '')]);
+  res.status(204).end();
+}));
+
 // What's been done: completions per day (on time or late), the week, the latest jobs done.
 router.get('/plan/history', h((req, res) => {
   res.json(planHistory.summary({ days: Math.min(60, Math.max(7, Number(req.query.days) || 14)) }));
@@ -1814,7 +1831,7 @@ const SETTING_DEFAULTS = {
   kpi_fc_benelux: '', kpi_fc_amex: '',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
-  plan_src: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
+  plan_src: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
 };
 function getSettings() {
   const out = { ...SETTING_DEFAULTS };

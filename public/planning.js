@@ -29,7 +29,7 @@ async function renderPlanning() {
   const dueToday = all.filter((j) => j.due === todayIso);
   const late = p.projected ? all.filter((j) => j.late_minutes > 0) : [];
   const prioChip = (pr) => `<span class="pl-prio pl-${esc(String(pr || '').toLowerCase())}">${esc(pr || '—')}</span>`;
-  const finish = (j) => (!p.projected ? '' : (j.finish_at ? `<span class="${j.late_minutes > 0 ? 'pl-late' : 'pl-ok'}" title="Projected finish ${esc(fmtDateTime(j.finish_at))}">${new Date(j.finish_at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}${j.late_minutes > 0 ? ` · ${fmtSpan(j.late_minutes)} late` : ''}</span>`
+  const finish = (j) => (!p.projected ? '' : (j.finish_at ? `<span class="${j.late_minutes > 0 ? 'pl-late' : 'pl-ok'}" title="Projected finish ${esc(fmtDateTime(j.finish_at))}${cap.buffer ? ` — must be ready ${fmtSpan(cap.buffer)} before the cut-off` : ''}">${new Date(j.finish_at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}${j.late_minutes > 0 ? ` · ${fmtSpan(j.late_minutes)} late` : ''}</span>`
     : j.unplanned ? `<span class="pl-warn">⚠ ${esc([
       j.unplanned_why?.includes('machine') ? `no running machine for ${[...new Set(j.articles.filter((a) => a.unplanned === 'machine').map((a) => a.card?.type))].join(', ')}` : '',
       j.unplanned_why?.includes('speed') ? 'no speed for a card' : '',
@@ -38,7 +38,7 @@ async function renderPlanning() {
   const row = (j, i) => {
     const l = left(j);
     return `<tr class="pl-job ${l.cls ? `${l.cls}-row` : ''} ${p.projected && j.late_minutes > 0 ? 'pl-late-row' : ''}" data-pl-job="${esc(j.key)}">
-      <td class="num muted">${i === null ? '▶' : i + 1}</td>
+      <td class="num muted pl-n">${i === null ? '▶' : `${j.pinned ? '📌 ' : ''}${i + 1}<div><button class="icon pl-pin ${j.pinned ? 'on' : ''}" data-pl-pin="${esc(j.key)}" title="${j.pinned ? 'Unpin — back to its place in the order' : 'Pin to the front of the queue'}">📌</button></div>`}</td>
       <td><b>${esc(dayLabel(j.due))}</b> ${j.no_cutoff ? '<span class="pl-warn" title="No cut-off time in the export (UNDEFINED) — taken as the end of the day">end of day ⚠</span>' : esc(j.deadline?.slice(11) || '')}<div class="small ${l.cls}">${esc(l.text)}</div></td>
       <td><b>${esc(j.wo)}</b> <span class="muted">/ ${esc(j.per)}</span><div class="small muted">${j.articles.length} card article${j.articles.length === 1 ? '' : 's'}</div></td>
       <td>${esc(j.customer || '—')}${j.kind?.length ? `<div class="small muted" title="${esc(j.kind.join(', '))}">${esc(j.kind[0])}${j.kind.length > 1 ? ` +${j.kind.length - 1}` : ''}</div>` : j.no_card ? '<div class="small pl-warn">not in the card database</div>' : ''}</td>
@@ -70,8 +70,8 @@ async function renderPlanning() {
           <td class="num">${t.speed ? `${n(t.speed)}/h` : '—'}</td><td class="num"><b>${t.max_per_day ? n(t.max_per_day) : '—'}</b></td><td class="num">${n(t.cards)}</td>
           <td class="num ${t.days_of_work > 2 ? 'pl-late' : ''}">${t.days_of_work ?? '—'}</td></tr>`).join('')}
       </tbody></table></div>
-      ${useMachines ? `<div class="kdb-scroll"><table class="log pl-cap"><thead><tr><th>Machine</th><th>Runs</th><th class="num">Cards planned</th><th class="num">Work</th><th>Booked until</th></tr></thead><tbody>
-        ${activeMachines.map((m) => { const l = loadOf.get(m.id) || {}; return `<tr><td><b>${esc(m.name)}</b></td><td class="small">${esc(m.types || 'any type')}</td><td class="num">${n(l.cards)}</td><td class="num">${l.minutes ? fmtSpan(l.minutes) : '—'}</td>
+      ${useMachines ? `<div class="kdb-scroll"><table class="log pl-cap"><thead><tr><th>Machine</th><th>Runs</th><th class="num">Cards planned</th><th class="num">Work</th>${cap.changeover ? '<th class="num">Change-overs</th>' : ''}<th>Booked until</th></tr></thead><tbody>
+        ${activeMachines.map((m) => { const l = loadOf.get(m.id) || {}; return `<tr><td><b>${esc(m.name)}</b></td><td class="small">${esc(m.types || 'any type')}</td><td class="num">${n(l.cards)}</td><td class="num">${l.minutes ? fmtSpan(l.minutes) : '—'}</td>${cap.changeover ? `<td class="num">${n(l.setups)}</td>` : ''}
           <td>${l.until ? esc(new Date(l.until).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) : '<span class="muted">free</span>'}</td></tr>`; }).join('')}
       </tbody></table></div>` : ''}</div>
       <p class="small muted">Max cards a day: the machines able to run the type, for the working day, at the type's speed (the open cards' average). A machine running several types counts for each — the ceiling for that type on its own.</p></div>` : '';
@@ -148,6 +148,8 @@ async function renderPlanning() {
         <label class="f">Table<input type="text" name="plan_db_table" value="${esc(settings.plan_db_table || 'Cards')}"></label>
         <label class="f">Flat rate — cards per hour for cards without a speed<input type="number" min="0" step="1" name="plan_rate" value="${esc(settings.plan_rate || '')}" placeholder="optional"></label>
         ${useMachines ? '' : `<label class="f">Lines running <span class="muted small">(until machines are set)</span><input type="number" min="1" step="1" name="plan_lines" value="${esc(settings.plan_lines || '1')}"></label>`}
+        <label class="f">Ready before the cut-off (minutes) <span class="muted small">— packing and dispatch</span><input type="number" min="0" step="5" name="plan_buffer" value="${esc(settings.plan_buffer || '0')}"></label>
+        <label class="f">Change-over (minutes) <span class="muted small">— when a machine switches card type or material</span><input type="number" min="0" step="1" name="plan_changeover" value="${esc(settings.plan_changeover || '0')}"></label>
         <label class="f">Working day from<input type="time" name="plan_day_start" value="${esc(settings.plan_day_start || '06:00')}"></label>
         <label class="f">to <span class="muted small">(the same time = round the clock; earlier = past midnight)</span><input type="time" name="plan_day_end" value="${esc(settings.plan_day_end || '22:00')}"></label>
         <div class="f full"><span>Working days</span><div class="row">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => `<label class="row small"><input type="checkbox" data-pl-day="${i}" ${cap.days.includes(i) ? 'checked' : ''}> ${d}</label>`).join('')}</div></div>
@@ -269,6 +271,13 @@ async function renderPlanning() {
     if (b?.dataset.pl === 'setup') { const s = $('#pl-setup'); s.hidden = !s.hidden; store.set('planSetupOpen', !s.hidden); if (!s.hidden) s.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (b?.dataset.pl === 'refresh') { renderPlanning(); return; }
     if (b?.dataset.pl === 'clear') { store.set('planFilter', {}); renderPlanning(); return; }
+    const pin = e.target.closest('[data-pl-pin]');
+    if (pin) {
+      e.stopPropagation();
+      const k = pin.dataset.plPin; const on = pin.classList.contains('on');
+      try { if (on) await api.del(`/plan/pins?key=${encodeURIComponent(k)}`); else await api.post('/plan/pins', { key: k }); toast(on ? 'Unpinned' : '📌 Pinned to the front'); } catch (err) { toast(err.message, 'error'); }
+      renderPlanning(); return;
+    }
     const job = e.target.closest('[data-pl-job]');
     if (job) { const d = $(`[data-pl-detail="${CSS.escape(job.dataset.plJob)}"]`); if (d) d.hidden = !d.hidden; }
   };
@@ -331,7 +340,7 @@ function drawPlanGantt(el, info, p, match) {
     const l = Math.max(LBL, x(b.s)); const r = Math.min(LBL + W, x(b.f)); const w = Math.max(2, r - l);
     const dim = (sel && sel.key !== j.key) || (match && !match(j));
     return `<div class="pg-bar pg-${state(j)} ${j.running ? 'pg-run' : ''} ${String(j.prio).toLowerCase() === 'high' ? 'pg-high' : ''} ${dim ? 'pg-dim' : ''} ${sel && sel.key === j.key ? 'pg-sel' : ''}" data-pg-job="${esc(j.key)}"
-      style="left:${l}px;width:${w}px;top:${22 + i * ROW + 5}px;height:${ROW - 10}px" title="${esc(`${j.wo} / ${j.per} · ${j.customer || ''} · ${j.qty.toLocaleString('en-GB')} cards\n${b.m}: ${b.s.toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })} – ${b.f.toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}\nDeadline ${j.deadline?.replace('T', ' ')}${j.late_minutes > 0 ? ` — ${fmtSpan(j.late_minutes)} late` : ''}`)}">${w > 70 ? `<span>${esc(j.customer || '')} ${esc(j.wo.slice(-6))}</span>` : ''}</div>`;
+      style="left:${l}px;width:${w}px;top:${22 + i * ROW + 5}px;height:${ROW - 10}px" title="${esc(`${j.wo} / ${j.per} · ${j.customer || ''} · ${j.qty.toLocaleString('en-GB')} cards\n${b.m}: ${b.s.toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })} – ${b.f.toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}\nDeadline ${j.deadline?.replace('T', ' ')}${j.late_minutes > 0 ? ` — ${fmtSpan(j.late_minutes)} late` : ''}`)}">${w > 70 ? `<span>${j.pinned ? '📌' : ''}${esc(j.customer || '')} ${esc(j.wo.slice(-6))}</span>` : ''}</div>`;
   }).join('');
   const dl = sel?.deadline ? (() => { const [d, t] = sel.deadline.split('T'); const [y, mo, dd] = d.split('-').map(Number); const [hh, mm] = t.split(':').map(Number); return new Date(y, mo - 1, dd, hh, mm); })() : null;
   const dlHtml = dl && dl > from && dl < to ? `<div class="pg-deadline" style="left:${x(dl)}px;height:${H}px"><span>due ${esc(sel.deadline.slice(11))}</span></div>` : '';

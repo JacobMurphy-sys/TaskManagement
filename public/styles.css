@@ -1042,3 +1042,5 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .pl-hist-late { background: #c93636; width: 100%; }
 .pl-hist-n { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
 .pl-hist-d { font-size: 11px; color: var(--muted); text-align: center; margin-top: 4px; line-height: 1.2; }
+.pl-n .pl-pin { opacity: .25; font-size: 12px; padding: 0 2px; }
+.pl-job:hover .pl-pin, .pl-pin.on { opacity: 1; }

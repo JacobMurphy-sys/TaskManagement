@@ -1292,6 +1292,26 @@ async function waitForServer() {
       await call('PATCH', `/plan/machines/${m1.id}`, { active: false });
       assert.equal((await call('GET', '/plan')).capacity_by_type.find((t) => t.type === 'DOD').machines.join(), 'Any', 'a stopped machine doesn\'t count');
       assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'plan_machines'));
+      // 📌 pinning, ready-before-the-cut-off buffer, change-overs
+      await call('PATCH', `/plan/machines/${m1.id}`, { active: true });
+      let before = await call('GET', '/plan');
+      const lastKey = before.queue[before.queue.length - 1].key;
+      await assert.rejects(call('POST', '/plan/pins', { key: 'nonsense' }), /Not a job/);
+      await call('POST', '/plan/pins', { key: lastKey });
+      let pp = await call('GET', '/plan');
+      assert.deepEqual([pp.queue[0].key, pp.queue[0].pinned], [lastKey, true], 'a pinned job goes to the front');
+      await call('DELETE', `/plan/pins?key=${encodeURIComponent(lastKey)}`);
+      assert.equal((await call('GET', '/plan')).queue[0].key, before.queue[0].key, 'unpinned: back in its place');
+      const lateOf = (pl2) => Object.fromEntries([...pl2.running, ...pl2.queue].map((j) => [j.key, j.late_minutes]));
+      const l0 = lateOf(before);
+      await call('PATCH', '/settings', { plan_buffer: '90' });
+      const l1 = lateOf(await call('GET', '/plan'));
+      assert.ok(Object.keys(l0).every((k) => l0[k] === null || Math.abs(l1[k] - (l0[k] + 90)) <= 1), 'ready 90 min before the cut-off: every job 90 min "later"');
+      await call('PATCH', '/settings', { plan_buffer: '0', plan_changeover: '30' });
+      pp = await call('GET', '/plan');
+      assert.ok(pp.machine_load.some((l) => l.setups > 0), 'switching kind of card costs a change-over');
+      assert.ok(pp.machine_load.reduce((t, l) => t + l.minutes, 0) > before.machine_load.reduce((t, l) => t + l.minutes, 0), '… adding to the machines\' work');
+      await call('PATCH', '/settings', { plan_changeover: '0' });
       for (const m of (await call('GET', '/plan')).machines) await call('DELETE', `/plan/machines/${m.id}`);
       await call('PATCH', `/plan/speeds/${r1.id}`, { speed: 3600 });
       await call('DELETE', `/plan/speeds/${r1.id}`);
