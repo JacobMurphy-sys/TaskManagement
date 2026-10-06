@@ -986,7 +986,7 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .pl-tomorrow { color: var(--accent); }
 .pl-today-row td { background: var(--warn-soft); }
 .pl-prio { display: inline-block; padding: 1px 7px; border-radius: 9px; font-size: 12px; background: var(--panel-2); }
-.pl-prio.pl-high { background: var(--danger-soft); color: var(--danger); font-weight: 600; }
+.pl-prio.pl-high, .pl-prio.pl-urgent { background: var(--danger-soft); color: var(--danger); font-weight: 600; }
 .pl-prio.pl-normal { background: var(--accent-soft); color: var(--accent); }
 .pl-late { color: var(--danger); font-weight: 600; }
 .pl-ok { color: var(--ok); }

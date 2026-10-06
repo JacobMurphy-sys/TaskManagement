@@ -1694,7 +1694,19 @@ router.post('/kpi/snapshots/:id/export', h((req, res) => {
 
 const planning = require('./planning');
 const PLAN_UPLOAD = path.join(config.dataDir, 'plan', 'open-workorders.xlsx');
+const OTTO_UPLOAD = path.join(config.dataDir, 'plan', 'otto.xlsx');
 const planHistory = require('./planhistory');
+// Otto (the other half of production): its export, open jobs in plan-date order, linked to the
+// perso jobs by work order. Finished and test jobs are counted but not listed.
+function ottoOf(set, persoJobs) {
+  const o = planning.readSource({ file: cleanPath(set.plan_otto_src) || null, uploaded: OTTO_UPLOAD, parser: planning.parseOtto });
+  const source = { status: o.status, file: o.file || null, name: o.name || null, uploaded: !!o.uploaded, modified: o.modified || null, error: o.error || null, skipped: o.skipped || [] };
+  if (o.status !== 'ok') return { source, running: [], queue: [], done: 0, tests: 0 };
+  const open = o.jobs.filter((j) => !j.done && !j.test).map((j) => ({ ...j }));
+  planning.linkOtto(persoJobs, open);
+  return { source, running: planning.orderOtto(open.filter((j) => j.running)), queue: planning.orderOtto(open.filter((j) => !j.running)),
+    done: o.jobs.filter((j) => j.done && !j.test).length, tests: o.jobs.filter((j) => j.test).length };
+}
 // Each new version of the linked export goes into the plan history (an uploaded copy doesn't).
 function recordPlan(src) {
   if (src.status !== 'ok' || src.uploaded) return;
@@ -1721,7 +1733,7 @@ router.get('/plan', h((req, res) => {
   const db_ = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
   const cardsDb = { status: db_.status, file: db_.file || null, name: db_.name || null, modified: db_.modified || null, table: db_.table || null, count: db_.count || 0, error: db_.error || null, columns: db_.columns || null };
   const rules = db.all('SELECT * FROM plan_speeds ORDER BY type, material, sides');
-  if (src.status !== 'ok') return res.json({ machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: req.query.mode === 'bau' ? 'bau' : 'fifo', running: [], queue: [], slots: [] });
+  if (src.status !== 'ok') return res.json({ otto: ottoOf(set, []), machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: req.query.mode === 'bau' ? 'bau' : 'fifo', running: [], queue: [], slots: [] });
   const mode = req.query.mode === 'bau' ? 'bau' : 'fifo';
   const oeeRows = db.all('SELECT customer, oee FROM plan_oee ORDER BY customer');
   const oeeDefault = Number(set.plan_oee_default) > 0 && Number(set.plan_oee_default) <= 100 ? Number(set.plan_oee_default) / 100 : null;
@@ -1752,7 +1764,8 @@ router.get('/plan', h((req, res) => {
   const now = new Date();
   const windows = planning.workingWindows(now, new Date(now.getTime() + 14 * 86400000), capacity).map((w) => ({ start: w.start.toISOString(), end: w.end.toISOString() }));
   const available = planning.minutesByDay(now, new Date(now.getTime() + 14 * 86400000), capacity);
-  res.json({ oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
+  const otto = ottoOf(set, [...running, ...queue]);
+  res.json({ otto, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
     source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length, averaged: lines.some((l) => l.speed_from === 'average'),
     capacity, mode, projected, now: new Date().toISOString(), running, queue, slots: planning.loadByDeadline([...running, ...queue]) });
 }));
@@ -1833,10 +1846,12 @@ router.get('/plan/history', h((req, res) => {
 
 // A copy of the export, to try it out before linking the file itself.
 router.post('/plan/upload', express.raw({ type: '*/*', limit: '50mb' }), h((req, res) => {
-  if (!req.body?.length) throw new HttpError(400, 'Choose the open work orders export');
-  try { planning.parse(req.body); } catch (err) { throw new HttpError(400, err.message); }
-  fs.mkdirSync(path.dirname(PLAN_UPLOAD), { recursive: true });
-  fs.writeFileSync(PLAN_UPLOAD, req.body);
+  const otto = req.query.half === 'otto';
+  if (!req.body?.length) throw new HttpError(400, otto ? 'Choose the Otto export' : 'Choose the open work orders export');
+  try { (otto ? planning.parseOtto : planning.parse)(req.body); } catch (err) { throw new HttpError(400, err.message); }
+  const to = otto ? OTTO_UPLOAD : PLAN_UPLOAD;
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  fs.writeFileSync(to, req.body);
   res.status(201).json({ ok: true });
 }));
 
@@ -1855,7 +1870,7 @@ const SETTING_DEFAULTS = {
   kpi_fc_benelux: '', kpi_fc_amex: '',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
-  plan_src: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_oee_default: '', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
+  plan_src: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_oee_default: '', plan_otto_src: '', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
 };
 function getSettings() {
   const out = { ...SETTING_DEFAULTS };

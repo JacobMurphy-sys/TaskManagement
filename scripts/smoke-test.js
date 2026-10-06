@@ -1238,6 +1238,35 @@ async function waitForServer() {
       await call('PATCH', '/settings', { plan_src: linked, plan_rate: '1000', plan_lines: '2' });
       pl = await call('GET', '/plan');
       assert.deepEqual([pl.source.uploaded, pl.source.name, pl.projected, pl.capacity.rate, pl.capacity.lines], [false, 'OpenPersoWorkorders_PerAx.xlsx', true, 1000, 2]);
+      // Otto: its own export, matched to the perso work orders by the start of Name
+      {
+        const oCols = ['Name', '', 'Is Test', 'Is Done', 'Prod. Status', 'Priority', 'Items ', 'Plan Date', 'PlanTime', 'Machine', 'Customer', 'Comment']
+          .map((h, i) => ({ header: h, type: i === 6 ? 'number' : undefined }));
+        const o = (name, test, done, st, prio, items, date, time) => [name, '', test, done, st, prio, items, date, time, 'HMT PC#1', 'Cust', ''];
+        const otto = bx([{ name: 'Sheet1', columns: oCols, rows: [
+          o('CINDS26100602MAT0001', 'False', 'False', 'Planned', 'Normal', 100, '08/10/2026', '23:59:59'),
+          o('CKBCS26100603MAT0001', 'False', 'False', 'Planned', 'Urgent', 50, '07/10/2026', '14:00:00'),
+          o('CZZZS26100699MAT0001', 'False', 'False', 'In Progress', 'Normal', 9, '07/10/2026', '10:00:00'),
+          o('CADXS26010101MAT0001', 'False', 'True', 'Finished', 'Urgent', 6, '02/01/2026', '23:59:59'),
+          o('CTSTS26100600MAT0001', 'True', 'False', 'Planned', 'Normal', 1, '07/10/2026', '09:00:00')] }]);
+        const parsed = P.parseOtto(otto);
+        assert.deepEqual(parsed.jobs.map((j) => [j.wo, j.customer, j.qty, j.deadline, j.done, j.test]).slice(0, 2),
+          [['CINDS26100602', 'IND', 100, '2026-10-08T23:59', false, false], ['CKBCS26100603', 'KBC', 50, '2026-10-07T14:00', false, false]], 'WO, customer (characters 2–4), items, plan date + time');
+        assert.equal(P.woOfName('ABCDEFGHIJKLMNOP'), 'ABCDEFGHIJKL', 'a Name not in the usual form: its first 12 characters');
+        const ottoFile = path.join(tmp, 'Otto.xlsx'); fs.writeFileSync(ottoFile, otto);
+        assert.equal((await call('GET', '/plan')).otto.source.status, 'none');
+        await call('PATCH', '/settings', { plan_otto_src: ottoFile });
+        const po = await call('GET', '/plan');
+        assert.deepEqual([po.otto.source.status, po.otto.done, po.otto.tests], ['ok', 1, 1], 'finished and test jobs are counted, not listed');
+        assert.deepEqual(po.otto.running.map((j) => j.name), ['CZZZS26100699MAT0001']);
+        assert.deepEqual(po.otto.queue.map((j) => j.name), ['CKBCS26100603MAT0001', 'CINDS26100602MAT0001'], 'by plan date and time');
+        const ind = po.otto.queue[1];
+        assert.deepEqual([ind.perso_open, ind.perso.map((x) => x.key), !!ind.perso_finish_at], [true, ['CINDS26100602/0001'], true], 'linked to its open perso job, with the projected finish');
+        assert.equal(po.otto.running[0].perso_open, false, 'no perso job open for its WO');
+        assert.deepEqual(po.queue.find((j) => j.key === 'CINDS26100602/0001').otto.map((x) => x.name), ['CINDS26100602MAT0001'], 'perso jobs list their Otto jobs');
+        assert.equal((await fetch(`${BASE}/plan/upload?half=otto`, { method: 'POST', body: exp, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } })).status, 400, 'a perso export isn\'t an Otto export');
+        await call('PATCH', '/settings', { plan_otto_src: '' });
+      }
       assert.ok(pl.queue.every((j) => j.finish_at), 'each job projected');
       // the card database: AX Ref → type, material, print sides; speeds per kind of card
       const acc = P.readCards({ file: path.join(__dirname, 'fixtures', 'sample.accdb'), table: 'Table1', columns: { key: 'A', type: 'B' } });

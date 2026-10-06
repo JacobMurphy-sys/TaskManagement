@@ -6,6 +6,7 @@
 
 async function renderPlanning() {
   const mode = store.get('planMode', 'fifo') === 'bau' ? 'bau' : 'fifo';
+  const half = store.get('planHalf', 'perso') === 'otto' ? 'otto' : 'perso';
   const [p, settings] = await Promise.all([api.get(`/plan?mode=${mode}`), api.get('/settings')]);
   const f = store.get('planFilter', {}) || {};
   const all = [...p.running, ...p.queue];
@@ -35,12 +36,19 @@ async function renderPlanning() {
       j.unplanned_why?.includes('speed') ? 'no speed for a card' : '',
       j.unplanned_why?.includes('time') ? 'no working time — check the working day and days in ⚙ Setup' : ''].filter(Boolean).join(' · '))}</span>` : '<span class="muted">—</span>')
     + (j.machines?.length ? `<div class="small muted">${esc(j.machines.join(', '))}</div>` : ''));
+  // the WO's Otto jobs, and whether perso is projected to finish after the first one's plan date
+  const ottoTag = (j) => {
+    const os = (j.otto || []).filter((o) => !o.done); if (!os.length) return '';
+    const first = os.map((o) => o.deadline).filter(Boolean).sort()[0];
+    const after = first && j.finish_at && deadlineAt({ deadline: first }) < new Date(j.finish_at);
+    return ` · <span class="${after ? 'pl-late' : ''}" title="${esc(os.map((o) => `${o.name}: Otto plan ${o.deadline?.replace('T', ' ') || '—'} (${o.status || ''})`).join('\n'))}${after ? '\nPerso is projected to finish after Otto\'s plan date' : ''}">Otto ${first ? esc(dayLabel(first.slice(0, 10))) : ''}${after ? ' ⚠' : ''}</span>`;
+  };
   const row = (j, i) => {
     const l = left(j);
     return `<tr class="pl-job ${l.cls ? `${l.cls}-row` : ''} ${p.projected && j.late_minutes > 0 ? 'pl-late-row' : ''}" data-pl-job="${esc(j.key)}">
       <td class="num muted pl-n">${i === null ? '▶' : `${j.pinned ? '📌 ' : ''}${i + 1}<div><button class="icon pl-pin ${j.pinned ? 'on' : ''}" data-pl-pin="${esc(j.key)}" title="${j.pinned ? 'Unpin — back to its place in the order' : 'Pin to the front of the queue'}">📌</button></div>`}</td>
       <td><b>${esc(dayLabel(j.due))}</b> ${j.no_cutoff ? '<span class="pl-warn" title="No cut-off time in the export (UNDEFINED) — taken as the end of the day">end of day ⚠</span>' : esc(j.deadline?.slice(11) || '')}<div class="small ${l.cls}">${esc(l.text)}</div></td>
-      <td><b>${esc(j.wo)}</b> <span class="muted">/ ${esc(j.per)}</span><div class="small muted">${j.articles.length} card article${j.articles.length === 1 ? '' : 's'}</div></td>
+      <td><b>${esc(j.wo)}</b> <span class="muted">/ ${esc(j.per)}</span><div class="small muted">${j.articles.length} card article${j.articles.length === 1 ? '' : 's'}${ottoTag(j)}</div></td>
       <td>${esc(j.customer || '—')}${j.kind?.length ? `<div class="small muted" title="${esc(j.kind.join(', '))}">${esc(j.kind[0])}${j.kind.length > 1 ? ` +${j.kind.length - 1}` : ''}</div>` : j.no_card ? '<div class="small pl-warn">not in the card database</div>' : ''}</td>
       <td class="num"><b>${n(j.qty)}</b>${j.plan_minutes !== undefined && !j.unplanned ? `<div class="small muted" title="Production time${j.minutes === null ? ' (flat rate — not every card has a speed)' : ' from the card speeds'}">${fmtSpan(j.plan_minutes)}${j.minutes === null || j.articles.some((a) => a.speed_from !== null && !String(a.speed_from).startsWith('rule')) ? ' ≈' : ''}</div>` : ''}</td>
       <td>${prioChip(j.prio)}</td>
@@ -127,15 +135,58 @@ async function renderPlanning() {
   }).join('');
   const general = (p.rules || []).filter((r) => !(p.combos || []).some((c) => (r.type || '') === (c.type || '') && (r.material || '') === (c.material || '') && (r.sides || '') === (c.sides || '')));
   const src = p.source;
+  const ot = p.otto || { source: { status: 'none' }, running: [], queue: [] };
+  const ottoHtml = () => {
+    const os = ot.source; const allO = [...ot.running, ...ot.queue];
+    if (os.status === 'missing') return `<div class="kc-note">⚠ Can't find <code>${esc(os.file)}</code> — check the Otto path in ⚙ Setup.</div>`;
+    if (os.status === 'error') return `<div class="kc-note">⚠ Couldn't read <code>${esc(os.file)}</code>: ${esc(os.error)}</div>`;
+    if (os.status !== 'ok') return '<div class="card lib-empty"><h2>Otto</h2><p>Set where the Otto export is saved in ⚙ Setup (or try it with 📂 Load file…). Each Otto job is matched to its perso work order by the start of its Name, so you can see which are still waiting on perso.</p></div>';
+    const of = store.get('planOttoFilter', {}) || {};
+    const om = (o) => (!of.customer || o.customer === of.customer) && (!of.waiting || (of.waiting === 'perso' ? o.perso_open : !o.perso_open))
+      && (!of.q || `${o.name} ${o.customer} ${o.customer_name || ''} ${o.group || ''} ${o.machine || ''}`.toLowerCase().includes(of.q.toLowerCase()));
+    const oCust = [...new Set(allO.map((o) => o.customer).filter(Boolean))].sort();
+    const behind = (o) => o.perso_finish_at && o.deadline && new Date(o.perso_finish_at) > deadlineAt(o);
+    const oOver = allO.filter((o) => deadlineAt(o) && deadlineAt(o) < today);
+    const oToday = allO.filter((o) => o.due === todayIso);
+    const waiting = allO.filter((o) => o.perso_open);
+    const persoCell = (o) => (!o.perso_open ? `<span class="pl-ok" title="No perso job open for ${esc(o.wo)} in the open work orders">✔ perso done</span>`
+      : `<span class="${behind(o) ? 'pl-late' : 'pl-warn'}">⏳ ${o.perso.length} perso job${o.perso.length === 1 ? '' : 's'} open</span>${o.perso_finish_at ? `<div class="small ${behind(o) ? 'pl-late' : 'muted'}">ready ${esc(new Date(o.perso_finish_at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }))}${behind(o) ? ' — after the plan date' : ''}</div>` : ''}`);
+    const orow = (o, i) => { const l = left(o); return `<tr class="pl-job ${l.cls ? `${l.cls}-row` : ''} ${behind(o) ? 'pl-late-row' : ''}" data-pl-job="otto:${esc(o.key)}">
+      <td class="num muted pl-n">${i === null ? '▶' : i + 1}</td>
+      <td><b>${esc(o.due ? dayLabel(o.due) : '—')}</b> ${esc(o.deadline?.slice(11) || '')}<div class="small ${l.cls}">${esc(l.text)}</div></td>
+      <td><b>${esc(o.wo)}</b><span class="muted">${esc(o.name.slice(o.wo.length))}</span><div class="small muted">${esc(o.group || '')}</div></td>
+      <td>${esc(o.customer || '—')}<div class="small muted">${esc(o.customer_name || '')}</div></td>
+      <td class="num"><b>${n(o.qty)}</b></td><td>${prioChip(o.prio)}</td><td>${esc(o.status || '')}<div class="small muted">${esc(o.machine || '')}</div></td><td>${persoCell(o)}</td></tr>
+      <tr class="pl-detail" data-pl-detail="otto:${esc(o.key)}" hidden><td></td><td colspan="7"><div class="small">${o.sub_customer ? `<b>${esc(o.sub_customer)}</b><br>` : ''}${o.comment ? esc(o.comment).replace(/\n/g, '<br>') : '<span class="muted">No comment.</span>'}</div>
+        ${o.perso.length ? `<table class="log small" style="margin-top:6px"><thead><tr><th>Perso job</th><th class="num">Cards</th><th>Status</th><th>Perso deadline</th><th>Projected finish</th></tr></thead><tbody>${o.perso.map((pj) => `<tr><td>${esc(pj.key)}</td><td class="num">${n(pj.qty)}</td><td>${esc(pj.status || '')}</td><td>${esc(pj.deadline?.replace('T', ' ') || '—')}</td><td>${pj.finish_at ? esc(fmtDateTime(pj.finish_at)) : '—'}</td></tr>`).join('')}</tbody></table>` : ''}</td></tr>`; };
+    const ohead = '<tr><th></th><th>Plan date</th><th>Name</th><th>Customer</th><th class="num">Items</th><th>Priority</th><th>Status</th><th>Perso</th></tr>';
+    const rs = ot.running.filter(om); const qs = ot.queue.filter(om);
+    return `<div class="kdb-tiles pl-tiles">
+      <div class="kdb-tile"><div class="kdb-tile-l">Open Otto jobs</div><div class="kdb-tile-v">${n(allO.length)}</div><div class="kdb-tile-s">${n(sum(allO))} items${ot.done ? ` · ${n(ot.done)} finished not shown` : ''}</div></div>
+      <div class="kdb-tile"><div class="kdb-tile-l">Running</div><div class="kdb-tile-v">${n(ot.running.length)}</div><div class="kdb-tile-s">${n(sum(ot.running))} items</div></div>
+      <div class="kdb-tile"><div class="kdb-tile-l">Due today</div><div class="kdb-tile-v ${oToday.length ? 'kdb-warn' : ''}">${n(oToday.length)}</div><div class="kdb-tile-s">${n(sum(oToday))} items</div></div>
+      <div class="kdb-tile"><div class="kdb-tile-l">Overdue</div><div class="kdb-tile-v ${oOver.length ? 'kdb-bad' : 'kdb-ok'}">${n(oOver.length)}</div><div class="kdb-tile-s">${n(sum(oOver))} items</div></div>
+      <div class="kdb-tile"><div class="kdb-tile-l">Waiting on perso</div><div class="kdb-tile-v ${allO.some(behind) ? 'kdb-bad' : ''}">${n(waiting.length)}</div><div class="kdb-tile-s">${allO.some(behind) ? `${n(allO.filter(behind).length)} perso ready after the plan date` : `${src.status === 'ok' ? 'perso work order still open' : 'link the perso export to match'}`}</div></div></div>
+    <div class="row pl-filters">
+      <input type="search" id="plo-q" placeholder="Search name, customer, plan group…" value="${esc(of.q || '')}">
+      <select id="plo-customer"><option value="">All customers</option>${oCust.map((c) => `<option ${of.customer === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      <select id="plo-waiting"><option value="">Perso: any</option><option value="perso" ${of.waiting === 'perso' ? 'selected' : ''}>Waiting on perso</option><option value="ready" ${of.waiting === 'ready' ? 'selected' : ''}>Perso done</option></select>
+      ${of.q || of.customer || of.waiting ? '<button class="link small" data-pl="oclear">Clear</button>' : ''}</div>
+    ${rs.length ? `<div class="card"><h3 class="pl-h">▶ Running <span class="muted small">${rs.length} job${rs.length === 1 ? '' : 's'} · ${n(sum(rs))} items</span></h3><div class="kdb-scroll"><table class="log pl-table"><thead>${ohead}</thead><tbody>${rs.map((o) => orow(o, null)).join('')}</tbody></table></div></div>` : ''}
+    <div class="card"><h3 class="pl-h">Otto — by plan date, then priority <span class="muted small">${qs.length} job${qs.length === 1 ? '' : 's'} · ${n(sum(qs))} items · click a job for its comment and perso jobs</span></h3>
+      <div class="kdb-scroll"><table class="log pl-table"><thead>${ohead}</thead><tbody>${qs.map((o) => orow(o, ot.queue.indexOf(o))).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>
+    ${os.skipped?.length ? `<p class="small muted">${os.skipped.length} row${os.skipped.length === 1 ? '' : 's'} with a plan date not understood.</p>` : ''}`;
+  };
 
   main().innerHTML = `
     <div class="kanban-tools"><h1 style="margin:0">🏭 Planning</h1>
-      <div class="seg" title="FIFO: by deadline only. BAU: by due day, then High / Normal / Low, then cut-off">
-        <button type="button" data-pl-mode="fifo" class="${mode === 'fifo' ? 'on' : ''}">FIFO</button><button type="button" data-pl-mode="bau" class="${mode === 'bau' ? 'on' : ''}">BAU</button></div>
+      <div class="seg"><button type="button" data-pl-half="perso" class="${half === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-pl-half="otto" class="${half === 'otto' ? 'on' : ''}">Otto</button></div>
+${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. BAU: by due day, then High / Normal / Low, then cut-off">
+        <button type="button" data-pl-mode="fifo" class="${mode === 'fifo' ? 'on' : ''}">FIFO</button><button type="button" data-pl-mode="bau" class="${mode === 'bau' ? 'on' : ''}">BAU</button></div>`}
       <div class="spacer"></div>
-      <span class="small muted">${src.status === 'ok' ? `${esc(src.name)} · saved ${esc(fmtDateTime(src.modified))}${src.uploaded ? ' (uploaded copy)' : ''}` : ''}</span>
+      <span class="small muted">${(half === 'otto' ? ot.source : src).status === 'ok' ? `${esc((half === 'otto' ? ot.source : src).name)} · saved ${esc(fmtDateTime((half === 'otto' ? ot.source : src).modified))}${(half === 'otto' ? ot.source : src).uploaded ? ' (uploaded copy)' : ''}` : ''}</span>
       <button data-pl="refresh" title="Read the export again if it has changed">🔄 Refresh</button>
-      <label class="button" title="Try it with a copy of the export">📂 Load file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
+      <label class="button" title="Try it with a copy of the ${half === 'otto' ? 'Otto' : 'open work orders'} export">📂 Load file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
       <button data-pl="setup" title="Where the export is, and the capacity">⚙ Setup</button>
     </div>
     <div class="card pl-setup" id="pl-setup" ${src.status === 'ok' && !store.get('planSetupOpen', false) ? 'hidden' : ''}>
@@ -143,6 +194,8 @@ async function renderPlanning() {
       <div class="form-grid">
         <label class="f full">Open work orders export (where it's saved)<input type="text" name="plan_src" value="${esc(settings.plan_src || '')}" placeholder="e.g. S:\\…\\Source Data\\OpenPersoWorkorders_PerAx.xlsx">
           <span class="small muted">Read again whenever it's saved (e.g. the hourly SSRS export). Nothing in it is changed.</span></label>
+        <label class="f full">Otto export (where it's saved) — Name, Prod. Status, Items, Plan Date<input type="text" name="plan_otto_src" value="${esc(settings.plan_otto_src || '')}" placeholder="e.g. S:\\…\\Source Data\\Otto.xlsx">
+          <span class="small ${ot.source.status === 'missing' || ot.source.status === 'error' ? 'pl-late' : 'muted'}">${ot.source.status === 'ok' ? `✔ ${n(ot.running.length + ot.queue.length)} open Otto jobs · saved ${esc(fmtDateTime(ot.source.modified))}` : ot.source.status === 'missing' ? '⚠ Can\'t find this file' : ot.source.status === 'error' ? `⚠ ${esc(ot.source.error)}` : 'Each Otto job is matched to its perso work order by the start of its Name.'}</span></label>
         <label class="f full">Card database (Access) — the Cards table gives each card article's type, material and print sides<input type="text" name="plan_db" value="${esc(settings.plan_db || '')}" placeholder="e.g. S:\\…\\Cards.accdb">
           <span class="small ${cdb.status === 'error' || cdb.status === 'missing' ? 'pl-late' : 'muted'}">${cdb.status === 'ok' ? `✔ ${n(cdb.count)} cards in the ${esc(cdb.table)} table · saved ${esc(fmtDateTime(cdb.modified))} — read again whenever it's saved` : cdb.status === 'missing' ? '⚠ Can\'t find this file' : cdb.status === 'error' ? `⚠ ${esc(cdb.error)}` : 'Read only — nothing in the database is changed. It can stay open in Access.'}</span></label>
         <label class="f">Table<input type="text" name="plan_db_table" value="${esc(settings.plan_db_table || 'Cards')}"></label>
@@ -177,6 +230,7 @@ async function renderPlanning() {
         <td><input type="number" class="pl-oee" data-customer="${esc(o.customer)}" min="1" max="100" step="0.1" value="${o.oee ? Math.round(o.oee * 1000) / 10 : ''}" placeholder="${p.oee_default ? Math.round(p.oee_default * 1000) / 10 : '100'}"></td></tr>`).join('') || '<tr><td colspan="4" class="muted">No customers in the open work orders.</td></tr>'}</tbody></table></div>
       <p class="small muted">Jobs are worked through in the list's order — what's running first — each card line at its speed ${useMachines ? 'on a machine that runs its type' : '(divided over the lines running)'}, and each job gets a projected finish against its deadline.</p>
     </div>
+    ${half === 'otto' ? ottoHtml() : `
     ${src.status === 'ok' && cdb.status === 'ok' && (p.unknown_articles?.length || p.no_speed) ? `<div class="kc-note">⚠ ${[p.unknown_articles.length ? `${p.unknown_articles.length} card article${p.unknown_articles.length === 1 ? ' isn\'t' : 's aren\'t'} in the card database (${esc(p.unknown_articles.slice(0, 6).join(', '))}${p.unknown_articles.length > 6 ? ', …' : ''})` : '', p.no_speed ? `${p.no_speed} card line${p.no_speed === 1 ? ' has no speed of its own' : 's have no speed of their own'} — ${cap.rate ? 'the flat rate is used' : 'the average of the others is used (≈)'}` : ''].filter(Boolean).join(' · ')}. <button class="link small" data-pl="setup">⚙ Speeds</button></div>` : ''}
     ${src.status === 'missing' ? `<div class="kc-note">⚠ Can't find <code>${esc(src.file)}</code> — check the path in ⚙ Setup.</div>` : ''}
     ${src.status === 'error' ? `<div class="kc-note">⚠ Couldn't read <code>${esc(src.file)}</code>: ${esc(src.error)}</div>` : ''}
@@ -211,13 +265,17 @@ async function renderPlanning() {
     ${runningShown.length ? `<div class="card"><h3 class="pl-h">▶ Running <span class="muted small">${runningShown.length} job${runningShown.length === 1 ? '' : 's'} · ${n(sum(runningShown))} cards</span></h3>
       <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${runningShown.map((j) => row(j, null)).join('')}</tbody></table></div></div>` : ''}
     <div class="card"><h3 class="pl-h">Next to start — ${mode === 'fifo' ? 'FIFO: by deadline' : 'BAU: by due day, then priority, then cut-off'} <span class="muted small">${queueShown.length} job${queueShown.length === 1 ? '' : 's'} · ${n(sum(queueShown))} cards · click a job for its card articles</span></h3>
-      <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${queueShown.map((j) => row(j, p.queue.indexOf(j))).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>`}` : ''}`;
-  if (view === 'gantt' && $('#pl-gantt')) {
+      <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${queueShown.map((j) => row(j, p.queue.indexOf(j))).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>`}` : ''}`}`;
+  if (half === 'perso' && view === 'gantt' && $('#pl-gantt')) {
     const draw = () => drawPlanGantt($('#pl-gantt'), $('#pl-gantt-info'), p, match);
     draw();
     window.onresize = () => { if ($('#pl-gantt')) draw(); };
   }
 
+  const setO = (k, v) => { const of = store.get('planOttoFilter', {}) || {}; of[k] = v || ''; store.set('planOttoFilter', of); renderPlanning(); };
+  $('#plo-q')?.addEventListener('change', (e) => setO('q', e.target.value.trim()));
+  $('#plo-customer')?.addEventListener('change', (e) => setO('customer', e.target.value));
+  $('#plo-waiting')?.addEventListener('change', (e) => setO('waiting', e.target.value));
   const setF = (k, v) => { f[k] = v || ''; store.set('planFilter', f); renderPlanning(); };
   $('#pl-q')?.addEventListener('change', (e) => setF('q', e.target.value.trim()));
   $('#pl-customer')?.addEventListener('change', (e) => setF('customer', e.target.value));
@@ -226,9 +284,9 @@ async function renderPlanning() {
   $('#pl-file').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const res = await fetch('/api/plan/upload', { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
+    const res = await fetch(`/api/plan/upload${half === 'otto' ? '?half=otto' : ''}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
     const d = await res.json().catch(() => ({}));
-    if (!res.ok) toast(d.error || res.statusText, 'error'); else toast(`${file.name} loaded${settings.plan_src ? ' — the linked export is still used; clear its path to use this copy' : ''}`);
+    if (!res.ok) toast(d.error || res.statusText, 'error'); else toast(`${file.name} loaded${(half === 'otto' ? settings.plan_otto_src : settings.plan_src) ? ' — the linked export is still used; clear its path to use this copy' : ''}`);
     renderPlanning();
   });
   $$('#pl-setup input[name]').forEach((el) => el.addEventListener('change', async () => {
@@ -274,6 +332,9 @@ async function renderPlanning() {
     if (v) { store.set('planView', v.dataset.plView); renderPlanning(); return; }
     const sp = e.target.closest('[data-pl-span]');
     if (sp) { store.set('planSpan', Number(sp.dataset.plSpan)); renderPlanning(); return; }
+    const hf = e.target.closest('[data-pl-half]');
+    if (hf) { store.set('planHalf', hf.dataset.plHalf); renderPlanning(); return; }
+    if (e.target.closest('[data-pl="oclear"]')) { store.set('planOttoFilter', {}); renderPlanning(); return; }
     const m = e.target.closest('[data-pl-mode]');
     if (m) { store.set('planMode', m.dataset.plMode); renderPlanning(); return; }
     const b = e.target.closest('[data-pl]');

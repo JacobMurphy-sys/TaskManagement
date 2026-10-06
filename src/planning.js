@@ -73,6 +73,76 @@ function parse(buf) {
   return { sheet: info.name, lines, skipped };
 }
 
+// ---- Otto: the other half of production, from its own export -----------------------------
+// One row per Otto job: Name (starts with the perso work order, e.g. CADXS26010101MAT0001 →
+// CADXS26010101; customer = characters 2–4), Prod. Status, Items, Plan Date (+ PlanTime) …
+const OTTO_COLUMNS = { name: 'Name', status: 'Prod. Status', qty: 'Items', due: 'Plan Date', time: 'PlanTime', prio: 'Priority', done: 'Is Done', test: 'Is Test',
+  machine: 'Machine', customer_name: 'Customer', sub_customer: 'Sub Customer', group: 'Plan Group', start: 'Start Date', end: 'End Date', comment: 'Comment' };
+const truthy = (v) => v === true || /^(true|yes|ja|1|x)$/i.test(String(v ?? '').trim());
+// The work order a Name starts with: C + customer + site letter + 8 digits, else its first 12 characters.
+const woOfName = (name) => (name.match(/^[A-Z]{5}\d{8}/i)?.[0] || name.slice(0, 12)).toUpperCase();
+const OTTO_DONE = /finish|done|complete|closed|shipped/i;
+function parseOtto(buf) {
+  const book = readBook(buf);
+  const info = book.sheets[0];
+  if (!info) throw new Error('The file has no sheets');
+  const sh = book.sheet(info.name);
+  const text = (c) => String(c?.v ?? '').trim().toLowerCase();
+  let headRow = 0; const col = {};
+  for (let r = 1; r <= Math.min(sh.maxRow, 30) && !headRow; r++) {
+    const found = {};
+    for (const c of sh.cells.values()) if (c.row === r) for (const [k, h] of Object.entries(OTTO_COLUMNS)) if (!found[k] && text(c) === h.toLowerCase()) found[k] = c.col;
+    if (found.name && found.qty && found.due) { headRow = r; Object.assign(col, found); }
+  }
+  if (!headRow) throw new Error(`Can't find the Otto column headings (Name, Items, Plan Date) in ${info.name}`);
+  const L = (n) => { let t = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) t = String.fromCharCode(65 + ((n - 1) % 26)) + t; return t; };
+  const jobs = []; const skipped = [];
+  for (let r = headRow + 1; r <= sh.maxRow; r++) {
+    const g = (k) => (col[k] ? sh.cells.get(`${L(col[k])}${r}`)?.v ?? null : null);
+    const name = String(g('name') ?? '').trim();
+    if (!name) continue;
+    const day = parseDay(g('due'));
+    let time = parseTime(g('time'));
+    if (time !== null && time > 23 * 60 + 59) time = 23 * 60 + 59;
+    const status = String(g('status') ?? '').trim() || null;
+    const job = {
+      key: name, name, wo: woOfName(name), customer: name.length >= 4 ? name.slice(1, 4).toUpperCase() : null,
+      qty: Number(g('qty')) || 0, due: day ? iso(day) : null, time, status, prio: String(g('prio') ?? '').trim() || null,
+      done: truthy(g('done')) || OTTO_DONE.test(status || ''), test: truthy(g('test')),
+      machine: String(g('machine') ?? '').trim() || null, customer_name: String(g('customer_name') ?? '').trim() || null,
+      sub_customer: String(g('sub_customer') ?? '').trim() || null, group: String(g('group') ?? '').trim() || null,
+      comment: String(g('comment') ?? '').trim() || null,
+    };
+    job.running = !job.done && /progress|started|running|busy/i.test(status || '');
+    job.deadline = job.due ? `${job.due}T${hhmm(time ?? 24 * 60 - 1)}` : null;
+    if (!day) skipped.push({ row: r, wo: name, why: `plan date “${g('due') ?? ''}” not understood` });
+    jobs.push(job);
+  }
+  return { sheet: info.name, jobs, skipped };
+}
+// Otto first by plan date and time, then Urgent / High before the rest, then name.
+const OTTO_PRIO = (p) => (/urgent/i.test(p || '') ? 0 : /high/i.test(p || '') ? 1 : /low/i.test(p || '') ? 3 : 2);
+function orderOtto(jobs) {
+  return [...jobs].sort((a, b) => ((a.deadline || '9') !== (b.deadline || '9') ? ((a.deadline || '9') < (b.deadline || '9') ? -1 : 1)
+    : OTTO_PRIO(a.prio) - OTTO_PRIO(b.prio) || a.name.localeCompare(b.name)));
+}
+// Perso jobs ↔ Otto jobs by work order: each Otto job lists the perso jobs still open for its WO
+// (and when the last is projected to finish); each perso job lists its WO's Otto jobs.
+function linkOtto(persoJobs, ottoJobs) {
+  const byWo = new Map();
+  for (const j of persoJobs) { const k = String(j.wo).toUpperCase(); if (!byWo.has(k)) byWo.set(k, []); byWo.get(k).push(j); }
+  const ottoByWo = new Map();
+  for (const o of ottoJobs) { if (!ottoByWo.has(o.wo)) ottoByWo.set(o.wo, []); ottoByWo.get(o.wo).push(o); }
+  for (const o of ottoJobs) {
+    const ps = byWo.get(o.wo) || [];
+    o.perso = ps.map((j) => ({ key: j.key, qty: j.qty, status: j.status, finish_at: j.finish_at || null, deadline: j.deadline }));
+    o.perso_open = ps.length > 0;
+    const fins = ps.map((j) => j.finish_at).filter(Boolean).sort();
+    o.perso_finish_at = ps.length && fins.length === ps.length ? fins[fins.length - 1] : null;
+  }
+  for (const j of persoJobs) j.otto = (ottoByWo.get(String(j.wo).toUpperCase()) || []).map((o) => ({ name: o.name, due: o.due, deadline: o.deadline, status: o.status, qty: o.qty, done: o.done }));
+}
+
 // Lines → jobs (WO + PER): cards summed, articles listed, deadline = due date at the cut-off
 // (a job without a cut-off gets the end of the day, flagged).
 function jobsOf(lines) {
@@ -401,19 +471,20 @@ function combos(lines, rules) {
 
 // ---- the source file: read when it changes (or uploaded once, for trying it out) --------------
 
-let cache = null; // { key, parsed }
-function readSource({ file, uploaded }) {
+const caches = new Map(); // parser → { key, parsed }
+function readSource({ file, uploaded, parser = parse }) {
   const target = file || (uploaded && fs.existsSync(uploaded) ? uploaded : null);
   if (!target) return { status: 'none' };
   let stat;
   try { stat = fs.statSync(target); } catch { return { status: 'missing', file: target }; }
   const key = `${target}|${stat.mtimeMs}|${stat.size}`;
+  let cache = caches.get(parser);
   if (!cache || cache.key !== key) {
-    try { cache = { key, parsed: parse(fs.readFileSync(target)), read_at: new Date().toISOString() }; } catch (err) {
+    try { cache = { key, parsed: parser(fs.readFileSync(target)), read_at: new Date().toISOString() }; caches.set(parser, cache); } catch (err) {
       return { status: 'error', file: target, error: err.code === 'EBUSY' ? 'the file is open and locked — try again in a moment' : err.message };
     }
   }
   return { status: 'ok', file: target, name: path.basename(target), uploaded: !file, modified: stat.mtime.toISOString(), read_at: cache.read_at, ...cache.parsed };
 }
 
-module.exports = { workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS };
+module.exports = { workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, woOfName, OTTO_COLUMNS };
