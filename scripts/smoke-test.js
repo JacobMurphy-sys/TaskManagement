@@ -1296,6 +1296,35 @@ async function waitForServer() {
       await call('PATCH', `/plan/speeds/${r1.id}`, { speed: 3600 });
       await call('DELETE', `/plan/speeds/${r1.id}`);
       assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'plan_speeds'), 'speeds are audited (and backed up)');
+      // plan history: each new export recorded; a job gone from the next one is done
+      {
+        const hx = path.join(tmp, 'Open history.xlsx');
+        const save = (rows, when) => { fs.writeFileSync(hx, bx([{ name: 'X', columns: cols, rows }])); fs.utimesSync(hx, when, when); };
+        const v1 = [r('CAAAS26100601', '0001', 'A1', 100, 'Oct  6 2026 ', 'High', 'In Progress', 'PostNL', '16:00'), r('CBBBS26100602', '0001', 'A1', 50, 'Oct  6 2026 ', 'Low', 'Ready To Be Started', 'PostNL', '16:00'),
+          r('CCCCS26100603', '0001', 'A1', 30, 'Oct  9 2026 ', 'Low', 'Ready To Be Started', 'DHL', '17:00')];
+        await call('PATCH', '/settings', { plan_src: hx });
+        save(v1, new Date(2026, 9, 6, 15, 0));
+        await call('GET', '/plan');
+        assert.equal((await call('GET', '/plan')).source.status, 'ok');
+        let hs = await call('GET', '/plan/history');
+        const base = hs.reads;
+        assert.equal(hs.recent.length, 0, 'linking another file: jobs only in the old one aren\'t counted as done');
+        save(v1.slice(2), new Date(2026, 9, 6, 17, 0)); // two jobs gone at 17:00 — their cut-off was 16:00
+        await call('GET', '/plan');
+        save([], new Date(2026, 9, 6, 18, 0)); // a failed (empty) export: ignored
+        await call('GET', '/plan');
+        hs = await call('GET', '/plan/history?days=60');
+        const done = Object.fromEntries(hs.recent.map((j) => [j.wo, j.late_minutes]));
+        assert.deepEqual(done, { CAAAS26100601: 60, CBBBS26100602: 60 }, 'done when gone from the next export, an hour after the 16:00 cut-off');
+        assert.equal(hs.reads, base + 1, 'the empty export isn\'t recorded');
+        save(v1, new Date(2026, 9, 6, 19, 0)); // one comes back: open again
+        await call('GET', '/plan');
+        hs = await call('GET', '/plan/history?days=60');
+        assert.equal(hs.recent.length, 0, 'jobs back in the export are open again');
+        save(v1, new Date(2026, 9, 6, 18, 30)); // an older copy: ignored
+        await call('GET', '/plan');
+        assert.equal((await call('GET', '/plan/history')).reads, base + 2);
+      }
       await call('PATCH', '/settings', { plan_src: path.join(tmp, 'gone.xlsx') });
       assert.equal((await call('GET', '/plan')).source.status, 'missing');
     }

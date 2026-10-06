@@ -76,7 +76,31 @@ async function renderPlanning() {
       </tbody></table></div>` : ''}</div>
       <p class="small muted">Max cards a day: the machines able to run the type, for the working day, at the type's speed (the open cards' average). A machine running several types counts for each — the ceiling for that type on its own.</p></div>` : '';
   const cdb = p.cards_db;
-  const view = (p.machines || []).some((m) => m.active) && p.projected ? store.get('planView', 'list') : 'list';
+  const withMachines = (p.machines || []).some((m) => m.active) && p.projected;
+  const viewList = [['list', '☰ List'], ...(withMachines ? [['gantt', '▤ Gantt'], ['load', '▦ Load']] : []), ['history', '📈 History']];
+  const view = viewList.some(([k]) => k === store.get('planView', 'list')) ? store.get('planView', 'list') : 'list';
+  const hist = view === 'history' ? await api.get('/plan/history?days=14') : null;
+  const historyHtml = () => {
+    const h = hist; const max = Math.max(1, ...h.daily.map((d) => d.cards));
+    const dshort = (d) => { const dt = new Date(`${d}T12:00`); return `${dt.toLocaleDateString('en-GB', { weekday: 'short' })}<br>${dt.getDate()}/${dt.getMonth() + 1}`; };
+    return `<div class="kdb-tiles" style="margin-top:12px">
+        <div class="kdb-tile"><div class="kdb-tile-l">Done — last 7 days</div><div class="kdb-tile-v">${n(h.week.jobs)}</div><div class="kdb-tile-s">${n(h.week.cards)} cards</div></div>
+        <div class="kdb-tile"><div class="kdb-tile-l">On time — last 7 days</div><div class="kdb-tile-v ${h.week.on_time_pct === null ? '' : h.week.on_time_pct >= 98 ? 'kdb-ok' : 'kdb-bad'}">${h.week.on_time_pct === null ? '—' : `${h.week.on_time_pct}%`}</div><div class="kdb-tile-s">done by the cut-off</div></div>
+        <div class="kdb-tile"><div class="kdb-tile-l">Lead time</div><div class="kdb-tile-v">${h.week.lead_hours === null ? '—' : fmtSpan(h.week.lead_hours * 60)}</div><div class="kdb-tile-s">first seen → done, average</div></div>
+        <div class="kdb-tile"><div class="kdb-tile-l">History</div><div class="kdb-tile-v">${n(h.reads)}</div><div class="kdb-tile-s">${h.since ? `exports since ${esc(fmtDateTime(h.since))}` : 'exports recorded'}</div></div></div>
+      ${h.reads < 2 ? '<div class="kc-note">The history builds up from now: each new version of the linked export is recorded (checked every 10 minutes), and a job is counted as done when it\'s gone from the next export — to within the export interval.</div>' : ''}
+      <div class="card"><h3 class="pl-h">Cards done per day <span class="muted small">— last ${h.days} days · green on time · red after the cut-off</span></h3>
+        <div class="pl-hist">${h.daily.map((d) => `<div class="pl-hist-col" title="${esc(d.date)}: ${n(d.jobs)} jobs, ${n(d.cards)} cards (${n(d.on_time_cards)} on time)">
+          <div class="pl-hist-n">${d.cards ? n(Math.round(d.cards / 100) / 10) + 'k' : ''}</div>
+          <div class="pl-hist-bar" style="height:${Math.round((d.cards / max) * 140)}px"><div class="pl-hist-late" style="height:${d.cards ? Math.round(((d.cards - d.on_time_cards) / d.cards) * 100) : 0}%"></div></div>
+          <div class="pl-hist-d">${dshort(d.date)}</div></div>`).join('')}</div></div>
+      <div class="card"><h3 class="pl-h">Latest done</h3>
+        <div class="kdb-scroll"><table class="log"><thead><tr><th>Done</th><th>Work order / job</th><th>Customer</th><th class="num">Cards</th><th>Deadline</th><th>Result</th><th>Shipper</th></tr></thead><tbody>
+        ${h.recent.map((j) => `<tr><td>${esc(new Date(j.done_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td><td><b>${esc(j.wo)}</b> <span class="muted">/ ${esc(j.per || '')}</span></td>
+          <td>${esc(j.customer || '')}</td><td class="num">${n(j.qty)}</td><td>${esc(j.deadline?.replace('T', ' ') || '—')}</td>
+          <td>${j.late_minutes === null ? '—' : j.late_minutes > 0 ? `<span class="pl-late">${fmtSpan(j.late_minutes)} late</span>` : '<span class="pl-ok">✔ on time</span>'}</td><td class="small">${esc(j.shipper || '')}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">Nothing done yet since the history began.</td></tr>'}
+        </tbody></table></div></div>`;
+  };
   // ▦ Load: hours booked on each machine per day against its working hours
   const loadHtml = () => {
     const days = Object.keys(p.available || {}).filter((d) => p.available[d] > 0).sort().slice(0, 10);
@@ -157,11 +181,12 @@ async function renderPlanning() {
       <div class="kdb-tile"><div class="kdb-tile-l">Overdue</div><div class="kdb-tile-v ${overdue.length ? 'kdb-bad' : 'kdb-ok'}">${n(overdue.length)}</div><div class="kdb-tile-s">${n(sum(overdue))} cards</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Projected late</div><div class="kdb-tile-v ${late.length ? 'kdb-bad' : p.projected ? 'kdb-ok' : ''}">${p.projected ? n(late.length) : '—'}</div><div class="kdb-tile-s">${esc(capText)}</div></div>
     </div>
-    ${useMachines && p.projected ? `<div class="row pl-views"><div class="seg">${[['list', '☰ List'], ['gantt', '▤ Gantt'], ['load', '▦ Load']].map(([k, l]) => `<button type="button" data-pl-view="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+    ${src.status === 'ok' ? `<div class="row pl-views"><div class="seg">${viewList.map(([k, l]) => `<button type="button" data-pl-view="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       ${view === 'gantt' ? `<div class="seg">${[[1, '1 day'], [3, '3 days'], [7, '1 week']].map(([d, l]) => `<button type="button" data-pl-span="${d}" class="${Number(store.get('planSpan', 3)) === d ? 'on' : ''}">${l}</button>`).join('')}</div>
         <span class="small muted">Click a job to see its deadline; green on time · amber within 2 h of its cut-off · red late</span>` : ''}</div>` : ''}
     ${view === 'gantt' ? '<div class="card pl-gantt-card"><div id="pl-gantt-info" class="small"></div><div id="pl-gantt"></div></div>' : ''}
     ${view === 'load' ? `${loadHtml()}${capCard}` : ''}
+    ${view === 'history' ? historyHtml() : ''}
     ${view !== 'list' ? '' : `${capCard}
     <div class="card"><h3 class="pl-h">Cards due by each cut-off</h3>
       <div class="kdb-scroll"><table class="log pl-slots"><thead><tr><th>Deadline</th><th class="num">Jobs</th><th class="num">Cards</th><th class="num">Running total</th><th>Shippers</th>${p.projected ? '<th>Projected</th>' : ''}</tr></thead><tbody>

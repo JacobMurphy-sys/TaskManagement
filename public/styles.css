@@ -1036,3 +1036,9 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .pl-load-cell span { position: relative; font-weight: 600; }
 .pl-load-total td { font-weight: 600; border-top: 2px solid var(--border); }
 .pg-now, .pg-tick, .pg-off { pointer-events: none; }
+.pl-hist { display: flex; align-items: flex-end; gap: 6px; height: 200px; padding-top: 10px; overflow-x: auto; }
+.pl-hist-col { flex: 1 0 44px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+.pl-hist-bar { width: 70%; background: #3c9a5f; border-radius: 3px 3px 0 0; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+.pl-hist-late { background: #c93636; width: 100%; }
+.pl-hist-n { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.pl-hist-d { font-size: 11px; color: var(--muted); text-align: center; margin-top: 4px; line-height: 1.2; }

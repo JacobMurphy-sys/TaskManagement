@@ -294,6 +294,35 @@ const TABLES = {
 
   // 🏭 Planning: production speed (cards per hour) for a kind of card — its type, material and
   // print sides from the card database; a blank field matches any.
+  // 🏭 Planning history: each version of the open work orders export read, and each job seen in
+  // them — done when it's gone from the next export (not audited: written by the reader itself).
+  plan_history_reads: `
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_modified TEXT    NOT NULL UNIQUE,
+    file          TEXT,
+    read_at       TEXT    NOT NULL,
+    jobs          INTEGER NOT NULL DEFAULT 0,
+    cards         INTEGER NOT NULL DEFAULT 0,
+    running       INTEGER NOT NULL DEFAULT 0,
+    done          INTEGER NOT NULL DEFAULT 0`,
+
+  plan_history_jobs: `
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    key          TEXT    NOT NULL UNIQUE,
+    wo           TEXT    NOT NULL,
+    per          TEXT,
+    customer     TEXT,
+    qty          INTEGER NOT NULL DEFAULT 0,
+    due          TEXT,
+    deadline     TEXT,
+    prio         TEXT,
+    shipper      TEXT,
+    first_seen   TEXT    NOT NULL,
+    last_seen    TEXT    NOT NULL,
+    started_at   TEXT,
+    done_at      TEXT,
+    late_minutes INTEGER`,
+
   plan_speeds: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     type        TEXT    COLLATE NOCASE,

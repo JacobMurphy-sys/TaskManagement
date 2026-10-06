@@ -1694,11 +1694,25 @@ router.post('/kpi/snapshots/:id/export', h((req, res) => {
 
 const planning = require('./planning');
 const PLAN_UPLOAD = path.join(config.dataDir, 'plan', 'open-workorders.xlsx');
+const planHistory = require('./planhistory');
+// Each new version of the linked export goes into the plan history (an uploaded copy doesn't).
+function recordPlan(src) {
+  if (src.status !== 'ok' || src.uploaded) return;
+  try { const r = planHistory.ingest(src.lines, src.modified, src.file); if (r) log.info('Planning: export recorded', r); } catch (err) { log.warn('Planning: history not recorded', err.message); }
+}
+// Hourly exports are caught even with Planning closed: the linked file is checked every 10 minutes.
+function checkPlanExport() {
+  const file = cleanPath(getSettings().plan_src);
+  if (file) recordPlan(planning.readSource({ file }));
+}
+setTimeout(checkPlanExport, 5000).unref();
+setInterval(checkPlanExport, 10 * 60 * 1000).unref();
 const planTime = (s, fallback) => { const m = String(s || '').match(/^(\d{1,2}):(\d{2})$/); return m ? Number(m[1]) * 60 + Number(m[2]) : fallback; };
 // The open work orders, as jobs in order (mode fifo | bau), with the capacity projection.
 router.get('/plan', h((req, res) => {
   const set = getSettings();
   const src = planning.readSource({ file: cleanPath(set.plan_src) || null, uploaded: PLAN_UPLOAD });
+  recordPlan(src);
   const capacity = { rate: Number(set.plan_rate) || null, lines: Number(set.plan_lines) || 1, start: planTime(set.plan_day_start, 360), end: planTime(set.plan_day_end, 1320),
     days: String(set.plan_days || '1,2,3,4,5').split(',').map(Number).filter((d) => d >= 0 && d <= 6) };
   const source = { status: src.status, file: src.file || null, name: src.name || null, uploaded: !!src.uploaded, modified: src.modified || null, read_at: src.read_at || null, error: src.error || null,
@@ -1769,6 +1783,11 @@ router.patch('/plan/speeds/:id', h((req, res) => {
 router.delete('/plan/speeds/:id', h((req, res) => {
   if (!db.run('DELETE FROM plan_speeds WHERE id = ?', [req.params.id]).changes) throw notFound('Speed');
   res.status(204).end();
+}));
+
+// What's been done: completions per day (on time or late), the week, the latest jobs done.
+router.get('/plan/history', h((req, res) => {
+  res.json(planHistory.summary({ days: Math.min(60, Math.max(7, Number(req.query.days) || 14)) }));
 }));
 
 // A copy of the export, to try it out before linking the file itself.
