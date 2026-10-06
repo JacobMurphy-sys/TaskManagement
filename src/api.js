@@ -1690,6 +1690,36 @@ router.post('/kpi/snapshots/:id/export', h((req, res) => {
   res.send(file);
 }));
 
+// ------------------------------------------------------------------ 🏭 production planning
+
+const planning = require('./planning');
+const PLAN_UPLOAD = path.join(config.dataDir, 'plan', 'open-workorders.xlsx');
+const planTime = (s, fallback) => { const m = String(s || '').match(/^(\d{1,2}):(\d{2})$/); return m ? Number(m[1]) * 60 + Number(m[2]) : fallback; };
+// The open work orders, as jobs in order (mode fifo | bau), with the capacity projection.
+router.get('/plan', h((req, res) => {
+  const set = getSettings();
+  const src = planning.readSource({ file: cleanPath(set.plan_src) || null, uploaded: PLAN_UPLOAD });
+  const capacity = { rate: Number(set.plan_rate) || null, lines: Number(set.plan_lines) || 1, start: planTime(set.plan_day_start, 360), end: planTime(set.plan_day_end, 1320),
+    days: String(set.plan_days || '1,2,3,4,5').split(',').map(Number).filter((d) => d >= 0 && d <= 6) };
+  const source = { status: src.status, file: src.file || null, name: src.name || null, uploaded: !!src.uploaded, modified: src.modified || null, read_at: src.read_at || null, error: src.error || null,
+    lines: src.lines?.length || 0, skipped: src.skipped || [] };
+  if (src.status !== 'ok') return res.json({ source, capacity, mode: req.query.mode === 'bau' ? 'bau' : 'fifo', running: [], queue: [], slots: [] });
+  const mode = req.query.mode === 'bau' ? 'bau' : 'fifo';
+  const jobs = planning.jobsOf(src.lines);
+  const running = planning.order(jobs.filter((j) => j.running), 'fifo');
+  const queue = planning.order(jobs.filter((j) => !j.running), mode);
+  const projected = capacity.rate ? planning.project(running, queue, capacity, new Date()) : false;
+  res.json({ source, capacity, mode, projected, now: new Date().toISOString(), running, queue, slots: planning.loadByDeadline([...running, ...queue]) });
+}));
+// A copy of the export, to try it out before linking the file itself.
+router.post('/plan/upload', express.raw({ type: '*/*', limit: '50mb' }), h((req, res) => {
+  if (!req.body?.length) throw new HttpError(400, 'Choose the open work orders export');
+  try { planning.parse(req.body); } catch (err) { throw new HttpError(400, err.message); }
+  fs.mkdirSync(path.dirname(PLAN_UPLOAD), { recursive: true });
+  fs.writeFileSync(PLAN_UPLOAD, req.body);
+  res.status(201).json({ ok: true });
+}));
+
 // ------------------------------------------------------------------ settings & areas
 
 const SETTING_DEFAULTS = {
@@ -1703,6 +1733,9 @@ const SETTING_DEFAULTS = {
   kpi_src_perso: '', kpi_src_shipped: '', kpi_src_remakes: '', kpi_src_otd: '', kpi_split_weekends: '0',
   // The customer forecast files (blank: the workbook's copy of them).
   kpi_fc_benelux: '', kpi_fc_amex: '',
+  // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
+  // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
+  plan_src: '', plan_rate: '', plan_lines: '1', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
 };
 function getSettings() {
   const out = { ...SETTING_DEFAULTS };

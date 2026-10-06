@@ -1184,6 +1184,57 @@ async function waitForServer() {
       assert.equal((await call('GET', '/kpi/snapshots')).length, 0);
     }
 
+    // ---- 🏭 Planning: the open work orders export as a priority list
+    {
+      const P = require('../src/planning');
+      const { buildXlsx: bx } = require('../src/xlsx');
+      assert.deepEqual([P.parseDay('Oct  6 2026 '), P.parseDay(46301), P.parseTime('16:00'), P.parseTime('UNDEFINED')], [{ y: 2026, m: 9, d: 6 }, { y: 2026, m: 9, d: 6 }, 960, null]);
+      const cols = ['WO', 'PER', 'Card AX', 'QNY', 'Due Out', 'Prio', 'Status', '', 'LIVE', 'GROUP', 'Shipper', 'Shipping Time'].map((h, i) => ({ header: h, type: i === 3 ? 'number' : undefined }));
+      const r = (wo, per, ax, q, due, prio, st, ship, time) => [wo, per, ax, q, due, prio, st, '', 'LIVE', 'G', ship, time];
+      const exp = bx([{ name: 'OpenPersoWorkorders_PerAx', columns: cols, rows: [
+        r('CAESS26100601', '0002', 'A1', 20, 'Oct  7 2026 ', 'Low', 'Ready To Be Started', 'PostNL', '17:00'),
+        r('CAESS26100601', '0002', 'A2', 5, 'Oct  7 2026 ', 'Low', 'Ready To Be Started', 'PostNL', '17:00'),
+        r('CINDS26100602', '0001', 'B1', 100, 'Oct  7 2026 ', 'High', 'Ready To Be Started', 'DHL', '17:00'),
+        r('CKBCS26100603', '0001', 'C1', 50, 'Oct  7 2026 ', 'Low', 'Ready To Be Started', 'De Post', '12:00'),
+        r('CRABS26100604', '0001', 'D1', 10, 'Oct  6 2026 ', 'Low', 'In Progress', 'PostNL', '16:00'),
+        r('CSIXS26100605', '0001', 'E1', 7, 'Oct  8 2026 ', 'High', 'Ready To Be Started', 'Fedex', 'UNDEFINED'),
+      ] }]);
+      const parsed = P.parse(exp);
+      assert.equal(parsed.lines.length, 6);
+      const jobs = P.jobsOf(parsed.lines);
+      assert.deepEqual(jobs.map((j) => [j.key, j.qty, j.deadline]), [['CAESS26100601/0002', 25, '2026-10-07T17:00'], ['CINDS26100602/0001', 100, '2026-10-07T17:00'],
+        ['CKBCS26100603/0001', 50, '2026-10-07T12:00'], ['CRABS26100604/0001', 10, '2026-10-06T16:00'], ['CSIXS26100605/0001', 7, '2026-10-08T23:59']], 'lines → jobs, deadline = due date at the cut-off');
+      assert.equal(jobs[3].running, true);
+      assert.equal(jobs[4].no_cutoff, true, 'no cut-off: end of the day, flagged');
+      const queue = jobs.filter((j) => !j.running);
+      assert.deepEqual(P.order(queue, 'fifo').map((j) => j.customer), ['KBC', 'IND', 'AES', 'SIX'], 'FIFO: deadline first (12:00 before 17:00; High breaks the tie)');
+      assert.deepEqual(P.order(queue, 'bau').map((j) => j.customer), ['IND', 'KBC', 'AES', 'SIX'], 'BAU: due day, then High before Low, then cut-off');
+      const run = jobs.filter((j) => j.running); const q = P.order(queue, 'fifo');
+      assert.equal(P.project(run, q, { rate: 60, lines: 1, start: 360, end: 1320, days: [1, 2, 3, 4, 5] }, new Date(2026, 9, 7, 11, 0)), true);
+      assert.deepEqual([run[0].late_minutes, new Date(q[0].finish_at).getHours(), q[0].late_minutes, q[1].late_minutes > 0],
+        [19 * 60 + 10, 12, 0, false], '60 cards/h from Wed 11:00: the running job (due Tue 16:00) finishes 11:10, 19 h 10 min late; KBC right at its 12:00 cut-off');
+      const wk = P.addWorking(new Date(2026, 9, 9, 21, 0), 120, { start: 360, end: 1320, days: [1, 2, 3, 4, 5] });
+      assert.equal(wk.getDate(), 12, 'Fri 21:00 + 2 h of work → Monday');
+      assert.equal(wk.getHours() * 60 + wk.getMinutes(), 7 * 60, '… 07:00 (1 h on Friday, 1 h from 06:00 Monday)');
+      const slots = P.loadByDeadline(jobs);
+      assert.deepEqual(slots.map((x) => [x.deadline.slice(5), x.qty, x.cumulative]), [['10-06T16:00', 10, 10], ['10-07T12:00', 50, 60], ['10-07T17:00', 125, 185], ['10-08T23:59', 7, 192]]);
+      // through the API: an uploaded copy, then the linked file
+      let pl = await call('GET', '/plan');
+      assert.equal(pl.source.status, 'none');
+      const up = await fetch(`${BASE}/plan/upload`, { method: 'POST', body: exp, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
+      assert.equal(up.status, 201);
+      assert.equal((await fetch(`${BASE}/plan/upload`, { method: 'POST', body: Buffer.from('nope'), headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } })).status, 400);
+      pl = await call('GET', '/plan?mode=bau');
+      assert.deepEqual([pl.source.status, pl.source.uploaded, pl.mode, pl.running.length, pl.queue.map((j) => j.customer), pl.projected], ['ok', true, 'bau', 1, ['IND', 'KBC', 'AES', 'SIX'], false]);
+      const linked = path.join(tmp, 'OpenPersoWorkorders_PerAx.xlsx'); fs.writeFileSync(linked, exp);
+      await call('PATCH', '/settings', { plan_src: linked, plan_rate: '1000', plan_lines: '2' });
+      pl = await call('GET', '/plan');
+      assert.deepEqual([pl.source.uploaded, pl.source.name, pl.projected, pl.capacity.rate, pl.capacity.lines], [false, 'OpenPersoWorkorders_PerAx.xlsx', true, 1000, 2]);
+      assert.ok(pl.queue.every((j) => j.finish_at), 'each job projected');
+      await call('PATCH', '/settings', { plan_src: path.join(tmp, 'gone.xlsx') });
+      assert.equal((await call('GET', '/plan')).source.status, 'missing');
+    }
+
     await call('POST', '/shutdown');
     const code = await new Promise((r) => server.once('exit', r));
     assert.equal(code, 0, 'server exits cleanly on shutdown');

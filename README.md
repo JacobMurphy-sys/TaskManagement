@@ -155,6 +155,17 @@ Past weeks stay in the list, so any earlier A3 can be viewed or saved again.
 - Worked out from those: CPMS (complaints per million cards shipped), scrap rate (scrap ÷ cards persoed), productivity (cards persoed per working hour) and HC (contract + temps) — all checked against Excel the same way.
 - Week codes are worked out, not typed: weeks run Sunday–Saturday (W2639), and a week whose weekdays fall in two months is split into W…_1 and W…_2. Excel's calendar leaves the Saturday and Sunday of a split week out of both parts, so weekend work in those weeks never reaches the report — the page lists it, and a tick box counts those days in their own month's part instead.
 
+### 🏭 Production planning
+
+**🏭 Planning** in the top bar turns the open perso work orders export (`OpenPersoWorkorders_PerAx.xlsx`: one row per work order + perso job + card article, with quantity, due date, priority, status, shipper and the shipper's cut-off time) into a priority list.
+- **⚙ Setup**: where the export is saved — it's read again whenever it's saved (e.g. hourly), nothing in it is changed. **📂 Load file…** tries it with a copy first.
+- Each **job** (work order + perso job) gets a **deadline**: its due date at the shipper's cut-off (e.g. *Today 16:00*); a job without a cut-off (*UNDEFINED*) gets the end of the day, flagged. Click a job for its card articles.
+- Two orders: **FIFO** — by deadline only; **BAU** — by due day, then High / Normal / Low, then cut-off.
+- **Running** jobs (In Progress) are listed on top; **Next to start** below, numbered in the chosen order, with a countdown to each deadline (overdue in red, today and tomorrow marked).
+- **Cards due by each cut-off**: jobs and cards per deadline with the running total — what has to be done by when.
+- **Capacity** (in ⚙ Setup): cards per hour per line, lines running, the working day and working days. With it, the jobs are worked through in the list's order — running ones first — and each gets a **projected finish**, red when it would miss its cut-off; the tiles count the jobs projected late.
+- Filter by customer (the work order's trigram), shipper or priority, or search for a work order or card article.
+
 ### Project charter
 - **New project** opens the charter form. Fill in the fields marked \* (title, problem definition, goals, sponsor, leader); category, policy deployment, gross margin effect and project ID are optional, and scope / benefits can be added now or later. If you leave *Project ID* blank it's numbered automatically (`PRJ-0001`, …) and you can change it at any time.
 - The project's **📋 Charter** tab shows the whole template. Edit any box in place (it saves as you go). Add team members (name, role, capacity) and KPIs (unit, baseline, target, current) in their tables; press **Enter** on the last row to add one. The milestone plan lists the project's top-level tasks, so give those tasks dates (in the task window or on the Gantt).
