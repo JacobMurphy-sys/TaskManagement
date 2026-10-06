@@ -1718,7 +1718,11 @@ router.get('/plan', h((req, res) => {
   const machineLoad = machines.some((m) => m.active) ? planning.projectMachines(running, queue, machines, capacity, new Date()) : false;
   const projected = machineLoad ? true : planning.project(running, queue, capacity, new Date());
   const types = [...new Set(db_.status === 'ok' ? [...db_.cards.values()].map((c) => c.type).filter(Boolean) : [])].sort();
-  res.json({ machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
+  // working time for the next two weeks (the Gantt's shading; available hours a day)
+  const now = new Date();
+  const windows = planning.workingWindows(now, new Date(now.getTime() + 14 * 86400000), capacity).map((w) => ({ start: w.start.toISOString(), end: w.end.toISOString() }));
+  const available = planning.minutesByDay(now, new Date(now.getTime() + 14 * 86400000), capacity);
+  res.json({ windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
     source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length, averaged: lines.some((l) => l.speed_from === 'average'),
     capacity, mode, projected, now: new Date().toISOString(), running, queue, slots: planning.loadByDeadline([...running, ...queue]) });
 }));

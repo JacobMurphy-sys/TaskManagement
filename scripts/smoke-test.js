@@ -1218,6 +1218,9 @@ async function waitForServer() {
       assert.equal(at(new Date(2026, 9, 6, 23, 0), 180, 1320, 360).getHours(), 2, 'a night shift (22:00–06:00) runs past midnight');
       assert.equal(at(new Date(2026, 9, 6, 13, 0), 60, 1320, 360).getHours(), 23, '… and starts at 22:00');
       assert.equal(at(new Date(2026, 9, 6, 13, 0), 60, 360, 1320, []), null, 'no working days: no working time');
+      assert.deepEqual(P.minutesByDay(new Date(2026, 9, 6, 20, 0), new Date(2026, 9, 7, 8, 0), { start: 360, end: 1320, days: [1, 2, 3, 4, 5] }), { '2026-10-06': 120, '2026-10-07': 120 }, 'working minutes per day');
+      assert.deepEqual(P.workingWindows(new Date(2026, 9, 9, 12, 0), new Date(2026, 9, 13, 0, 0), { start: 360, end: 1320, days: [1, 2, 3, 4, 5] }).map((w) => [w.start.getDate(), w.start.getHours(), w.end.getHours()]),
+        [[9, 12, 22], [12, 6, 22]], 'working windows: Friday from noon, then Monday');
       const wk = P.addWorking(new Date(2026, 9, 9, 21, 0), 120, { start: 360, end: 1320, days: [1, 2, 3, 4, 5] });
       assert.equal(wk.getDate(), 12, 'Fri 21:00 + 2 h of work → Monday');
       assert.equal(wk.getHours() * 60 + wk.getMinutes(), 7 * 60, '… 07:00 (1 h on Friday, 1 h from 06:00 Monday)');
@@ -1283,6 +1286,9 @@ async function waitForServer() {
       assert.deepEqual(dod.machines, ['DOD 1', 'Any']);
       assert.ok(Math.abs(dod.max_per_day - dod.speed * 16 * 2) < 40, 'max a day: speed × 16 working hours × 2 machines');
       assert.equal(pl.machine_load.length, 3);
+      assert.ok(pl.windows.length && Object.keys(pl.available).length, 'working windows and hours a day for the Gantt and Load views');
+      const booked = pl.machine_load.reduce((t, l) => t + Object.values(l.days).reduce((u, d) => u + d.minutes, 0), 0);
+      assert.ok(Math.abs(booked - pl.machine_load.reduce((t, l) => t + l.minutes, 0)) < 0.01, 'the minutes booked per day add up to each machine\'s work');
       await call('PATCH', `/plan/machines/${m1.id}`, { active: false });
       assert.equal((await call('GET', '/plan')).capacity_by_type.find((t) => t.type === 'DOD').machines.join(), 'Any', 'a stopped machine doesn\'t count');
       assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'plan_machines'));

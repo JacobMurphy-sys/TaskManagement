@@ -147,6 +147,33 @@ function addWorking(from, minutes, cal) {
   }
   return null;
 }
+// The working windows between two times: [{ start, end }] (Dates), for drawing the plan.
+function workingWindows(from, to, cal) {
+  const out = [];
+  if (!cal.days?.length) return out;
+  const len = shiftLength(cal);
+  for (let day = new Date(from.getFullYear(), from.getMonth(), from.getDate() - 1); day < to; day = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1)) {
+    if (!cal.days.includes(day.getDay())) continue;
+    const ws = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, cal.start);
+    const we = new Date(ws.getTime() + len * 60000);
+    if (we > from && ws < to) out.push({ start: ws < from ? from : ws, end: we > to ? to : we });
+  }
+  return out;
+}
+// Working minutes between s and f, per local date ("2026-10-06") they fall on.
+function minutesByDay(s, f, cal) {
+  const out = {};
+  for (const w of workingWindows(s, f, cal)) {
+    for (let t = w.start; t < w.end;) {
+      const next = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1);
+      const stop = next < w.end ? next : w.end;
+      const key = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+      out[key] = (out[key] || 0) + (stop - t) / 60000;
+      t = stop;
+    }
+  }
+  return out;
+}
 const localDate = (s) => { const [d, tm] = s.split('T'); const [y, m, dd] = d.split('-').map(Number); const [hh, mm] = tm.split(':').map(Number); return new Date(y, m - 1, dd, hh, mm); };
 
 // Projects each job's finish in the given order (running jobs first), from `now`, with
@@ -186,7 +213,7 @@ function projectMachines(running, queue, machines, { start = 360, end = 1320, da
   if (!active.length) return false;
   const cal = { start, end, days };
   const free = new Map(active.map((m) => [m.id, now]));
-  const load = new Map(active.map((m) => [m.id, { id: m.id, name: m.name, types: m.types, cards: 0, minutes: 0, lines: 0, until: null }]));
+  const load = new Map(active.map((m) => [m.id, { id: m.id, name: m.name, types: m.types, cards: 0, minutes: 0, lines: 0, until: null, days: {} }]));
   for (const j of [...running, ...queue]) {
     let last = null; let first = null; let unplanned = 0; let minutes = 0;
     for (const a of j.articles) {
@@ -202,6 +229,10 @@ function projectMachines(running, queue, machines, { start = 360, end = 1320, da
       if (!f) { a.unplanned = 'time'; unplanned++; continue; }
       free.set(m.id, f);
       const l = load.get(m.id); l.cards += a.qty; l.minutes += a.minutes; l.lines++; l.until = f.toISOString();
+      for (const [day, min] of Object.entries(minutesByDay(s, f, cal))) { // booked per day (cards in proportion)
+        const d = l.days[day] || (l.days[day] = { minutes: 0, cards: 0 });
+        d.minutes += min; d.cards += a.minutes ? (a.qty * min) / a.minutes : 0;
+      }
       a.machine = m.name; a.start_at = s.toISOString(); a.finish_at = f.toISOString();
       minutes += a.minutes;
       if (!first || s < first) first = s;
@@ -367,4 +398,4 @@ function readSource({ file, uploaded }) {
   return { status: 'ok', file: target, name: path.basename(target), uploaded: !file, modified: stat.mtime.toISOString(), read_at: cache.read_at, ...cache.parsed };
 }
 
-module.exports = { projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS };
+module.exports = { workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS };
