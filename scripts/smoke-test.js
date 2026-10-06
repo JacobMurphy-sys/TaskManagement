@@ -1213,6 +1213,11 @@ async function waitForServer() {
       assert.equal(P.project(run, q, { rate: 60, lines: 1, start: 360, end: 1320, days: [1, 2, 3, 4, 5] }, new Date(2026, 9, 7, 11, 0)), true);
       assert.deepEqual([run[0].late_minutes, new Date(q[0].finish_at).getHours(), q[0].late_minutes, q[1].late_minutes > 0],
         [19 * 60 + 10, 12, 0, false], '60 cards/h from Wed 11:00: the running job (due Tue 16:00) finishes 11:10, 19 h 10 min late; KBC right at its 12:00 cut-off');
+      const at = (d, m, st, en, days = [1, 2, 3, 4, 5]) => P.addWorking(d, m, { start: st, end: en, days });
+      assert.equal(at(new Date(2026, 9, 6, 13, 0), 120, 360, 360).getHours(), 15, 'the same start and end: round the clock');
+      assert.equal(at(new Date(2026, 9, 6, 23, 0), 180, 1320, 360).getHours(), 2, 'a night shift (22:00–06:00) runs past midnight');
+      assert.equal(at(new Date(2026, 9, 6, 13, 0), 60, 1320, 360).getHours(), 23, '… and starts at 22:00');
+      assert.equal(at(new Date(2026, 9, 6, 13, 0), 60, 360, 1320, []), null, 'no working days: no working time');
       const wk = P.addWorking(new Date(2026, 9, 9, 21, 0), 120, { start: 360, end: 1320, days: [1, 2, 3, 4, 5] });
       assert.equal(wk.getDate(), 12, 'Fri 21:00 + 2 h of work → Monday');
       assert.equal(wk.getHours() * 60 + wk.getMinutes(), 7 * 60, '… 07:00 (1 h on Friday, 1 h from 06:00 Monday)');
@@ -1264,6 +1269,8 @@ async function waitForServer() {
       pl = await call('GET', '/plan');
       const notDod = [...pl.running, ...pl.queue].find((j) => j.key === 'CINDS26100602/0001');
       assert.deepEqual([notDod.unplanned, notDod.finish_at], [1, null], 'a Laser card with no Laser machine stays unplanned');
+      assert.deepEqual(notDod.unplanned_why, ['machine'], '… and says why');
+      assert.equal([...pl.running, ...pl.queue].find((j) => j.key === 'CSIXS26100605/0001').articles[0].machine, 'DOD 1', 'a card not in the card database goes on any running machine');
       assert.ok(pl.capacity_by_type.find((t) => t.type === 'Laser').machines.length === 0);
       await call('POST', '/plan/machines', { name: 'Laser 1', types: 'Laser' });
       await call('POST', '/plan/machines', { name: 'Any', types: '' });

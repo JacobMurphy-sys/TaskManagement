@@ -30,7 +30,10 @@ async function renderPlanning() {
   const late = p.projected ? all.filter((j) => j.late_minutes > 0) : [];
   const prioChip = (pr) => `<span class="pl-prio pl-${esc(String(pr || '').toLowerCase())}">${esc(pr || '—')}</span>`;
   const finish = (j) => (!p.projected ? '' : (j.finish_at ? `<span class="${j.late_minutes > 0 ? 'pl-late' : 'pl-ok'}" title="Projected finish ${esc(fmtDateTime(j.finish_at))}">${new Date(j.finish_at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}${j.late_minutes > 0 ? ` · ${fmtSpan(j.late_minutes)} late` : ''}</span>`
-    : j.unplanned ? `<span class="pl-warn" title="No active machine runs this type of card">⚠ no machine for ${esc([...new Set(j.articles.filter((a) => !a.machine).map((a) => a.card?.type || 'unknown type'))].join(', '))}</span>` : '<span class="muted">—</span>')
+    : j.unplanned ? `<span class="pl-warn">⚠ ${esc([
+      j.unplanned_why?.includes('machine') ? `no running machine for ${[...new Set(j.articles.filter((a) => a.unplanned === 'machine').map((a) => a.card?.type))].join(', ')}` : '',
+      j.unplanned_why?.includes('speed') ? 'no speed for a card' : '',
+      j.unplanned_why?.includes('time') ? 'no working time — check the working day and days in ⚙ Setup' : ''].filter(Boolean).join(' · '))}</span>` : '<span class="muted">—</span>')
     + (j.machines?.length ? `<div class="small muted">${esc(j.machines.join(', '))}</div>` : ''));
   const row = (j, i) => {
     const l = left(j);
@@ -39,7 +42,7 @@ async function renderPlanning() {
       <td><b>${esc(dayLabel(j.due))}</b> ${j.no_cutoff ? '<span class="pl-warn" title="No cut-off time in the export (UNDEFINED) — taken as the end of the day">end of day ⚠</span>' : esc(j.deadline?.slice(11) || '')}<div class="small ${l.cls}">${esc(l.text)}</div></td>
       <td><b>${esc(j.wo)}</b> <span class="muted">/ ${esc(j.per)}</span><div class="small muted">${j.articles.length} card article${j.articles.length === 1 ? '' : 's'}</div></td>
       <td>${esc(j.customer || '—')}${j.kind?.length ? `<div class="small muted" title="${esc(j.kind.join(', '))}">${esc(j.kind[0])}${j.kind.length > 1 ? ` +${j.kind.length - 1}` : ''}</div>` : j.no_card ? '<div class="small pl-warn">not in the card database</div>' : ''}</td>
-      <td class="num"><b>${n(j.qty)}</b>${j.plan_minutes !== undefined ? `<div class="small muted" title="Production time${j.minutes === null ? ' (flat rate — not every card has a speed)' : ' from the card speeds'}">${fmtSpan(j.plan_minutes)}${j.minutes === null || j.articles.some((a) => a.speed_from !== null && !String(a.speed_from).startsWith('rule')) ? ' ≈' : ''}</div>` : ''}</td>
+      <td class="num"><b>${n(j.qty)}</b>${j.plan_minutes !== undefined && !j.unplanned ? `<div class="small muted" title="Production time${j.minutes === null ? ' (flat rate — not every card has a speed)' : ' from the card speeds'}">${fmtSpan(j.plan_minutes)}${j.minutes === null || j.articles.some((a) => a.speed_from !== null && !String(a.speed_from).startsWith('rule')) ? ' ≈' : ''}</div>` : ''}</td>
       <td>${prioChip(j.prio)}</td>
       <td><div>${esc(j.shipper || '—')}</div><div class="small muted">${esc(j.group || '')}</div></td>
       ${p.projected ? `<td>${finish(j)}</td>` : ''}
@@ -55,12 +58,13 @@ async function renderPlanning() {
   const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
   const useMachines = (p.machines || []).some((m) => m.active);
   const activeMachines = (p.machines || []).filter((m) => m.active);
-  const capText = p.projected ? `${p.rules.length ? 'card speeds' : `${n(cap.rate)} cards/h`} × ${useMachines ? `${activeMachines.length} machine${activeMachines.length === 1 ? '' : 's'}` : `${cap.lines} line${cap.lines === 1 ? '' : 's'}`} · ${hm(cap.start)}–${hm(cap.end)}` : 'set speeds in ⚙ Setup';
+  const dayText = cap.start === cap.end ? 'round the clock' : `${hm(cap.start)}–${hm(cap.end)}${cap.end < cap.start ? ' (past midnight)' : ''}`;
+  const capText = p.projected ? `${p.rules.length ? 'card speeds' : `${n(cap.rate)} cards/h`} × ${useMachines ? `${activeMachines.length} machine${activeMachines.length === 1 ? '' : 's'}` : `${cap.lines} line${cap.lines === 1 ? '' : 's'}`} · ${dayText}` : 'set speeds in ⚙ Setup';
   const machineRows = (p.machines || []).map((m) => `<tr data-pl-machine="${m.id}"><td><input type="text" name="name" value="${esc(m.name)}"></td>
       <td><input type="text" name="types" list="pl-types" value="${esc(m.types || '')}" placeholder="any type"></td>
       <td><label class="row small"><input type="checkbox" name="active" ${m.active ? 'checked' : ''}> running</label></td><td><button class="icon" data-pl-del-machine="${m.id}" title="Remove">✕</button></td></tr>`).join('');
   const loadOf = new Map((p.machine_load || []).map((l) => [l.id, l]));
-  const capCard = (p.capacity_by_type || []).length && (useMachines || p.projected) ? `<div class="card"><h3 class="pl-h">Capacity <span class="muted small">— ${hm(cap.start)}–${hm(cap.end)}, ${cap.days.length} day${cap.days.length === 1 ? '' : 's'} a week</span></h3>
+  const capCard = (p.capacity_by_type || []).length && (useMachines || p.projected) ? `<div class="card"><h3 class="pl-h">Capacity <span class="muted small">— ${dayText}, ${cap.days.length} day${cap.days.length === 1 ? '' : 's'} a week</span></h3>
       <div class="kdb-grid"><div class="kdb-scroll"><table class="log pl-cap"><thead><tr><th>Product type</th><th>Machines</th><th class="num">Speed</th><th class="num">Max cards a day</th><th class="num">Cards open</th><th class="num">Days of work</th></tr></thead><tbody>
         ${p.capacity_by_type.map((t) => `<tr><td><b>${esc(t.type)}</b></td><td>${t.machines.length ? esc(t.machines.join(', ')) : useMachines ? '<span class="pl-warn">⚠ none runs it</span>' : '<span class="muted">—</span>'}</td>
           <td class="num">${t.speed ? `${n(t.speed)}/h` : '—'}</td><td class="num"><b>${t.max_per_day ? n(t.max_per_day) : '—'}</b></td><td class="num">${n(t.cards)}</td>
@@ -102,7 +106,7 @@ async function renderPlanning() {
         <label class="f">Flat rate — cards per hour for cards without a speed<input type="number" min="0" step="1" name="plan_rate" value="${esc(settings.plan_rate || '')}" placeholder="optional"></label>
         ${useMachines ? '' : `<label class="f">Lines running <span class="muted small">(until machines are set)</span><input type="number" min="1" step="1" name="plan_lines" value="${esc(settings.plan_lines || '1')}"></label>`}
         <label class="f">Working day from<input type="time" name="plan_day_start" value="${esc(settings.plan_day_start || '06:00')}"></label>
-        <label class="f">to<input type="time" name="plan_day_end" value="${esc(settings.plan_day_end || '22:00')}"></label>
+        <label class="f">to <span class="muted small">(the same time = round the clock; earlier = past midnight)</span><input type="time" name="plan_day_end" value="${esc(settings.plan_day_end || '22:00')}"></label>
         <div class="f full"><span>Working days</span><div class="row">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => `<label class="row small"><input type="checkbox" data-pl-day="${i}" ${cap.days.includes(i) ? 'checked' : ''}> ${d}</label>`).join('')}</div></div>
       </div>
       <h3 class="pl-h" style="margin-top:14px">Machines <span class="muted small">— and the product types (card Type) each runs</span></h3>

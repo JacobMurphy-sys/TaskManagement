@@ -120,19 +120,30 @@ function order(jobs, mode = 'fifo') {
 }
 
 // Working time: days (0 = Sunday … 6 = Saturday) and hours of the day (minutes), local time.
-// Walks `minutes` of production forward from `from`, through the working windows only.
+// A day that ends at or before its start runs past midnight (22:00–06:00); the same time at
+// both ends is round the clock. Walks `minutes` of production forward from `from`, through the
+// working windows only (null when there's no working time at all).
+const shiftLength = (cal) => (cal.end > cal.start ? cal.end - cal.start : cal.end - cal.start + 1440);
 function addWorking(from, minutes, cal) {
-  let t = new Date(from.getTime());
+  if (!cal.days?.length) return null;
+  const len = shiftLength(cal);
   let left = minutes;
+  let t = new Date(from.getTime());
+  // the window that could hold t may have started the day before (a shift past midnight)
+  let day = new Date(t.getFullYear(), t.getMonth(), t.getDate() - 1);
   for (let guard = 0; guard < 4000; guard++) {
-    const dayStart = new Date(t.getFullYear(), t.getMonth(), t.getDate(), 0, cal.start);
-    const dayEnd = new Date(t.getFullYear(), t.getMonth(), t.getDate(), 0, cal.end);
-    if (!cal.days.includes(t.getDay()) || t >= dayEnd) { t = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1, 0, cal.start); continue; }
-    if (t < dayStart) t = dayStart;
-    const room = (dayEnd - t) / 60000;
-    if (left <= room) return new Date(t.getTime() + left * 60000);
-    left -= room;
-    t = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1, 0, cal.start);
+    if (cal.days.includes(day.getDay())) {
+      const ws = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, cal.start);
+      const we = new Date(ws.getTime() + len * 60000);
+      if (t < we) {
+        if (t < ws) t = ws;
+        const room = (we - t) / 60000;
+        if (left <= room) return new Date(t.getTime() + left * 60000);
+        left -= room;
+        t = we;
+      }
+    }
+    day = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1);
   }
   return null;
 }
@@ -180,12 +191,15 @@ function projectMachines(running, queue, machines, { start = 360, end = 1320, da
     let last = null; let first = null; let unplanned = 0; let minutes = 0;
     for (const a of j.articles) {
       const type = a.card?.type || null;
-      const able = active.filter((m) => canRun(m, type));
-      if (!able.length || a.minutes === null) { a.machine = null; unplanned++; continue; }
+      // a card not in the card database (type unknown) can go on any running machine
+      const able = type ? active.filter((m) => canRun(m, type)) : active;
+      a.machine = null;
+      if (a.minutes === null) { a.unplanned = 'speed'; unplanned++; continue; }
+      if (!able.length) { a.unplanned = 'machine'; unplanned++; continue; }
       const m = able.reduce((best, x) => (free.get(x.id) < free.get(best.id) ? x : best));
       const s = addWorking(free.get(m.id), 0, cal) || free.get(m.id);
       const f = addWorking(free.get(m.id), a.minutes, cal);
-      if (!f) { unplanned++; continue; }
+      if (!f) { a.unplanned = 'time'; unplanned++; continue; }
       free.set(m.id, f);
       const l = load.get(m.id); l.cards += a.qty; l.minutes += a.minutes; l.lines++; l.until = f.toISOString();
       a.machine = m.name; a.start_at = s.toISOString(); a.finish_at = f.toISOString();
@@ -195,6 +209,7 @@ function projectMachines(running, queue, machines, { start = 360, end = 1320, da
     }
     j.machines = [...new Set(j.articles.map((a) => a.machine).filter(Boolean))];
     j.unplanned = unplanned;
+    j.unplanned_why = [...new Set(j.articles.map((a) => a.unplanned).filter(Boolean))];
     j.plan_minutes = minutes;
     j.start_at = first ? first.toISOString() : null;
     j.finish_at = last && !unplanned ? last.toISOString() : null;
@@ -208,7 +223,7 @@ function projectMachines(running, queue, machines, { start = 360, end = 1320, da
 // run several types count for each of them — the ceiling for that type on its own.
 function capacityByType(lines, machines, { start = 360, end = 1320, days = [1, 2, 3, 4, 5] }) {
   const active = machines.filter((m) => m.active !== 0 && m.active !== false);
-  const hours = Math.max(0, end - start) / 60;
+  const hours = shiftLength({ start, end }) / 60;
   const types = new Map();
   for (const l of lines) {
     const type = l.card?.type || null;
