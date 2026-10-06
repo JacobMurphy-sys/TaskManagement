@@ -136,6 +136,23 @@ async function renderPlanning() {
   const general = (p.rules || []).filter((r) => !(p.combos || []).some((c) => (r.type || '') === (c.type || '') && (r.material || '') === (c.material || '') && (r.sides || '') === (c.sides || '')));
   const src = p.source;
   const ot = p.otto || { source: { status: 'none' }, running: [], queue: [] };
+  // ⏳ Backlog: what's overdue, and how long catching up takes at the recent pace
+  const backlogCard = (b, unit, otto) => {
+    if (!b) return '';
+    const c = b.catch_up; const dd = (iso) => new Date(`${iso}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    const pace = c.basis_days ? `Last ${c.basis_days} working day${c.basis_days === 1 ? '' : 's'} (${dd(c.from)} – ${dd(c.to)}): <b>${n(c.rate)}</b> ${unit} done a day, <b>${n(c.demand)}</b> due a day.` : '';
+    const est = {
+      ok: `Overdue alone: about <b>${c.clear_days}</b> working day${c.clear_days === 1 ? '' : 's'} of output. Catching up while new work keeps coming: about <b>${c.catch_days}</b> working day${c.catch_days === 1 ? '' : 's'} — by <b>${c.catch_date ? dd(c.catch_date) : '—'}</b>.`,
+      not_catching_up: `Overdue alone: about <b>${c.clear_days}</b> working day${c.clear_days === 1 ? '' : 's'} of output — but at this pace the backlog isn't shrinking: as much or more is due each day as is done.`,
+      nothing_done: 'Nothing finished in that time to measure the pace.',
+      no_record: otto ? 'No finished jobs with an End Date in the export to measure the pace.' : 'The pace comes from the plan history — it needs at least one full working day recorded.',
+      none_overdue: '',
+    }[c.status];
+    return `<div class="card pl-backlog"><h3 class="pl-h">⏳ Backlog</h3>
+      <div class="pl-backlog-row"><div class="pl-backlog-big ${b.overdue_qty ? 'pl-late' : 'pl-ok'}">${b.overdue_qty ? `${n(b.overdue_qty)} <span>${unit} overdue</span>` : '✔ <span>nothing overdue</span>'}</div>
+        <div class="small">${b.overdue_qty ? `${n(b.overdue_jobs)} job${b.overdue_jobs === 1 ? '' : 's'} past ${otto ? 'the plan date' : 'the cut-off'}${b.oldest_due ? `, the oldest due ${esc(dd(b.oldest_due))}` : ''}.<br>` : ''}${pace}${est ? `<br>${est}` : ''}</div></div>
+      ${b.hidden_jobs ? `<p class="small muted" style="margin:6px 0 0">${n(b.hidden_jobs)} job${b.hidden_jobs === 1 ? '' : 's'} (${n(b.hidden_qty)} ${unit}) due more than ${b.max_age} days ago ${b.hidden_jobs === 1 ? 'isn\'t' : 'aren\'t'} shown or counted — likely errors. <button class="link small" data-pl="setup">⚙ Change</button></p>` : ''}</div>`;
+  };
   const ottoSetup = () => `
       <h3 class="pl-h" style="margin-top:14px">Otto machines <span class="muted small">— items per hour</span></h3>
       <table class="log pl-speeds pl-machines"><thead><tr><th>Machine</th><th>Named in the export as <span class="muted small">(optional, e.g. HMT PC#1)</span></th><th>Items per hour</th><th></th><th></th></tr></thead><tbody>
@@ -181,9 +198,10 @@ async function renderPlanning() {
       <div class="kdb-tile"><div class="kdb-tile-l">Open Otto jobs</div><div class="kdb-tile-v">${n(allO.length)}</div><div class="kdb-tile-s">${n(sum(allO))} items${ot.done ? ` · ${n(ot.done)} finished not shown` : ''}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Running</div><div class="kdb-tile-v">${n(ot.running.length)}</div><div class="kdb-tile-s">${n(sum(ot.running))} items</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Due today</div><div class="kdb-tile-v ${oToday.length ? 'kdb-warn' : ''}">${n(oToday.length)}</div><div class="kdb-tile-s">${n(sum(oToday))} items</div></div>
-      <div class="kdb-tile"><div class="kdb-tile-l">Overdue</div><div class="kdb-tile-v ${oOver.length ? 'kdb-bad' : 'kdb-ok'}">${n(oOver.length)}</div><div class="kdb-tile-s">${n(sum(oOver))} items</div></div>
+      <div class="kdb-tile"><div class="kdb-tile-l">Overdue items</div><div class="kdb-tile-v ${oOver.length ? 'kdb-bad' : 'kdb-ok'}">${n(sum(oOver))}</div><div class="kdb-tile-s">${n(oOver.length)} job${oOver.length === 1 ? '' : 's'}${ot.backlog?.catch_up?.catch_days ? ` · caught up in ~${ot.backlog.catch_up.catch_days} d` : ''}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Projected late</div><div class="kdb-tile-v ${allO.some((o) => o.late_minutes > 0) ? 'kdb-bad' : ot.projected ? 'kdb-ok' : ''}">${ot.projected ? n(allO.filter((o) => o.late_minutes > 0).length) : '—'}</div><div class="kdb-tile-s">${ot.projected ? `${(ot.machines || []).filter((m) => m.active).length} machine${(ot.machines || []).filter((m) => m.active).length === 1 ? '' : 's'} · ${esc(dayText)}` : 'set machines in ⚙ Setup'}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Waiting on perso</div><div class="kdb-tile-v ${allO.some(behind) ? 'kdb-bad' : ''}">${n(waiting.length)}</div><div class="kdb-tile-s">${allO.some(behind) ? `${n(allO.filter(behind).length)} perso ready after the plan date` : `${src.status === 'ok' ? 'perso work order still open' : 'link the perso export to match'}`}</div></div></div>
+    ${backlogCard(ot.backlog, 'items', true)}
     <div class="row pl-filters">
       <input type="search" id="plo-q" placeholder="Search name, customer, plan group…" value="${esc(of.q || '')}">
       <select id="plo-customer"><option value="">All customers</option>${oCust.map((c) => `<option ${of.customer === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
@@ -226,6 +244,7 @@ ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. 
         ${useMachines ? '' : `<label class="f">Lines running <span class="muted small">(until machines are set)</span><input type="number" min="1" step="1" name="plan_lines" value="${esc(settings.plan_lines || '1')}"></label>`}
         <label class="f">Ready before the cut-off (minutes) <span class="muted small">— packing and dispatch</span><input type="number" min="0" step="5" name="plan_buffer" value="${esc(settings.plan_buffer || '0')}"></label>
         <label class="f">Change-over (minutes) <span class="muted small">— when a machine switches card type or material</span><input type="number" min="0" step="1" name="plan_changeover" value="${esc(settings.plan_changeover || '0')}"></label>
+        <label class="f">Hide anything due more than (days ago) <span class="muted small">— likely errors; 0 shows all</span><input type="number" min="0" step="1" name="plan_max_age" value="${esc(settings.plan_max_age ?? '30')}"></label>
         <label class="f">Working day from<input type="time" name="plan_day_start" value="${esc(settings.plan_day_start || '06:00')}"></label>
         <label class="f">to <span class="muted small">(the same time = round the clock; earlier = past midnight)</span><input type="time" name="plan_day_end" value="${esc(settings.plan_day_end || '22:00')}"></label>
         <div class="f full"><span>Working days</span><div class="row">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => `<label class="row small"><input type="checkbox" data-pl-day="${i}" ${cap.days.includes(i) ? 'checked' : ''}> ${d}</label>`).join('')}</div></div>
@@ -265,7 +284,7 @@ ${half === 'otto' ? ottoSetup() : `
       <div class="kdb-tile"><div class="kdb-tile-l">Open jobs</div><div class="kdb-tile-v">${n(all.length)}</div><div class="kdb-tile-s">${n(sum(all))} cards · ${n(new Set(all.map((j) => j.wo)).size)} work orders</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Running</div><div class="kdb-tile-v">${n(p.running.length)}</div><div class="kdb-tile-s">${n(sum(p.running))} cards</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Due today</div><div class="kdb-tile-v ${dueToday.length ? 'kdb-warn' : ''}">${n(dueToday.length)}</div><div class="kdb-tile-s">${n(sum(dueToday))} cards</div></div>
-      <div class="kdb-tile"><div class="kdb-tile-l">Overdue</div><div class="kdb-tile-v ${overdue.length ? 'kdb-bad' : 'kdb-ok'}">${n(overdue.length)}</div><div class="kdb-tile-s">${n(sum(overdue))} cards</div></div>
+      <div class="kdb-tile"><div class="kdb-tile-l">Overdue cards</div><div class="kdb-tile-v ${overdue.length ? 'kdb-bad' : 'kdb-ok'}">${n(sum(overdue))}</div><div class="kdb-tile-s">${n(overdue.length)} job${overdue.length === 1 ? '' : 's'}${p.backlog?.catch_up?.catch_days ? ` · caught up in ~${p.backlog.catch_up.catch_days} d` : ''}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Projected late</div><div class="kdb-tile-v ${late.length ? 'kdb-bad' : p.projected ? 'kdb-ok' : ''}">${p.projected ? n(late.length) : '—'}</div><div class="kdb-tile-s">${esc(capText)}</div></div>
     </div>
     ${src.status === 'ok' ? `<div class="row pl-views"><div class="seg">${viewList.map(([k, l]) => `<button type="button" data-pl-view="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('')}</div>
@@ -274,7 +293,7 @@ ${half === 'otto' ? ottoSetup() : `
     ${view === 'gantt' ? '<div class="card pl-gantt-card"><div id="pl-gantt-info" class="small"></div><div id="pl-gantt"></div></div>' : ''}
     ${view === 'load' ? `${loadHtml()}${capCard}` : ''}
     ${view === 'history' ? historyHtml() : ''}
-    ${view !== 'list' ? '' : `${capCard}
+    ${view !== 'list' ? '' : `${backlogCard(p.backlog, 'cards', false)}${capCard}
     <div class="card"><h3 class="pl-h">Cards due by each cut-off</h3>
       <div class="kdb-scroll"><table class="log pl-slots"><thead><tr><th>Deadline</th><th class="num">Jobs</th><th class="num">Cards</th><th class="num">Running total</th><th>Shippers</th>${p.projected ? '<th>Projected</th>' : ''}</tr></thead><tbody>
         ${p.slots.slice(0, 20).map((s) => `<tr class="${s.due === todayIso ? 'pl-today-row' : ''}"><td><b>${esc(dayLabel(s.due))}</b> ${esc(s.deadline.slice(11))}</td><td class="num">${n(s.jobs)}</td><td class="num">${n(s.qty)}</td><td class="num">${n(s.cumulative)}</td>

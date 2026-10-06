@@ -113,6 +113,8 @@ function parseOtto(buf) {
       sub_customer: String(g('sub_customer') ?? '').trim() || null, group: String(g('group') ?? '').trim() || null,
       comment: String(g('comment') ?? '').trim() || null,
     };
+    const endDay = parseDay(g('end'));
+    job.end_date = endDay ? iso(endDay) : null; // when a finished job was finished
     job.running = !job.done && /progress|started|running|busy/i.test(status || '');
     job.deadline = job.due ? `${job.due}T${hhmm(time ?? 24 * 60 - 1)}` : null;
     if (!day) skipped.push({ row: r, wo: name, why: `plan date “${g('due') ?? ''}” not understood` });
@@ -193,6 +195,44 @@ function projectOtto(running, queue, machines, speeds, { start = 360, end = 1320
   }
   return [...load.values()];
 }
+
+// ---- backlog: overdue work and how long catching up takes at the recent pace ----------------
+// done: [{ date: 'YYYY-MM-DD', qty }] finished; due: [{ date, qty }] all work due (done or not);
+// over the last `days` full days (from `from`, when the record starts later), counting working
+// days only. rate = done a working day, demand = due a working day. Clearing the overdue alone
+// takes overdue ÷ rate; with new work still arriving it takes overdue ÷ (rate − demand).
+function catchUp({ overdue, done, due, days = 7, workDays = [1, 2, 3, 4, 5], from = null, now = new Date() }) {
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let start = new Date(today); start.setDate(start.getDate() - days);
+  if (from) { const f = new Date(from); const next = new Date(f.getFullYear(), f.getMonth(), f.getDate() + 1); if (next > start) start = next; } // first full day on record
+  const dates = [];
+  for (let d = new Date(start); d < today; d.setDate(d.getDate() + 1)) if (workDays.includes(d.getDay())) dates.push(ymd(d));
+  const set = new Set(dates);
+  const doneQty = done.filter((x) => set.has(x.date)).reduce((t, x) => t + x.qty, 0);
+  const dueQty = due.filter((x) => set.has(x.date)).reduce((t, x) => t + x.qty, 0);
+  const out = { overdue, basis_days: dates.length, from: dates[0] || null, to: dates[dates.length - 1] || null, rate: null, demand: null, clear_days: null, catch_days: null, catch_date: null, status: 'ok' };
+  if (!dates.length) return { ...out, status: 'no_record' };
+  out.rate = Math.round(doneQty / dates.length);
+  out.demand = Math.round(dueQty / dates.length);
+  if (!overdue) return { ...out, status: 'none_overdue' };
+  if (!doneQty) return { ...out, status: 'nothing_done' };
+  out.clear_days = Math.round((overdue / (doneQty / dates.length)) * 10) / 10;
+  const net = (doneQty - dueQty) / dates.length;
+  if (net <= 0) return { ...out, status: 'not_catching_up' };
+  out.catch_days = Math.round((overdue / net) * 10) / 10;
+  // the working day it's reached
+  let left = Math.ceil(out.catch_days); const d = new Date(today);
+  while (left > 0) { d.setDate(d.getDate() + 1); if (workDays.includes(d.getDay())) left--; }
+  out.catch_date = ymd(d);
+  return out;
+}
+// Jobs due more than maxAge days ago are likely errors: left out. maxAge 0: keep everything.
+const tooOld = (due, maxAge, now = new Date()) => {
+  if (!(maxAge > 0) || !due) return false;
+  const c = new Date(now.getFullYear(), now.getMonth(), now.getDate() - maxAge);
+  return due < `${c.getFullYear()}-${String(c.getMonth() + 1).padStart(2, '0')}-${String(c.getDate()).padStart(2, '0')}`;
+};
 
 // Lines → jobs (WO + PER): cards summed, articles listed, deadline = due date at the cut-off
 // (a job without a cut-off gets the end of the day, flagged).
@@ -538,4 +578,4 @@ function readSource({ file, uploaded, parser = parse }) {
   return { status: 'ok', file: target, name: path.basename(target), uploaded: !file, modified: stat.mtime.toISOString(), read_at: cache.read_at, ...cache.parsed };
 }
 
-module.exports = { workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, woOfName, OTTO_COLUMNS };
+module.exports = { workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, woOfName, OTTO_COLUMNS };

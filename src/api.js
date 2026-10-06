@@ -1698,13 +1698,30 @@ const OTTO_UPLOAD = path.join(config.dataDir, 'plan', 'otto.xlsx');
 const planHistory = require('./planhistory');
 // Otto (the other half of production): its export, open jobs in plan-date order, linked to the
 // perso jobs by work order. Finished and test jobs are counted but not listed.
+// Max age (days) of what's shown: older is likely an error (0 = show everything).
+const planMaxAge = (set) => { const v = String(set.plan_max_age ?? '').trim(); return v === '' ? 30 : Math.max(0, Number(v) || 0); };
+const nowLocal = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+const localYmd = (iso) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+// Overdue work (past its deadline now), what's hidden as too old, and the catch-up estimate.
+function backlogOf(jobs, hidden, record, capacity, maxAge) {
+  const now = nowLocal();
+  const over = jobs.filter((j) => j.deadline && j.deadline < now);
+  return {
+    max_age: maxAge, hidden_jobs: hidden.length, hidden_qty: hidden.reduce((t, j) => t + j.qty, 0),
+    overdue_jobs: over.length, overdue_qty: over.reduce((t, j) => t + j.qty, 0), oldest_due: over.map((j) => j.due).filter(Boolean).sort()[0] || null,
+    catch_up: planning.catchUp({ overdue: over.reduce((t, j) => t + j.qty, 0), ...record, days: 7, workDays: capacity.days }),
+  };
+}
 function ottoOf(set, persoJobs, capacity) {
   const o = planning.readSource({ file: cleanPath(set.plan_otto_src) || null, uploaded: OTTO_UPLOAD, parser: planning.parseOtto });
   const source = { status: o.status, file: o.file || null, name: o.name || null, uploaded: !!o.uploaded, modified: o.modified || null, error: o.error || null, skipped: o.skipped || [] };
   const machines = db.all('SELECT * FROM plan_otto_machines ORDER BY sort_order, id');
   const speeds = db.all('SELECT * FROM plan_otto_speeds ORDER BY customer');
-  if (o.status !== 'ok') return { source, machines, speeds, customers: [], running: [], queue: [], done: 0, tests: 0, load: [], projected: false };
-  const open = o.jobs.filter((j) => !j.done && !j.test).map((j) => ({ ...j }));
+  if (o.status !== 'ok') return { source, machines, speeds, customers: [], running: [], queue: [], done: 0, tests: 0, load: [], projected: false, backlog: null };
+  const maxAge = planMaxAge(set);
+  const openAll = o.jobs.filter((j) => !j.done && !j.test);
+  const hidden = openAll.filter((j) => planning.tooOld(j.due, maxAge));
+  const open = openAll.filter((j) => !planning.tooOld(j.due, maxAge)).map((j) => ({ ...j }));
   planning.linkOtto(persoJobs, open);
   const running = planning.orderOtto(open.filter((j) => j.running)); const queue = planning.orderOtto(open.filter((j) => !j.running));
   const load = planning.projectOtto(running, queue, machines, speeds, capacity, new Date());
@@ -1713,7 +1730,11 @@ function ottoOf(set, persoJobs, capacity) {
   for (const j of open) if (j.customer) { const c = cust.get(j.customer) || { customer: j.customer, name: j.customer_name, items: 0, jobs: 0 }; c.items += j.qty; c.jobs++; cust.set(j.customer, c); }
   for (const r of speeds) if (!cust.has(r.customer.toUpperCase())) cust.set(r.customer.toUpperCase(), { customer: r.customer.toUpperCase(), name: null, items: 0, jobs: 0 });
   const customers = [...cust.values()].map((c) => ({ ...c, speed: speeds.find((r) => r.customer.toUpperCase() === c.customer)?.speed ?? null })).sort((a, b) => b.items - a.items || a.customer.localeCompare(b.customer));
-  return { source, machines, speeds, customers, running, queue, load: load || [], projected: !!load,
+  // the pace: finished jobs (by End Date) and all work due (by Plan Date) in the export
+  const real = o.jobs.filter((j) => !j.test);
+  const backlog = backlogOf(open, hidden, { done: real.filter((j) => j.done && j.end_date).map((j) => ({ date: j.end_date, qty: j.qty })),
+    due: real.filter((j) => j.due).map((j) => ({ date: j.due, qty: j.qty })) }, capacity, maxAge);
+  return { source, machines, speeds, customers, running, queue, load: load || [], projected: !!load, backlog,
     done: o.jobs.filter((j) => j.done && !j.test).length, tests: o.jobs.filter((j) => j.test).length };
 }
 // Each new version of the linked export goes into the plan history (an uploaded copy doesn't).
@@ -1746,7 +1767,9 @@ router.get('/plan', h((req, res) => {
   const mode = req.query.mode === 'bau' ? 'bau' : 'fifo';
   const oeeRows = db.all('SELECT customer, oee FROM plan_oee ORDER BY customer');
   const oeeDefault = Number(set.plan_oee_default) > 0 && Number(set.plan_oee_default) <= 100 ? Number(set.plan_oee_default) / 100 : null;
-  const lines = planning.withSpeeds(src.lines.map((l) => ({ ...l })), db_.status === 'ok' ? db_.cards : null, rules, capacity.rate,
+  const maxAge = planMaxAge(set);
+  const hiddenJobs = planning.jobsOf(src.lines.filter((l) => planning.tooOld(l.due, maxAge)));
+  const lines = planning.withSpeeds(src.lines.filter((l) => !planning.tooOld(l.due, maxAge)).map((l) => ({ ...l })), db_.status === 'ok' ? db_.cards : null, rules, capacity.rate,
     { by: new Map(oeeRows.map((r) => [r.customer.toUpperCase(), r.oee])), fallback: oeeDefault });
   // customers for the OEE table: those in the open work orders (name from the card database) and any set before
   const custNames = new Map();
@@ -1774,7 +1797,14 @@ router.get('/plan', h((req, res) => {
   const windows = planning.workingWindows(now, new Date(now.getTime() + 14 * 86400000), capacity).map((w) => ({ start: w.start.toISOString(), end: w.end.toISOString() }));
   const available = planning.minutesByDay(now, new Date(now.getTime() + 14 * 86400000), capacity);
   const otto = ottoOf(set, [...running, ...queue], capacity);
-  res.json({ otto, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
+  // the pace from the plan history: jobs done (when they left the export) and all jobs due
+  const since = new Date(Date.now() - 10 * 86400000);
+  const histFirst = db.get('SELECT MIN(file_modified) AS f FROM plan_history_reads')?.f || null;
+  const backlog = backlogOf([...running, ...queue], hiddenJobs, {
+    done: db.all('SELECT done_at, qty FROM plan_history_jobs WHERE done_at >= ?', [since.toISOString()]).map((r) => ({ date: localYmd(r.done_at), qty: r.qty })),
+    due: db.all('SELECT due, qty FROM plan_history_jobs WHERE due >= ?', [localYmd(since)]).map((r) => ({ date: r.due, qty: r.qty })),
+    from: histFirst }, capacity, maxAge);
+  res.json({ backlog, otto, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
     source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length, averaged: lines.some((l) => l.speed_from === 'average'),
     capacity, mode, projected, now: new Date().toISOString(), running, queue, slots: planning.loadByDeadline([...running, ...queue]) });
 }));
@@ -1918,7 +1948,7 @@ const SETTING_DEFAULTS = {
   kpi_fc_benelux: '', kpi_fc_amex: '',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
-  plan_src: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_oee_default: '', plan_otto_src: '', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
+  plan_src: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_oee_default: '', plan_otto_src: '', plan_max_age: '30', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
 };
 function getSettings() {
   const out = { ...SETTING_DEFAULTS };

@@ -1189,6 +1189,16 @@ async function waitForServer() {
       const P = require('../src/planning');
       const { buildXlsx: bx } = require('../src/xlsx');
       assert.deepEqual([P.parseDay('Oct  6 2026 '), P.parseDay(46301), P.parseTime('16:00'), P.parseTime('UNDEFINED')], [{ y: 2026, m: 9, d: 6 }, { y: 2026, m: 9, d: 6 }, 960, null]);
+      {
+        const now = new Date(2026, 9, 6, 10); // Tue
+        const c = P.catchUp({ overdue: 1000, done: [{ date: '2026-10-05', qty: 3000 }, { date: '2026-10-02', qty: 2000 }], due: [{ date: '2026-10-05', qty: 2000 }, { date: '2026-10-01', qty: 1500 }], now });
+        assert.deepEqual([c.basis_days, c.rate, c.demand, c.clear_days, c.catch_days, c.catch_date], [5, 1000, 700, 1, 3.3, '2026-10-12'],
+          '5 working days: 1,000 done and 700 due a day; 1,000 overdue → 1 day alone, 3.3 days net (4 working days on: Mon 12th)');
+        assert.equal(P.catchUp({ overdue: 10, done: [{ date: '2026-10-05', qty: 10 }], due: [{ date: '2026-10-05', qty: 50 }], now }).status, 'not_catching_up');
+        assert.equal(P.catchUp({ overdue: 10, done: [], due: [], now, from: now.toISOString() }).status, 'no_record', 'no full day on record yet');
+        assert.equal(P.catchUp({ overdue: 10, done: [{ date: '2026-10-05', qty: 10 }], due: [], now, from: new Date(2026, 9, 4).toISOString() }).basis_days, 1, 'from the first full day on record');
+        assert.deepEqual([P.tooOld('2026-09-05', 30, now), P.tooOld('2026-09-06', 30, now), P.tooOld('2020-01-01', 0, now)], [true, false, false]);
+      }
       const cols = ['WO', 'PER', 'Card AX', 'QNY', 'Due Out', 'Prio', 'Status', '', 'LIVE', 'GROUP', 'Shipper', 'Shipping Time'].map((h, i) => ({ header: h, type: i === 3 ? 'number' : undefined }));
       const r = (wo, per, ax, q, due, prio, st, ship, time) => [wo, per, ax, q, due, prio, st, '', 'LIVE', 'G', ship, time];
       const exp = bx([{ name: 'OpenPersoWorkorders_PerAx', columns: cols, rows: [
@@ -1240,15 +1250,19 @@ async function waitForServer() {
       assert.deepEqual([pl.source.uploaded, pl.source.name, pl.projected, pl.capacity.rate, pl.capacity.lines], [false, 'OpenPersoWorkorders_PerAx.xlsx', true, 1000, 2]);
       // Otto: its own export, matched to the perso work orders by the start of Name
       {
-        const oCols = ['Name', '', 'Is Test', 'Is Done', 'Prod. Status', 'Priority', 'Items ', 'Plan Date', 'PlanTime', 'Machine', 'Customer', 'Comment']
+        const oCols = ['Name', '', 'Is Test', 'Is Done', 'Prod. Status', 'Priority', 'Items ', 'Plan Date', 'PlanTime', 'Machine', 'Customer', 'Comment', 'End Date']
           .map((h, i) => ({ header: h, type: i === 6 ? 'number' : undefined }));
-        const o = (name, test, done, st, prio, items, date, time) => [name, '', test, done, st, prio, items, date, time, 'HMT PC#1', 'Cust', ''];
+        const o = (name, test, done, st, prio, items, date, time, end = '') => [name, '', test, done, st, prio, items, date, time, 'HMT PC#1', 'Cust', '', end];
+        const dmy = (back) => { const d = new Date(); d.setDate(d.getDate() - back); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`; };
         const otto = bx([{ name: 'Sheet1', columns: oCols, rows: [
           o('CINDS26100602MAT0001', 'False', 'False', 'Planned', 'Normal', 100, '08/10/2026', '23:59:59'),
           o('CKBCS26100603MAT0001', 'False', 'False', 'Planned', 'Urgent', 50, '07/10/2026', '14:00:00'),
           o('CZZZS26100699MAT0001', 'False', 'False', 'In Progress', 'Normal', 9, '07/10/2026', '10:00:00'),
           o('CADXS26010101MAT0001', 'False', 'True', 'Finished', 'Urgent', 6, '02/01/2026', '23:59:59'),
-          o('CTSTS26100600MAT0001', 'True', 'False', 'Planned', 'Normal', 1, '07/10/2026', '09:00:00')] }]);
+          o('CTSTS26100600MAT0001', 'True', 'False', 'Planned', 'Normal', 1, '07/10/2026', '09:00:00'),
+          o('COLDS26010199MAT0001', 'False', 'False', 'Planned', 'Normal', 77, dmy(45), '09:00:00'),
+          o('CDONS26100501MAT0001', 'False', 'True', 'Finished', 'Normal', 400, dmy(3), '12:00:00', dmy(3)),
+          o('CDONS26100502MAT0001', 'False', 'True', 'Finished', 'Normal', 300, dmy(2), '12:00:00', dmy(1))] }]);
         const parsed = P.parseOtto(otto);
         assert.deepEqual(parsed.jobs.map((j) => [j.wo, j.customer, j.qty, j.deadline, j.done, j.test]).slice(0, 2),
           [['CINDS26100602', 'IND', 100, '2026-10-08T23:59', false, false], ['CKBCS26100603', 'KBC', 50, '2026-10-07T14:00', false, false]], 'WO, customer (characters 2–4), items, plan date + time');
@@ -1257,7 +1271,13 @@ async function waitForServer() {
         assert.equal((await call('GET', '/plan')).otto.source.status, 'none');
         await call('PATCH', '/settings', { plan_otto_src: ottoFile });
         const po = await call('GET', '/plan');
-        assert.deepEqual([po.otto.source.status, po.otto.done, po.otto.tests], ['ok', 1, 1], 'finished and test jobs are counted, not listed');
+        assert.deepEqual([po.otto.source.status, po.otto.done, po.otto.tests], ['ok', 3, 1], 'finished and test jobs are counted, not listed');
+        assert.deepEqual([po.otto.backlog.hidden_jobs, po.otto.backlog.hidden_qty, po.otto.backlog.max_age], [1, 77, 30], 'due more than 30 days ago: not shown');
+        assert.ok(po.otto.backlog.catch_up.basis_days > 0 && po.otto.backlog.catch_up.rate > 0, 'the pace from the finished jobs\' End Date');
+        assert.ok(po.backlog && 'overdue_qty' in po.backlog && po.backlog.catch_up, 'perso backlog too');
+        await call('PATCH', '/settings', { plan_max_age: '0' });
+        assert.equal((await call('GET', '/plan')).otto.queue.some((j) => j.name.startsWith('COLDS')), true, '0: everything shown');
+        await call('PATCH', '/settings', { plan_max_age: '30' });
         assert.deepEqual(po.otto.running.map((j) => j.name), ['CZZZS26100699MAT0001']);
         assert.deepEqual(po.otto.queue.map((j) => j.name), ['CKBCS26100603MAT0001', 'CINDS26100602MAT0001'], 'by plan date and time');
         const ind = po.otto.queue[1];

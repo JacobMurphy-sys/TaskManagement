@@ -1044,3 +1044,8 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .pl-hist-d { font-size: 11px; color: var(--muted); text-align: center; margin-top: 4px; line-height: 1.2; }
 .pl-n .pl-pin { opacity: .25; font-size: 12px; padding: 0 2px; }
 .pl-job:hover .pl-pin, .pl-pin.on { opacity: 1; }
+
+.pl-backlog-row { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+.pl-backlog-big { font-size: 28px; font-weight: 700; white-space: nowrap; }
+.pl-backlog-big span { font-size: 14px; font-weight: 500; }
+.pl-backlog-row .small { flex: 1; min-width: 260px; line-height: 1.6; }
