@@ -1265,6 +1265,29 @@ async function waitForServer() {
         assert.equal(po.otto.running[0].perso_open, false, 'no perso job open for its WO');
         assert.deepEqual(po.queue.find((j) => j.key === 'CINDS26100602/0001').otto.map((x) => x.name), ['CINDS26100602MAT0001'], 'perso jobs list their Otto jobs');
         assert.equal((await fetch(`${BASE}/plan/upload?half=otto`, { method: 'POST', body: exp, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } })).status, 400, 'a perso export isn\'t an Otto export');
+        // Otto machines and speeds: each job on the machine where it finishes first, never before its perso work
+        assert.equal(po.otto.projected, false, 'no Otto machines yet: not projected');
+        await assert.rejects(call('POST', '/plan/otto/machines', { name: 'X', speed: '-3' }), /above 0/);
+        const om1 = await call('POST', '/plan/otto/machines', { name: 'HMT 1', match: 'HMT PC#1', speed: '' });
+        let p2 = await call('GET', '/plan');
+        assert.deepEqual([p2.otto.projected, p2.otto.queue[0].unplanned], [true, 'speed'], 'a machine without a speed: unplanned, for want of a speed');
+        await call('PATCH', `/plan/otto/machines/${om1.id}`, { speed: '60' });
+        await call('POST', '/plan/otto/machines', { name: 'Other', speed: 1000 });
+        p2 = await call('GET', '/plan');
+        const allO = [...p2.otto.running, ...p2.otto.queue];
+        assert.ok(allO.every((o) => o.finish_at && o.machine_planned === 'HMT 1'), 'Machine "HMT PC#1" in the export: on the machine named so');
+        const kbc = p2.otto.queue.find((o) => o.customer === 'KBC');
+        assert.ok(Math.abs(kbc.plan_minutes - 50) < 0.01, '50 items at 60/h: 50 min');
+        assert.ok(new Date(kbc.start_at) >= new Date(kbc.perso_finish_at), 'not before its perso work order is projected done');
+        assert.equal(typeof kbc.waited_perso, 'boolean');
+        assert.equal((await call('PUT', '/plan/otto/speeds/kbc', { speed: '600' })).speed, 600);
+        p2 = await call('GET', '/plan');
+        assert.ok(Math.abs(p2.otto.queue.find((o) => o.customer === 'KBC').plan_minutes - 5) < 0.01, 'a customer speed wins over the machine\'s');
+        assert.deepEqual(p2.otto.customers.find((c) => c.customer === 'KBC'), { customer: 'KBC', name: 'Cust', items: 50, jobs: 1, speed: 600 });
+        assert.equal(p2.otto.load.find((l) => l.name === 'HMT 1').jobs, 3);
+        await call('PUT', '/plan/otto/speeds/KBC', { speed: '' });
+        for (const m of p2.otto.machines) await call('DELETE', `/plan/otto/machines/${m.id}`);
+        assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'plan_otto_machines'), 'Otto machines are audited (and backed up)');
         await call('PATCH', '/settings', { plan_otto_src: '' });
       }
       assert.ok(pl.queue.every((j) => j.finish_at), 'each job projected');
@@ -1402,7 +1425,7 @@ async function waitForServer() {
 
     console.log('\n✔ Smoke test passed');
   } catch (err) {
-    console.error('\n✘ Smoke test failed:', err.message);
+    console.error('\n✘ Smoke test failed:', err.message, err.stack.split('\n').find((l) => l.includes('smoke-test')));
     process.exitCode = 1;
   } finally {
     if (server.exitCode === null) {

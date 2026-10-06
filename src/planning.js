@@ -143,6 +143,57 @@ function linkOtto(persoJobs, ottoJobs) {
   for (const j of persoJobs) j.otto = (ottoByWo.get(String(j.wo).toUpperCase()) || []).map((o) => ({ name: o.name, due: o.due, deadline: o.deadline, status: o.status, qty: o.qty, done: o.done }));
 }
 
+// Otto machines: name, items per hour, and optionally the text that identifies it in the export's
+// Machine column (e.g. "HMT PC#1"). Speed per customer (trigram) wins over the machine's own.
+const ottoMatches = (m, job) => {
+  const key = String(m.match || '').trim().toLowerCase();
+  return !!key && String(job.machine || '').toLowerCase().includes(key);
+};
+// Plans each Otto job, in the list's order (running first), on the running machine where it can
+// start first — never before its perso work order is projected to be done. A job whose Machine
+// in the export names one of the machines goes on that one. Adds machine, start, finish, late.
+function projectOtto(running, queue, machines, speeds, { start = 360, end = 1320, days = [1, 2, 3, 4, 5] }, now = new Date()) {
+  const active = machines.filter((m) => m.active !== 0 && m.active !== false);
+  if (!active.length) return false;
+  const cal = { start, end, days };
+  const free = new Map(active.map((m) => [m.id, now]));
+  const bySpeed = new Map(speeds.map((r) => [String(r.customer).toUpperCase(), Number(r.speed)]));
+  const load = new Map(active.map((m) => [m.id, { id: m.id, name: m.name, items: 0, jobs: 0, minutes: 0, until: null, days: {} }]));
+  for (const j of [...running, ...queue]) {
+    Object.assign(j, { machine_planned: null, start_at: null, finish_at: null, late_minutes: null, plan_minutes: null, unplanned: null, speed: null, waited_perso: false });
+    const named = active.filter((m) => ottoMatches(m, j));
+    const able = named.length ? named : active;
+    // perso still open: not before its projected finish (now when it isn't projected)
+    const release = j.perso_finish_at ? new Date(j.perso_finish_at) : now;
+    let best = null;
+    for (const m of able) {
+      const speed = bySpeed.get(String(j.customer || '').toUpperCase()) ?? (Number(m.speed) > 0 ? Number(m.speed) : null);
+      if (!speed) continue;
+      const from = free.get(m.id) > release ? free.get(m.id) : release;
+      const s = addWorking(from, 0, cal);
+      const minutes = (j.qty / speed) * 60;
+      const f = addWorking(from, minutes, cal);
+      if (!s || !f) continue;
+      if (!best || f < best.f) best = { m, s, f, minutes, speed, waited: release > now && release > free.get(m.id) };
+    }
+    if (!best) {
+      j.unplanned = able.some((m) => bySpeed.has(String(j.customer || '').toUpperCase()) || Number(m.speed) > 0) ? 'time' : 'speed';
+      continue;
+    }
+    free.set(best.m.id, best.f);
+    j.machine_planned = best.m.name; j.speed = best.speed; j.plan_minutes = best.minutes;
+    j.waited_perso = best.waited; // its start is held by the perso work
+    j.start_at = best.s.toISOString(); j.finish_at = best.f.toISOString();
+    j.late_minutes = j.deadline ? Math.round((best.f - localDate(j.deadline)) / 60000) : null;
+    const l = load.get(best.m.id); l.items += j.qty; l.jobs++; l.minutes += best.minutes; l.until = j.finish_at;
+    for (const [day, min] of Object.entries(minutesByDay(best.s, best.f, cal))) {
+      const d = l.days[day] || (l.days[day] = { minutes: 0, items: 0 });
+      d.minutes += min; d.items += best.minutes ? (j.qty * min) / best.minutes : 0;
+    }
+  }
+  return [...load.values()];
+}
+
 // Lines → jobs (WO + PER): cards summed, articles listed, deadline = due date at the cut-off
 // (a job without a cut-off gets the end of the day, flagged).
 function jobsOf(lines) {
@@ -487,4 +538,4 @@ function readSource({ file, uploaded, parser = parse }) {
   return { status: 'ok', file: target, name: path.basename(target), uploaded: !file, modified: stat.mtime.toISOString(), read_at: cache.read_at, ...cache.parsed };
 }
 
-module.exports = { workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, woOfName, OTTO_COLUMNS };
+module.exports = { workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, woOfName, OTTO_COLUMNS };

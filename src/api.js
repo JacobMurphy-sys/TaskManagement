@@ -1698,13 +1698,22 @@ const OTTO_UPLOAD = path.join(config.dataDir, 'plan', 'otto.xlsx');
 const planHistory = require('./planhistory');
 // Otto (the other half of production): its export, open jobs in plan-date order, linked to the
 // perso jobs by work order. Finished and test jobs are counted but not listed.
-function ottoOf(set, persoJobs) {
+function ottoOf(set, persoJobs, capacity) {
   const o = planning.readSource({ file: cleanPath(set.plan_otto_src) || null, uploaded: OTTO_UPLOAD, parser: planning.parseOtto });
   const source = { status: o.status, file: o.file || null, name: o.name || null, uploaded: !!o.uploaded, modified: o.modified || null, error: o.error || null, skipped: o.skipped || [] };
-  if (o.status !== 'ok') return { source, running: [], queue: [], done: 0, tests: 0 };
+  const machines = db.all('SELECT * FROM plan_otto_machines ORDER BY sort_order, id');
+  const speeds = db.all('SELECT * FROM plan_otto_speeds ORDER BY customer');
+  if (o.status !== 'ok') return { source, machines, speeds, customers: [], running: [], queue: [], done: 0, tests: 0, load: [], projected: false };
   const open = o.jobs.filter((j) => !j.done && !j.test).map((j) => ({ ...j }));
   planning.linkOtto(persoJobs, open);
-  return { source, running: planning.orderOtto(open.filter((j) => j.running)), queue: planning.orderOtto(open.filter((j) => !j.running)),
+  const running = planning.orderOtto(open.filter((j) => j.running)); const queue = planning.orderOtto(open.filter((j) => !j.running));
+  const load = planning.projectOtto(running, queue, machines, speeds, capacity, new Date());
+  // customers for the speeds table: those in the open Otto jobs, and any with a speed set before
+  const cust = new Map();
+  for (const j of open) if (j.customer) { const c = cust.get(j.customer) || { customer: j.customer, name: j.customer_name, items: 0, jobs: 0 }; c.items += j.qty; c.jobs++; cust.set(j.customer, c); }
+  for (const r of speeds) if (!cust.has(r.customer.toUpperCase())) cust.set(r.customer.toUpperCase(), { customer: r.customer.toUpperCase(), name: null, items: 0, jobs: 0 });
+  const customers = [...cust.values()].map((c) => ({ ...c, speed: speeds.find((r) => r.customer.toUpperCase() === c.customer)?.speed ?? null })).sort((a, b) => b.items - a.items || a.customer.localeCompare(b.customer));
+  return { source, machines, speeds, customers, running, queue, load: load || [], projected: !!load,
     done: o.jobs.filter((j) => j.done && !j.test).length, tests: o.jobs.filter((j) => j.test).length };
 }
 // Each new version of the linked export goes into the plan history (an uploaded copy doesn't).
@@ -1733,7 +1742,7 @@ router.get('/plan', h((req, res) => {
   const db_ = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
   const cardsDb = { status: db_.status, file: db_.file || null, name: db_.name || null, modified: db_.modified || null, table: db_.table || null, count: db_.count || 0, error: db_.error || null, columns: db_.columns || null };
   const rules = db.all('SELECT * FROM plan_speeds ORDER BY type, material, sides');
-  if (src.status !== 'ok') return res.json({ otto: ottoOf(set, []), machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: req.query.mode === 'bau' ? 'bau' : 'fifo', running: [], queue: [], slots: [] });
+  if (src.status !== 'ok') return res.json({ otto: ottoOf(set, [], capacity), machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: req.query.mode === 'bau' ? 'bau' : 'fifo', running: [], queue: [], slots: [] });
   const mode = req.query.mode === 'bau' ? 'bau' : 'fifo';
   const oeeRows = db.all('SELECT customer, oee FROM plan_oee ORDER BY customer');
   const oeeDefault = Number(set.plan_oee_default) > 0 && Number(set.plan_oee_default) <= 100 ? Number(set.plan_oee_default) / 100 : null;
@@ -1764,7 +1773,7 @@ router.get('/plan', h((req, res) => {
   const now = new Date();
   const windows = planning.workingWindows(now, new Date(now.getTime() + 14 * 86400000), capacity).map((w) => ({ start: w.start.toISOString(), end: w.end.toISOString() }));
   const available = planning.minutesByDay(now, new Date(now.getTime() + 14 * 86400000), capacity);
-  const otto = ottoOf(set, [...running, ...queue]);
+  const otto = ottoOf(set, [...running, ...queue], capacity);
   res.json({ otto, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
     source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length, averaged: lines.some((l) => l.speed_from === 'average'),
     capacity, mode, projected, now: new Date().toISOString(), running, queue, slots: planning.loadByDeadline([...running, ...queue]) });
@@ -1790,6 +1799,45 @@ router.patch('/plan/machines/:id', h((req, res) => {
 router.delete('/plan/machines/:id', h((req, res) => {
   if (!db.run('DELETE FROM plan_machines WHERE id = ?', [req.params.id]).changes) throw notFound('Machine');
   res.status(204).end();
+}));
+
+// Otto machines: name, items per hour, how the export's Machine column names it (optional).
+const ottoMachineFields = (b) => {
+  const f = {};
+  if ('name' in b) { f.name = String(b.name || '').trim(); if (!f.name) throw new HttpError(400, 'Give the machine a name'); }
+  if ('match' in b) f.match = String(b.match || '').trim() || null;
+  if ('speed' in b) {
+    const raw = String(b.speed ?? '').replace(',', '.').trim();
+    f.speed = raw ? Number(raw) : null;
+    if (f.speed !== null && !(f.speed > 0)) throw new HttpError(400, 'Speed must be a number of items per hour above 0');
+  }
+  if ('active' in b) f.active = b.active ? 1 : 0;
+  return f;
+};
+router.post('/plan/otto/machines', h((req, res) => {
+  const f = ottoMachineFields({ name: req.body.name, match: req.body.match, speed: req.body.speed, active: req.body.active ?? true });
+  const order = (db.get('SELECT MAX(sort_order) AS m FROM plan_otto_machines')?.m ?? -1) + 1;
+  res.status(201).json(fresh('plan_otto_machines', insertRow('plan_otto_machines', { ...f, sort_order: order })));
+}));
+router.patch('/plan/otto/machines/:id', h((req, res) => {
+  const old = db.get('SELECT * FROM plan_otto_machines WHERE id = ?', [req.params.id]);
+  if (!old) throw notFound('Machine');
+  res.json(fresh('plan_otto_machines', updateRow('plan_otto_machines', old.id, ottoMachineFields(req.body))));
+}));
+router.delete('/plan/otto/machines/:id', h((req, res) => {
+  if (!db.run('DELETE FROM plan_otto_machines WHERE id = ?', [req.params.id]).changes) throw notFound('Machine');
+  res.status(204).end();
+}));
+// Otto items per hour for a customer (trigram); blank removes it (the machine's speed is used).
+router.put('/plan/otto/speeds/:customer', h((req, res) => {
+  const customer = String(req.params.customer || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{2,6}$/.test(customer)) throw new HttpError(400, 'Not a customer code');
+  const raw = String(req.body.speed ?? '').replace(',', '.').trim();
+  const old = db.get('SELECT id FROM plan_otto_speeds WHERE customer = ?', [customer]);
+  if (!raw) { if (old) db.run('DELETE FROM plan_otto_speeds WHERE id = ?', [old.id]); return res.json(null); }
+  const speed = Number(raw);
+  if (!(speed > 0)) throw new HttpError(400, 'Speed must be a number of items per hour above 0');
+  res.json(old ? fresh('plan_otto_speeds', updateRow('plan_otto_speeds', old.id, { speed })) : fresh('plan_otto_speeds', insertRow('plan_otto_speeds', { customer, speed })));
 }));
 
 // Production speeds by kind of card (type × material × print sides; blank = any).

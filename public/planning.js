@@ -136,6 +136,22 @@ async function renderPlanning() {
   const general = (p.rules || []).filter((r) => !(p.combos || []).some((c) => (r.type || '') === (c.type || '') && (r.material || '') === (c.material || '') && (r.sides || '') === (c.sides || '')));
   const src = p.source;
   const ot = p.otto || { source: { status: 'none' }, running: [], queue: [] };
+  const ottoSetup = () => `
+      <h3 class="pl-h" style="margin-top:14px">Otto machines <span class="muted small">— items per hour</span></h3>
+      <table class="log pl-speeds pl-machines"><thead><tr><th>Machine</th><th>Named in the export as <span class="muted small">(optional, e.g. HMT PC#1)</span></th><th>Items per hour</th><th></th><th></th></tr></thead><tbody>
+        ${(ot.machines || []).map((m) => `<tr data-plo-machine="${m.id}"><td><input type="text" name="name" value="${esc(m.name)}"></td><td><input type="text" name="match" value="${esc(m.match || '')}" placeholder="—"></td>
+          <td><input type="number" min="1" step="1" name="speed" value="${m.speed ?? ''}" placeholder="items/h"></td><td><label class="row small"><input type="checkbox" name="active" ${m.active ? 'checked' : ''}> running</label></td>
+          <td><button class="icon" data-plo-del-machine="${m.id}" title="Remove">✕</button></td></tr>`).join('')}
+        <tr><td><input type="text" id="plo-new-machine" placeholder="Machine name"></td><td><input type="text" id="plo-new-match" placeholder="Named in the export as"></td><td><input type="number" min="1" id="plo-new-speed" placeholder="items/h"></td><td></td><td><button class="small" data-pl="add-otto-machine">Add</button></td></tr></tbody></table>
+      <p class="small muted">Each Otto job goes on the running machine where it can finish first. A job whose Machine in the export contains a machine's "named as" text goes on that machine. A job never starts before its perso work order is projected to be done.</p>
+      <h3 class="pl-h" style="margin-top:14px">Otto speeds by customer <span class="muted small">— items per hour, instead of the machine's speed</span></h3>
+      <div class="kdb-scroll"><table class="log pl-speeds"><thead><tr><th>Customer</th><th>Name</th><th class="num">Jobs open</th><th class="num">Items open</th><th>Items per hour</th></tr></thead><tbody>
+        ${(ot.customers || []).map((c) => `<tr><td><b>${esc(c.customer)}</b></td><td>${esc(c.name || '')}</td><td class="num">${c.jobs ? n(c.jobs) : '<span class="muted">none open</span>'}</td><td class="num">${n(c.items)}</td>
+          <td><input type="number" min="1" step="1" class="plo-speed" data-customer="${esc(c.customer)}" value="${c.speed ?? ''}" placeholder="machine speed"></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Link the Otto export to see its customers.</td></tr>'}</tbody></table></div>
+      <p class="small muted">The working day and days above are used for Otto too.</p>`;
+  const finishO = (o) => (!ot.projected ? '' : o.finish_at ? `<span class="${o.late_minutes > 0 ? 'pl-late' : 'pl-ok'}" title="Projected ${esc(fmtDateTime(o.start_at))} → ${esc(fmtDateTime(o.finish_at))} at ${n(o.speed)} items/h">${new Date(o.finish_at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}${o.late_minutes > 0 ? ` · ${fmtSpan(o.late_minutes)} late` : ''}</span>
+      <div class="small muted">${esc(o.machine_planned)}${o.waited_perso ? ' · after perso' : ''}</div>`
+    : `<span class="pl-warn">⚠ ${o.unplanned === 'speed' ? 'no speed — ⚙ Setup' : 'no working time — check the working day'}</span>`);
   const ottoHtml = () => {
     const os = ot.source; const allO = [...ot.running, ...ot.queue];
     if (os.status === 'missing') return `<div class="kc-note">⚠ Can't find <code>${esc(os.file)}</code> — check the Otto path in ⚙ Setup.</div>`;
@@ -156,25 +172,32 @@ async function renderPlanning() {
       <td><b>${esc(o.due ? dayLabel(o.due) : '—')}</b> ${esc(o.deadline?.slice(11) || '')}<div class="small ${l.cls}">${esc(l.text)}</div></td>
       <td><b>${esc(o.wo)}</b><span class="muted">${esc(o.name.slice(o.wo.length))}</span><div class="small muted">${esc(o.group || '')}</div></td>
       <td>${esc(o.customer || '—')}<div class="small muted">${esc(o.customer_name || '')}</div></td>
-      <td class="num"><b>${n(o.qty)}</b></td><td>${prioChip(o.prio)}</td><td>${esc(o.status || '')}<div class="small muted">${esc(o.machine || '')}</div></td><td>${persoCell(o)}</td></tr>
-      <tr class="pl-detail" data-pl-detail="otto:${esc(o.key)}" hidden><td></td><td colspan="7"><div class="small">${o.sub_customer ? `<b>${esc(o.sub_customer)}</b><br>` : ''}${o.comment ? esc(o.comment).replace(/\n/g, '<br>') : '<span class="muted">No comment.</span>'}</div>
+      <td class="num"><b>${n(o.qty)}</b></td><td>${prioChip(o.prio)}</td><td>${esc(o.status || '')}<div class="small muted">${esc(o.machine || '')}</div></td><td>${persoCell(o)}</td>${ot.projected ? `<td>${finishO(o)}</td>` : ''}</tr>
+      <tr class="pl-detail" data-pl-detail="otto:${esc(o.key)}" hidden><td></td><td colspan="${ot.projected ? 8 : 7}"><div class="small">${o.sub_customer ? `<b>${esc(o.sub_customer)}</b><br>` : ''}${o.comment ? esc(o.comment).replace(/\n/g, '<br>') : '<span class="muted">No comment.</span>'}</div>
         ${o.perso.length ? `<table class="log small" style="margin-top:6px"><thead><tr><th>Perso job</th><th class="num">Cards</th><th>Status</th><th>Perso deadline</th><th>Projected finish</th></tr></thead><tbody>${o.perso.map((pj) => `<tr><td>${esc(pj.key)}</td><td class="num">${n(pj.qty)}</td><td>${esc(pj.status || '')}</td><td>${esc(pj.deadline?.replace('T', ' ') || '—')}</td><td>${pj.finish_at ? esc(fmtDateTime(pj.finish_at)) : '—'}</td></tr>`).join('')}</tbody></table>` : ''}</td></tr>`; };
-    const ohead = '<tr><th></th><th>Plan date</th><th>Name</th><th>Customer</th><th class="num">Items</th><th>Priority</th><th>Status</th><th>Perso</th></tr>';
+    const ohead = `<tr><th></th><th>Plan date</th><th>Name</th><th>Customer</th><th class="num">Items</th><th>Priority</th><th>Status</th><th>Perso</th>${ot.projected ? '<th>Projected finish</th>' : ''}</tr>`;
     const rs = ot.running.filter(om); const qs = ot.queue.filter(om);
     return `<div class="kdb-tiles pl-tiles">
       <div class="kdb-tile"><div class="kdb-tile-l">Open Otto jobs</div><div class="kdb-tile-v">${n(allO.length)}</div><div class="kdb-tile-s">${n(sum(allO))} items${ot.done ? ` · ${n(ot.done)} finished not shown` : ''}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Running</div><div class="kdb-tile-v">${n(ot.running.length)}</div><div class="kdb-tile-s">${n(sum(ot.running))} items</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Due today</div><div class="kdb-tile-v ${oToday.length ? 'kdb-warn' : ''}">${n(oToday.length)}</div><div class="kdb-tile-s">${n(sum(oToday))} items</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Overdue</div><div class="kdb-tile-v ${oOver.length ? 'kdb-bad' : 'kdb-ok'}">${n(oOver.length)}</div><div class="kdb-tile-s">${n(sum(oOver))} items</div></div>
+      <div class="kdb-tile"><div class="kdb-tile-l">Projected late</div><div class="kdb-tile-v ${allO.some((o) => o.late_minutes > 0) ? 'kdb-bad' : ot.projected ? 'kdb-ok' : ''}">${ot.projected ? n(allO.filter((o) => o.late_minutes > 0).length) : '—'}</div><div class="kdb-tile-s">${ot.projected ? `${(ot.machines || []).filter((m) => m.active).length} machine${(ot.machines || []).filter((m) => m.active).length === 1 ? '' : 's'} · ${esc(dayText)}` : 'set machines in ⚙ Setup'}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Waiting on perso</div><div class="kdb-tile-v ${allO.some(behind) ? 'kdb-bad' : ''}">${n(waiting.length)}</div><div class="kdb-tile-s">${allO.some(behind) ? `${n(allO.filter(behind).length)} perso ready after the plan date` : `${src.status === 'ok' ? 'perso work order still open' : 'link the perso export to match'}`}</div></div></div>
     <div class="row pl-filters">
       <input type="search" id="plo-q" placeholder="Search name, customer, plan group…" value="${esc(of.q || '')}">
       <select id="plo-customer"><option value="">All customers</option>${oCust.map((c) => `<option ${of.customer === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
       <select id="plo-waiting"><option value="">Perso: any</option><option value="perso" ${of.waiting === 'perso' ? 'selected' : ''}>Waiting on perso</option><option value="ready" ${of.waiting === 'ready' ? 'selected' : ''}>Perso done</option></select>
       ${of.q || of.customer || of.waiting ? '<button class="link small" data-pl="oclear">Clear</button>' : ''}</div>
+    ${ot.projected ? `<div class="card"><h3 class="pl-h">Otto capacity <span class="muted small">— ${esc(dayText)}, ${cap.days.length} day${cap.days.length === 1 ? '' : 's'} a week</span></h3>
+      <div class="kdb-scroll"><table class="log pl-cap"><thead><tr><th>Machine</th><th class="num">Speed</th><th class="num">Max items a day</th><th class="num">Jobs</th><th class="num">Items planned</th><th class="num">Work</th><th>Booked until</th></tr></thead><tbody>
+      ${(ot.machines || []).filter((m) => m.active).map((m) => { const l = (ot.load || []).find((x) => x.id === m.id) || {};
+        return `<tr><td><b>${esc(m.name)}</b>${m.match ? `<div class="small muted">${esc(m.match)}</div>` : ''}</td><td class="num">${m.speed ? `${n(m.speed)}/h` : '—'}</td><td class="num"><b>${m.speed ? n(Math.round((m.speed * ((cap.start === cap.end ? 1440 : (cap.end - cap.start + 1440) % 1440))) / 60)) : '—'}</b></td>
+          <td class="num">${n(l.jobs)}</td><td class="num">${n(l.items)}</td><td class="num">${l.minutes ? fmtSpan(l.minutes) : '—'}</td><td>${l.until ? esc(new Date(l.until).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) : '<span class="muted">free</span>'}</td></tr>`; }).join('')}
+      </tbody></table></div><p class="small muted">Max items a day: the machine's own speed for a full working day (a customer speed can be higher or lower).</p></div>` : ''}
     ${rs.length ? `<div class="card"><h3 class="pl-h">▶ Running <span class="muted small">${rs.length} job${rs.length === 1 ? '' : 's'} · ${n(sum(rs))} items</span></h3><div class="kdb-scroll"><table class="log pl-table"><thead>${ohead}</thead><tbody>${rs.map((o) => orow(o, null)).join('')}</tbody></table></div></div>` : ''}
     <div class="card"><h3 class="pl-h">Otto — by plan date, then priority <span class="muted small">${qs.length} job${qs.length === 1 ? '' : 's'} · ${n(sum(qs))} items · click a job for its comment and perso jobs</span></h3>
-      <div class="kdb-scroll"><table class="log pl-table"><thead>${ohead}</thead><tbody>${qs.map((o) => orow(o, ot.queue.indexOf(o))).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>
+      <div class="kdb-scroll"><table class="log pl-table"><thead>${ohead}</thead><tbody>${qs.map((o) => orow(o, ot.queue.indexOf(o))).join('') || '<tr><td colspan="9" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>
     ${os.skipped?.length ? `<p class="small muted">${os.skipped.length} row${os.skipped.length === 1 ? '' : 's'} with a plan date not understood.</p>` : ''}`;
   };
 
@@ -207,6 +230,7 @@ ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. 
         <label class="f">to <span class="muted small">(the same time = round the clock; earlier = past midnight)</span><input type="time" name="plan_day_end" value="${esc(settings.plan_day_end || '22:00')}"></label>
         <div class="f full"><span>Working days</span><div class="row">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => `<label class="row small"><input type="checkbox" data-pl-day="${i}" ${cap.days.includes(i) ? 'checked' : ''}> ${d}</label>`).join('')}</div></div>
       </div>
+${half === 'otto' ? ottoSetup() : `
       <h3 class="pl-h" style="margin-top:14px">Machines <span class="muted small">— and the product types (card Type) each runs</span></h3>
       <datalist id="pl-types">${(p.product_types || []).map((t) => `<option value="${esc(t)}">`).join('')}</datalist>
       <table class="log pl-speeds pl-machines"><thead><tr><th>Machine</th><th>Product types <span class="muted small">(e.g. DOD, Laser — blank: any)</span></th><th></th><th></th></tr></thead><tbody>${machineRows}
@@ -229,6 +253,7 @@ ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. 
       <div class="kdb-scroll"><table class="log pl-speeds"><thead><tr><th>Customer</th><th>Name</th><th class="num">Cards open</th><th>OEE %</th></tr></thead><tbody>${(p.oee || []).map((o) => `<tr><td><b>${esc(o.customer)}</b></td><td>${esc(o.name || '')}</td><td class="num">${o.cards ? n(o.cards) : '<span class="muted">none open</span>'}</td>
         <td><input type="number" class="pl-oee" data-customer="${esc(o.customer)}" min="1" max="100" step="0.1" value="${o.oee ? Math.round(o.oee * 1000) / 10 : ''}" placeholder="${p.oee_default ? Math.round(p.oee_default * 1000) / 10 : '100'}"></td></tr>`).join('') || '<tr><td colspan="4" class="muted">No customers in the open work orders.</td></tr>'}</tbody></table></div>
       <p class="small muted">Jobs are worked through in the list's order — what's running first — each card line at its speed ${useMachines ? 'on a machine that runs its type' : '(divided over the lines running)'}, and each job gets a projected finish against its deadline.</p>
+`}
     </div>
     ${half === 'otto' ? ottoHtml() : `
     ${src.status === 'ok' && cdb.status === 'ok' && (p.unknown_articles?.length || p.no_speed) ? `<div class="kc-note">⚠ ${[p.unknown_articles.length ? `${p.unknown_articles.length} card article${p.unknown_articles.length === 1 ? ' isn\'t' : 's aren\'t'} in the card database (${esc(p.unknown_articles.slice(0, 6).join(', '))}${p.unknown_articles.length > 6 ? ', …' : ''})` : '', p.no_speed ? `${p.no_speed} card line${p.no_speed === 1 ? ' has no speed of its own' : 's have no speed of their own'} — ${cap.rate ? 'the flat rate is used' : 'the average of the others is used (≈)'}` : ''].filter(Boolean).join(' · ')}. <button class="link small" data-pl="setup">⚙ Speeds</button></div>` : ''}
@@ -308,6 +333,13 @@ ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. 
   $$('.pl-oee').forEach((el) => el.addEventListener('change', async () => {
     try { await api.put(`/plan/oee/${encodeURIComponent(el.dataset.customer)}`, { oee: el.value.trim() }); toast('OEE saved'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
   }));
+  $$('[data-plo-machine] input').forEach((el) => el.addEventListener('change', async () => {
+    const id = el.closest('[data-plo-machine]').dataset.ploMachine;
+    try { await api.patch(`/plan/otto/machines/${id}`, { [el.name]: el.type === 'checkbox' ? el.checked : el.value }); toast('Saved'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+  }));
+  $$('.plo-speed').forEach((el) => el.addEventListener('change', async () => {
+    try { await api.put(`/plan/otto/speeds/${encodeURIComponent(el.dataset.customer)}`, { speed: el.value.trim() }); toast('Speed saved'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+  }));
   $$('[data-pl-machine] input').forEach((el) => el.addEventListener('change', async () => {
     const id = el.closest('[data-pl-machine]').dataset.plMachine;
     try { await api.patch(`/plan/machines/${id}`, { [el.name]: el.type === 'checkbox' ? el.checked : el.value }); toast('Saved'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
@@ -315,6 +347,12 @@ ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. 
   main().onclick = async (e) => {
     const delM = e.target.closest('[data-pl-del-machine]');
     if (delM) { if (!confirm('Remove this machine?')) return; try { await api.del(`/plan/machines/${delM.dataset.plDelMachine}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
+    const delO = e.target.closest('[data-plo-del-machine]');
+    if (delO) { if (!confirm('Remove this Otto machine?')) return; try { await api.del(`/plan/otto/machines/${delO.dataset.ploDelMachine}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
+    if (e.target.closest('[data-pl="add-otto-machine"]')) {
+      try { await api.post('/plan/otto/machines', { name: $('#plo-new-machine').value, match: $('#plo-new-match').value, speed: $('#plo-new-speed').value }); toast('Machine added'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+      return;
+    }
     if (e.target.closest('[data-pl="add-machine"]')) {
       try { await api.post('/plan/machines', { name: $('#pl-new-machine').value, types: $('#pl-new-machine-types').value }); toast('Machine added'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
       return;
