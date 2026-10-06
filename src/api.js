@@ -1703,14 +1703,42 @@ router.get('/plan', h((req, res) => {
     days: String(set.plan_days || '1,2,3,4,5').split(',').map(Number).filter((d) => d >= 0 && d <= 6) };
   const source = { status: src.status, file: src.file || null, name: src.name || null, uploaded: !!src.uploaded, modified: src.modified || null, read_at: src.read_at || null, error: src.error || null,
     lines: src.lines?.length || 0, skipped: src.skipped || [] };
-  if (src.status !== 'ok') return res.json({ source, capacity, mode: req.query.mode === 'bau' ? 'bau' : 'fifo', running: [], queue: [], slots: [] });
+  const db_ = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+  const cardsDb = { status: db_.status, file: db_.file || null, name: db_.name || null, modified: db_.modified || null, table: db_.table || null, count: db_.count || 0, error: db_.error || null, columns: db_.columns || null };
+  const rules = db.all('SELECT * FROM plan_speeds ORDER BY type, material, sides');
+  if (src.status !== 'ok') return res.json({ source, cards_db: cardsDb, rules, combos: [], capacity, mode: req.query.mode === 'bau' ? 'bau' : 'fifo', running: [], queue: [], slots: [] });
   const mode = req.query.mode === 'bau' ? 'bau' : 'fifo';
-  const jobs = planning.jobsOf(src.lines);
+  const lines = planning.withSpeeds(src.lines.map((l) => ({ ...l })), db_.status === 'ok' ? db_.cards : null, rules, capacity.rate);
+  const unknown = db_.status === 'ok' ? [...new Set(lines.filter((l) => !l.card).map((l) => l.article))] : [];
+  const jobs = planning.jobsOf(lines);
   const running = planning.order(jobs.filter((j) => j.running), 'fifo');
   const queue = planning.order(jobs.filter((j) => !j.running), mode);
-  const projected = capacity.rate ? planning.project(running, queue, capacity, new Date()) : false;
-  res.json({ source, capacity, mode, projected, now: new Date().toISOString(), running, queue, slots: planning.loadByDeadline([...running, ...queue]) });
+  const projected = planning.project(running, queue, capacity, new Date());
+  res.json({ source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length, averaged: lines.some((l) => l.speed_from === 'average'),
+    capacity, mode, projected, now: new Date().toISOString(), running, queue, slots: planning.loadByDeadline([...running, ...queue]) });
 }));
+// Production speeds by kind of card (type × material × print sides; blank = any).
+const speedFields = (b) => {
+  const t = (v) => (v === null || v === undefined ? null : String(v).trim() || null);
+  const speed = Number(String(b.speed ?? '').replace(',', '.'));
+  if (!(speed > 0)) throw new HttpError(400, 'Speed must be a number of cards per hour above 0');
+  return { type: t(b.type), material: t(b.material), sides: t(b.sides), speed, machine: t(b.machine) };
+};
+router.post('/plan/speeds', h((req, res) => {
+  const f = speedFields(req.body);
+  const old = db.get('SELECT id FROM plan_speeds WHERE type IS ? AND material IS ? AND sides IS ?', [f.type, f.material, f.sides]);
+  res.status(old ? 200 : 201).json(fresh('plan_speeds', old ? updateRow('plan_speeds', old.id, f) : insertRow('plan_speeds', f)));
+}));
+router.patch('/plan/speeds/:id', h((req, res) => {
+  const old = db.get('SELECT * FROM plan_speeds WHERE id = ?', [req.params.id]);
+  if (!old) throw notFound('Speed');
+  res.json(fresh('plan_speeds', updateRow('plan_speeds', old.id, speedFields({ ...old, ...req.body }))));
+}));
+router.delete('/plan/speeds/:id', h((req, res) => {
+  if (!db.run('DELETE FROM plan_speeds WHERE id = ?', [req.params.id]).changes) throw notFound('Speed');
+  res.status(204).end();
+}));
+
 // A copy of the export, to try it out before linking the file itself.
 router.post('/plan/upload', express.raw({ type: '*/*', limit: '50mb' }), h((req, res) => {
   if (!req.body?.length) throw new HttpError(400, 'Choose the open work orders export');
@@ -1735,7 +1763,7 @@ const SETTING_DEFAULTS = {
   kpi_fc_benelux: '', kpi_fc_amex: '',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
-  plan_src: '', plan_rate: '', plan_lines: '1', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
+  plan_src: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
 };
 function getSettings() {
   const out = { ...SETTING_DEFAULTS };

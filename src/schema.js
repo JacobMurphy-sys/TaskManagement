@@ -292,6 +292,18 @@ const TABLES = {
     updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
     UNIQUE (week)`,
 
+  // 🏭 Planning: production speed (cards per hour) for a kind of card — its type, material and
+  // print sides from the card database; a blank field matches any.
+  plan_speeds: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    type        TEXT    COLLATE NOCASE,
+    material    TEXT    COLLATE NOCASE,
+    sides       TEXT    COLLATE NOCASE,
+    speed       REAL    NOT NULL,
+    machine     TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
   kpi_snapshots: `
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     week            TEXT    NOT NULL COLLATE NOCASE,
@@ -452,7 +464,7 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_edits', 'kpi_notes'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_edits', 'kpi_notes', 'plan_speeds'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');

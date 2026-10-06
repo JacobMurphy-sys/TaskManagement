@@ -1231,6 +1231,35 @@ async function waitForServer() {
       pl = await call('GET', '/plan');
       assert.deepEqual([pl.source.uploaded, pl.source.name, pl.projected, pl.capacity.rate, pl.capacity.lines], [false, 'OpenPersoWorkorders_PerAx.xlsx', true, 1000, 2]);
       assert.ok(pl.queue.every((j) => j.finish_at), 'each job projected');
+      // the card database: AX Ref → type, material, print sides; speeds per kind of card
+      const acc = P.readCards({ file: path.join(__dirname, 'fixtures', 'sample.accdb'), table: 'Table1', columns: { key: 'A', type: 'B' } });
+      assert.deepEqual([acc.status, acc.count, acc.cards.get('ABCDEFG').type], ['ok', 2, 'hijklmnop'], 'an Access table is read');
+      assert.match(P.readCards({ file: path.join(__dirname, 'fixtures', 'sample.accdb') }).error, /no table called "Cards" \(it has Table1/);
+      const cardsF = path.join(tmp, 'Cards.xlsx');
+      fs.writeFileSync(cardsF, bx([{ name: 'Cards', columns: ['AX Ref', 'Type', 'Material', 'Print Sides', 'Cardbody Name'].map((h) => ({ header: h })), rows: [
+        ['A1', 'DOD', 'PVC', 'Front/Back', 'Gold'], ['A2', 'DOD', 'PVC', 'Front', 'Silver'], ['B1', 'Laser', 'PC', 'Front/Back', 'Black'], ['C1', 'DOD', 'PVC', 'Front', 'Blue'],
+        ['D1', 'Emboss', 'PVC', 'Front', 'Red'] ] }]));
+      await call('PATCH', '/settings', { plan_db: cardsF, plan_rate: '', plan_lines: '1' });
+      await assert.rejects(call('POST', '/plan/speeds', { type: 'DOD', speed: 0 }), /above 0/);
+      const r1 = await call('POST', '/plan/speeds', { type: 'DOD', material: 'PVC', sides: 'Front', speed: '3000' });
+      await call('POST', '/plan/speeds', { type: 'DOD', speed: '1500' });
+      await call('POST', '/plan/speeds', { type: 'Laser', speed: 600 });
+      assert.equal((await call('POST', '/plan/speeds', { type: 'dod', material: 'pvc', sides: 'front', speed: 2400 })).id, r1.id, 'the same kind again updates it');
+      pl = await call('GET', '/plan');
+      assert.equal(pl.cards_db.status, 'ok');
+      assert.deepEqual(pl.unknown_articles, ['E1'], 'card articles missing from the card database are listed');
+      const art = (key, a) => [...pl.running, ...pl.queue].find((j) => j.key === key).articles.find((x) => x.article === a);
+      assert.deepEqual([art('CAESS26100601/0002', 'A1').speed, art('CAESS26100601/0002', 'A2').speed, art('CINDS26100602/0001', 'B1').speed], [1500, 2400, 600],
+        'most specific rule: DOD PVC Front 2400, other DOD 1500, Laser 600');
+      assert.equal(art('CRABS26100604/0001', 'D1').speed_from, 'average', 'no rule (Emboss) and no flat rate → the average of the others');
+      assert.equal(art('CSIXS26100605/0001', 'E1').card, null);
+      const job = pl.queue.find((j) => j.key === 'CAESS26100601/0002');
+      assert.equal(Math.round(job.minutes * 100) / 100, Math.round((20 / 1500 * 60 + 5 / 2400 * 60) * 100) / 100, 'a job takes the sum of its card lines at their speeds');
+      assert.equal(pl.projected, true);
+      assert.deepEqual(pl.combos.map((c) => [c.type, c.material, c.sides, c.qty]), [['Laser', 'PC', 'Front/Back', 100], ['DOD', 'PVC', 'Front', 55], ['DOD', 'PVC', 'Front/Back', 20], ['Emboss', 'PVC', 'Front', 10]]);
+      await call('PATCH', `/plan/speeds/${r1.id}`, { speed: 3600 });
+      await call('DELETE', `/plan/speeds/${r1.id}`);
+      assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'plan_speeds'), 'speeds are audited (and backed up)');
       await call('PATCH', '/settings', { plan_src: path.join(tmp, 'gone.xlsx') });
       assert.equal((await call('GET', '/plan')).source.status, 'missing');
     }

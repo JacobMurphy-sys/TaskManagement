@@ -163,7 +163,9 @@ Past weeks stay in the list, so any earlier A3 can be viewed or saved again.
 - Two orders: **FIFO** — by deadline only; **BAU** — by due day, then High / Normal / Low, then cut-off.
 - **Running** jobs (In Progress) are listed on top; **Next to start** below, numbered in the chosen order, with a countdown to each deadline (overdue in red, today and tomorrow marked).
 - **Cards due by each cut-off**: jobs and cards per deadline with the running total — what has to be done by when.
-- **Capacity** (in ⚙ Setup): cards per hour per line, lines running, the working day and working days. With it, the jobs are worked through in the list's order — running ones first — and each gets a **projected finish**, red when it would miss its cut-off; the tiles count the jobs projected late.
+- **Card database** (in ⚙ Setup): the Access database (`.accdb` / `.mdb`) whose **Cards** table gives each card article (**AX Ref**) its **Type**, **Material** and **Print Sides** (plus name, customer, provider…). It's read directly — no Access needed, nothing changed, it can stay open — and again whenever it's saved. (An Excel export of the table works too, e.g. if the database is password protected.)
+- **Speeds**: Setup lists the kinds of card in the open work orders — type × material × print sides, most cards first — to type each one's cards per hour; **general rules** (a blank field matches any, e.g. every DOD card) cover the rest, the most specific rule winning. Card articles missing from the database are listed; a line without a speed gets the flat rate if one is set, else the average of the others (marked ≈).
+- **Projection**: each card line takes its cards ÷ its speed, divided over the **lines running**, within the working day and working days. Jobs are worked through in the list's order — running ones first — and each gets its production time and a **projected finish**, red when it would miss its cut-off; the tiles count the jobs projected late. Click a job for each card's type, material, print sides, speed and time.
 - Filter by customer (the work order's trigram), shipper or priority, or search for a work order or card article.
 
 ### Project charter
