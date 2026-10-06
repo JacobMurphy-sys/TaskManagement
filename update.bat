@@ -68,6 +68,8 @@ if errorlevel 1 (echo       WARNING: backup failed - continuing anyway.) else (e
 
 echo.
 echo [3/5] Pulling the latest version from GitHub...
+rem package-lock.json is rewritten by npm install on this PC - drop that so the pull isn't blocked
+git checkout -- package-lock.json >nul 2>&1
 for /f %%r in ('git rev-parse HEAD') do set "OLDREV=%%r"
 git pull --ff-only
 if errorlevel 1 (
@@ -82,7 +84,7 @@ git --no-pager log --oneline %OLDREV%..HEAD
 :install
 echo.
 echo [4/5] Installing dependencies...
-call npm install --no-audit --no-fund --loglevel=error
+call npm install --no-save --no-audit --no-fund --loglevel=error
 if errorlevel 1 (
   echo       WARNING: npm install failed - see the message above.
   set "FAILED=1"
