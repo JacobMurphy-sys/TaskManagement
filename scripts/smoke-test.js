@@ -1312,6 +1312,24 @@ async function waitForServer() {
       assert.ok(pp.machine_load.some((l) => l.setups > 0), 'switching kind of card costs a change-over');
       assert.ok(pp.machine_load.reduce((t, l) => t + l.minutes, 0) > before.machine_load.reduce((t, l) => t + l.minutes, 0), '… adding to the machines\' work');
       await call('PATCH', '/settings', { plan_changeover: '0' });
+      // estimated OEE per customer: planned at speed × OEE
+      const minsOf = (pl2, key) => [...pl2.running, ...pl2.queue].find((j) => j.key === key).minutes;
+      const m0 = minsOf(pp = await call('GET', '/plan'), 'CAESS26100601/0002');
+      assert.ok(pp.oee.some((o) => o.customer === 'AES' && o.cards > 0 && o.oee === null), 'customers in the open work orders listed for an OEE');
+      await assert.rejects(call('PUT', '/plan/oee/AES', { oee: '150' }), /percentage/);
+      assert.equal((await call('PUT', '/plan/oee/aes', { oee: '80%' })).oee, 0.8);
+      pp = await call('GET', '/plan');
+      assert.ok(Math.abs(minsOf(pp, 'CAESS26100601/0002') - m0 / 0.8) < 0.01, 'an OEE of 80%: the job takes 1/0.8 as long');
+      assert.equal(pp.queue.find((j) => j.key === 'CAESS26100601/0002').articles[0].oee, 0.8);
+      const mInd = minsOf(pp, 'CINDS26100602/0001');
+      await call('PATCH', '/settings', { plan_oee_default: '50' });
+      pp = await call('GET', '/plan');
+      assert.ok(Math.abs(minsOf(pp, 'CINDS26100602/0001') - mInd / 0.5) < 0.01, 'customers without one: the default OEE');
+      assert.ok(Math.abs(minsOf(pp, 'CAESS26100601/0002') - m0 / 0.8) < 0.01, '… their own OEE still wins');
+      await call('PATCH', '/settings', { plan_oee_default: '' });
+      assert.equal(await call('PUT', '/plan/oee/AES', { oee: '' }), null, 'blank removes it');
+      assert.ok(Math.abs(minsOf(await call('GET', '/plan'), 'CAESS26100601/0002') - m0) < 0.01);
+      assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'plan_oee'), 'OEE is audited (and backed up)');
       for (const m of (await call('GET', '/plan')).machines) await call('DELETE', `/plan/machines/${m.id}`);
       await call('PATCH', `/plan/speeds/${r1.id}`, { speed: 3600 });
       await call('DELETE', `/plan/speeds/${r1.id}`);

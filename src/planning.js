@@ -86,7 +86,7 @@ function jobsOf(lines) {
       map.set(key, j);
     }
     j.qty += l.qty;
-    j.articles.push({ article: l.article, qty: l.qty, status: l.status, card: l.card || null, speed: l.speed ?? null, speed_from: l.speed_from || null, minutes: l.minutes ?? null });
+    j.articles.push({ article: l.article, qty: l.qty, status: l.status, card: l.card || null, speed: l.speed ?? null, speed_from: l.speed_from || null, oee: l.oee ?? null, minutes: l.minutes ?? null });
     if (/progress/i.test(l.status || '')) j.status = l.status; // any line running → the job is running
     if (l.cutoff !== null && (j.cutoff === null || l.cutoff < j.cutoff)) j.cutoff = l.cutoff;
     if (PRIO_RANK[String(l.prio).toLowerCase()] < (PRIO_RANK[String(j.prio).toLowerCase()] ?? 9)) j.prio = l.prio;
@@ -363,7 +363,9 @@ function speedFor(card, rules) {
   return best;
 }
 // Each export line gets its card (from the database), speed and production minutes.
-function withSpeeds(lines, cards, rules, fallbackRate) {
+// oee: { by: Map(customer trigram → 0.85), fallback: 0.8 | null } — the machine speed × the
+// customer's estimated OEE is what's planned (no OEE: the speed as it is).
+function withSpeeds(lines, cards, rules, fallbackRate, oee = null) {
   for (const l of lines) {
     l.card = cards ? cards.get(axKey(l.article)) || null : null;
     const rule = speedFor(l.card, rules);
@@ -375,6 +377,12 @@ function withSpeeds(lines, cards, rules, fallbackRate) {
   const known = lines.filter((l) => l.minutes !== null && l.qty > 0);
   const avg = known.length ? known.reduce((t, l) => t + l.qty, 0) / (known.reduce((t, l) => t + l.minutes, 0) / 60) : null;
   if (avg) for (const l of lines) if (l.minutes === null) { l.speed = Math.round(avg); l.speed_from = 'average'; l.minutes = (l.qty / avg) * 60; }
+  // estimated OEE per customer: the time at the machine's speed ÷ OEE
+  for (const l of lines) {
+    const f = oee?.by?.get(String(l.customer || '').toUpperCase()) ?? oee?.fallback ?? null;
+    l.oee = f && f > 0 && f <= 1 ? f : null;
+    if (l.oee && l.minutes !== null) l.minutes /= l.oee;
+  }
   return lines;
 }
 // The kinds of card in the open work orders: type × material × print sides, with their cards.

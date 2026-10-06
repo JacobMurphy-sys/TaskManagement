@@ -330,6 +330,14 @@ const TABLES = {
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
 
+  // 🏭 Planning: estimated OEE per customer (the work order's trigram), as a fraction (0.85).
+  plan_oee: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer    TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    oee         REAL    NOT NULL,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
   plan_speeds: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     type        TEXT    COLLATE NOCASE,
@@ -510,7 +518,7 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');

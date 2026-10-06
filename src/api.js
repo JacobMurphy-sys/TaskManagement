@@ -1723,7 +1723,18 @@ router.get('/plan', h((req, res) => {
   const rules = db.all('SELECT * FROM plan_speeds ORDER BY type, material, sides');
   if (src.status !== 'ok') return res.json({ machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: req.query.mode === 'bau' ? 'bau' : 'fifo', running: [], queue: [], slots: [] });
   const mode = req.query.mode === 'bau' ? 'bau' : 'fifo';
-  const lines = planning.withSpeeds(src.lines.map((l) => ({ ...l })), db_.status === 'ok' ? db_.cards : null, rules, capacity.rate);
+  const oeeRows = db.all('SELECT customer, oee FROM plan_oee ORDER BY customer');
+  const oeeDefault = Number(set.plan_oee_default) > 0 && Number(set.plan_oee_default) <= 100 ? Number(set.plan_oee_default) / 100 : null;
+  const lines = planning.withSpeeds(src.lines.map((l) => ({ ...l })), db_.status === 'ok' ? db_.cards : null, rules, capacity.rate,
+    { by: new Map(oeeRows.map((r) => [r.customer.toUpperCase(), r.oee])), fallback: oeeDefault });
+  // customers for the OEE table: those in the open work orders (name from the card database) and any set before
+  const custNames = new Map();
+  if (db_.status === 'ok') for (const c of db_.cards.values()) if (c.trigram && c.customer && !custNames.has(c.trigram.toUpperCase())) custNames.set(c.trigram.toUpperCase(), c.customer);
+  const custCards = new Map();
+  for (const l of lines) if (l.customer) custCards.set(l.customer.toUpperCase(), (custCards.get(l.customer.toUpperCase()) || 0) + l.qty);
+  const oeeList = [...new Set([...custCards.keys(), ...oeeRows.map((r) => r.customer.toUpperCase())])].map((c) => ({
+    customer: c, name: custNames.get(c) || null, cards: custCards.get(c) || 0, oee: oeeRows.find((r) => r.customer.toUpperCase() === c)?.oee ?? null,
+  })).sort((a, b) => b.cards - a.cards || a.customer.localeCompare(b.customer));
   const unknown = db_.status === 'ok' ? [...new Set(lines.filter((l) => !l.card).map((l) => l.article))] : [];
   const jobs = planning.jobsOf(lines);
   const running = planning.order(jobs.filter((j) => j.running), 'fifo');
@@ -1741,7 +1752,7 @@ router.get('/plan', h((req, res) => {
   const now = new Date();
   const windows = planning.workingWindows(now, new Date(now.getTime() + 14 * 86400000), capacity).map((w) => ({ start: w.start.toISOString(), end: w.end.toISOString() }));
   const available = planning.minutesByDay(now, new Date(now.getTime() + 14 * 86400000), capacity);
-  res.json({ windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
+  res.json({ oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
     source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length, averaged: lines.some((l) => l.speed_from === 'average'),
     capacity, mode, projected, now: new Date().toISOString(), running, queue, slots: planning.loadByDeadline([...running, ...queue]) });
 }));
@@ -1790,6 +1801,19 @@ router.delete('/plan/speeds/:id', h((req, res) => {
   res.status(204).end();
 }));
 
+// Estimated OEE for a customer (trigram), in % (blank removes it: the default is used).
+router.put('/plan/oee/:customer', h((req, res) => {
+  const customer = String(req.params.customer || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{2,6}$/.test(customer)) throw new HttpError(400, 'Not a customer code');
+  const raw = String(req.body.oee ?? '').replace('%', '').replace(',', '.').trim();
+  const old = db.get('SELECT id FROM plan_oee WHERE customer = ?', [customer]);
+  if (!raw) { if (old) db.run('DELETE FROM plan_oee WHERE id = ?', [old.id]); return res.json(null); }
+  const pct = Number(raw);
+  if (!(pct > 0 && pct <= 100)) throw new HttpError(400, 'OEE must be a percentage above 0 and up to 100');
+  const row = old ? fresh('plan_oee', updateRow('plan_oee', old.id, { oee: pct / 100 })) : fresh('plan_oee', insertRow('plan_oee', { customer, oee: pct / 100 }));
+  res.json(row);
+}));
+
 // 📌 Pinning a job puts it at the front of the queue (in pin order) until it's unpinned or done.
 router.post('/plan/pins', h((req, res) => {
   const key = String(req.body.key || '').trim();
@@ -1831,7 +1855,7 @@ const SETTING_DEFAULTS = {
   kpi_fc_benelux: '', kpi_fc_amex: '',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
-  plan_src: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
+  plan_src: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_oee_default: '', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
 };
 function getSettings() {
   const out = { ...SETTING_DEFAULTS };
