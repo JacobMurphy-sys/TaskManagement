@@ -5,7 +5,7 @@
 // capacity set, each job's projected finish against its deadline. Loaded before app.js.
 
 async function renderPlanning() {
-  const mode = store.get('planMode', 'fifo') === 'bau' ? 'bau' : 'fifo';
+  const mode = ['bau', 'score'].includes(store.get('planMode', 'fifo')) ? store.get('planMode') : 'fifo';
   const half = store.get('planHalf', 'perso') === 'otto' ? 'otto' : 'perso';
   const [p, settings] = await Promise.all([api.get(`/plan?mode=${mode}`), api.get('/settings')]);
   const f = store.get('planFilter', {}) || {};
@@ -43,6 +43,7 @@ async function renderPlanning() {
     const after = first && j.finish_at && deadlineAt({ deadline: first }) < new Date(j.finish_at);
     return ` · <span class="${after ? 'pl-late' : ''}" title="${esc(os.map((o) => `${o.name}: Otto plan ${o.deadline?.replace('T', ' ') || '—'} (${o.status || ''})`).join('\n'))}${after ? '\nPerso is projected to finish after Otto\'s plan date' : ''}">Otto ${first ? esc(dayLabel(first.slice(0, 10))) : ''}${after ? ' ⚠' : ''}</span>`;
   };
+  const scoreFmt = (v) => (v === null || v === undefined ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: 1 }));
   const row = (j, i) => {
     const l = left(j);
     return `<tr class="pl-job ${l.cls ? `${l.cls}-row` : ''} ${p.projected && j.late_minutes > 0 ? 'pl-late-row' : ''}" data-pl-job="${esc(j.key)}">
@@ -51,16 +52,17 @@ async function renderPlanning() {
       <td><b>${esc(j.wo)}</b> <span class="muted">/ ${esc(j.per)}</span><div class="small muted">${j.articles.length} card article${j.articles.length === 1 ? '' : 's'}${ottoTag(j)}</div></td>
       <td>${esc(j.customer || '—')}${j.kind?.length ? `<div class="small muted" title="${esc(j.kind.join(', '))}">${esc(j.kind[0])}${j.kind.length > 1 ? ` +${j.kind.length - 1}` : ''}</div>` : j.no_card ? '<div class="small pl-warn">not in the card database</div>' : ''}</td>
       <td class="num"><b>${n(j.qty)}</b>${j.plan_minutes !== undefined && !j.unplanned ? `<div class="small muted" title="Production time${j.minutes === null ? ' (flat rate — not every card has a speed)' : ' from the card speeds'}">${fmtSpan(j.plan_minutes)}${j.minutes === null || j.articles.some((a) => a.speed_from !== null && !String(a.speed_from).startsWith('rule')) ? ' ≈' : ''}</div>` : ''}</td>
+      ${mode === 'score' ? `<td class="num" title="${esc((j.score_parts || []).map((x) => `${x.module}${x.note ? ` (${x.note})` : ''}: ${x.value}`).join('\n'))}"><b>${scoreFmt(j.score)}</b><div class="small muted">${esc((j.score_parts || []).filter((x) => x.module !== 'Deadline' && x.value).map((x) => x.module).join(', '))}</div></td>` : ''}
       <td>${prioChip(j.prio)}</td>
       <td><div>${esc(j.shipper || '—')}</div><div class="small muted">${esc(j.group || '')}</div></td>
       ${p.projected ? `<td>${finish(j)}</td>` : ''}
     </tr>
-    <tr class="pl-detail" data-pl-detail="${esc(j.key)}" hidden><td></td><td colspan="${p.projected ? 7 : 6}"><table class="log small"><thead><tr><th>Card article</th><th>Card</th><th>Type</th><th>Material</th><th>Print sides</th><th class="num">Cards</th><th class="num">Speed</th><th class="num">Time</th>${(p.machines || []).some((m) => m.active) ? '<th>Machine</th>' : ''}<th>Status</th></tr></thead>
+    <tr class="pl-detail" data-pl-detail="${esc(j.key)}" hidden><td></td><td colspan="${(p.projected ? 7 : 6) + (mode === 'score' ? 1 : 0)}">${j.score_parts?.length ? `<div class="pl-score-parts small">⚖ ${j.score_parts.map((x) => `<span class="pl-chip" title="${esc([x.note, x.authoriser ? `authorised by ${x.authoriser}` : ''].filter(Boolean).join(' · '))}">${esc(x.module)}${x.note && x.module === 'Shift' ? ` (${esc(x.note)})` : ''} <b>${x.value > 0 ? '+' : ''}${scoreFmt(x.value)}</b></span>`).join(' ')} = <b>${scoreFmt(j.score)}</b>${j.tags?.length ? ` · tags ${esc(j.tags.join(', '))}` : ''}</div>` : ''}<table class="log small"><thead><tr><th>Card article</th><th>Card</th><th>Type</th><th>Material</th><th>Print sides</th><th class="num">Cards</th><th class="num">Speed</th><th class="num">Time</th>${(p.machines || []).some((m) => m.active) ? '<th>Machine</th>' : ''}<th>Status</th></tr></thead>
       <tbody>${j.articles.map((a) => `<tr><td>${esc(a.article)}</td><td>${a.card ? esc(a.card.name || '') : '<span class="pl-warn">not in the card database</span>'}</td><td>${esc(a.card?.type || '')}</td><td>${esc(a.card?.material || '')}</td><td>${esc(a.card?.sides || '')}</td>
         <td class="num">${n(a.qty)}</td><td class="num">${a.speed ? `${n(a.speed)}/h${a.speed_from === 'fallback' ? ' <span class="muted" title="No speed for this kind of card — the flat rate">≈</span>' : a.speed_from === 'average' ? ' <span class="muted" title="No speed for this card — the average of the others">≈</span>' : ''}${a.oee ? ` <span class="muted small" title="Estimated OEE for this customer — planned at ${n(Math.round(a.speed * a.oee))}/h">× ${Math.round(a.oee * 1000) / 10}%</span>` : ''}` : '<span class="pl-warn">no speed</span>'}</td>
         <td class="num">${a.minutes !== null ? fmtSpan(a.minutes) : '—'}</td>${(p.machines || []).some((m) => m.active) ? `<td>${a.machine ? `${esc(a.machine)} <span class="muted">${new Date(a.start_at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}–${new Date(a.finish_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>` : '<span class="pl-warn">no machine</span>'}</td>` : ''}<td>${esc(a.status || '')}</td></tr>`).join('')}</tbody></table></td></tr>`;
   };
-  const head = `<tr><th></th><th>Deadline</th><th>Work order / job</th><th>Customer</th><th class="num">Cards</th><th>Prio</th><th>Shipper</th>${p.projected ? '<th>Projected finish</th>' : ''}</tr>`;
+  const head = `<tr><th></th><th>Deadline</th><th>Work order / job</th><th>Customer</th><th class="num">Cards</th>${mode === 'score' ? '<th class="num">Score</th>' : ''}<th>Prio</th><th>Shipper</th>${p.projected ? '<th>Projected finish</th>' : ''}</tr>`;
   const runningShown = p.running.filter(match); const queueShown = p.queue.filter(match);
   const cap = p.capacity;
   const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
@@ -153,6 +155,55 @@ async function renderPlanning() {
         <div class="small">${b.overdue_qty ? `${n(b.overdue_jobs)} job${b.overdue_jobs === 1 ? '' : 's'} past ${otto ? 'the plan date' : 'the cut-off'}${b.oldest_due ? `, the oldest due ${esc(dd(b.oldest_due))}` : ''}.<br>` : ''}${pace}${est ? `<br>${est}` : ''}</div></div>
       ${b.hidden_jobs ? `<p class="small muted" style="margin:6px 0 0">${n(b.hidden_jobs)} job${b.hidden_jobs === 1 ? '' : 's'} (${n(b.hidden_qty)} ${unit}) due more than ${b.max_age} days ago ${b.hidden_jobs === 1 ? 'isn\'t' : 'aren\'t'} shown or counted — likely errors. <button class="link small" data-pl="setup">⚙ Change</button></p>` : ''}</div>`;
   };
+  // ⚖ Modifiers: each module on or off; the deadline numbers; rule lists; the shift table; card tags
+  const md = p.modifiers || { rules: [], shifts: [], tags: [], lists: [], off: [], shift_starts: {}, deadline: {} };
+  const modsHtml = () => {
+    const off = new Set((md.off || []).map((x) => x.toLowerCase()));
+    const sw = (name) => `<label class="row small pl-mod-switch"><input type="checkbox" data-pl-mod-on="${esc(name)}" ${off.has(name.toLowerCase()) ? '' : 'checked'}> on</label>`;
+    const hmS = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const custs = [...new Set([...all.map((j) => j.customer).filter(Boolean), ...(md.shifts || []).map((r) => r.customer)])].sort();
+    const shiftBy = new Map((md.shifts || []).map((r) => [r.customer.toUpperCase(), r]));
+    const listCard = (list) => {
+      const rows = md.rules.filter((r) => r.list === list);
+      return `<div class="pl-mod-list"><div class="row"><h4 style="margin:0">${esc(list)}</h4>${sw(list)}<span class="muted small">${rows.length} row${rows.length === 1 ? '' : 's'}</span></div>
+        <table class="log pl-speeds"><thead><tr><th>Customer</th><th>Tag</th><th>Card type</th><th>Modifier</th><th>${list === 'Manual' ? 'Reason' : 'Note'}</th><th>Authoriser</th><th>Until</th><th></th></tr></thead><tbody>
+        ${rows.map((r) => `<tr data-pl-mod="${r.id}"><td><input name="customer" value="${esc(r.customer || '')}" placeholder="any" list="pl-custs"></td><td><input name="tag" value="${esc(r.tag || '')}" placeholder="any" list="pl-tags"></td>
+          <td><input name="type" value="${esc(r.type || '')}" placeholder="any" list="pl-types"></td><td><input name="value" type="number" step="0.5" value="${esc(r.value)}"></td>
+          <td><input name="note" value="${esc(r.note || '')}"></td><td><input name="authoriser" value="${esc(r.authoriser || '')}"></td><td><input name="until" type="date" value="${esc(r.until || '')}"></td>
+          <td><button class="icon" data-pl-del-mod="${r.id}" title="Remove">✕</button></td></tr>`).join('')}
+        <tr data-pl-new-mod="${esc(list)}"><td><input name="customer" placeholder="Customer" list="pl-custs"></td><td><input name="tag" placeholder="any" list="pl-tags"></td><td><input name="type" placeholder="any" list="pl-types"></td>
+          <td><input name="value" type="number" step="0.5" placeholder="+"></td><td><input name="note" placeholder="${list === 'Manual' ? 'Reason' : 'e.g. Sliders'}"></td><td><input name="authoriser" placeholder="${list === 'Manual' ? 'Who agreed' : ''}"></td><td><input name="until" type="date"></td>
+          <td><button class="small" data-pl-add-mod="${esc(list)}">Add</button></td></tr></tbody></table></div>`;
+    };
+    const tagNames = [...new Set((md.tags || []).map((t) => t.tag))].sort();
+    return `<div class="card pl-setup" id="pl-mods" ${store.get('planModsOpen', false) ? '' : 'hidden'}>
+      <div class="row"><h2 style="margin:0">⚖ Priority modifiers</h2><div class="spacer"></div>
+        <label class="button small" title="Bring over ShiftLookup, ManualLookup, MatchingLookup, DispatchLookup and the Cards sheet's AX / Tag list">📥 Import from the Production Planning workbook…<input type="file" accept=".xlsx,.xlsm" hidden id="pl-mods-file"></label></div>
+      <p class="small muted">In <b>⚖ Score</b> mode each job's score is the sum of the modules switched on, highest first (📌 pinned jobs still go first). Right now it's the <b>${esc(md.current_shift || '—')}</b> shift.</p>
+      <datalist id="pl-custs">${custs.map((c) => `<option value="${esc(c)}">`).join('')}</datalist><datalist id="pl-tags">${tagNames.map((t) => `<option value="${esc(t)}">`).join('')}</datalist>
+      <div class="pl-mod-list"><div class="row"><h4 style="margin:0">Deadline</h4>${sw('Deadline')}</div>
+        <div class="form-grid pl-mod-dl">
+          <label class="f">Overdue: base<input type="number" step="1" name="plan_dl_base" class="pl-mod-set" value="${esc(md.deadline.base)}"></label>
+          <label class="f">+ per day overdue<input type="number" step="1" name="plan_dl_per_day" class="pl-mod-set" value="${esc(md.deadline.per_day)}"></label>
+          <label class="f">up to + (max)<input type="number" step="1" name="plan_dl_max" class="pl-mod-set" value="${esc(md.deadline.max_extra)}"></label>
+          <label class="f">Before the deadline: up to<input type="number" step="1" name="plan_dl_lead" class="pl-mod-set" value="${esc(md.deadline.lead)}"></label></div>
+        <p class="small muted">Overdue: ${esc(md.deadline.base)} + ${esc(md.deadline.per_day)} a day overdue (at most +${esc(md.deadline.max_extra)}). Not yet due: ${esc(md.deadline.lead)} ÷ (1 + days left) — ${esc(md.deadline.lead)} at the cut-off, ${esc(Math.round(md.deadline.lead / 2 * 10) / 10)} a day before.</p></div>
+      ${(md.lists || []).map(listCard).join('')}
+      <div class="row small"><input id="pl-new-list" placeholder="New list, e.g. Inserts" style="max-width:220px"><button class="small" data-pl="new-list">+ Add a list</button>
+        <span class="muted">A row matches a job by customer, card tag and card type (blank = any). In each list the most specific matching row counts.</span></div>
+      <div class="pl-mod-list"><div class="row"><h4 style="margin:0">Shift</h4>${sw('Shift')}
+        ${planning_shifts.map((k) => `<label class="small">${k[0].toUpperCase()}${k.slice(1)} from <input type="time" class="pl-mod-set" name="plan_shift_${k}" value="${hmS(md.shift_starts[k] ?? 0)}"></label>`).join(' ')}</div>
+        <div class="kdb-scroll"><table class="log pl-speeds"><thead><tr><th>Customer</th>${planning_shifts.map((k) => `<th>${k[0].toUpperCase()}${k.slice(1)}${md.current_shift === k ? ' ◀ now' : ''}</th>`).join('')}</tr></thead><tbody>
+        ${custs.map((c) => `<tr data-pl-shift="${esc(c)}"><td><b>${esc(c)}</b></td>${planning_shifts.map((k) => `<td><input type="number" step="0.5" name="${k}" value="${esc(shiftBy.get(c.toUpperCase())?.[k] ?? '')}" placeholder="0"></td>`).join('')}</tr>`).join('')}
+        </tbody></table></div></div>
+      <details class="pl-mod-list"><summary><b>Card tags</b> <span class="muted small">— ${(md.tags || []).length} card article${(md.tags || []).length === 1 ? '' : 's'} tagged (${esc(tagNames.join(', ') || 'none')})${cdb.columns?.tag ? '; the card database\'s Tag column is used too' : ''}</span></summary>
+        <p class="small muted">A tag marks a kind of work order (e.g. PRIO, METAL) for the lists above. Paste two columns from Excel — card AX and tag — to add or change them.</p>
+        <textarea id="pl-tags-paste" rows="3" placeholder="2267168&#9;PRIO"></textarea> <button class="small" data-pl="paste-tags">Save tags</button>
+        <div class="kdb-scroll" style="max-height:240px"><table class="log small"><thead><tr><th>Card AX</th><th>Tag</th><th></th></tr></thead><tbody>
+        ${(md.tags || []).map((t) => `<tr><td>${esc(t.ax)}</td><td>${esc(t.tag)}</td><td><button class="icon" data-pl-del-tag="${esc(t.ax)}" title="Remove">✕</button></td></tr>`).join('')}</tbody></table></div></details>
+    </div>`;
+  };
+  const planning_shifts = ['night', 'morning', 'afternoon'];
   const ottoSetup = () => `
       <h3 class="pl-h" style="margin-top:14px">Otto machines <span class="muted small">— items per hour</span></h3>
       <table class="log pl-speeds pl-machines"><thead><tr><th>Machine</th><th>Named in the export as <span class="muted small">(optional, e.g. HMT PC#1)</span></th><th>Items per hour</th><th></th><th></th></tr></thead><tbody>
@@ -223,13 +274,15 @@ async function renderPlanning() {
     <div class="kanban-tools"><h1 style="margin:0">🏭 Planning</h1>
       <div class="seg"><button type="button" data-pl-half="perso" class="${half === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-pl-half="otto" class="${half === 'otto' ? 'on' : ''}">Otto</button></div>
 ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. BAU: by due day, then High / Normal / Low, then cut-off">
-        <button type="button" data-pl-mode="fifo" class="${mode === 'fifo' ? 'on' : ''}">FIFO</button><button type="button" data-pl-mode="bau" class="${mode === 'bau' ? 'on' : ''}">BAU</button></div>`}
+        <button type="button" data-pl-mode="fifo" class="${mode === 'fifo' ? 'on' : ''}">FIFO</button><button type="button" data-pl-mode="bau" class="${mode === 'bau' ? 'on' : ''}">BAU</button><button type="button" data-pl-mode="score" class="${mode === 'score' ? 'on' : ''}" title="Highest score first: the deadline plus the ⚖ modifiers">⚖ Score</button></div>`}
       <div class="spacer"></div>
       <span class="small muted">${(half === 'otto' ? ot.source : src).status === 'ok' ? `${esc((half === 'otto' ? ot.source : src).name)} · saved ${esc(fmtDateTime((half === 'otto' ? ot.source : src).modified))}${(half === 'otto' ? ot.source : src).uploaded ? ' (uploaded copy)' : ''}` : ''}</span>
       <button data-pl="refresh" title="Read the export again if it has changed">🔄 Refresh</button>
       <label class="button" title="Try it with a copy of the ${half === 'otto' ? 'Otto' : 'open work orders'} export">📂 Load file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
+      ${half === 'perso' ? '<button data-pl="mods" title="Priority modifiers: customers and work order types that go first">⚖ Modifiers</button>' : ''}
       <button data-pl="setup" title="Where the export is, and the capacity">⚙ Setup</button>
     </div>
+    ${half === 'perso' ? modsHtml() : ''}
     <div class="card pl-setup" id="pl-setup" ${src.status === 'ok' && !store.get('planSetupOpen', false) ? 'hidden' : ''}>
       <h2 style="margin-top:0">Setup</h2>
       <div class="form-grid">
@@ -308,7 +361,7 @@ ${half === 'otto' ? ottoSetup() : `
     </div>
     ${runningShown.length ? `<div class="card"><h3 class="pl-h">▶ Running <span class="muted small">${runningShown.length} job${runningShown.length === 1 ? '' : 's'} · ${n(sum(runningShown))} cards</span></h3>
       <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${runningShown.map((j) => row(j, null)).join('')}</tbody></table></div></div>` : ''}
-    <div class="card"><h3 class="pl-h">Next to start — ${mode === 'fifo' ? 'FIFO: by deadline' : 'BAU: by due day, then priority, then cut-off'} <span class="muted small">${queueShown.length} job${queueShown.length === 1 ? '' : 's'} · ${n(sum(queueShown))} cards · click a job for its card articles</span></h3>
+    <div class="card"><h3 class="pl-h">Next to start — ${mode === 'fifo' ? 'FIFO: by deadline' : mode === 'score' ? '⚖ Score: highest first (deadline + modifiers)' : 'BAU: by due day, then priority, then cut-off'} <span class="muted small">${queueShown.length} job${queueShown.length === 1 ? '' : 's'} · ${n(sum(queueShown))} cards · click a job for its card articles</span></h3>
       <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${queueShown.map((j) => row(j, p.queue.indexOf(j))).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>`}` : ''}`}`;
   if (half === 'perso' && view === 'gantt' && $('#pl-gantt')) {
     const draw = () => drawPlanGantt($('#pl-gantt'), $('#pl-gantt-info'), p, match);
@@ -359,6 +412,30 @@ ${half === 'otto' ? ottoSetup() : `
   $$('.plo-speed').forEach((el) => el.addEventListener('change', async () => {
     try { await api.put(`/plan/otto/speeds/${encodeURIComponent(el.dataset.customer)}`, { speed: el.value.trim() }); toast('Speed saved'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
   }));
+  const reMods = () => { store.set('planModsOpen', true); renderPlanning(); };
+  $$('[data-pl-mod] input').forEach((el) => el.addEventListener('change', async () => {
+    try { await api.patch(`/plan/modifiers/${el.closest('[data-pl-mod]').dataset.plMod}`, { [el.name]: el.value }); toast('Saved'); reMods(); } catch (err) { toast(err.message, 'error'); }
+  }));
+  $$('[data-pl-shift] input').forEach((el) => el.addEventListener('change', async () => {
+    try { await api.put(`/plan/mod-shifts/${encodeURIComponent(el.closest('[data-pl-shift]').dataset.plShift)}`, { [el.name]: el.value }); toast('Saved'); reMods(); } catch (err) { toast(err.message, 'error'); }
+  }));
+  $$('.pl-mod-set').forEach((el) => el.addEventListener('change', async () => {
+    try { await api.patch('/settings', { [el.name]: el.value }); toast('Saved'); reMods(); } catch (err) { toast(err.message, 'error'); }
+  }));
+  $$('[data-pl-mod-on]').forEach((el) => el.addEventListener('change', async () => {
+    const off = new Set(md.off || []); const name = el.dataset.plModOn;
+    for (const x of [...off]) if (x.toLowerCase() === name.toLowerCase()) off.delete(x);
+    if (!el.checked) off.add(name);
+    try { await api.patch('/settings', { plan_mod_off: [...off].join(',') }); toast(el.checked ? `${name} on` : `${name} off`); reMods(); } catch (err) { toast(err.message, 'error'); }
+  }));
+  $('#pl-mods-file')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const res = await fetch('/api/plan/modifiers/import', { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) toast(d.error || res.statusText, 'error');
+    else toast(`Imported: ${Object.entries(d.lists).map(([k, v]) => `${k} ${v}`).join(', ')}${d.shifts ? `, shifts for ${d.shifts} customers` : ''}${d.tags ? `, ${d.tags} card tags` : ''}`);
+    reMods();
+  });
   $$('[data-pl-machine] input').forEach((el) => el.addEventListener('change', async () => {
     const id = el.closest('[data-pl-machine]').dataset.plMachine;
     try { await api.patch(`/plan/machines/${id}`, { [el.name]: el.type === 'checkbox' ? el.checked : el.value }); toast('Saved'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
@@ -366,6 +443,28 @@ ${half === 'otto' ? ottoSetup() : `
   main().onclick = async (e) => {
     const delM = e.target.closest('[data-pl-del-machine]');
     if (delM) { if (!confirm('Remove this machine?')) return; try { await api.del(`/plan/machines/${delM.dataset.plDelMachine}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
+    const addMod = e.target.closest('[data-pl-add-mod]');
+    if (addMod) {
+      const tr = addMod.closest('tr'); const body = { list: addMod.dataset.plAddMod };
+      tr.querySelectorAll('input').forEach((x) => { body[x.name] = x.value; });
+      try { await api.post('/plan/modifiers', body); toast('Modifier added'); reMods(); } catch (err) { toast(err.message, 'error'); }
+      return;
+    }
+    const delMod = e.target.closest('[data-pl-del-mod]');
+    if (delMod) { try { await api.del(`/plan/modifiers/${delMod.dataset.plDelMod}`); reMods(); } catch (err) { toast(err.message, 'error'); } return; }
+    const delTag = e.target.closest('[data-pl-del-tag]');
+    if (delTag) { try { await api.post('/plan/card-tags', { ax: delTag.dataset.plDelTag, tag: '' }); reMods(); } catch (err) { toast(err.message, 'error'); } return; }
+    if (e.target.closest('[data-pl="paste-tags"]')) {
+      try { const r = await api.post('/plan/card-tags', { text: $('#pl-tags-paste').value }); toast(`${r.saved} tag${r.saved === 1 ? '' : 's'} saved`); reMods(); } catch (err) { toast(err.message, 'error'); }
+      return;
+    }
+    if (e.target.closest('[data-pl="new-list"]')) {
+      const name = $('#pl-new-list').value.trim(); if (!name) return;
+      md.lists.push(name); store.set('planModsOpen', true);
+      const tmp = document.createElement('div'); tmp.innerHTML = modsHtml(); $('#pl-mods').replaceWith(tmp.firstElementChild);
+      toast(`Add a row to keep the ${name} list`); return;
+    }
+    if (e.target.closest('[data-pl="mods"]')) { const m = $('#pl-mods'); m.hidden = !m.hidden; store.set('planModsOpen', !m.hidden); if (!m.hidden) m.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     const delO = e.target.closest('[data-plo-del-machine]');
     if (delO) { if (!confirm('Remove this Otto machine?')) return; try { await api.del(`/plan/otto/machines/${delO.dataset.ploDelMachine}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
     if (e.target.closest('[data-pl="add-otto-machine"]')) {

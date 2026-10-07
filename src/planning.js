@@ -234,6 +234,56 @@ const tooOld = (due, maxAge, now = new Date()) => {
   return due < `${c.getFullYear()}-${String(c.getMonth() + 1).padStart(2, '0')}-${String(c.getDate()).padStart(2, '0')}`;
 };
 
+// ---- ⚖ priority modifiers (the Production Planning workbook's Planner score) ------------------
+// A job's score is the sum of the modules switched on:
+//  Deadline — overdue: base + per day overdue (up to max extra); before it: lead ÷ (1 + days left)
+//  lists    — rule lists (e.g. Matching, Dispatch, Manual): a row matches on customer, card tag and
+//             card type (blank = any); in each list the most specific matching row counts
+//  Shift    — a value per customer for the shift running now (Night / Morning / Afternoon)
+const SHIFTS = ['night', 'morning', 'afternoon'];
+// The shift at a time of day (minutes), from each shift's start: the latest start before it.
+function shiftAt(min, starts) {
+  const list = SHIFTS.map((k) => ({ k, at: starts[k] })).filter((x) => x.at !== null && x.at !== undefined).sort((a, b) => a.at - b.at);
+  if (!list.length) return null;
+  const before = list.filter((x) => x.at <= min);
+  return (before.length ? before[before.length - 1] : list[list.length - 1]).k;
+}
+const DEADLINE_DEFAULTS = { base: 100, per_day: 20, max_extra: 100, lead: 10 };
+function deadlineScore(deadline, now, p = DEADLINE_DEFAULTS) {
+  if (!deadline) return 0;
+  const days = (localDate(deadline) - now) / 86400000;
+  if (days < 0) return p.base + Math.min(p.max_extra, Math.abs(days) * p.per_day);
+  return Math.max(0, Math.min(p.lead, p.lead / (1 + days)));
+}
+function scoreJobs(jobs, { now = new Date(), deadline = DEADLINE_DEFAULTS, rules = [], shifts = [], shiftStarts = { night: 1305, morning: 345, afternoon: 825 }, off = [], tagOf = () => null } = {}) {
+  const isOff = new Set(off.map((x) => String(x).toLowerCase()));
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const live = rules.filter((r) => !isOff.has(String(r.list).toLowerCase()) && (!r.until || r.until >= today));
+  const lists = [...new Set(live.map((r) => r.list))];
+  const shift = shiftAt(now.getHours() * 60 + now.getMinutes(), shiftStarts);
+  const shiftBy = new Map(shifts.map((r) => [String(r.customer).toUpperCase(), r]));
+  const low = (v) => String(v || '').trim().toLowerCase();
+  for (const j of jobs) {
+    const cust = low(j.customer);
+    const tags = new Set(j.articles.map((a) => low(a.card?.tag || tagOf(a.article))).filter(Boolean));
+    const types = new Set(j.articles.map((a) => low(a.card?.type)).filter(Boolean));
+    j.tags = [...new Set(j.articles.map((a) => a.card?.tag || tagOf(a.article)).filter(Boolean))];
+    const parts = [];
+    if (!isOff.has('deadline')) parts.push({ module: 'Deadline', value: Math.round(deadlineScore(j.deadline, now, deadline) * 100) / 100 });
+    for (const list of lists) {
+      const hits = live.filter((r) => r.list === list && (!r.customer || low(r.customer) === cust) && (!r.tag || tags.has(low(r.tag))) && (!r.type || types.has(low(r.type))));
+      if (!hits.length) continue;
+      const spec = (r) => (r.customer ? 4 : 0) + (r.tag ? 2 : 0) + (r.type ? 1 : 0);
+      const best = hits.reduce((b, r) => (spec(r) > spec(b) || (spec(r) === spec(b) && Number(r.value) > Number(b.value)) ? r : b));
+      parts.push({ module: list, value: Number(best.value) || 0, note: best.note || null, authoriser: best.authoriser || null, rule: best.id ?? null });
+    }
+    if (!isOff.has('shift') && shift) { const r = shiftBy.get(String(j.customer || '').toUpperCase()); if (r && Number(r[shift])) parts.push({ module: 'Shift', value: Number(r[shift]), note: shift }); }
+    j.score_parts = parts;
+    j.score = Math.round(parts.reduce((t, x) => t + x.value, 0) * 100) / 100;
+  }
+  return { shift };
+}
+
 // Lines → jobs (WO + PER): cards summed, articles listed, deadline = due date at the cut-off
 // (a job without a cut-off gets the end of the day, flagged).
 function jobsOf(lines) {
@@ -275,6 +325,7 @@ function order(jobs, mode = 'fifo', pins = []) {
   for (const j of jobs) j.pinned = pinAt.has(j.key);
   const by = (a, b) => {
     if (pinAt.has(a.key) || pinAt.has(b.key)) return (pinAt.get(a.key) ?? 1e9) - (pinAt.get(b.key) ?? 1e9);
+    if (mode === 'score' && (a.score ?? 0) !== (b.score ?? 0)) return (b.score ?? 0) - (a.score ?? 0); // highest score first
     if ((a.due || '9') !== (b.due || '9') && mode === 'bau') return (a.due || '9') < (b.due || '9') ? -1 : 1;
     if (mode === 'bau' && rank(a) !== rank(b)) return rank(a) - rank(b);
     if ((a.deadline || '9') !== (b.deadline || '9')) return (a.deadline || '9') < (b.deadline || '9') ? -1 : 1;
@@ -460,7 +511,7 @@ function loadByDeadline(jobs) {
 
 // ---- the card database (Access): AX Ref → type, material, print sides, … ------------------------
 
-const CARD_COLUMNS = { key: 'AX Ref', type: 'Type', material: 'Material', sides: 'Print Sides', name: 'Cardbody Name', customer: 'Customer Reference', trigram: 'Trigram', provider: 'Provider', front: 'Front DoD', back: 'Back DoD', persocode: 'PersoCode' };
+const CARD_COLUMNS = { key: 'AX Ref', type: 'Type', material: 'Material', sides: 'Print Sides', name: 'Cardbody Name', customer: 'Customer Reference', trigram: 'Trigram', provider: 'Provider', front: 'Front DoD', back: 'Back DoD', persocode: 'PersoCode', tag: 'Tag' };
 // "0002358794", 2358794 and "2358794 " are the same AX Ref.
 const axKey = (v) => { const t = String(v ?? '').trim(); return /^\d+$/.test(t) ? String(Number(t)) : t.toUpperCase(); };
 let cardCache = null;
@@ -578,4 +629,4 @@ function readSource({ file, uploaded, parser = parse }) {
   return { status: 'ok', file: target, name: path.basename(target), uploaded: !file, modified: stat.mtime.toISOString(), read_at: cache.read_at, ...cache.parsed };
 }
 
-module.exports = { workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, woOfName, OTTO_COLUMNS };
+module.exports = { workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, scoreJobs, deadlineScore, shiftAt, SHIFTS, DEADLINE_DEFAULTS, woOfName, OTTO_COLUMNS };

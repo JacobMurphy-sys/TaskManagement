@@ -16,10 +16,11 @@ const localDate = (s) => { const [d, t] = s.split('T'); const [y, m, dd] = d.spl
 function ingest(lines, modifiedIso, file = null) {
   if (!lines?.length) return null;
   if (db.get('SELECT id FROM plan_history_reads WHERE file_modified = ?', [modifiedIso])) return null;
-  const last = db.get('SELECT file_modified, file FROM plan_history_reads ORDER BY file_modified DESC LIMIT 1');
+  const last = db.get('SELECT file_modified, file FROM plan_history_reads ORDER BY id DESC LIMIT 1'); // the one read last
   // a different file linked: jobs only seen in the old one weren't done — they're dropped, not counted
   const switched = !!(last && file && last.file && last.file.toLowerCase() !== file.toLowerCase());
-  if (last && !switched && modifiedIso < last.file_modified) return null; // an older copy: history only moves forward
+  // an older copy of the same file: history only moves forward (another file's saved times don't count)
+  if (last && !switched && modifiedIso < last.file_modified) return null;
   const jobs = planning.jobsOf(lines);
   const at = new Date(modifiedIso);
   let done = 0; let reopened = 0;

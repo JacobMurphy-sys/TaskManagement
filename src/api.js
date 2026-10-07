@@ -1763,8 +1763,8 @@ router.get('/plan', h((req, res) => {
   const db_ = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
   const cardsDb = { status: db_.status, file: db_.file || null, name: db_.name || null, modified: db_.modified || null, table: db_.table || null, count: db_.count || 0, error: db_.error || null, columns: db_.columns || null };
   const rules = db.all('SELECT * FROM plan_speeds ORDER BY type, material, sides');
-  if (src.status !== 'ok') return res.json({ otto: ottoOf(set, [], capacity), machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: req.query.mode === 'bau' ? 'bau' : 'fifo', running: [], queue: [], slots: [] });
-  const mode = req.query.mode === 'bau' ? 'bau' : 'fifo';
+  if (src.status !== 'ok') return res.json({ otto: ottoOf(set, [], capacity), machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: (['bau', 'score'].includes(req.query.mode) ? req.query.mode : 'fifo'), running: [], queue: [], slots: [] });
+  const mode = (['bau', 'score'].includes(req.query.mode) ? req.query.mode : 'fifo');
   const oeeRows = db.all('SELECT customer, oee FROM plan_oee ORDER BY customer');
   const oeeDefault = Number(set.plan_oee_default) > 0 && Number(set.plan_oee_default) <= 100 ? Number(set.plan_oee_default) / 100 : null;
   const maxAge = planMaxAge(set);
@@ -1781,7 +1781,11 @@ router.get('/plan', h((req, res) => {
   })).sort((a, b) => b.cards - a.cards || a.customer.localeCompare(b.customer));
   const unknown = db_.status === 'ok' ? [...new Set(lines.filter((l) => !l.card).map((l) => l.article))] : [];
   const jobs = planning.jobsOf(lines);
-  const running = planning.order(jobs.filter((j) => j.running), 'fifo');
+  const modifiers = modifiersOf(set);
+  const scored = planning.scoreJobs(jobs, { now: new Date(), deadline: modifiers.deadline, rules: modifiers.rules, shifts: modifiers.shifts, shiftStarts: modifiers.shift_starts, off: modifiers.off,
+    tagOf: (ax) => modifiers.tagBy.get(planning.axKey(ax)) || null });
+  modifiers.current_shift = scored.shift;
+  const running = planning.order(jobs.filter((j) => j.running), mode === 'score' ? 'score' : 'fifo');
   // pins for jobs no longer in the export are cleared
   const keys = new Set(jobs.map((j) => j.key));
   const pinRows = db.all('SELECT * FROM plan_pins ORDER BY id');
@@ -1804,7 +1808,8 @@ router.get('/plan', h((req, res) => {
     done: db.all('SELECT done_at, qty FROM plan_history_jobs WHERE done_at >= ?', [since.toISOString()]).map((r) => ({ date: localYmd(r.done_at), qty: r.qty })),
     due: db.all('SELECT due, qty FROM plan_history_jobs WHERE due >= ?', [localYmd(since)]).map((r) => ({ date: r.due, qty: r.qty })),
     from: histFirst }, capacity, maxAge);
-  res.json({ backlog, otto, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
+  delete modifiers.tagBy;
+  res.json({ modifiers, backlog, otto, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
     source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length, averaged: lines.some((l) => l.speed_from === 'average'),
     capacity, mode, projected, now: new Date().toISOString(), running, queue, slots: planning.loadByDeadline([...running, ...queue]) });
 }));
@@ -1829,6 +1834,135 @@ router.patch('/plan/machines/:id', h((req, res) => {
 router.delete('/plan/machines/:id', h((req, res) => {
   if (!db.run('DELETE FROM plan_machines WHERE id = ?', [req.params.id]).changes) throw notFound('Machine');
   res.status(204).end();
+}));
+
+// ⚖ Priority modifiers: the rule lists, the shift table, card tags, which modules are off, and the
+// deadline module's numbers.
+const hm = (s, fallback) => { const m = String(s ?? '').match(/^(\d{1,2}):(\d{2})$/); return m ? Number(m[1]) * 60 + Number(m[2]) : fallback; };
+const modNum = (v, d) => (String(v ?? '').trim() === '' || Number.isNaN(Number(v)) ? d : Number(v));
+function modifiersOf(set) {
+  const tags = db.all('SELECT * FROM plan_card_tags ORDER BY tag, ax');
+  const rules = db.all('SELECT * FROM plan_modifiers ORDER BY list, customer, tag, type, id');
+  const D = planning.DEADLINE_DEFAULTS;
+  return {
+    rules, shifts: db.all('SELECT * FROM plan_mod_shifts ORDER BY customer'), tags, tagBy: new Map(tags.map((t) => [planning.axKey(t.ax), t.tag])),
+    lists: [...new Set(['Matching', 'Dispatch', 'Manual', ...rules.map((r) => r.list)])],
+    off: String(set.plan_mod_off || '').split(',').map((x) => x.trim()).filter(Boolean),
+    shift_starts: { night: hm(set.plan_shift_night, 21 * 60 + 45), morning: hm(set.plan_shift_morning, 5 * 60 + 45), afternoon: hm(set.plan_shift_afternoon, 13 * 60 + 45) },
+    deadline: { base: modNum(set.plan_dl_base, D.base), per_day: modNum(set.plan_dl_per_day, D.per_day), max_extra: modNum(set.plan_dl_max, D.max_extra), lead: modNum(set.plan_dl_lead, D.lead) },
+  };
+}
+const modText = (v) => (v === null || v === undefined ? null : String(v).trim() || null);
+const modFields = (b) => {
+  const f = {};
+  if ('list' in b) { f.list = String(b.list || '').trim(); if (!f.list) throw new HttpError(400, 'Name the list'); }
+  if ('customer' in b) f.customer = modText(b.customer)?.toUpperCase() || null;
+  for (const k of ['tag', 'type', 'note', 'authoriser']) if (k in b) f[k] = modText(b[k]);
+  if ('tag' in b && f.tag) f.tag = f.tag.toUpperCase();
+  if ('until' in b) { f.until = modText(b.until); if (f.until && !/^\d{4}-\d{2}-\d{2}$/.test(f.until)) throw new HttpError(400, 'Until must be a date'); }
+  if ('value' in b) { f.value = Number(String(b.value ?? '').replace(',', '.')); if (String(b.value ?? '').trim() === '' || Number.isNaN(f.value)) throw new HttpError(400, 'The modifier must be a number'); }
+  return f;
+};
+router.post('/plan/modifiers', h((req, res) => {
+  const f = modFields({ list: req.body.list, customer: req.body.customer, tag: req.body.tag, type: req.body.type, value: req.body.value, note: req.body.note, authoriser: req.body.authoriser, until: req.body.until });
+  res.status(201).json(fresh('plan_modifiers', insertRow('plan_modifiers', f)));
+}));
+router.patch('/plan/modifiers/:id', h((req, res) => {
+  const old = db.get('SELECT * FROM plan_modifiers WHERE id = ?', [req.params.id]);
+  if (!old) throw notFound('Modifier');
+  res.json(fresh('plan_modifiers', updateRow('plan_modifiers', old.id, modFields(req.body))));
+}));
+router.delete('/plan/modifiers/:id', h((req, res) => {
+  if (!db.run('DELETE FROM plan_modifiers WHERE id = ?', [req.params.id]).changes) throw notFound('Modifier');
+  res.status(204).end();
+}));
+// The shift values for a customer ({ night, morning, afternoon }; all blank removes the row).
+router.put('/plan/mod-shifts/:customer', h((req, res) => {
+  const customer = String(req.params.customer || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{2,6}$/.test(customer)) throw new HttpError(400, 'Not a customer code');
+  const old = db.get('SELECT * FROM plan_mod_shifts WHERE customer = ?', [customer]);
+  const f = {};
+  for (const k of planning.SHIFTS) {
+    const raw = k in req.body ? String(req.body[k] ?? '').replace(',', '.').trim() : old?.[k] ?? '';
+    const v = raw === '' || raw === null ? null : Number(raw);
+    if (v !== null && Number.isNaN(v)) throw new HttpError(400, 'The modifier must be a number');
+    f[k] = v;
+  }
+  if (planning.SHIFTS.every((k) => !f[k])) { if (old) db.run('DELETE FROM plan_mod_shifts WHERE id = ?', [old.id]); return res.json(null); }
+  res.json(old ? fresh('plan_mod_shifts', updateRow('plan_mod_shifts', old.id, f)) : fresh('plan_mod_shifts', insertRow('plan_mod_shifts', { customer, ...f })));
+}));
+// Card tags: one ({ ax, tag }; blank tag removes it) or pasted lines "AX<tab>Tag" ({ text }).
+function setTag(ax, tag) {
+  ax = String(ax ?? '').trim(); tag = String(tag ?? '').trim().toUpperCase();
+  if (!ax) return 0;
+  const old = db.get('SELECT * FROM plan_card_tags WHERE ax = ?', [ax]);
+  if (!tag) { if (old) db.run('DELETE FROM plan_card_tags WHERE id = ?', [old.id]); return 0; }
+  if (old) { if (old.tag !== tag) updateRow('plan_card_tags', old.id, { tag }); } else insertRow('plan_card_tags', { ax, tag });
+  return 1;
+}
+router.post('/plan/card-tags', h((req, res) => {
+  if (typeof req.body.text === 'string') {
+    let n = 0;
+    db.tx(() => { for (const line of req.body.text.split(/\r?\n/)) { const [ax, tag] = line.split(/\t|;|,/).map((x) => x?.trim()); if (ax && tag && !/^ax/i.test(ax)) n += setTag(ax, tag); } });
+    return res.json({ saved: n });
+  }
+  res.json({ saved: setTag(req.body.ax, req.body.tag) });
+}));
+// Brings the modifier pages over from the Production Planning workbook: ShiftLookup, ManualLookup,
+// MatchingLookup and DispatchLookup, and the Cards sheet's AX / Tag list. The lists it brings
+// replace those of the same name.
+router.post('/plan/modifiers/import', express.raw({ type: '*/*', limit: '50mb' }), h((req, res) => {
+  if (!req.body?.length) throw new HttpError(400, 'Choose the Production Planning workbook');
+  const { readBook } = require('./xlsxread');
+  let book;
+  try { book = readBook(req.body); } catch (err) { throw new HttpError(400, `Can't read it: ${err.message}`); }
+  const rowsOf = (name) => {
+    const info = book.sheets.find((x) => x.name.toLowerCase() === name.toLowerCase());
+    if (!info) return null;
+    const sh = book.sheet(info.name); const grid = [];
+    for (const c of sh.cells.values()) { (grid[c.row] = grid[c.row] || [])[c.col] = c.v; }
+    return grid;
+  };
+  const num = (v) => (v === null || v === undefined || String(v).trim() === '' ? null : Number(v));
+  const got = { lists: {}, shifts: 0, tags: 0 };
+  db.tx(() => {
+    for (const [sheet, list] of [['MatchingLookup', 'Matching'], ['DispatchLookup', 'Dispatch'], ['ManualLookup', 'Manual']]) {
+      const g = rowsOf(sheet); if (!g) continue;
+      const head = (g[1] || []).map((x) => String(x ?? '').trim().toLowerCase());
+      const col = (n) => head.indexOf(n);
+      db.run('DELETE FROM plan_modifiers WHERE list = ?', [list]);
+      let n = 0;
+      for (let r = 2; r < g.length; r++) {
+        const row = g[r] || []; const v = num(row[col('modifier')]);
+        if (!row[col('customer')] || !v) continue; // a customer with no modifier set adds nothing
+        insertRow('plan_modifiers', { list, customer: String(row[col('customer')]).trim().toUpperCase(), tag: modText(row[col('tag')])?.toUpperCase() || null, value: v,
+          note: modText(row[col(list === 'Manual' ? 'reason' : 'additional steps')]), authoriser: col('authoriser') >= 0 ? modText(row[col('authoriser')]) : null });
+        n++;
+      }
+      got.lists[list] = n;
+    }
+    const sg = rowsOf('ShiftLookup');
+    if (sg) {
+      const head = (sg[1] || []).map((x) => String(x ?? '').trim().toLowerCase());
+      for (let r = 2; r < sg.length; r++) {
+        const row = sg[r] || []; const customer = String(row[head.indexOf('customer')] ?? '').trim().toUpperCase();
+        if (!customer) continue;
+        const f = Object.fromEntries(planning.SHIFTS.map((k) => [k, num(row[head.indexOf(k)]) || null]));
+        const old = db.get('SELECT id FROM plan_mod_shifts WHERE customer = ?', [customer]);
+        if (planning.SHIFTS.every((k) => !f[k])) { if (old) db.run('DELETE FROM plan_mod_shifts WHERE id = ?', [old.id]); continue; }
+        if (old) updateRow('plan_mod_shifts', old.id, f); else insertRow('plan_mod_shifts', { customer, ...f });
+        got.shifts++;
+      }
+    }
+    const cg = rowsOf('Cards');
+    if (cg) { // the AX / Tag list beside the card table
+      const head = (cg[1] || []).map((x) => String(x ?? '').trim().toLowerCase());
+      const ax = head.lastIndexOf('ax'); const tag = head.lastIndexOf('tag');
+      if (ax >= 0 && tag >= 0) for (let r = 2; r < cg.length; r++) { const row = cg[r] || []; if (row[ax] !== null && row[ax] !== undefined && row[tag]) got.tags += setTag(planning.axKey(row[ax]), row[tag]); }
+    }
+  });
+  if (!Object.keys(got.lists).length && !got.shifts && !got.tags) throw new HttpError(400, 'No modifier pages found (MatchingLookup, DispatchLookup, ManualLookup, ShiftLookup)');
+  res.json(got);
 }));
 
 // Otto machines: name, items per hour, how the export's Machine column names it (optional).
@@ -1948,7 +2082,7 @@ const SETTING_DEFAULTS = {
   kpi_fc_benelux: '', kpi_fc_amex: '',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
-  plan_src: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_oee_default: '', plan_otto_src: '', plan_max_age: '30', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
+  plan_src: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_oee_default: '', plan_otto_src: '', plan_max_age: '30', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
 };
 function getSettings() {
   const out = { ...SETTING_DEFAULTS };

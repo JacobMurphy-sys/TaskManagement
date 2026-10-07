@@ -1198,6 +1198,20 @@ async function waitForServer() {
         assert.equal(P.catchUp({ overdue: 10, done: [], due: [], now, from: now.toISOString() }).status, 'no_record', 'no full day on record yet');
         assert.equal(P.catchUp({ overdue: 10, done: [{ date: '2026-10-05', qty: 10 }], due: [], now, from: new Date(2026, 9, 4).toISOString() }).basis_days, 1, 'from the first full day on record');
         assert.deepEqual([P.tooOld('2026-09-05', 30, now), P.tooOld('2026-09-06', 30, now), P.tooOld('2020-01-01', 0, now)], [true, false, false]);
+        // ⚖ modifiers: deadline (overdue 100 + 20/day up to +100; before: 10 ÷ (1 + days)), rule lists, shift
+        assert.deepEqual([P.deadlineScore('2026-10-06T10:00', now), P.deadlineScore('2026-10-07T10:00', now), P.deadlineScore('2026-10-05T22:00', now), P.deadlineScore('2026-09-01T10:00', now)], [10, 5, 110, 200]);
+        assert.deepEqual([P.shiftAt(23 * 60, { night: 1305, morning: 345, afternoon: 825 }), P.shiftAt(3 * 60, { night: 1305, morning: 345, afternoon: 825 }), P.shiftAt(600, { night: 1305, morning: 345, afternoon: 825 }), P.shiftAt(900, { night: 1305, morning: 345, afternoon: 825 })], ['night', 'night', 'morning', 'afternoon']);
+        const mk = (customer, tag, type) => ({ customer, deadline: '2026-10-07T10:00', articles: [{ article: 'X', card: { tag, type } }] });
+        const js = [mk('KBC', 'METAL', 'DOD'), mk('KBC', null, 'DOD'), mk('ADY', null, 'Laser')];
+        const rules = [{ id: 1, list: 'Matching', customer: 'KBC', tag: 'METAL', value: 2 }, { id: 2, list: 'Matching', customer: 'KBC', value: 0.5 }, { id: 3, list: 'Dispatch', customer: 'ADY', value: 2 },
+          { id: 4, list: 'Manual', customer: 'ADY', value: 5, until: '2026-10-01' }, { id: 5, list: 'Manual', type: 'laser', value: 1 }];
+        const r = P.scoreJobs(js, { now, rules, shifts: [{ customer: 'KBC', night: 3, morning: 1, afternoon: 0 }] });
+        assert.equal(r.shift, 'morning');
+        assert.deepEqual(js.map((j) => j.score), [5 + 2 + 1, 5 + 0.5 + 1, 5 + 2 + 1], 'deadline 5 + the most specific row of each list + the shift');
+        assert.deepEqual(js[2].score_parts.map((x) => x.module), ['Deadline', 'Dispatch', 'Manual'], 'an expired row is left out; a card type row matches');
+        P.scoreJobs(js, { now, rules, off: ['Matching', 'deadline'] });
+        assert.deepEqual(js.map((j) => j.score), [0, 0, 3], 'modules switched off add nothing');
+        assert.deepEqual(P.order([{ key: 'a', score: 1, deadline: '2026-10-06T10:00' }, { key: 'b', score: 9, deadline: '2026-10-09T10:00' }], 'score').map((j) => j.key), ['b', 'a'], 'score mode: highest first');
       }
       const cols = ['WO', 'PER', 'Card AX', 'QNY', 'Due Out', 'Prio', 'Status', '', 'LIVE', 'GROUP', 'Shipper', 'Shipping Time'].map((h, i) => ({ header: h, type: i === 3 ? 'number' : undefined }));
       const r = (wo, per, ax, q, due, prio, st, ship, time) => [wo, per, ax, q, due, prio, st, '', 'LIVE', 'G', ship, time];
@@ -1384,6 +1398,39 @@ async function waitForServer() {
       assert.ok(pp.machine_load.some((l) => l.setups > 0), 'switching kind of card costs a change-over');
       assert.ok(pp.machine_load.reduce((t, l) => t + l.minutes, 0) > before.machine_load.reduce((t, l) => t + l.minutes, 0), '… adding to the machines\' work');
       await call('PATCH', '/settings', { plan_changeover: '0' });
+      // ⚖ modifiers through the API: the workbook's pages imported, then the score order
+      {
+        const sheet = (name, head, rows) => ({ name, columns: head.map((h) => ({ header: h, type: h === 'Modifier' || ['Night', 'Morning', 'Afternoon', 'AX'].includes(h) ? 'number' : undefined })), rows });
+        const wb = bx([
+          sheet('Cards', ['AX Ref', 'Trigram', 'Type', 'AX', 'Tag'], [['C1', 'KBC', 'DOD', 'C1', 'METAL']]),
+          sheet('ShiftLookup', ['Customer', 'Night', 'Morning', 'Afternoon'], [['SIX', 3, 3, 3], ['ING', 0, 0, 0]]),
+          sheet('ManualLookup', ['Customer', 'Modifier', 'Reason', 'Authoriser'], [['AES', 50, 'Escalation', 'JM'], ['BEL', null, null, null]]),
+          sheet('MatchingLookup', ['Customer', 'Additional Steps', 'Tag', 'Modifier'], [['KBC', 'Packing, Sliders', 'METAL', 2]]),
+          sheet('DispatchLookup', ['Customer', 'Additional Steps', 'Tag', 'Modifier'], [['IND', 'Branching', '', 1]])]);
+        const imp = await fetch(`${BASE}/plan/modifiers/import`, { method: 'POST', body: wb, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
+        const got = await imp.json();
+        assert.deepEqual(got, { lists: { Matching: 1, Dispatch: 1, Manual: 1 }, shifts: 1, tags: 1 }, 'lists, shift values (all-zero rows skipped) and the AX / Tag list');
+        let ps = await call('GET', '/plan?mode=score');
+        assert.equal(ps.mode, 'score');
+        assert.deepEqual([ps.queue[0].customer, ps.queue[0].score_parts.find((x) => x.module === 'Manual').note], ['AES', 'Escalation'], 'Manual +50 puts AES first');
+        assert.ok(ps.queue.every((j, i) => i === 0 || j.score <= ps.queue[i - 1].score), 'highest score first');
+        const kbcJob = ps.queue.find((j) => j.customer === 'KBC');
+        assert.equal(kbcJob.score_parts.some((x) => x.module === 'Matching'), true, 'KBC with a METAL-tagged card: the Matching row');
+        assert.ok(ps.modifiers.lists.includes('Manual') && ps.modifiers.tags.length === 1 && ps.modifiers.current_shift);
+        const man = ps.modifiers.rules.find((x) => x.list === 'Manual');
+        await call('PATCH', '/settings', { plan_mod_off: 'Manual' });
+        assert.notEqual((await call('GET', '/plan?mode=score')).queue[0].customer, 'AES', 'Manual off');
+        await call('PATCH', '/settings', { plan_mod_off: '' });
+        await assert.rejects(call('POST', '/plan/modifiers', { list: 'Manual', customer: 'SIX', value: 'x' }), /number/);
+        const added = await call('POST', '/plan/modifiers', { list: 'Inserts', customer: 'six', value: '400', note: 'test' });
+        assert.equal((await call('GET', '/plan?mode=score')).queue[0].customer, 'SIX', 'a new list of its own');
+        await call('DELETE', `/plan/modifiers/${added.id}`);
+        await call('PATCH', `/plan/modifiers/${man.id}`, { value: '0.5' });
+        assert.equal((await call('PUT', '/plan/mod-shifts/SIX', { night: '', morning: '', afternoon: '' })), null, 'all blank removes the row');
+        assert.equal((await call('POST', '/plan/card-tags', { text: 'AX\tTag\nB1\tprio\nC1\tMETAL' })).saved, 2, 'pasted, header skipped');
+        assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'plan_modifiers'), 'modifiers are audited (and backed up)');
+        for (const m of (await call('GET', '/plan')).modifiers.rules) await call('DELETE', `/plan/modifiers/${m.id}`);
+      }
       // estimated OEE per customer: planned at speed × OEE
       const minsOf = (pl2, key) => [...pl2.running, ...pl2.queue].find((j) => j.key === key).minutes;
       const m0 = minsOf(pp = await call('GET', '/plan'), 'CAESS26100601/0002');

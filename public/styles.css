@@ -1049,3 +1049,10 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .pl-backlog-big { font-size: 28px; font-weight: 700; white-space: nowrap; }
 .pl-backlog-big span { font-size: 14px; font-weight: 500; }
 .pl-backlog-row .small { flex: 1; min-width: 260px; line-height: 1.6; }
+
+.pl-mod-list { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 12px; }
+.pl-mod-list .row { gap: 10px; align-items: center; flex-wrap: wrap; }
+.pl-mod-list table input { width: 100%; min-width: 60px; }
+.pl-mod-dl { grid-template-columns: repeat(4, minmax(120px, 1fr)); }
+.pl-score-parts { margin: 2px 0 8px; }
+.pl-chip { display: inline-block; padding: 1px 8px; border-radius: 10px; background: var(--surface-2, rgba(127,127,127,.12)); margin-right: 4px; }

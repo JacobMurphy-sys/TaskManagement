@@ -349,6 +349,39 @@ const TABLES = {
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
 
+  // 🏭 Planning ⚖ modifiers: rows of named lists (Matching, Dispatch, Manual, …). A row matches a
+  // job on customer (trigram), card tag and card type — blank = any — and adds its value to the score.
+  plan_modifiers: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    list        TEXT    NOT NULL,
+    customer    TEXT,
+    tag         TEXT,
+    type        TEXT,
+    value       REAL    NOT NULL DEFAULT 0,
+    note        TEXT,
+    authoriser  TEXT,
+    until       TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
+  // 🏭 Planning ⚖ shift modifier: per customer, a value for each shift.
+  plan_mod_shifts: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer    TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    night       REAL,
+    morning     REAL,
+    afternoon   REAL,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
+  // 🏭 Planning: tags for card articles (e.g. PRIO, METAL) when the card database has none.
+  plan_card_tags: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ax          TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    tag         TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
   // 🏭 Planning: estimated OEE per customer (the work order's trigram), as a fraction (0.85).
   plan_oee: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -537,7 +570,7 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');
