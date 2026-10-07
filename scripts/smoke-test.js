@@ -145,6 +145,19 @@ async function waitForServer() {
     assert.equal(idea2.ref, 'IDEA-0002');
     await assert.rejects(call('POST', '/ideas', { title: 'x', cost: -5 }), /400/);
     await assert.rejects(call('POST', '/ideas', { title: '' }), /400/);
+    // proposed solution, resolution and benefit; the submission date can be set back (not forward)
+    {
+      const back = await call('POST', '/ideas', { title: 'Backdated', proposed_solution: 'Use a jig', benefit: 'Fewer remakes', submitted_at: '2026-01-15' });
+      assert.deepEqual([back.proposed_solution, back.benefit, new Date(back.created_at).getDate(), new Date(back.created_at).getMonth()], ['Use a jig', 'Fewer remakes', 15, 0]);
+      const keepTime = new Date(back.created_at).getHours();
+      const moved = await call('PATCH', `/ideas/${back.id}`, { submitted_at: '2025-12-01', resolution: 'Done in WK49' });
+      assert.deepEqual([moved.resolution, new Date(moved.created_at).getFullYear(), new Date(moved.created_at).getHours()], ['Done in WK49', 2025, keepTime], 'a new date keeps the time of day');
+      await assert.rejects(call('PATCH', `/ideas/${back.id}`, { submitted_at: '2099-01-01' }), /future/);
+      await assert.rejects(call('PATCH', `/ideas/${back.id}`, { submitted_at: '' }), /blank/);
+      assert.ok((await call('GET', `/ideas/${back.id}`)).history.some((e) => /submission date/.test(e.text)), 'the change is in its history');
+      assert.ok((await call('GET', '/ideas?q=jig')).some((x) => x.id === back.id), 'found by its proposed solution');
+      await call('DELETE', `/ideas/${back.id}`);
+    }
     await assert.rejects(call('DELETE', `/areas/${ops.id}`), /used by 1 idea/);
 
     await call('POST', `/ideas/${idea1.id}/notes`, { body: 'Discussed with finance' });

@@ -1159,7 +1159,7 @@ router.get('/dashboard', h((req, res) => {
 
 // ------------------------------------------------------------------ ideation
 
-const IDEA_FIELDS = ['title', 'description', 'submitted_by', 'area_id', 'priority', 'due_at', 'cost', 'status', 'impact', 'effort'];
+const IDEA_FIELDS = ['title', 'description', 'submitted_by', 'area_id', 'priority', 'due_at', 'cost', 'status', 'impact', 'effort', 'proposed_solution', 'resolution', 'benefit'];
 const IDEA_SELECT = `
   SELECT i.*, a.name AS area_name, p.name AS project_name,
          (SELECT count(*) FROM idea_notes n WHERE n.idea_id = i.id) AS note_count,
@@ -1167,8 +1167,24 @@ const IDEA_SELECT = `
   FROM ideas i LEFT JOIN areas a ON a.id = i.area_id LEFT JOIN projects p ON p.id = i.project_id`;
 const OPEN_IDEA = "i.status IN ('new', 'reviewing', 'approved')";
 
-function ideaFields(body) {
+// The submission date (created_at) can be set back: a date keeps the time of day it had (now
+// for a new idea); not in the future.
+function submittedAt(v, current) {
+  const s = String(v ?? '').trim();
+  if (!s) throw new HttpError(400, 'The submission date can\'t be blank');
+  let at;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const t = current ? new Date(current) : new Date();
+    const [y, m, d] = s.split('-').map(Number);
+    at = new Date(y, m - 1, d, t.getHours(), t.getMinutes(), t.getSeconds());
+  } else at = new Date(s);
+  if (Number.isNaN(at.getTime())) throw new HttpError(400, 'Invalid submission date');
+  if (at > new Date(Date.now() + 60000)) throw new HttpError(400, 'The submission date can\'t be in the future');
+  return at.toISOString();
+}
+function ideaFields(body, current = null) {
   const f = pick(body, IDEA_FIELDS);
+  if (body.submitted_at !== undefined) f.created_at = submittedAt(body.submitted_at, current);
   if (f.status === 'escalated') throw new HttpError(400, 'Use "Escalate to project" to escalate an idea');
   if (f.title !== undefined && !String(f.title || '').trim()) throw new HttpError(400, 'Idea name is required');
   return f;
@@ -1183,8 +1199,8 @@ router.get('/ideas', h((req, res) => {
   if (req.query.area_id) { where.push('i.area_id = ?'); params.push(req.query.area_id); }
   if (req.query.q) {
     const q = `%${String(req.query.q).trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-    where.push("(i.title LIKE ? ESCAPE '\\' OR i.description LIKE ? ESCAPE '\\' OR i.ref LIKE ? ESCAPE '\\' OR i.submitted_by LIKE ? ESCAPE '\\')");
-    params.push(q, q, q, q);
+    where.push("(i.title LIKE ? ESCAPE '\\' OR i.description LIKE ? ESCAPE '\\' OR i.proposed_solution LIKE ? ESCAPE '\\' OR i.ref LIKE ? ESCAPE '\\' OR i.submitted_by LIKE ? ESCAPE '\\')");
+    params.push(q, q, q, q, q);
   }
   res.json(db.all(`${IDEA_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
     ORDER BY i.id DESC`, params));
@@ -1199,6 +1215,7 @@ router.get('/ideas/submitters', h((req, res) => {
 router.post('/ideas', h((req, res) => {
   const fields = ideaFields(req.body);
   if (!fields.title) throw new HttpError(400, 'Idea name is required');
+  if (req.body.submitted_at !== undefined && !String(req.body.submitted_at).trim()) delete fields.created_at;
   const idea = fresh('ideas', insertRow('ideas', fields));
   res.status(201).json(db.get(`${IDEA_SELECT} WHERE i.id = ?`, [idea.id]));
 }));
@@ -1217,9 +1234,9 @@ router.get('/ideas/:id', h((req, res) => {
 }));
 
 router.patch('/ideas/:id', h((req, res) => {
-  const current = db.get('SELECT status FROM ideas WHERE id = ?', [req.params.id]);
+  const current = db.get('SELECT status, created_at FROM ideas WHERE id = ?', [req.params.id]);
   if (!current) throw notFound('Idea');
-  const fields = ideaFields(req.body);
+  const fields = ideaFields(req.body, current.created_at);
   if (current.status === 'escalated' && fields.status) throw new HttpError(400, 'This idea has already been escalated to a project');
   updateRow('ideas', req.params.id, fields);
   res.json(db.get(`${IDEA_SELECT} WHERE i.id = ?`, [req.params.id]));
@@ -1254,6 +1271,8 @@ router.post('/ideas/:id/escalate', h((req, res) => {
     const summary = [
       `Escalated from ${idea.ref} "${idea.title}".`,
       idea.submitted_by && `Submitted by: ${idea.submitted_by}`,
+      idea.proposed_solution && `Proposed solution: ${idea.proposed_solution}`,
+      idea.benefit && `Benefit: ${idea.benefit}`,
       idea.area_name && `Area: ${idea.area_name}`,
       idea.cost !== null && `Estimated cost: ${currency}${idea.cost.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       `Raised: ${new Date(idea.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`,
@@ -2384,6 +2403,7 @@ const XL = {
     { header: 'Due', type: 'date', width: 11 }, { header: 'Cost', type: 'money', width: 11 },
     { header: 'Status', width: 14 }, { header: 'Project', width: 26 }, { header: 'Raised', type: 'datetime', width: 16 },
     { header: 'Updated', type: 'datetime', width: 16 }, { header: 'Description', type: 'wrap', width: 50 },
+    { header: 'Proposed solution', type: 'wrap', width: 40 }, { header: 'Resolution', type: 'wrap', width: 40 }, { header: 'Benefit', type: 'wrap', width: 40 },
   ],
   notes: [
     { header: 'Date', type: 'datetime', width: 16 }, { header: 'Project / idea', width: 30 },
@@ -2450,7 +2470,7 @@ function exportSheets(scope, id) {
     sheets.push({ name: 'Ideas', columns: XL.ideas, rows: ideas.map((i) => [
       i.ref, i.title, i.area_name, i.submitted_by, PRIORITY_LABEL[i.priority], i.impact, i.effort,
       i.impact && i.effort ? i.impact * (6 - i.effort) : null, i.due_at, i.cost, label(STATUS_LABEL, i.status),
-      i.project_name, i.created_at, i.updated_at, i.description]) });
+      i.project_name, i.created_at, i.updated_at, i.description, i.proposed_solution, i.resolution, i.benefit]) });
   }
   const notes = [];
   if (scope !== 'ideas') {
@@ -2956,7 +2976,7 @@ const FIELD_LABEL = { title: 'title', name: 'name', description: 'description', 
   priority: 'priority', due_at: 'due date', start_date: 'start date', parent_id: 'parent task',
   remind_at: 'reminder time', message: 'message', body: 'text',
   submitted_by: 'submitted by', area_id: 'area', cost: 'cost', value: 'value', active: 'active',
-  waiting_on: 'waiting on', recurrence: 'repeats', budget: 'budget', impact: 'impact', effort: 'effort',
+  waiting_on: 'waiting on', proposed_solution: 'proposed solution', resolution: 'resolution', benefit: 'benefit', created_at: 'submission date', recurrence: 'repeats', budget: 'budget', impact: 'impact', effort: 'effort',
   amount: 'amount', spent_on: 'date', project_code: 'project ID', sponsor: 'sponsor', leader: 'project leader',
   policy_deployment: 'policy deployment', category: 'category', gm_effect: 'gross margin effect',
   problem: 'problem definition', goals: 'goals', in_scope: 'in scope', out_scope: 'out of scope',
@@ -2976,6 +2996,7 @@ function fmtValue(field, v) {
   if (field === 'recurrence') return REPEAT_LABEL[v] || v;
   if (field === 'phase_id') return db.get('SELECT name FROM project_phases WHERE id = ?', [v])?.name || `phase #${v}`;
   if (field in MONEY_FIELDS) return `${getSettings().currency}${Number(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (field === 'created_at') return new Date(v).toLocaleDateString(undefined, { dateStyle: 'medium' });
   if (field === 'due_at') return new Date(v).toLocaleDateString(undefined, { dateStyle: 'medium' });
   if (field === 'start_date' || field === 'spent_on') return new Date(`${v}T12:00`).toLocaleDateString(undefined, { dateStyle: 'medium' });
   if (field === 'held_at') return new Date(v).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });

@@ -1117,7 +1117,10 @@ async function ideaForm() {
     <form id="idea-form" class="form-grid">
       <label class="f full">Name<input type="text" name="title" required></label>
       <label class="f full">Description<textarea name="description" rows="3"></textarea></label>
+      <label class="f full">Proposed solution<textarea name="proposed_solution" rows="2"></textarea></label>
+      <label class="f full">Benefit<textarea name="benefit" rows="2" placeholder="e.g. saves 2 h a week, fewer remakes"></textarea></label>
       <label class="f">Submitted by<input type="text" name="submitted_by" list="submitters" autocomplete="off" value="${esc(store.get('lastSubmitter', ''))}"></label>
+      <label class="f">Submitted on<input type="date" name="submitted_at" value="${toDateInput(new Date().toISOString())}" max="${toDateInput(new Date().toISOString())}"></label>
       <label class="f">Area<select name="area_id">${areaOptions(null)}</select></label>
       <label class="f">Priority<select name="priority">${options(PRIORITY, 2)}</select></label>
       <label class="f">Due date<input type="date" name="due_at"></label>
@@ -1174,10 +1177,14 @@ async function renderIdea(id) {
         <div class="form-grid" id="idea-edit">
           <label class="f full">Name<input type="text" name="title" value="${esc(i.title)}"></label>
           <label class="f full">Description<textarea name="description" rows="4">${esc(i.description)}</textarea>${linkList(i.description)}</label>
+          <label class="f full">Proposed solution<textarea name="proposed_solution" rows="3">${esc(i.proposed_solution)}</textarea>${linkList(i.proposed_solution)}</label>
+          <label class="f full">Resolution<textarea name="resolution" rows="3" placeholder="What was decided or done">${esc(i.resolution)}</textarea>${linkList(i.resolution)}</label>
+          <label class="f full">Benefit<textarea name="benefit" rows="2">${esc(i.benefit)}</textarea></label>
           <label class="f">Status<select name="status" ${locked ? 'disabled' : ''}>${options(statusOpts, i.status)}</select></label>
           <label class="f">Priority<select name="priority">${options(PRIORITY, i.priority)}</select></label>
           <label class="f">Area<select name="area_id">${areaOptions(i.area_id)}</select></label>
           <label class="f">Submitted by<input type="text" name="submitted_by" list="submitters" autocomplete="off" value="${esc(i.submitted_by)}"></label>
+          <label class="f">Submitted on<input type="date" name="submitted_at" value="${toDateInput(i.created_at)}" max="${toDateInput(new Date().toISOString())}"></label>
           <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(i.due_at)}"></label>
           <label class="f">Cost (${esc(state.settings.currency)})<input type="number" name="cost" min="0" step="0.01" inputmode="decimal" value="${i.cost ?? ''}"></label>
           <label class="f">Impact<select name="impact">${options(IMPACT, i.impact)}</select></label>
@@ -1202,10 +1209,11 @@ async function renderIdea(id) {
   // Auto-save each field as it changes.
   $$('#idea-edit [name]').forEach((el) => el.addEventListener('change', async () => {
     if (el.name === 'title' && !el.value.trim()) { el.value = i.title; return; }
+    if (el.name === 'submitted_at' && !el.value) { el.value = toDateInput(i.created_at); return; }
     try {
       await api.patch(`/ideas/${i.id}`, { [el.name]: ideaValue(el.name, el.value) });
       if (el.name === 'submitted_by' && el.value) store.set('lastSubmitter', el.value);
-      if (['status', 'title', 'submitted_by', 'impact', 'effort', 'description'].includes(el.name)) return renderIdea(i.id);
+      if (['status', 'title', 'submitted_by', 'impact', 'effort', 'description', 'proposed_solution', 'resolution', 'submitted_at'].includes(el.name)) return renderIdea(i.id);
       const flag = $('#saved-flag');
       flag.classList.add('show');
       setTimeout(() => flag.classList.remove('show'), 1200);

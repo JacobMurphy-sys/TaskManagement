@@ -219,7 +219,10 @@ const TABLES = {
     created_at   TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at   TEXT    NOT NULL DEFAULT (${NOW}),
     impact       INTEGER CHECK (impact IS NULL OR impact BETWEEN 1 AND 5),
-    effort       INTEGER CHECK (effort IS NULL OR effort BETWEEN 1 AND 5)`,
+    effort       INTEGER CHECK (effort IS NULL OR effort BETWEEN 1 AND 5),
+    proposed_solution TEXT,
+    resolution   TEXT,
+    benefit      TEXT`,
 
   idea_notes: `
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
