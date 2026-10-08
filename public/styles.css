@@ -1060,3 +1060,4 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .pl-group td { font-weight: 700; padding-top: 12px; border-bottom: 2px solid var(--border); }
 .pl-group-on_time td { color: var(--ok, #1a7f37); }
 .pl-group-late td { color: var(--danger); }
+.pl-group-low td { color: var(--muted, #6b7280); }

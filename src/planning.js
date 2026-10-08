@@ -197,8 +197,9 @@ function projectOtto(running, queue, machines, speeds, { start = 360, end = 1320
 }
 
 // ---- 🛟 mitigation: as many jobs on time as possible ---------------------------------------
-// Jobs that can still make their deadline go first (by deadline); those already overdue — and,
-// with a capacity, those that would be late even so — go after, oldest deadline first. Which
+// High / Normal jobs that can still make their deadline go first (by deadline); those already
+// overdue — and, with a capacity, those that would be late even so — go after, oldest deadline
+// first; Low priority jobs not yet overdue come last, by deadline. Which
 // can't be saved is found as Moore–Hodgson does: work through by deadline and, whenever one would
 // finish late, set aside the longest job so far — the fewest jobs late. Pinned jobs stay first.
 // project(running, queue) runs the plan (adding finish / late_minutes) and says if it could.
@@ -206,7 +207,9 @@ function mitigate(running, queue, { project = null, now = new Date(), maxRounds 
   const pinned = queue.filter((j) => j.pinned);
   const rest = queue.filter((j) => !j.pinned);
   const overdue = rest.filter((j) => j.deadline && localDate(j.deadline) <= now);
-  let saveable = rest.filter((j) => !overdue.includes(j)); // in deadline order already (FIFO)
+  const isLow = (j) => String(j.prio || '').trim().toLowerCase() === 'low';
+  const low = rest.filter((j) => !overdue.includes(j) && isLow(j));
+  let saveable = rest.filter((j) => !overdue.includes(j) && !isLow(j)); // in deadline order already (FIFO)
   const setAside = [];
   if (project) {
     for (let round = 0; round < maxRounds; round++) {
@@ -225,7 +228,8 @@ function mitigate(running, queue, { project = null, now = new Date(), maxRounds 
   for (const j of saveable) j.mitigation = 'on_time';
   for (const j of setAside) j.mitigation = 'late_anyway';
   for (const j of overdue) j.mitigation = 'overdue';
-  return [...pinned, ...saveable, ...[...setAside, ...overdue].sort(byDeadline)];
+  for (const j of low) j.mitigation = 'low';
+  return [...pinned, ...saveable, ...[...setAside, ...overdue].sort(byDeadline), ...low];
 }
 
 // ---- backlog: overdue work and how long catching up takes at the recent pace ----------------

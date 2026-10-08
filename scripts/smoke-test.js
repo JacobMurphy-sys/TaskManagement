@@ -1235,6 +1235,9 @@ async function waitForServer() {
             'the 3-hour job would make b and c late too: set aside, so three are on time; the overdue and it after, oldest deadline first');
           assert.deepEqual(P.mitigate([], [...q.map((j) => ({ ...j })), { ...J('pin', '2026-10-09T10:00'), pinned: true }], { now }).map((j) => j.key), ['pin', 'a', 'big', 'b', 'c', 'over'],
             'with no capacity: pinned first, then not yet overdue by deadline, then overdue');
+          assert.deepEqual(P.mitigate([], [{ ...J('lowSoon', '2026-10-06T10:30'), prio: 'Low' }, { ...J('lowOver', '2026-10-06T08:00'), prio: 'Low' }, { ...J('norm', '2026-10-06T15:00'), prio: 'Normal' }, J('over', '2026-10-06T09:00')], { now })
+            .map((j) => [j.key, j.mitigation]), [['norm', 'on_time'], ['lowOver', 'overdue'], ['over', 'overdue'], ['lowSoon', 'low']],
+            'Low priority not yet overdue goes below the overdue; a Low one already overdue is with the overdue');
         }
       }
       const cols = ['WO', 'PER', 'Card AX', 'QNY', 'Due Out', 'Prio', 'Status', '', 'LIVE', 'GROUP', 'Shipper', 'Shipping Time'].map((h, i) => ({ header: h, type: i === 3 ? 'number' : undefined }));

@@ -44,10 +44,11 @@ async function renderPlanning() {
     return ` · <span class="${after ? 'pl-late' : ''}" title="${esc(os.map((o) => `${o.name}: Otto plan ${o.deadline?.replace('T', ' ') || '—'} (${o.status || ''})`).join('\n'))}${after ? '\nPerso is projected to finish after Otto\'s plan date' : ''}">Otto ${first ? esc(dayLabel(first.slice(0, 10))) : ''}${after ? ' ⚠' : ''}</span>`;
   };
   // 🛟 mitigation groups: can still be on time, then late anyway (already overdue, or no room)
-  const mitiGroup = (j) => (!j ? null : j.mitigation === 'pinned' ? 'pinned' : j.mitigation === 'on_time' ? 'on_time' : 'late');
+  const mitiGroup = (j) => (!j ? null : j.mitigation === 'pinned' ? 'pinned' : j.mitigation === 'on_time' ? 'on_time' : j.mitigation === 'low' ? 'low' : 'late');
   const mitiHead = (j) => {
     const g = mitiGroup(j); const list = p.queue.filter((x) => mitiGroup(x) === g);
-    const text = { pinned: '📌 Pinned', on_time: `✔ Can still be on time — ${list.length} job${list.length === 1 ? '' : 's'}, ${n(sum(list))} cards`,
+    const text = { pinned: '📌 Pinned', on_time: `✔ High / Normal that can still be on time — ${list.length} job${list.length === 1 ? '' : 's'}, ${n(sum(list))} cards`,
+      low: `↓ Low priority, not yet overdue — ${list.length} job${list.length === 1 ? '' : 's'}, ${n(sum(list))} cards · after the overdue, by deadline`,
       late: `⚠ Late anyway — ${list.filter((x) => x.mitigation === 'overdue').length} already overdue${list.some((x) => x.mitigation === 'late_anyway') ? `, ${list.filter((x) => x.mitigation === 'late_anyway').length} with no room before their deadline` : ''} · after the ones that can make it, oldest first` }[g];
     return `<tr class="pl-group pl-group-${g}"><td colspan="${(p.projected ? 8 : 7) + (mode === 'score' ? 1 : 0)}">${esc(text)}</td></tr>`;
   };
@@ -282,7 +283,7 @@ async function renderPlanning() {
     <div class="kanban-tools"><h1 style="margin:0">🏭 Planning</h1>
       <div class="seg"><button type="button" data-pl-half="perso" class="${half === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-pl-half="otto" class="${half === 'otto' ? 'on' : ''}">Otto</button></div>
 ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. BAU: by due day, then High / Normal / Low, then cut-off">
-        <button type="button" data-pl-mode="fifo" class="${mode === 'fifo' ? 'on' : ''}">FIFO</button><button type="button" data-pl-mode="bau" class="${mode === 'bau' ? 'on' : ''}">BAU</button><button type="button" data-pl-mode="score" class="${mode === 'score' ? 'on' : ''}" title="Highest score first: the deadline plus the ⚖ modifiers">⚖ Score</button><button type="button" data-pl-mode="mitigation" class="${mode === 'mitigation' ? 'on' : ''}" title="Save as many as possible: work orders that can still make their deadline first, then those already overdue or that would be late anyway">🛟 Mitigation</button></div>`}
+        <button type="button" data-pl-mode="fifo" class="${mode === 'fifo' ? 'on' : ''}">FIFO</button><button type="button" data-pl-mode="bau" class="${mode === 'bau' ? 'on' : ''}">BAU</button><button type="button" data-pl-mode="score" class="${mode === 'score' ? 'on' : ''}" title="Highest score first: the deadline plus the ⚖ modifiers">⚖ Score</button><button type="button" data-pl-mode="mitigation" class="${mode === 'mitigation' ? 'on' : ''}" title="Save as many as possible: High / Normal work orders that can still make their deadline first, then those already overdue or that would be late anyway, then Low priority">🛟 Mitigation</button></div>`}
       <div class="spacer"></div>
       <span class="small muted">${(half === 'otto' ? ot.source : src).status === 'ok' ? `${esc((half === 'otto' ? ot.source : src).name)} · saved ${esc(fmtDateTime((half === 'otto' ? ot.source : src).modified))}${(half === 'otto' ? ot.source : src).uploaded ? ' (uploaded copy)' : ''}` : ''}</span>
       <button data-pl="refresh" title="Read the export again if it has changed">🔄 Refresh</button>
