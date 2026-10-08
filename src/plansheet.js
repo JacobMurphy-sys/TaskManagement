@@ -13,9 +13,12 @@ const PDFDocument = require('pdfkit');
 const ACCENT = '#7382e6';
 const C = { late: '#fde2e2', today: '#fff4d6', lateTag: '#c62828', todayTag: '#f9a825', tomorrow: '#1f6feb', grey: '#555555', line: '#bbbbbb', ink: '#111111' };
 const M = 28; // page margin (10 mm)
-// Side by side the deadline is one coloured pill (the colour says late / today / tomorrow): the time,
-// with the date when it isn't today or tomorrow.
-const pillText = (r) => (r.cls === 'later' || r.cls === 'late' ? [r.cls === 'later' ? r.tag : '', r.time].filter(Boolean).join(' ') : r.time || r.tag);
+// Side by side the deadline is one coloured pill — always the date and time, the colour saying
+// late / today / tomorrow.
+const pillText = (r) => {
+  if (r.day) return [r.day, String(r.time || '').replace(/^\d{1,2}\/\d{1,2} /, '')].filter(Boolean).join(' ');
+  return r.cls === 'later' || r.cls === 'late' ? [r.cls === 'later' ? r.tag : '', r.time].filter(Boolean).join(' ') : r.time || r.tag;
+};
 
 // Only characters the built-in PDF fonts have (WinAnsi): arrows, emoji and the like are replaced.
 const clean = (s) => String(s ?? '').replace(/≈/g, '~').replace(/[▶►]/g, '>').replace(/[^\x20-\x7E -ÿ–—‘’“”•…€]/gu, '').trim();

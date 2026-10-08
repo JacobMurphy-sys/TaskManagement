@@ -580,14 +580,15 @@ function planSheetModel(jobs, { cells: pick, layout = 'pages', limit = 0, method
   const nowKey = `${today}T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   const side = layout === 'side';
   const when = (j) => {
-    if (!j.deadline) return { cls: 'later', tag: '—', time: '' };
+    if (!j.deadline) return { cls: 'later', tag: '—', time: '', day: '' };
     const [d, t] = j.deadline.split('T');
     const time = j.no_cutoff ? (side ? 'eod' : 'end of day') : t;
-    const day = side ? `${Number(d.slice(8))}/${Number(d.slice(5, 7))}` : new Date(`${d}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-    if (j.deadline < nowKey) return { cls: 'late', tag: 'LATE', time: `${day} ${time}` };
-    if (d === today) return { cls: 'today', tag: 'TODAY', time };
-    if (d === tomorrow) return { cls: 'tomorrow', tag: 'TOMORROW', time };
-    return { cls: 'later', tag: side ? day : new Date(`${d}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase(), time };
+    const short = `${Number(d.slice(8))}/${Number(d.slice(5, 7))}`; // 8/10: the date in the side-by-side pill
+    const day = side ? short : new Date(`${d}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    if (j.deadline < nowKey) return { cls: 'late', tag: 'LATE', time: `${day} ${time}`, day: short };
+    if (d === today) return { cls: 'today', tag: 'TODAY', time, day: short };
+    if (d === tomorrow) return { cls: 'tomorrow', tag: 'TOMORROW', time, day: short };
+    return { cls: 'later', tag: side ? day : new Date(`${d}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase(), time, day: short };
   };
   const n = (v) => Number(v || 0).toLocaleString('en-GB');
   const cells = (groups || cellsOf(jobs)).filter((c) => !pick || pick.includes(c.type));
@@ -598,7 +599,7 @@ function planSheetModel(jobs, { cells: pick, layout = 'pages', limit = 0, method
     rows: (limit > 0 ? all.slice(0, limit) : all).map((r, i) => {
       const w = when(r.job);
       return { no: r.job.running ? '' : String(i + 1), running: !!r.job.running, wo: r.job.wo, suffix: r.job.is_otto ? r.job.name.slice(r.job.wo.length) : `/${r.job.per}`,
-        note: r.note || '', customer: r.job.customer || '', hot: /high|urgent/i.test(r.job.prio || ''), pinned: !!r.job.pinned, qty: n(r.qty), cls: w.cls, tag: w.tag, time: w.time };
+        note: r.note || '', customer: r.job.customer || '', hot: /high|urgent/i.test(r.job.prio || ''), pinned: !!r.job.pinned, qty: n(r.qty), cls: w.cls, tag: w.tag, time: w.time, day: w.day };
     }),
   });
   const main = (c) => section(c, splitOverdue ? c.rows.filter((r) => !isOver(r)) : c.rows);
