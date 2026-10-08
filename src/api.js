@@ -1992,6 +1992,31 @@ router.post('/plan/modifiers/import', express.raw({ type: '*/*', limit: '50mb' }
   res.json(got);
 }));
 
+// 📄 Generate plan: the operator sheets as a PDF. The page sends what to draw; the PDF is kept a
+// few minutes so the browser can open it by address (and save it with a proper name).
+const { renderPlanPdf } = require('./plansheet');
+const planPdfs = new Map(); // id → { buf, name, at }
+router.post('/plan/sheet', express.json({ limit: '10mb' }), h(async (req, res) => {
+  const m = req.body || {};
+  if (!Array.isArray(m.pages)) throw new HttpError(400, 'Nothing to draw');
+  const buf = await renderPlanPdf(m);
+  const now = Date.now();
+  for (const [k, v] of planPdfs) if (now - v.at > 15 * 60000) planPdfs.delete(k);
+  while (planPdfs.size >= 30) planPdfs.delete(planPdfs.keys().next().value);
+  const id = `${now.toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const d = new Date();
+  const name = `${String(m.file_label || 'Plan').replace(/[^\w .-]/g, '').trim() || 'Plan'} ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}.pdf`;
+  planPdfs.set(id, { buf, name, at: now });
+  res.status(201).json({ url: `/api/plan/sheet/${id}/${encodeURIComponent(name)}`, name, bytes: buf.length });
+}));
+router.get('/plan/sheet/:id/:name?', h((req, res) => {
+  const f = planPdfs.get(req.params.id);
+  if (!f) throw new HttpError(404, 'That plan has expired — generate it again');
+  res.set('Content-Type', 'application/pdf');
+  res.set('Content-Disposition', `inline; filename="${f.name}"`);
+  res.send(f.buf);
+}));
+
 // 📦 The planning setup on its own — to move it to a planner on a server (or back): the plan_*
 // settings and the machines, speeds, OEE, Otto machines and speeds, modifiers, shift values, card
 // tags and pins. The plan history isn't included (it builds up again from the exports).

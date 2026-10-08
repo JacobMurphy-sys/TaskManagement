@@ -1519,6 +1519,30 @@ async function waitForServer() {
       assert.equal((await call('GET', '/plan')).source.status, 'missing');
     }
 
+    // 📄 Generate plan: the sheets drawn as a PDF, kept briefly to be opened by address
+    {
+      const mkRow = (i, extra = {}) => ({ no: String(i + 1), running: i === 0, wo: `CAESS2610${String(i).padStart(4, '0')}`, suffix: '/0001', note: i % 7 === 0 ? 'perso ready ~ Thu 10:29' : '', customer: 'AES', hot: i % 3 === 0, pinned: i === 2, qty: '1,234', cls: ['late', 'today', 'tomorrow', 'later'][i % 4], tag: ['LATE', 'TODAY', 'TOMORROW', 'FRI 9 OCT'][i % 4], time: '17:00', ...extra });
+      const pagesOf = (buf) => (buf.toString('latin1').match(/\/Type \/Page[^s]/g) || []).length;
+      const gen = async (model) => {
+        const r = await call('POST', '/plan/sheet', { stamp: 'Thursday 8 October at 09:30', running_legend: true, file_label: 'Production plan', ...model });
+        assert.match(r.url, /^\/api\/plan\/sheet\/\w+\/Production%20plan%20\d{4}-\d{2}-\d{2}%20\d{4}\.pdf$/);
+        const res = await fetch(`http://127.0.0.1:${PORT}${r.url}`);
+        assert.equal(res.headers.get('content-type'), 'application/pdf');
+        assert.match(res.headers.get('content-disposition'), /^inline; filename="Production plan \d{4}-\d{2}-\d{2} \d{4}\.pdf"$/);
+        const buf = Buffer.from(await res.arrayBuffer());
+        assert.equal(buf.slice(0, 5).toString(), '%PDF-');
+        return pagesOf(buf);
+      };
+      const sec = (name, n, overdue = false) => ({ name, overdue, empty: 'Nothing open.', rows: Array.from({ length: n }, (_, i) => mkRow(i)) });
+      assert.equal(await gen({ layout: 'pages', method: 'FIFO', pages: [{ sections: [sec('DOD', 20)] }, { sections: [sec('Emboss', 0)] }] }), 2, 'a page per cell; 20 rows fit one page');
+      assert.equal(await gen({ layout: 'pages', method: 'FIFO', pages: [{ sections: [sec('DOD', 70)] }] }), 3, '70 rows run on over three pages');
+      assert.equal(await gen({ layout: 'side', method: 'Mitigation', test: true, pages: [{ sections: ['DOD', 'Emboss', 'Laser', 'Other'].map((c) => sec(c, 20)) }, { sections: [sec('DOD', 5, true), sec('Laser', 3, true)] }],
+        spec: [{ h1: 'How this list was ordered' }, { note: 'Testing mode' }, { h2: 'Every list' }, { ul: ['**Running** first', 'then the rest'] }, { ol: ['one', 'two'] }] }), 3, 'side by side: 4 cells x 20 rows on one page, the overdue on a second, the explanation on a third');
+      assert.equal(await gen({ layout: 'pages', pages: [] }), 1, 'nothing open: one page saying so');
+      await assert.rejects(call('POST', '/plan/sheet', { layout: 'pages' }), /Nothing to draw/);
+      assert.equal((await fetch(`${BASE}/plan/sheet/nope/x.pdf`)).status, 404);
+    }
+
     // 🔒 one app at a time on a database: a second copy on the same one stops, naming the first
     {
       const env = { ...process.env, PORT: '3998', BACKUP_INTERVAL_HOURS: '0', DATA_DIR: tmp, DB_FILE: path.join(tmp, 'test.db'), BACKUP_DIR: path.join(tmp, 'backups'), LOG_DIR: path.join(tmp, 'logs2') };
