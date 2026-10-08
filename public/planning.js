@@ -564,7 +564,7 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, met
       ${rows.length ? '' : `<p class="none">${overdue ? 'Nothing overdue.' : 'Nothing open.'}</p>`}
       <table><tbody>${rows.map((r, i) => { const w = when(r.job); const hot = /high|urgent/i.test(r.job.prio || ''); return `<tr class="${w.cls}${r.job.running ? ' run' : ''}">
         <td class="box"></td><td class="no">${r.job.running ? '▶' : i + 1}</td>
-        <td class="wo">${esc(r.job.wo)}<span>${r.job.otto ? esc(r.job.name.slice(r.job.wo.length)) : `/${esc(r.job.per)}`}</span>${r.note ? `<div class="nt">${esc(r.note)}</div>` : ''}</td>
+        <td class="wo">${esc(r.job.wo)}<span>${r.job.is_otto ? esc(r.job.name.slice(r.job.wo.length)) : `/${esc(r.job.per)}`}</span>${r.note ? `<div class="nt">${esc(r.note)}</div>` : ''}</td>
         <td class="cu">${esc(r.job.customer || '')}${hot ? ' <span class="hot">!</span>' : ''}${r.job.pinned ? ' <span class="pin">📌</span>' : ''}</td>
         <td class="qty">${n(r.qty)}</td>
         <td class="due"><span class="tag">${esc(w.tag)}</span> ${esc(w.time)}</td></tr>`; }).join('')}</tbody></table>
@@ -641,7 +641,7 @@ function orderSpecHtml(p, mode, { split = false } = {}, now = new Date()) {
 // done, not started at Otto) — each in the Otto list's order (plan date, then Urgent / High first).
 function ottoGroups(ot) {
   const fmt = (iso) => new Date(iso).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-  const row = (o, extra = {}) => ({ job: { ...o, otto: true, running: false, pinned: false, ...extra }, qty: o.qty });
+  const row = (o, extra = {}) => ({ job: { ...o, is_otto: true, running: false, pinned: false, ...extra }, qty: o.qty });
   const all = [...ot.running, ...ot.queue];
   return [
     { type: 'Incoming', rows: ot.queue.filter((o) => o.perso_open).map((o) => ({ ...row(o), note: o.perso_finish_at ? `perso ready ≈ ${fmt(o.perso_finish_at)}` : `${o.perso.length} perso job${o.perso.length === 1 ? '' : 's'} open` })) },
