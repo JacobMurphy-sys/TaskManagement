@@ -536,7 +536,7 @@ function cellsOf(jobs) {
   const rank = (t) => { const i = CELL_ORDER.indexOf(t.toLowerCase()); return i < 0 ? (t === 'Other' ? 99 : 50) : i; };
   return [...cells.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0])).map(([type, rows]) => ({ type, rows }));
 }
-function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, method = '', spec = '', now = new Date() } = {}) {
+function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, method = '', spec = '', splitOverdue = false, now = new Date() } = {}) {
   const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const today = ymd(now); const tm = new Date(now); tm.setDate(tm.getDate() + 1); const tomorrow = ymd(tm);
   const nowKey = `${today}T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -551,13 +551,16 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, met
     return { cls: 'later', tag: layout === 'side' ? day : new Date(`${d}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase(), time };
   };
   const n = (v) => Number(v || 0).toLocaleString('en-GB');
-  const colour = (t) => ({ dod: '#1f6feb', emboss: '#8250df', laser: '#d1242f' }[t.toLowerCase()] || '#57606a');
+  const colour = () => '#7382e6'; // one colour for every cell
   const cells = cellsOf(jobs).filter((c) => !pick || pick.includes(c.type));
   const stamp = now.toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
-  const sheet = (c) => {
-    const rows = limit > 0 ? c.rows.slice(0, limit) : c.rows;
-    return `<section class="cell" style="--c:${colour(c.type)}">
-      <header><div class="name">${esc(c.type)}</div>${method ? `<div class="method">${esc(method)}${spec ? ' · TEST' : ''}</div>` : ''}</header>
+  // overdue (past its deadline, not running): on a list of its own when split off
+  const isOver = (r) => !r.job.running && when(r.job).cls === 'late';
+  const sheet = (c, all = c.rows, overdue = false) => {
+    const rows = limit > 0 ? all.slice(0, limit) : all;
+    return `<section class="cell${overdue ? ' over' : ''}" style="--c:${colour(c.type)}">
+      <header><div class="name">${esc(c.type)}${overdue ? ' <span class="od">Overdue</span>' : ''}</div>${method ? `<div class="method">${esc(method)}${spec ? ' · TEST' : ''}</div>` : ''}</header>
+      ${rows.length ? '' : `<p class="none">${overdue ? 'Nothing overdue.' : 'Nothing open.'}</p>`}
       <table><tbody>${rows.map((r, i) => { const w = when(r.job); const hot = /high|urgent/i.test(r.job.prio || ''); return `<tr class="${w.cls}${r.job.running ? ' run' : ''}">
         <td class="box"></td><td class="no">${r.job.running ? '▶' : i + 1}</td>
         <td class="wo">${esc(r.job.wo)}<span>/${esc(r.job.per)}</span></td>
@@ -576,6 +579,9 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, met
     .cell:last-child { page-break-after: auto; break-after: auto; }
     header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; border-bottom: 2px solid #111; padding-bottom: 2mm; margin-bottom: 2mm; }
     .name { font-size: ${layout === 'side' ? 28 : 44}px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: var(--c); }
+    .od { font-size: .45em; vertical-align: middle; background: #c62828; color: #fff; border-radius: 4px; padding: 2px 8px; letter-spacing: 1px; }
+    .brk { page-break-before: always; break-before: page; }
+    .none { font-size: 18px; color: #555; padding: 4mm 0; }
     .method { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #555; border: 1px solid #999; border-radius: 3px; padding: 1px 6px; white-space: nowrap; align-self: flex-start; }
     table { width: 100%; border-collapse: collapse; font-size: ${layout === 'side' ? 12 : 17}px; }
     tr { border-bottom: 1px solid #bbb; page-break-inside: avoid; } td { padding: ${layout === 'side' ? '3px 3px' : '5px 6px'}; vertical-align: middle; }
@@ -598,10 +604,13 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, met
     .spec ol, .spec ul { margin: 1mm 0 0 5mm; padding-left: 4mm; } .spec .note { color: #555; font-size: 11px; } .spec code { font-family: Consolas, monospace; }
     @media screen { .spec { background: #fff; max-width: ${layout === 'side' ? '297mm' : '210mm'}; margin: 10px auto; padding: 10mm; } }
     @media screen { body { background: #e8e8e8; } .legend { max-width: ${layout === 'side' ? '297mm' : '210mm'}; margin: 0 auto; } .wrap { background: #fff; max-width: ${layout === 'side' ? '297mm' : '210mm'}; margin: 10px auto; padding: 10mm; } .cell { margin-bottom: 12mm; } }
-  </style></head><body><div class="wrap">${cells.length ? cells.map(sheet).join('') : '<p class="empty">No open work orders.</p>'}</div>${layout === 'side' && cells.length ? `<div class="legend">${legend}</div>` : ''}${spec ? `<section class="spec">${spec}</section>` : ''}</body></html>`;
+  </style></head><body>${!cells.length ? '<div class="wrap"><p class="empty">No open work orders.</p></div>'
+    : !splitOverdue ? `<div class="wrap">${cells.map((c) => sheet(c)).join('')}</div>`
+      : layout === 'side' ? `<div class="wrap">${cells.map((c) => sheet(c, c.rows.filter((r) => !isOver(r)))).join('')}</div><div class="wrap brk">${cells.map((c) => sheet(c, c.rows.filter(isOver), true)).join('')}</div>`
+        : `<div class="wrap">${cells.flatMap((c) => [sheet(c, c.rows.filter((r) => !isOver(r))), sheet(c, c.rows.filter(isOver), true)]).join('')}</div>`}${layout === 'side' && cells.length ? `<div class="legend">${legend}</div>` : ''}${spec ? `<section class="spec">${spec}</section>` : ''}</body></html>`;
 }
 // 🧪 Testing mode: a last page explaining, in general terms, how each kind of list is put in order.
-function orderSpecHtml(p, mode, now = new Date()) {
+function orderSpecHtml(p, mode, { split = false } = {}, now = new Date()) {
   const days = p.mitigation?.days ?? 5;
   const byMode = {
     fifo: `<h2>FIFO — by deadline</h2><ol><li>Earliest deadline first, so overdue work orders (oldest first) are at the top.</li><li>Same deadline: priority High, then Normal, then Low.</li><li>Still the same: by work order / job number.</li></ol>`,
@@ -620,7 +629,8 @@ function orderSpecHtml(p, mode, now = new Date()) {
     <h2>Every list</h2><ul>
       <li>Each cell's sheet lists the open work orders with cards of that type (DOD, Emboss, Laser, …), in the same order on every sheet.</li>
       <li>A work order's deadline is its due date at the shipper's cut-off time.</li>
-      <li><b>▶ Running</b> work orders come first, then any <b>📌 pinned</b> by the planner, then the rest as below.</li></ul>
+      <li><b>▶ Running</b> work orders come first, then any <b>📌 pinned</b> by the planner, then the rest as below.</li>
+      ${split ? '<li>Overdue work orders (past their deadline and not running) are taken off each cell\'s list and put on a separate <b>Overdue</b> sheet for that cell, in the same order.</li>' : ''}</ul>
     ${byMode[mode] || ''}
     <h2>The sheet</h2><ul><li>Row colours: red <b>LATE</b> = past its deadline when printed; amber <b>TODAY</b>; blue <b>TOMORROW</b>; otherwise the date.</li>
       <li><b>!</b> = High / Urgent priority; 📌 = pinned; the number is the place in the order.</li></ul>`;
@@ -635,6 +645,7 @@ function printDialog(p, mode, settings = {}) {
       <div class="f full"><span>Cells</span><div class="row">${cells.map((c) => `<label class="row small"><input type="checkbox" name="cell" value="${esc(c.type)}" ${!saved.cells || saved.cells.includes(c.type) ? 'checked' : ''}> <b>${esc(c.type)}</b> <span class="muted">${c.rows.length}</span></label>`).join('') || '<span class="muted">No open work orders.</span>'}</div></div>
       <label class="f">Layout<select name="layout"><option value="pages" ${saved.layout !== 'side' ? 'selected' : ''}>A page per cell (portrait)</option><option value="side" ${saved.layout === 'side' ? 'selected' : ''}>Side by side on one page (landscape)</option></select></label>
       <label class="f">Work orders per cell<select name="limit">${[[0, 'all'], [10, 'first 10'], [20, 'first 20'], [30, 'first 30']].map(([v, l]) => `<option value="${v}" ${Number(saved.limit || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="row small full"><input type="checkbox" name="split" ${saved.split ? 'checked' : ''}> <b>Overdue on a separate list</b> — each cell's overdue work orders on a sheet of their own, after its main list</label>
       <label class="row small full"><input type="checkbox" name="testing" ${saved.testing ? 'checked' : ''}> 🧪 <b>Testing mode</b> — a last page explaining how the list was ordered (and TEST on each sheet)</label>
       <p class="small muted full">In the planning list's order (${esc(modeText.replace('order: ', ''))}), running first. Each cell gets the work orders with cards of its type, and that type's cards.</p>
       <div class="full row"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button><button class="primary" type="submit">🖨 Print</button></div>
@@ -642,11 +653,11 @@ function printDialog(p, mode, settings = {}) {
   $('#pl-print').addEventListener('submit', (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const opts = { cells: fd.getAll('cell'), layout: fd.get('layout'), limit: Number(fd.get('limit')), testing: fd.get('testing') === 'on' };
+    const opts = { cells: fd.getAll('cell'), layout: fd.get('layout'), limit: Number(fd.get('limit')), testing: fd.get('testing') === 'on', split: fd.get('split') === 'on' };
     store.set('planPrint', opts);
     const w = window.open('', '_blank');
     if (!w) { toast('Allow pop-ups for CI Manager to print', 'error'); return; }
-    w.document.open(); w.document.write(operatorSheetHtml(jobs, { ...opts, spec: opts.testing ? orderSpecHtml(p, mode) : '', method: { fifo: 'FIFO', bau: 'BAU', score: 'Score', mitigation: 'Mitigation' }[mode] || '' })); w.document.close();
+    w.document.open(); w.document.write(operatorSheetHtml(jobs, { ...opts, splitOverdue: opts.split, spec: opts.testing ? orderSpecHtml(p, mode, { split: opts.split }) : '', method: { fifo: 'FIFO', bau: 'BAU', score: 'Score', mitigation: 'Mitigation' }[mode] || '' })); w.document.close();
     closeModal();
     w.focus(); setTimeout(() => w.print(), 300);
   });
