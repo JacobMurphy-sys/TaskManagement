@@ -279,6 +279,7 @@ ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. 
       <span class="small muted">${(half === 'otto' ? ot.source : src).status === 'ok' ? `${esc((half === 'otto' ? ot.source : src).name)} · saved ${esc(fmtDateTime((half === 'otto' ? ot.source : src).modified))}${(half === 'otto' ? ot.source : src).uploaded ? ' (uploaded copy)' : ''}` : ''}</span>
       <button data-pl="refresh" title="Read the export again if it has changed">🔄 Refresh</button>
       <label class="button" title="Try it with a copy of the ${half === 'otto' ? 'Otto' : 'open work orders'} export">📂 Load file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
+      ${half === 'perso' && src.status === 'ok' ? '<button data-pl="print" title="A simple sheet per cell (DOD, Emboss, Laser) of the work orders still open, to hand out">🖨 Print for cells</button>' : ''}
       ${half === 'perso' ? '<button data-pl="mods" title="Priority modifiers: customers and work order types that go first">⚖ Modifiers</button>' : ''}
       <button data-pl="setup" title="Where the export is, and the capacity">⚙ Setup</button>
     </div>
@@ -464,6 +465,7 @@ ${half === 'otto' ? ottoSetup() : `
       const tmp = document.createElement('div'); tmp.innerHTML = modsHtml(); $('#pl-mods').replaceWith(tmp.firstElementChild);
       toast(`Add a row to keep the ${name} list`); return;
     }
+    if (e.target.closest('[data-pl="print"]')) { printDialog(p, mode); return; }
     if (e.target.closest('[data-pl="mods"]')) { const m = $('#pl-mods'); m.hidden = !m.hidden; store.set('planModsOpen', !m.hidden); if (!m.hidden) m.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     const delO = e.target.closest('[data-plo-del-machine]');
     if (delO) { if (!confirm('Remove this Otto machine?')) return; try { await api.del(`/plan/otto/machines/${delO.dataset.ploDelMachine}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
@@ -507,6 +509,109 @@ ${half === 'otto' ? ottoSetup() : `
     const job = e.target.closest('[data-pl-job]');
     if (job) { const d = $(`[data-pl-detail="${CSS.escape(job.dataset.plJob)}"]`); if (d) d.hidden = !d.hidden; }
   };
+}
+
+// 🖨 The operator sheet: for each cell (card type), the open work orders in the list's order —
+// big, plain and colour-coded, with a box to tick. A job with cards of several types is on each
+// of those cells' sheets with that type's cards.
+const CELL_ORDER = ['dod', 'emboss', 'laser'];
+function cellsOf(jobs) {
+  const cells = new Map();
+  for (const j of jobs) {
+    const by = new Map();
+    for (const a of j.articles) { const t = a.card?.type || 'Other'; by.set(t, (by.get(t) || 0) + a.qty); }
+    for (const [t, qty] of by) { if (!cells.has(t)) cells.set(t, []); cells.get(t).push({ job: j, qty }); }
+  }
+  const rank = (t) => { const i = CELL_ORDER.indexOf(t.toLowerCase()); return i < 0 ? (t === 'Other' ? 99 : 50) : i; };
+  return [...cells.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0])).map(([type, rows]) => ({ type, rows }));
+}
+function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, modeText = '', now = new Date() } = {}) {
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const today = ymd(now); const tm = new Date(now); tm.setDate(tm.getDate() + 1); const tomorrow = ymd(tm);
+  const nowKey = `${today}T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const when = (j) => {
+    if (!j.deadline) return { cls: 'later', tag: '—', time: '' };
+    const [d, t] = j.deadline.split('T');
+    const time = j.no_cutoff ? (layout === 'side' ? 'eod' : 'end of day') : t;
+    const day = layout === 'side' ? `${Number(d.slice(8))}/${Number(d.slice(5, 7))}` : new Date(`${d}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    if (j.deadline < nowKey) return { cls: 'late', tag: 'LATE', time: `${day} ${time}` };
+    if (d === today) return { cls: 'today', tag: 'TODAY', time };
+    if (d === tomorrow) return { cls: 'tomorrow', tag: 'TOMORROW', time };
+    return { cls: 'later', tag: layout === 'side' ? day : new Date(`${d}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase(), time };
+  };
+  const n = (v) => Number(v || 0).toLocaleString('en-GB');
+  const colour = (t) => ({ dod: '#1f6feb', emboss: '#8250df', laser: '#d1242f' }[t.toLowerCase()] || '#57606a');
+  const cells = cellsOf(jobs).filter((c) => !pick || pick.includes(c.type));
+  const stamp = now.toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  const sheet = (c) => {
+    const rows = limit > 0 ? c.rows.slice(0, limit) : c.rows;
+    const late = c.rows.filter((r) => when(r.job).cls === 'late').length;
+    return `<section class="cell" style="--c:${colour(c.type)}">
+      <header><div class="name">${esc(c.type)}</div><div class="sum"><b>${c.rows.length}</b> work order${c.rows.length === 1 ? '' : 's'} · <b>${n(c.rows.reduce((t, r) => t + r.qty, 0))}</b> cards${late ? ` · <span class="lt">${late} late</span>` : ''}</div></header>
+      <table><tbody>${rows.map((r, i) => { const w = when(r.job); const hot = /high|urgent/i.test(r.job.prio || ''); return `<tr class="${w.cls}${r.job.running ? ' run' : ''}">
+        <td class="box"></td><td class="no">${r.job.running ? '▶' : i + 1}</td>
+        <td class="wo">${esc(r.job.wo)}<span>/${esc(r.job.per)}</span></td>
+        <td class="cu">${esc(r.job.customer || '')}${hot ? ' <span class="hot">!</span>' : ''}${r.job.pinned ? ' <span class="pin">📌</span>' : ''}</td>
+        <td class="qty">${n(r.qty)}</td>
+        <td class="due"><span class="tag">${esc(w.tag)}</span> ${esc(w.time)}</td></tr>`; }).join('')}</tbody></table>
+      ${limit > 0 && c.rows.length > limit ? `<p class="more">+ ${c.rows.length - limit} more work orders — see the planning screen</p>` : ''}
+      ${layout === 'side' ? '' : legend}
+    </section>`;
+  };
+  const legend = `<footer><span><span class="sw late"></span> late</span><span><span class="sw today"></span> due today</span><span><span class="sw tomorrow"></span> tomorrow</span><span>▶ running</span><span><span class="hot">!</span> high priority</span><span>☐ tick when done</span><span class="st">Printed ${esc(stamp)}${modeText ? ` · ${esc(modeText)}` : ''}</span></footer>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Open work orders — ${esc(stamp)}</title><style>
+    @page { size: A4 ${layout === 'side' ? 'landscape' : 'portrait'}; margin: 10mm; }
+    * { box-sizing: border-box; } body { font-family: Arial, Helvetica, sans-serif; margin: 0; color: #111; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .wrap { display: ${layout === 'side' ? 'grid' : 'block'}; grid-template-columns: repeat(${Math.max(1, cells.length)}, 1fr); gap: 6mm; }
+    .cell { ${layout === 'side' ? '' : 'page-break-after: always; break-after: page;'} border-top: 10px solid var(--c); padding-top: 3mm; }
+    .cell:last-child { page-break-after: auto; break-after: auto; }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; border-bottom: 2px solid #111; padding-bottom: 2mm; margin-bottom: 2mm; }
+    .name { font-size: ${layout === 'side' ? 28 : 44}px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: var(--c); }
+    .sum { font-size: ${layout === 'side' ? 12 : 16}px; } .lt { color: #c62828; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; font-size: ${layout === 'side' ? 12 : 17}px; }
+    tr { border-bottom: 1px solid #bbb; page-break-inside: avoid; } td { padding: ${layout === 'side' ? '3px 3px' : '5px 6px'}; vertical-align: middle; }
+    .box { width: 26px; } .box::before { content: ''; display: inline-block; width: ${layout === 'side' ? 14 : 20}px; height: ${layout === 'side' ? 14 : 20}px; border: 2px solid #111; border-radius: 3px; }
+    .no { width: 28px; color: #666; text-align: right; font-weight: 700; }
+    .wo { font-family: Consolas, 'Courier New', monospace; font-weight: 800; white-space: nowrap; } .wo span { font-weight: 400; color: #555; }
+    .cu { font-weight: 700; white-space: nowrap; } .qty { text-align: right; font-weight: 700; white-space: nowrap; }
+    .due { white-space: nowrap; text-align: right; } .tag { display: inline-block; min-width: ${layout === 'side' ? 44 : 76}px; text-align: center; font-weight: 800; font-size: .8em; padding: 2px 6px; border-radius: 4px; border: 2px solid #999; }
+    tr.late { background: #fde2e2; } tr.late .tag { background: #c62828; border-color: #c62828; color: #fff; }
+    tr.today { background: #fff4d6; } tr.today .tag { background: #f9a825; border-color: #f9a825; color: #111; }
+    tr.tomorrow .tag { border-color: #1f6feb; color: #1f6feb; }
+    tr.run .no { color: #111; }
+    .hot { display: inline-block; background: #111; color: #fff; border-radius: 50%; width: 1.2em; height: 1.2em; line-height: 1.2em; text-align: center; font-size: .8em; }
+    .more { font-style: italic; color: #555; }
+    footer { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4mm; font-size: 11px; color: #333; align-items: center; } footer .st { margin-left: auto; color: #777; }
+    .sw { display: inline-block; width: 12px; height: 12px; border: 1px solid #999; vertical-align: middle; } .sw.late { background: #fde2e2; } .sw.today { background: #fff4d6; } .sw.tomorrow { border: 2px solid #1f6feb; }
+    .empty { font-size: 24px; padding: 20mm; text-align: center; }
+    .legend footer { margin-top: 3mm; }
+    @media screen { body { background: #e8e8e8; } .legend { max-width: ${layout === 'side' ? '297mm' : '210mm'}; margin: 0 auto; } .wrap { background: #fff; max-width: ${layout === 'side' ? '297mm' : '210mm'}; margin: 10px auto; padding: 10mm; } .cell { margin-bottom: 12mm; } }
+  </style></head><body><div class="wrap">${cells.length ? cells.map(sheet).join('') : '<p class="empty">No open work orders.</p>'}</div>${layout === 'side' && cells.length ? `<div class="legend">${legend}</div>` : ''}</body></html>`;
+}
+function printDialog(p, mode) {
+  const jobs = [...p.running, ...p.queue];
+  const cells = cellsOf(jobs);
+  const saved = store.get('planPrint', {}) || {};
+  const modeText = { fifo: 'order: FIFO (by deadline)', bau: 'order: BAU', score: 'order: ⚖ score' }[mode] || '';
+  openModal(`<div class="modal-head"><h2 style="margin:0">🖨 Print for cells</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <form id="pl-print" class="form-grid">
+      <div class="f full"><span>Cells</span><div class="row">${cells.map((c) => `<label class="row small"><input type="checkbox" name="cell" value="${esc(c.type)}" ${!saved.cells || saved.cells.includes(c.type) ? 'checked' : ''}> <b>${esc(c.type)}</b> <span class="muted">${c.rows.length}</span></label>`).join('') || '<span class="muted">No open work orders.</span>'}</div></div>
+      <label class="f">Layout<select name="layout"><option value="pages" ${saved.layout !== 'side' ? 'selected' : ''}>A page per cell (portrait)</option><option value="side" ${saved.layout === 'side' ? 'selected' : ''}>Side by side on one page (landscape)</option></select></label>
+      <label class="f">Work orders per cell<select name="limit">${[[0, 'all'], [10, 'first 10'], [20, 'first 20'], [30, 'first 30']].map(([v, l]) => `<option value="${v}" ${Number(saved.limit || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <p class="small muted full">In the planning list's order (${esc(modeText.replace('order: ', ''))}), running first. Each cell gets the work orders with cards of its type, and that type's cards.</p>
+      <div class="full row"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button><button class="primary" type="submit">🖨 Print</button></div>
+    </form>`);
+  $('#pl-print').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const opts = { cells: fd.getAll('cell'), layout: fd.get('layout'), limit: Number(fd.get('limit')) };
+    store.set('planPrint', opts);
+    const w = window.open('', '_blank');
+    if (!w) { toast('Allow pop-ups for CI Manager to print', 'error'); return; }
+    w.document.open(); w.document.write(operatorSheetHtml(jobs, { ...opts, modeText })); w.document.close();
+    closeModal();
+    w.focus(); setTimeout(() => w.print(), 300);
+  });
 }
 
 // 95 → "1 h 35 min", 2000 → "1 d 9 h"
