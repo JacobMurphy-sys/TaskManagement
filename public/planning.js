@@ -600,47 +600,30 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, met
     @media screen { body { background: #e8e8e8; } .legend { max-width: ${layout === 'side' ? '297mm' : '210mm'}; margin: 0 auto; } .wrap { background: #fff; max-width: ${layout === 'side' ? '297mm' : '210mm'}; margin: 10px auto; padding: 10mm; } .cell { margin-bottom: 12mm; } }
   </style></head><body><div class="wrap">${cells.length ? cells.map(sheet).join('') : '<p class="empty">No open work orders.</p>'}</div>${layout === 'side' && cells.length ? `<div class="legend">${legend}</div>` : ''}${spec ? `<section class="spec">${spec}</section>` : ''}</body></html>`;
 }
-// 🧪 Testing mode: the last page says exactly how the list was put in order, with the settings used.
+// 🧪 Testing mode: a last page explaining, in general terms, how each kind of list is put in order.
 function orderSpecHtml(p, mode, now = new Date()) {
-  const n = (v) => Number(v || 0).toLocaleString('en-GB');
-  const cap = p.capacity || {};
-  const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-  const dd = (iso) => new Date(`${iso}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const all = [...p.running, ...p.queue];
-  const pinned = p.queue.filter((j) => j.pinned).length;
-  const machines = (p.machines || []).filter((m) => m.active);
-  const capText = !p.projected ? 'none set — no projection' : machines.length ? `${machines.length} running machine${machines.length === 1 ? '' : 's'} (${machines.map((m) => `${m.name}: ${m.types || 'any type'}`).join('; ')}) at the card speeds` : `${n(cap.rate)} cards/h × ${cap.lines} line${cap.lines === 1 ? '' : 's'}`;
-  const groups = (list) => { const c = {}; for (const j of list) c[j.mitigation] = (c[j.mitigation] || 0) + 1; return c; };
-  const md = p.modifiers || {}; const off = new Set((md.off || []).map((x) => x.toLowerCase()));
+  const days = p.mitigation?.days ?? 5;
   const byMode = {
-    fifo: `<h2>FIFO — by deadline</h2><ol><li>Earliest deadline first (overdue ones, oldest first, are at the top).</li><li>Same deadline: priority High, then Normal, then Low.</li><li>Still the same: by work order / job number.</li></ol>`,
+    fifo: `<h2>FIFO — by deadline</h2><ol><li>Earliest deadline first, so overdue work orders (oldest first) are at the top.</li><li>Same deadline: priority High, then Normal, then Low.</li><li>Still the same: by work order / job number.</li></ol>`,
     bau: `<h2>BAU — by due day, then priority</h2><ol><li>Earliest due <b>day</b> first.</li><li>Within a day: priority High, then Normal, then Low.</li><li>Then the earliest cut-off time, then work order / job number.</li></ol>`,
-    score: `<h2>⚖ Score — highest score first</h2><p>Each job's score is the sum of the modules switched on (ties: earliest deadline first):</p><ul>
-      <li><b>Deadline</b>${off.has('deadline') ? ' — <i>off</i>' : `: overdue = ${md.deadline?.base} + ${md.deadline?.per_day} a day overdue (at most +${md.deadline?.max_extra}); not yet due = ${md.deadline?.lead} ÷ (1 + days left)`}</li>
-      ${(md.lists || []).map((l) => `<li><b>${esc(l)}</b>${off.has(l.toLowerCase()) ? ' — <i>off</i>' : `: ${(md.rules || []).filter((r) => r.list === l).length} row(s) — a row matches on customer, card tag and card type (blank = any); the most specific matching row counts`}</li>`).join('')}
-      <li><b>Shift</b>${off.has('shift') ? ' — <i>off</i>' : `: the ${esc(md.current_shift || '—')} shift's value per customer (${(md.shifts || []).length} customer(s) set)`}</li></ul>`,
-    mitigation: (() => { const g = groups(p.queue); const days = p.mitigation?.days ?? 5; return `<h2>🛟 Mitigation — save as many as possible</h2><ol>
-      <li><b>Due within ${days} working day${days === 1 ? '' : 's'}</b>${p.mitigation?.horizon ? ` (up to ${dd(p.mitigation.horizon)})` : ''} and not yet overdue, that can still be on time — by deadline. <span class="note">(${n(g.on_time)} jobs)</span></li>
-      <li><b>Late anyway</b>, oldest deadline first: already overdue <span class="note">(${n(g.overdue)})</span>${p.projected ? `, and jobs due in that window that would be late even if started next <span class="note">(${n(g.late_anyway)})</span>. These are found by working through the window by deadline and, whenever one would finish late, setting aside the longest job so far — the fewest jobs late (Moore–Hodgson).` : '. With no capacity set, none are set aside for lack of room.'}</li>
-      <li><b>Due later</b> than that — by deadline. <span class="note">(${n(g.later)})</span></li></ol>`; })(),
+    score: `<h2>Score — highest score first</h2><p>Each work order gets a score; the highest goes first (same score: earliest deadline first). The score adds up:</p><ul>
+      <li><b>Deadline</b> — overdue work orders score highest, more the longer they're overdue; others score more the closer their deadline.</li>
+      <li><b>Modifier lists</b> (e.g. Matching, Dispatch, Manual) — extra points for particular customers, card tags or card types, e.g. work orders that need extra steps later on.</li>
+      <li><b>Shift</b> — extra points for particular customers during particular shifts.</li></ul>`,
+    mitigation: `<h2>Mitigation — as many on time as possible</h2><ol>
+      <li><b>Due within the next ${days} working day${days === 1 ? '' : 's'}</b> and still able to make their deadline — earliest deadline first.</li>
+      <li><b>Late anyway</b> — work orders already overdue, plus any due soon that couldn't be finished in time even if started next — oldest deadline first. Leaving these until after the ones that can still make it means fewer work orders are late overall.</li>
+      <li><b>Due later</b> than that — earliest deadline first.</li></ol>`,
   };
   return `<h1>🧪 How this list was ordered</h1>
     <p class="note">Testing mode · printed ${esc(now.toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }))}</p>
-    <h2>Source</h2><ul>
-      <li>Open work orders export: <code>${esc(p.source?.name || '—')}</code>, saved ${esc(p.source?.modified ? new Date(p.source.modified).toLocaleString('en-GB') : '—')}.</li>
-      <li>A job is a work order + PER: ${n(all.length)} open (${n(p.running.length)} running).${p.backlog?.hidden_jobs ? ` ${n(p.backlog.hidden_jobs)} due more than ${p.backlog.max_age} days ago left out as likely errors.` : ''}</li>
-      <li>Deadline = the Due Out date at the shipper's cut-off (Shipping Time); no cut-off = the end of that day (23:59).${cap.buffer ? ` Jobs must be ready ${cap.buffer} min before the cut-off.` : ''}</li>
-      <li>Card type (the cell) from the card database${p.cards_db?.name ? ` (<code>${esc(p.cards_db.name)}</code>)` : ''}; "Other" = card not in it. A job with several card types is on each cell's sheet, with that type's cards.</li></ul>
-    <h2>Order — the same on every cell's sheet</h2><ol>
-      <li><b>▶ Running</b> jobs (a card line In Progress) first.</li>
-      <li><b>📌 Pinned</b> jobs next, in the order pinned${pinned ? ` (${pinned} pinned)` : ' (none pinned)'}.</li>
-      <li>Then the rest, as below.</li></ol>
+    <h2>Every list</h2><ul>
+      <li>Each cell's sheet lists the open work orders with cards of that type (DOD, Emboss, Laser, …), in the same order on every sheet.</li>
+      <li>A work order's deadline is its due date at the shipper's cut-off time.</li>
+      <li><b>▶ Running</b> work orders come first, then any <b>📌 pinned</b> by the planner, then the rest as below.</li></ul>
     ${byMode[mode] || ''}
-    <h2>Capacity used for the projection</h2><ul><li>${esc(capText)}.</li>
-      <li>Working time: ${cap.start === cap.end ? 'round the clock' : `${hm(cap.start)}–${hm(cap.end)}`}, ${(cap.days || []).map((d) => dayNames[d]).join(', ')}.${cap.changeover ? ` Change-over ${cap.changeover} min.` : ''}${(p.oee || []).some((o) => o.oee) || p.oee_default ? ' Estimated OEE per customer applied.' : ''}</li></ul>
-    <h2>The sheet</h2><ul><li>Row colours: red <b>LATE</b> = the deadline had passed when printed; amber <b>TODAY</b>; blue <b>TOMORROW</b>; otherwise the date.</li>
-      <li><b>!</b> = High / Urgent priority (from the export); 📌 = pinned; numbers are the place in the order.</li></ul>`;
+    <h2>The sheet</h2><ul><li>Row colours: red <b>LATE</b> = past its deadline when printed; amber <b>TODAY</b>; blue <b>TOMORROW</b>; otherwise the date.</li>
+      <li><b>!</b> = High / Urgent priority; 📌 = pinned; the number is the place in the order.</li></ul>`;
 }
 function printDialog(p, mode, settings = {}) {
   const jobs = [...p.running, ...p.queue];
