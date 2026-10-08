@@ -556,11 +556,12 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, met
   const cells = (groups || cellsOf(jobs)).filter((c) => !pick || pick.includes(c.type));
   const stamp = now.toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
   // overdue (past its deadline, not running): on a list of its own when split off
+  const overCells = cells.filter((c) => !c.noOverdue); // In Progress: nothing moves, so no overdue sheet
   const isOver = (r) => !r.job.running && !r.job.keep && when(r.job).cls === 'late';
   const sheet = (c, all = c.rows, overdue = false) => {
     const rows = limit > 0 ? all.slice(0, limit) : all;
     return `<section class="cell${overdue ? ' over' : ''}" style="--c:${colour(c.type)}">
-      <header><div class="name">${esc(c.type)}${overdue ? ' <span class="od">Overdue</span>' : ''}</div>${method ? `<div class="method">${esc(method)}${spec ? ' · TEST' : ''}</div>` : ''}</header>
+      <header><div><div class="name">${esc(c.type)}</div>${overdue ? '<div class="od">Overdue</div>' : ''}</div>${method ? `<div class="method">${esc(method)}${spec ? ' · TEST' : ''}</div>` : ''}</header>
       ${rows.length ? '' : `<p class="none">${overdue ? 'Nothing overdue.' : 'Nothing open.'}</p>`}
       <table><tbody>${rows.map((r, i) => { const w = when(r.job); const hot = /high|urgent/i.test(r.job.prio || ''); return `<tr class="${w.cls}${r.job.running ? ' run' : ''}">
         <td class="box"></td><td class="no">${r.job.running ? '▶' : i + 1}</td>
@@ -581,7 +582,8 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, met
     header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; border-bottom: 2px solid #111; padding-bottom: 2mm; margin-bottom: 2mm; }
     .name { font-size: ${layout === 'side' ? 28 : 44}px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: var(--c); }
     .nt { font-family: Arial, sans-serif; font-weight: 400; font-size: .7em; color: #555; }
-    .od { font-size: .45em; vertical-align: middle; background: #c62828; color: #fff; border-radius: 4px; padding: 2px 8px; letter-spacing: 1px; }
+    .name { white-space: nowrap; }
+    .od { display: inline-block; margin-top: 1mm; font-size: ${layout === 'side' ? 11 : 15}px; font-weight: 800; text-transform: uppercase; background: #c62828; color: #fff; border-radius: 4px; padding: 2px 8px; letter-spacing: 1px; }
     .brk { page-break-before: always; break-before: page; }
     .none { font-size: 18px; color: #555; padding: 4mm 0; }
     .method { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #555; border: 1px solid #999; border-radius: 3px; padding: 1px 6px; white-space: nowrap; align-self: flex-start; }
@@ -608,8 +610,8 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, met
     @media screen { body { background: #e8e8e8; } .legend { max-width: ${layout === 'side' ? '297mm' : '210mm'}; margin: 0 auto; } .wrap { background: #fff; max-width: ${layout === 'side' ? '297mm' : '210mm'}; margin: 10px auto; padding: 10mm; } .cell { margin-bottom: 12mm; } }
   </style></head><body>${!cells.length ? '<div class="wrap"><p class="empty">No open work orders.</p></div>'
     : !splitOverdue ? `<div class="wrap">${cells.map((c) => sheet(c)).join('')}</div>`
-      : layout === 'side' ? `<div class="wrap">${cells.map((c) => sheet(c, c.rows.filter((r) => !isOver(r)))).join('')}</div><div class="wrap brk">${cells.map((c) => sheet(c, c.rows.filter(isOver), true)).join('')}</div>`
-        : `<div class="wrap">${cells.flatMap((c) => [sheet(c, c.rows.filter((r) => !isOver(r))), sheet(c, c.rows.filter(isOver), true)]).join('')}</div>`}${layout === 'side' && cells.length ? `<div class="legend">${legend}</div>` : ''}${spec ? `<section class="spec">${spec}</section>` : ''}</body></html>`;
+      : layout === 'side' ? `<div class="wrap">${cells.map((c) => sheet(c, c.rows.filter((r) => !isOver(r)))).join('')}</div><div class="wrap brk" style="grid-template-columns: repeat(${Math.max(1, overCells.length)}, 1fr)">${overCells.map((c) => sheet(c, c.rows.filter(isOver), true)).join('')}</div>`
+        : `<div class="wrap">${cells.flatMap((c) => [sheet(c, c.rows.filter((r) => !isOver(r))), ...(c.noOverdue ? [] : [sheet(c, c.rows.filter(isOver), true)])]).join('')}</div>`}${layout === 'side' && cells.length ? `<div class="legend">${legend}</div>` : ''}${spec ? `<section class="spec">${spec}</section>` : ''}</body></html>`;
 }
 // 🧪 Testing mode: a last page explaining, in general terms, how each kind of list is put in order.
 function orderSpecHtml(p, mode, { split = false } = {}, now = new Date()) {
@@ -645,7 +647,7 @@ function ottoGroups(ot) {
   const all = [...ot.running, ...ot.queue];
   return [
     { type: 'Incoming', rows: ot.queue.filter((o) => o.perso_open).map((o) => ({ ...row(o), note: o.perso_finish_at ? `perso ready ≈ ${fmt(o.perso_finish_at)}` : `${o.perso.length} perso job${o.perso.length === 1 ? '' : 's'} open` })) },
-    { type: 'In Progress', rows: all.filter((o) => o.running).map((o) => row(o, { keep: true })) },
+    { type: 'In Progress', noOverdue: true, rows: all.filter((o) => o.running).map((o) => row(o, { keep: true })) },
     { type: 'Ready', rows: ot.queue.filter((o) => !o.perso_open).map((o) => row(o)) },
   ];
 }
