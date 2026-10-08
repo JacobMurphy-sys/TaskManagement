@@ -290,6 +290,7 @@ ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. 
       <button data-pl="refresh" title="Read the export again if it has changed">🔄 Refresh</button>
       <label class="button" title="Try it with a copy of the ${half === 'otto' ? 'Otto' : 'open work orders'} export">📂 Load file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
       ${half === 'perso' && src.status === 'ok' ? '<button data-pl="print" title="A simple sheet per cell (DOD, Emboss, Laser) of the work orders still open, to hand out">🖨 Print for cells</button>' : ''}
+      ${half === 'otto' && ot.source.status === 'ok' ? '<button data-pl="print" title="Simple sheets of the Otto jobs: Incoming, In Progress and Ready, to hand out">🖨 Print lists</button>' : ''}
       ${half === 'perso' ? '<button data-pl="mods" title="Priority modifiers: customers and work order types that go first">⚖ Modifiers</button>' : ''}
       <button data-pl="setup" title="Where the export is, and the capacity">⚙ Setup</button>
     </div>
@@ -476,7 +477,7 @@ ${half === 'otto' ? ottoSetup() : `
       const tmp = document.createElement('div'); tmp.innerHTML = modsHtml(); $('#pl-mods').replaceWith(tmp.firstElementChild);
       toast(`Add a row to keep the ${name} list`); return;
     }
-    if (e.target.closest('[data-pl="print"]')) { printDialog(p, mode, settings); return; }
+    if (e.target.closest('[data-pl="print"]')) { printDialog(p, mode, settings, half); return; }
     if (e.target.closest('[data-pl="mods"]')) { const m = $('#pl-mods'); m.hidden = !m.hidden; store.set('planModsOpen', !m.hidden); if (!m.hidden) m.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     const delO = e.target.closest('[data-plo-del-machine]');
     if (delO) { if (!confirm('Remove this Otto machine?')) return; try { await api.del(`/plan/otto/machines/${delO.dataset.ploDelMachine}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
@@ -536,7 +537,7 @@ function cellsOf(jobs) {
   const rank = (t) => { const i = CELL_ORDER.indexOf(t.toLowerCase()); return i < 0 ? (t === 'Other' ? 99 : 50) : i; };
   return [...cells.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0])).map(([type, rows]) => ({ type, rows }));
 }
-function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, method = '', spec = '', splitOverdue = false, now = new Date() } = {}) {
+function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, method = '', spec = '', splitOverdue = false, groups = null, now = new Date() } = {}) {
   const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const today = ymd(now); const tm = new Date(now); tm.setDate(tm.getDate() + 1); const tomorrow = ymd(tm);
   const nowKey = `${today}T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -552,10 +553,10 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, met
   };
   const n = (v) => Number(v || 0).toLocaleString('en-GB');
   const colour = () => '#7382e6'; // one colour for every cell
-  const cells = cellsOf(jobs).filter((c) => !pick || pick.includes(c.type));
+  const cells = (groups || cellsOf(jobs)).filter((c) => !pick || pick.includes(c.type));
   const stamp = now.toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
   // overdue (past its deadline, not running): on a list of its own when split off
-  const isOver = (r) => !r.job.running && when(r.job).cls === 'late';
+  const isOver = (r) => !r.job.running && !r.job.keep && when(r.job).cls === 'late';
   const sheet = (c, all = c.rows, overdue = false) => {
     const rows = limit > 0 ? all.slice(0, limit) : all;
     return `<section class="cell${overdue ? ' over' : ''}" style="--c:${colour(c.type)}">
@@ -563,14 +564,14 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, met
       ${rows.length ? '' : `<p class="none">${overdue ? 'Nothing overdue.' : 'Nothing open.'}</p>`}
       <table><tbody>${rows.map((r, i) => { const w = when(r.job); const hot = /high|urgent/i.test(r.job.prio || ''); return `<tr class="${w.cls}${r.job.running ? ' run' : ''}">
         <td class="box"></td><td class="no">${r.job.running ? '▶' : i + 1}</td>
-        <td class="wo">${esc(r.job.wo)}<span>/${esc(r.job.per)}</span></td>
+        <td class="wo">${esc(r.job.wo)}<span>${r.job.otto ? esc(r.job.name.slice(r.job.wo.length)) : `/${esc(r.job.per)}`}</span>${r.note ? `<div class="nt">${esc(r.note)}</div>` : ''}</td>
         <td class="cu">${esc(r.job.customer || '')}${hot ? ' <span class="hot">!</span>' : ''}${r.job.pinned ? ' <span class="pin">📌</span>' : ''}</td>
         <td class="qty">${n(r.qty)}</td>
         <td class="due"><span class="tag">${esc(w.tag)}</span> ${esc(w.time)}</td></tr>`; }).join('')}</tbody></table>
       ${layout === 'side' ? '' : legend}
     </section>`;
   };
-  const legend = `<footer><span><span class="sw late"></span> late</span><span><span class="sw today"></span> due today</span><span><span class="sw tomorrow"></span> tomorrow</span><span>▶ running</span><span><span class="hot">!</span> high priority</span><span>☐ tick when done</span><span class="st">Printed ${esc(stamp)}</span></footer>`;
+  const legend = `<footer><span><span class="sw late"></span> late</span><span><span class="sw today"></span> due today</span><span><span class="sw tomorrow"></span> tomorrow</span>${groups ? '' : '<span>▶ running</span>'}<span><span class="hot">!</span> high priority</span><span>☐ tick when done</span><span class="st">Printed ${esc(stamp)}</span></footer>`;
   return `<!doctype html><html><head><meta charset="utf-8"><title>Open work orders — ${esc(stamp)}</title><style>
     @page { size: A4 ${layout === 'side' ? 'landscape' : 'portrait'}; margin: 10mm; }
     * { box-sizing: border-box; } body { font-family: Arial, Helvetica, sans-serif; margin: 0; color: #111; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -579,6 +580,7 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, met
     .cell:last-child { page-break-after: auto; break-after: auto; }
     header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; border-bottom: 2px solid #111; padding-bottom: 2mm; margin-bottom: 2mm; }
     .name { font-size: ${layout === 'side' ? 28 : 44}px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: var(--c); }
+    .nt { font-family: Arial, sans-serif; font-weight: 400; font-size: .7em; color: #555; }
     .od { font-size: .45em; vertical-align: middle; background: #c62828; color: #fff; border-radius: 4px; padding: 2px 8px; letter-spacing: 1px; }
     .brk { page-break-before: always; break-before: page; }
     .none { font-size: 18px; color: #555; padding: 4mm 0; }
@@ -635,7 +637,32 @@ function orderSpecHtml(p, mode, { split = false } = {}, now = new Date()) {
     <h2>The sheet</h2><ul><li>Row colours: red <b>LATE</b> = past its deadline when printed; amber <b>TODAY</b>; blue <b>TOMORROW</b>; otherwise the date.</li>
       <li><b>!</b> = High / Urgent priority; 📌 = pinned; the number is the place in the order.</li></ul>`;
 }
-function printDialog(p, mode, settings = {}) {
+// 🖨 Otto: Incoming (its perso work order still open), In Progress (started at Otto), Ready (perso
+// done, not started at Otto) — each in the Otto list's order (plan date, then Urgent / High first).
+function ottoGroups(ot) {
+  const fmt = (iso) => new Date(iso).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const row = (o, extra = {}) => ({ job: { ...o, otto: true, running: false, pinned: false, ...extra }, qty: o.qty });
+  const all = [...ot.running, ...ot.queue];
+  return [
+    { type: 'Incoming', rows: ot.queue.filter((o) => o.perso_open).map((o) => ({ ...row(o), note: o.perso_finish_at ? `perso ready ≈ ${fmt(o.perso_finish_at)}` : `${o.perso.length} perso job${o.perso.length === 1 ? '' : 's'} open` })) },
+    { type: 'In Progress', rows: all.filter((o) => o.running).map((o) => row(o, { keep: true })) },
+    { type: 'Ready', rows: ot.queue.filter((o) => !o.perso_open).map((o) => row(o)) },
+  ];
+}
+function ottoSpecHtml({ split = false } = {}, now = new Date()) {
+  return `<h1>🧪 How this list was ordered</h1>
+    <p class="note">Testing mode · printed ${esc(now.toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }))}</p>
+    <h2>The three lists</h2><ul>
+      <li><b>Incoming</b> — Otto jobs whose perso work order is still being made. They can't start yet; the note shows when perso is expected to be ready.</li>
+      <li><b>In Progress</b> — Otto jobs already started.</li>
+      <li><b>Ready</b> — Otto jobs whose perso work is finished and that haven't been started yet: these can be picked up now.</li>
+      ${split ? '<li>Overdue Incoming and Ready jobs (past their plan date) are put on a separate <b>Overdue</b> sheet for that list.</li>' : ''}</ul>
+    <h2>Order — in every list</h2><ol><li>Earliest plan date and time first.</li><li>Same time: Urgent, then High, then the rest.</li><li>Still the same: by name.</li></ol>
+    <h2>The sheet</h2><ul><li>Row colours: red <b>LATE</b> = past its plan date when printed; amber <b>TODAY</b>; blue <b>TOMORROW</b>; otherwise the date.</li>
+      <li><b>!</b> = Urgent / High priority; the number is the place in the list.</li></ul>`;
+}
+function printDialog(p, mode, settings = {}, half = 'perso') {
+  if (half === 'otto') return printOttoDialog(p);
   const jobs = [...p.running, ...p.queue];
   const cells = cellsOf(jobs);
   const saved = store.get('planPrint', {}) || {};
@@ -658,6 +685,33 @@ function printDialog(p, mode, settings = {}) {
     const w = window.open('', '_blank');
     if (!w) { toast('Allow pop-ups for CI Manager to print', 'error'); return; }
     w.document.open(); w.document.write(operatorSheetHtml(jobs, { ...opts, splitOverdue: opts.split, spec: opts.testing ? orderSpecHtml(p, mode, { split: opts.split }) : '', method: { fifo: 'FIFO', bau: 'BAU', score: 'Score', mitigation: 'Mitigation' }[mode] || '' })); w.document.close();
+    closeModal();
+    w.focus(); setTimeout(() => w.print(), 300);
+  });
+}
+
+function printOttoDialog(p) {
+  const ot = p.otto || { running: [], queue: [] };
+  const groups = ottoGroups(ot);
+  const saved = store.get('planPrintOtto', {}) || {};
+  openModal(`<div class="modal-head"><h2 style="margin:0">🖨 Print Otto lists</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <form id="pl-print" class="form-grid">
+      <div class="f full"><span>Lists</span><div class="row">${groups.map((c) => `<label class="row small"><input type="checkbox" name="cell" value="${esc(c.type)}" ${!saved.cells || saved.cells.includes(c.type) ? 'checked' : ''}> <b>${esc(c.type)}</b> <span class="muted">${c.rows.length}</span></label>`).join('')}</div></div>
+      <label class="f">Layout<select name="layout"><option value="pages" ${saved.layout !== 'side' ? 'selected' : ''}>A page per list (portrait)</option><option value="side" ${saved.layout === 'side' ? 'selected' : ''}>Side by side on one page (landscape)</option></select></label>
+      <label class="f">Jobs per list<select name="limit">${[[0, 'all'], [10, 'first 10'], [20, 'first 20'], [30, 'first 30']].map(([v, l]) => `<option value="${v}" ${Number(saved.limit || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="row small full"><input type="checkbox" name="split" ${saved.split ? 'checked' : ''}> <b>Overdue on a separate list</b> — overdue Incoming and Ready jobs on a sheet of their own</label>
+      <label class="row small full"><input type="checkbox" name="testing" ${saved.testing ? 'checked' : ''}> 🧪 <b>Testing mode</b> — a last page explaining the lists (and TEST on each sheet)</label>
+      <p class="small muted full"><b>Incoming</b>: perso work order still open · <b>In Progress</b>: started at Otto · <b>Ready</b>: perso done, not yet started. Each by plan date, then Urgent / High first.</p>
+      <div class="full row"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button><button class="primary" type="submit">🖨 Print</button></div>
+    </form>`);
+  $('#pl-print').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const opts = { cells: fd.getAll('cell'), layout: fd.get('layout'), limit: Number(fd.get('limit')), testing: fd.get('testing') === 'on', split: fd.get('split') === 'on' };
+    store.set('planPrintOtto', opts);
+    const w = window.open('', '_blank');
+    if (!w) { toast('Allow pop-ups for CI Manager to print', 'error'); return; }
+    w.document.open(); w.document.write(operatorSheetHtml([], { ...opts, groups, splitOverdue: opts.split, spec: opts.testing ? ottoSpecHtml({ split: opts.split }) : '', method: 'Otto' })); w.document.close();
     closeModal();
     w.focus(); setTimeout(() => w.print(), 300);
   });
