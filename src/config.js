@@ -48,21 +48,28 @@ function defaultDir() {
     return oldDataDir;
   }
 }
-const dataDir = env.DATA_DIR ? resolve(env.DATA_DIR) : defaultDir();
+// APP=planner runs Planning on its own (e.g. on a server for several people): its own data
+// folder, database and port, set with PLANNER_DATA_DIR / PLANNER_PORT / PLANNER_HOST.
+const mode = String(env.APP || '').toLowerCase() === 'planner' ? 'planner' : 'full';
+const plannerDir = path.join(base, env.LOCALAPPDATA ? 'CIPlanner' : '.ciplanner');
+const dataDir = mode === 'planner'
+  ? (env.PLANNER_DATA_DIR || env.DATA_DIR ? resolve(env.PLANNER_DATA_DIR || env.DATA_DIR) : plannerDir)
+  : (env.DATA_DIR ? resolve(env.DATA_DIR) : defaultDir());
 const inData = (setting, name) => (setting ? resolve(setting) : path.join(dataDir, name));
 
 module.exports = {
   ROOT,
-  port: num(env.PORT, 3000),
-  host: env.HOST || '127.0.0.1',
+  mode,
+  port: mode === 'planner' ? num(env.PLANNER_PORT ?? env.PORT, 3100) : num(env.PORT, 3000),
+  host: (mode === 'planner' ? env.PLANNER_HOST : null) || env.HOST || '127.0.0.1',
   dataDir,
   dataDirNote,
-  dbFile: inData(env.DB_FILE, 'taskmgr.db'),
+  dbFile: inData(mode === 'planner' ? env.PLANNER_DB_FILE : env.DB_FILE, mode === 'planner' ? 'planner.db' : 'taskmgr.db'),
   // Where older versions kept their data (inside the app folder); migrated on start-up.
   // Only when the location isn't set explicitly (so e.g. the test run never touches real data).
   legacy: {
-    dbFile: env.DB_FILE ? null : path.join(ROOT, 'data', 'taskmgr.db'),
-    backupDir: env.BACKUP_DIR ? null : path.join(ROOT, 'backups'),
+    dbFile: env.DB_FILE || mode === 'planner' ? null : path.join(ROOT, 'data', 'taskmgr.db'),
+    backupDir: env.BACKUP_DIR || mode === 'planner' ? null : path.join(ROOT, 'backups'),
   },
   backup: {
     dir: inData(env.BACKUP_DIR, 'backups'),

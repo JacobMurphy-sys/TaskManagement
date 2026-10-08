@@ -1992,6 +1992,33 @@ router.post('/plan/modifiers/import', express.raw({ type: '*/*', limit: '50mb' }
   res.json(got);
 }));
 
+// 📦 The planning setup on its own — to move it to a planner on a server (or back): the plan_*
+// settings and the machines, speeds, OEE, Otto machines and speeds, modifiers, shift values, card
+// tags and pins. The plan history isn't included (it builds up again from the exports).
+const SETUP_TABLES = ['plan_machines', 'plan_speeds', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags', 'plan_pins'];
+router.get('/plan/setup', h((req, res) => {
+  const settings = Object.fromEntries(db.all("SELECT key, value FROM settings WHERE key LIKE 'plan\\_%' ESCAPE '\\'").map((r) => [r.key, r.value]));
+  const tables = Object.fromEntries(SETUP_TABLES.map((t) => [t, db.all(`SELECT * FROM ${t} ORDER BY id`).map(({ id, created_at, updated_at, ...rest }) => rest)]));
+  res.set('Content-Disposition', `attachment; filename="planning-setup-${new Date().toISOString().slice(0, 10)}.json"`);
+  res.json({ kind: 'ci-planning-setup', version: 1, exported_at: new Date().toISOString(), settings, tables });
+}));
+router.post('/plan/setup', express.json({ limit: '20mb' }), h((req, res) => {
+  const b = req.body || {};
+  if (b.kind !== 'ci-planning-setup' || !b.tables) throw new HttpError(400, 'Not a planning setup file');
+  const got = {};
+  db.tx(() => {
+    for (const t of SETUP_TABLES) {
+      if (!Array.isArray(b.tables[t])) continue;
+      const cols = new Set(db.all(`PRAGMA table_info(${t})`).map((c) => c.name));
+      db.run(`DELETE FROM ${t}`);
+      for (const row of b.tables[t]) insertRow(t, Object.fromEntries(Object.entries(row).filter(([k]) => cols.has(k) && !['id', 'created_at', 'updated_at'].includes(k))));
+      got[t] = b.tables[t].length;
+    }
+    for (const [k, v] of Object.entries(b.settings || {})) if (/^plan_[a-z0-9_]+$/.test(k) && k in SETTING_DEFAULTS) db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, v === null ? null : String(v)]);
+  });
+  res.json({ ok: true, tables: got, settings: Object.keys(b.settings || {}).filter((k) => /^plan_/.test(k)).length });
+}));
+
 // Otto machines: name, items per hour, how the export's Machine column names it (optional).
 const ottoMachineFields = (b) => {
   const f = {};
@@ -2109,7 +2136,7 @@ const SETTING_DEFAULTS = {
   kpi_fc_benelux: '', kpi_fc_amex: '',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
-  plan_src: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_oee_default: '', plan_otto_src: '', plan_max_age: '30', plan_miti_days: '5', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
+  plan_src: '', planner_url: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_oee_default: '', plan_otto_src: '', plan_max_age: '30', plan_miti_days: '5', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
 };
 function getSettings() {
   const out = { ...SETTING_DEFAULTS };

@@ -286,6 +286,7 @@ async function renderPlanning() {
 ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. BAU: by due day, then High / Normal / Low, then cut-off">
         <button type="button" data-pl-mode="fifo" class="${mode === 'fifo' ? 'on' : ''}">FIFO</button><button type="button" data-pl-mode="bau" class="${mode === 'bau' ? 'on' : ''}">BAU</button><button type="button" data-pl-mode="score" class="${mode === 'score' ? 'on' : ''}" title="Highest score first: the deadline plus the ⚖ modifiers">⚖ Score</button><button type="button" data-pl-mode="mitigation" class="${mode === 'mitigation' ? 'on' : ''}" title="Save as many as possible: work orders due in the next few working days that can still make it first, then those already overdue or that would be late anyway, then those due later">🛟 Mitigation</button></div>`}
       <div class="spacer"></div>
+      ${state.mode === 'planner' ? '<span id="pl-presence" class="pl-presence" title="Others with the planner open">👤 just you</span>' : ''}
       <span class="small muted">${(half === 'otto' ? ot.source : src).status === 'ok' ? `${esc((half === 'otto' ? ot.source : src).name)} · saved ${esc(fmtDateTime((half === 'otto' ? ot.source : src).modified))}${(half === 'otto' ? ot.source : src).uploaded ? ' (uploaded copy)' : ''}` : ''}</span>
       <button data-pl="refresh" title="Read the export again if it has changed">🔄 Refresh</button>
       <label class="button" title="Try it with a copy of the ${half === 'otto' ? 'Otto' : 'open work orders'} export">📂 Load file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
@@ -294,9 +295,14 @@ ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. 
       ${half === 'perso' ? '<button data-pl="mods" title="Priority modifiers: customers and work order types that go first">⚖ Modifiers</button>' : ''}
       <button data-pl="setup" title="Where the export is, and the capacity">⚙ Setup</button>
     </div>
+    <div id="pl-changed" class="pl-changed" hidden></div>
     ${half === 'perso' ? modsHtml() : ''}
     <div class="card pl-setup" id="pl-setup" ${src.status === 'ok' && !store.get('planSetupOpen', false) ? 'hidden' : ''}>
-      <h2 style="margin-top:0">Setup</h2>
+      <div class="row"><h2 style="margin:0">Setup</h2><div class="spacer"></div>
+        <a class="button small" href="/api/plan/setup" download title="Machines, speeds, OEE, modifiers, card tags, pins and these settings — to move them to the shared planner (or back)">⬇ Export setup</a>
+        <label class="button small" title="Replace this setup with one exported before">⬆ Import setup…<input type="file" accept=".json" hidden id="pl-setup-file"></label></div>
+      ${state.mode === 'planner' ? '' : `<label class="f full" style="margin:10px 0">Shared planner address <span class="muted small">(optional) — when Planning runs on a server for everyone, its address, e.g. http://servername:3100. The Planning tab then opens it.</span>
+        <input type="url" name="planner_url" class="pl-setting-any" value="${esc(settings.planner_url || '')}" placeholder="http://servername:3100"></label>`}
       <div class="form-grid">
         <label class="f full">Open work orders export (where it's saved)<input type="text" name="plan_src" value="${esc(settings.plan_src || '')}" placeholder="e.g. S:\\…\\Source Data\\OpenPersoWorkorders_PerAx.xlsx">
           <span class="small muted">Read again whenever it's saved (e.g. the hourly SSRS export). Nothing in it is changed.</span></label>
@@ -399,8 +405,15 @@ ${half === 'otto' ? ottoSetup() : `
     if (!res.ok) toast(d.error || res.statusText, 'error'); else toast(`${file.name} loaded${(half === 'otto' ? settings.plan_otto_src : settings.plan_src) ? ' — the linked export is still used; clear its path to use this copy' : ''}`);
     renderPlanning();
   });
+  $('#pl-setup-file')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    let body; try { body = JSON.parse(await file.text()); } catch { toast('That isn\'t a planning setup file', 'error'); return; }
+    if (!confirm(`Replace this planner's setup (machines, speeds, OEE, modifiers, card tags, pins and settings) with the one in ${file.name}?`)) return;
+    try { const r = await api.post('/plan/setup', body); toast(`Setup imported — ${Object.values(r.tables).reduce((a, b) => a + b, 0)} rows, ${r.settings} settings`); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+  });
+  if (state.mode === 'planner') startPlanPresence();
   $$('#pl-setup input[name]').forEach((el) => el.addEventListener('change', async () => {
-    try { await api.patch('/settings', { [el.name]: el.value.trim().replace(/^"|"$/g, '') }); toast('Saved'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+    try { state.settings = await api.patch('/settings', { [el.name]: el.value.trim().replace(/^"|"$/g, '') }); toast('Saved'); if (el.name === 'planner_url' && typeof plannerLink === 'function') plannerLink(); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
   }));
   $$('[data-pl-day]').forEach((el) => el.addEventListener('change', async () => {
     const days = $$('[data-pl-day]').filter((x) => x.checked).map((x) => x.dataset.plDay).join(',');
@@ -521,6 +534,28 @@ ${half === 'otto' ? ottoSetup() : `
     const job = e.target.closest('[data-pl-job]');
     if (job) { const d = $(`[data-pl-detail="${CSS.escape(job.dataset.plJob)}"]`); if (d) d.hidden = !d.hidden; }
   };
+}
+
+// 👥 The shared planner: who else has it open, and a note when someone else changes the setup
+// after this page was drawn (so changes aren't overwritten unawares).
+let planPresence = null;
+function startPlanPresence() {
+  const loadedAt = new Date().toISOString();
+  if (planPresence) clearInterval(planPresence.timer);
+  const tick = async () => {
+    if (state.view !== 'planning' || !$('#pl-presence')) { clearInterval(planPresence.timer); planPresence = null; return; }
+    let r; try { r = await api.post('/presence', { id: me.id, name: me.name, view: 'planning' }); } catch { return; }
+    const chip = $('#pl-presence');
+    const names = [...new Set(r.others.map((o) => o.name))];
+    if (chip) { chip.textContent = names.length ? `👥 also here: ${names.join(', ')}` : '👤 just you'; chip.title = r.others.map((o) => `${o.name} — since ${new Date(o.since).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`).join('\n') || 'Nobody else has the planner open'; }
+    const lc = r.last_change; const box = $('#pl-changed');
+    if (box && lc && lc.client !== me.id && lc.at > loadedAt) {
+      box.hidden = false;
+      box.innerHTML = `✏ <b>${esc(lc.by || 'Someone')}</b> changed the planning setup at ${esc(new Date(lc.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }))} — refresh before changing it yourself. <button class="small" data-pl="refresh">🔄 Refresh</button>`;
+    }
+  };
+  planPresence = { timer: setInterval(tick, 20000) };
+  tick();
 }
 
 // 🖨 The operator sheet: for each cell (card type), the open work orders in the list's order —

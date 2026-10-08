@@ -1519,6 +1519,62 @@ async function waitForServer() {
       assert.equal((await call('GET', '/plan')).source.status, 'missing');
     }
 
+    // 🔒 one app at a time on a database: a second copy on the same one stops, naming the first
+    {
+      const env = { ...process.env, PORT: '3998', BACKUP_INTERVAL_HOURS: '0', DATA_DIR: tmp, DB_FILE: path.join(tmp, 'test.db'), BACKUP_DIR: path.join(tmp, 'backups'), LOG_DIR: path.join(tmp, 'logs2') };
+      const second = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = ''; second.stdout.on('data', (d) => { out += d; }); second.stderr.on('data', (d) => { out += d; });
+      assert.equal(await new Promise((r) => second.once('exit', r)), 3, 'a second copy on the same database stops');
+      assert.match(out, new RegExp(`already in use by ${os.userInfo().username} on ${os.hostname()}`), 'saying who has it open');
+      const lock = JSON.parse(fs.readFileSync(path.join(tmp, 'test.db.lock'), 'utf8'));
+      assert.equal(lock.pid, server.pid, 'the lock names the running copy');
+      assert.equal((await (await fetch(`${BASE}/health`)).json()).lock.pid, server.pid);
+    }
+    // 🏭 the planner on its own: its own database and port, Planning only, presence, the setup moved over
+    {
+      await call('POST', '/plan/machines', { name: 'Move me', types: 'DOD' });
+      await call('PATCH', '/settings', { plan_miti_days: '4' });
+      const setup = await call('GET', '/plan/setup');
+      assert.equal(setup.kind, 'ci-planning-setup');
+      assert.ok(setup.tables.plan_machines.some((m) => m.name === 'Move me') && setup.settings.plan_miti_days === '4');
+      const ptmp = fs.mkdtempSync(path.join(os.tmpdir(), 'planner-test-'));
+      const PB = 'http://127.0.0.1:3997/api';
+      const planner = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], { env: { ...process.env, APP: 'planner', PLANNER_PORT: '3997', PLANNER_HOST: '0.0.0.0', PLANNER_DATA_DIR: ptmp, BACKUP_INTERVAL_HOURS: '0', DATA_DIR: '', DB_FILE: '' }, stdio: 'inherit' });
+      const pc = async (method, url, body, headers = {}) => {
+        const res = await fetch(PB + url, { method, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager', ...headers }, body: body ? JSON.stringify(body) : undefined });
+        const data = res.status === 204 ? null : await res.json();
+        if (!res.ok) throw new Error(`${method} ${url} -> ${res.status} ${JSON.stringify(data)}`);
+        return data;
+      };
+      try {
+        for (let i = 0; i < 50; i++) { try { await fetch(`${PB}/health`); break; } catch { await new Promise((r) => setTimeout(r, 200)); } }
+        const hp = await pc('GET', '/health');
+        assert.deepEqual([hp.mode, fs.existsSync(path.join(ptmp, 'planner.db'))], ['planner', true], 'planner mode, with its own database');
+        await assert.rejects(pc('GET', '/projects'), /404/, 'only what Planning needs');
+        assert.equal((await pc('GET', '/plan')).source.status, 'none', 'its own, empty setup');
+        await assert.rejects(pc('POST', '/plan/setup', { kind: 'x' }), /Not a planning setup/);
+        const imp = await pc('POST', '/plan/setup', setup);
+        assert.ok(imp.tables.plan_machines >= 1);
+        const pl = await pc('GET', '/plan');
+        assert.ok(pl.machines.some((m) => m.name === 'Move me'), 'the setup moved over');
+        assert.equal((await pc('GET', '/settings')).plan_miti_days, '4');
+        // presence: who's here, and the last change to the setup (with who made it)
+        await pc('POST', '/presence', { id: 'a1', name: 'Sam' });
+        const seen = await pc('POST', '/presence', { id: 'b2', name: 'Jo' });
+        assert.deepEqual(seen.others.map((o) => o.name), ['Sam'], 'others with it open');
+        await pc('PATCH', '/settings', { plan_buffer: '15' }, { 'X-User-Name': encodeURIComponent('Sam Ö'), 'X-Client-Id': 'a1' });
+        const lc = (await pc('POST', '/presence', { id: 'b2', name: 'Jo' })).last_change;
+        assert.deepEqual([lc.by, lc.client, lc.what], ['Sam Ö', 'a1', 'PATCH /settings'], 'the last setup change, and who made it');
+        await assert.rejects(pc('POST', '/shutdown'), /403/, 'a shared planner can\'t be switched off from a browser');
+      } finally {
+        planner.kill();
+        await new Promise((r) => planner.once('exit', r));
+        assert.equal(fs.existsSync(path.join(ptmp, 'planner.db.lock')), false, 'the lock is removed when it stops');
+        fs.rmSync(ptmp, { recursive: true, force: true });
+      }
+      for (const m of (await call('GET', '/plan')).machines) await call('DELETE', `/plan/machines/${m.id}`);
+    }
+
     await call('POST', '/shutdown');
     const code = await new Promise((r) => server.once('exit', r));
     assert.equal(code, 0, 'server exits cleanly on shutdown');

@@ -1061,3 +1061,11 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .pl-group-on_time td { color: var(--ok, #1a7f37); }
 .pl-group-late td { color: var(--danger); }
 .pl-group-later td { color: var(--muted, #6b7280); }
+
+/* 🏭 CI Planner: Planning on its own */
+body.planner-mode #sidebar, body.planner-mode .menu-toggle, body.planner-mode #topnav a:not([data-nav="planning"]),
+body.planner-mode #search, body.planner-mode [data-action="quick-note"], body.planner-mode #bell,
+body.planner-mode #top-menu a[data-nav="settings"], body.planner-mode .stop-server { display: none !important; }
+body.planner-mode #page { margin-left: 0; }
+.pl-presence { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; padding: 3px 10px; border-radius: 12px; background: var(--accent-soft); }
+.pl-changed { display: flex; gap: 10px; align-items: center; padding: 8px 12px; margin: 8px 0; border-radius: 8px; background: var(--warn-soft, #fff4d6); border: 1px solid #f9a825; }

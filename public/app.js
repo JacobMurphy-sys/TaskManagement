@@ -22,10 +22,17 @@ const store = {
   },
 };
 
+// This browser's id and the name its user gave (for the shared planner: who's here, who changed what).
+const me = (() => {
+  let id = null; let name = '';
+  try { id = localStorage.getItem('clientId'); name = localStorage.getItem('myName') || ''; } catch { /* storage unavailable */ }
+  if (!id) { id = Math.random().toString(36).slice(2, 12); try { localStorage.setItem('clientId', id); } catch { /* fine */ } }
+  return { id, name, setName(n) { this.name = n; try { localStorage.setItem('myName', n); } catch { /* fine */ } } };
+})();
 async function request(method, url, body) {
   const res = await fetch(`/api${url}`, {
     method,
-    headers: { 'X-Requested-With': 'TaskManager', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    headers: { 'X-Requested-With': 'TaskManager', 'X-Client-Id': me.id, ...(me.name ? { 'X-User-Name': encodeURIComponent(me.name) } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (res.status === 204) return null;
@@ -244,7 +251,9 @@ function renderSidebar() {
 
 async function route() {
   document.body.classList.remove('sidebar-open');
-  const [view = 'dashboard', ...rest] = location.hash.replace(/^#\/?/, '').split('/');
+  let [view = 'dashboard', ...rest] = location.hash.replace(/^#\/?/, '').split('/');
+  // the planner on its own: Planning, the activity log and backups only
+  if (state.mode === 'planner' && !['planning', 'log', 'backups'].includes(view)) { view = 'planning'; rest = []; }
   state.view = view;
   state.projectId = view === 'project' ? rest[0] : null;
   renderSidebar();
@@ -2344,10 +2353,28 @@ window.addEventListener('hashchange', route);
   tickClock();
   setInterval(tickClock, 15000);
   updateNotifyButton();
+  try { state.mode = (await api.get('/health')).mode || 'full'; } catch { state.mode = 'full'; }
+  if (state.mode === 'planner') {
+    // 🏭 CI Planner: Planning on its own, shared by several people
+    document.body.classList.add('planner-mode');
+    document.title = 'CI Planner';
+    $('#sidebar .brand').textContent = '🏭 CI Planner';
+    if (!me.name) { const n = (prompt('Your name — so others using the planner can see who\'s here:') || '').trim(); if (n) me.setName(n); }
+    try { state.settings = await api.get('/settings'); } catch (err) { toast(err.message, 'error'); }
+    await route();
+    return;
+  }
   try {
     [state.settings] = await Promise.all([api.get('/settings'), loadProjects()]);
   } catch (err) { toast(err.message, 'error'); }
+  plannerLink();
   await route();
   pollAlerts();
   setInterval(pollAlerts, 30000);
 })();
+// With a shared planner set (⚙ Setup → Planning server), the Planning tab opens it.
+function plannerLink() {
+  const a = $('#topnav a[data-nav="planning"]'); const url = String(state.settings?.planner_url || '').trim();
+  if (!a) return;
+  if (url) { a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.title = `Production planning — the shared planner (${url})`; } else { a.href = '#/planning'; a.removeAttribute('target'); }
+}

@@ -217,6 +217,22 @@ Past weeks stay in the list, so any earlier A3 can be viewed or saved again.
 
 ---
 
+## 2a. The planner on its own (on a server)
+
+Planning can run as a separate app, **CI Planner**, on one computer (a server) that everyone opens in their browser. Nobody else needs to install anything.
+
+- **Start it:** double-click **`planner.bat`** on the server. It runs from the same folder and code as the CI Manager (so `update.bat` updates both), but in planner mode:
+  - **its own database:** `%LOCALAPPDATA%\CIPlanner\planner.db` (change with `PLANNER_DATA_DIR`), with its own backups;
+  - **port 3100**, open to the network (`PLANNER_PORT`, `PLANNER_HOST`);
+  - **Planning only:** no projects, tasks, KPIs and so on. Only the Activity log and Backups stay in the ⋯ menu, and other parts of the API answer *Not part of the planner*.
+  - Everyone opens `http://SERVERNAME:3100`. Windows may ask to let Node through the firewall the first time.
+- **Moving your setup over:** in your own CI Manager, Planning → ⚙ Setup → **⬇ Export setup** (machines, speeds, OEE, Otto machines and speeds, modifiers, shift values, card tags, pins and the planning settings). On the server, use **⬆ Import setup…**. The plan history isn't moved; it builds up again from the exports.
+- **Your own copy's Planning tab:** Setup → *Shared planner address* (e.g. `http://servername:3100`). The Planning tab in your CI Manager then opens the shared planner.
+- **👥 Who's here:** each person gives a name the first time they open the planner. The Planning toolbar shows who else has it open. When someone changes the planning setup after your page was drawn, a yellow note says who and when, with a 🔄 Refresh button, so you don't overwrite each other unawares. The Activity log also records who made each change.
+- **🔒 One copy per database:** a lock file beside the database (`planner.db.lock`) records which computer, user and process has it open, refreshed every 20 s. A second copy started on the same database stops, saying who has it and the address to open instead. This guards against two people each starting `planner.bat` against one database in a shared folder, which can corrupt a SQLite file. A lock not refreshed for 90 s (a crash or power cut) is taken over automatically. The same lock protects the CI Manager's own database.
+- **Keep the database on the server's own disk,** not a mapped drive. SQLite on a network share is fragile even for one user. With the planner on a server, everyone goes through that one copy, which is safe.
+- **No sign-in:** anyone who can reach the server's port can use and change the planner. Keep it on the company network. The shared planner can't be stopped from a browser; close its window on the server.
+
 ## 3. Backups & restore
 
 - The Library's notes are in the database, so they're backed up; its images and attachments are in `library\` in your data folder (your Obsidian vault remains their source — import again to restore them).
