@@ -476,7 +476,7 @@ ${half === 'otto' ? ottoSetup() : `
       const tmp = document.createElement('div'); tmp.innerHTML = modsHtml(); $('#pl-mods').replaceWith(tmp.firstElementChild);
       toast(`Add a row to keep the ${name} list`); return;
     }
-    if (e.target.closest('[data-pl="print"]')) { printDialog(p, mode); return; }
+    if (e.target.closest('[data-pl="print"]')) { printDialog(p, mode, settings); return; }
     if (e.target.closest('[data-pl="mods"]')) { const m = $('#pl-mods'); m.hidden = !m.hidden; store.set('planModsOpen', !m.hidden); if (!m.hidden) m.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     const delO = e.target.closest('[data-plo-del-machine]');
     if (delO) { if (!confirm('Remove this Otto machine?')) return; try { await api.del(`/plan/otto/machines/${delO.dataset.ploDelMachine}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
@@ -536,7 +536,7 @@ function cellsOf(jobs) {
   const rank = (t) => { const i = CELL_ORDER.indexOf(t.toLowerCase()); return i < 0 ? (t === 'Other' ? 99 : 50) : i; };
   return [...cells.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0])).map(([type, rows]) => ({ type, rows }));
 }
-function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, method = '', now = new Date() } = {}) {
+function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, method = '', spec = '', now = new Date() } = {}) {
   const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const today = ymd(now); const tm = new Date(now); tm.setDate(tm.getDate() + 1); const tomorrow = ymd(tm);
   const nowKey = `${today}T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -557,7 +557,7 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, met
   const sheet = (c) => {
     const rows = limit > 0 ? c.rows.slice(0, limit) : c.rows;
     return `<section class="cell" style="--c:${colour(c.type)}">
-      <header><div class="name">${esc(c.type)}</div>${method ? `<div class="method">${esc(method)}</div>` : ''}</header>
+      <header><div class="name">${esc(c.type)}</div>${method ? `<div class="method">${esc(method)}${spec ? ' · TEST' : ''}</div>` : ''}</header>
       <table><tbody>${rows.map((r, i) => { const w = when(r.job); const hot = /high|urgent/i.test(r.job.prio || ''); return `<tr class="${w.cls}${r.job.running ? ' run' : ''}">
         <td class="box"></td><td class="no">${r.job.running ? '▶' : i + 1}</td>
         <td class="wo">${esc(r.job.wo)}<span>/${esc(r.job.per)}</span></td>
@@ -593,10 +593,56 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, met
     .sw { display: inline-block; width: 12px; height: 12px; border: 1px solid #999; vertical-align: middle; } .sw.late { background: #fde2e2; } .sw.today { background: #fff4d6; } .sw.tomorrow { border: 2px solid #1f6feb; }
     .empty { font-size: 24px; padding: 20mm; text-align: center; }
     .legend footer { margin-top: 3mm; }
+    .spec { page-break-before: always; break-before: page; font-size: 13px; line-height: 1.45; }
+    .spec h1 { font-size: 22px; margin: 0 0 2mm; } .spec h2 { font-size: 15px; margin: 5mm 0 1mm; border-bottom: 1px solid #999; }
+    .spec ol, .spec ul { margin: 1mm 0 0 5mm; padding-left: 4mm; } .spec .note { color: #555; font-size: 11px; } .spec code { font-family: Consolas, monospace; }
+    @media screen { .spec { background: #fff; max-width: ${layout === 'side' ? '297mm' : '210mm'}; margin: 10px auto; padding: 10mm; } }
     @media screen { body { background: #e8e8e8; } .legend { max-width: ${layout === 'side' ? '297mm' : '210mm'}; margin: 0 auto; } .wrap { background: #fff; max-width: ${layout === 'side' ? '297mm' : '210mm'}; margin: 10px auto; padding: 10mm; } .cell { margin-bottom: 12mm; } }
-  </style></head><body><div class="wrap">${cells.length ? cells.map(sheet).join('') : '<p class="empty">No open work orders.</p>'}</div>${layout === 'side' && cells.length ? `<div class="legend">${legend}</div>` : ''}</body></html>`;
+  </style></head><body><div class="wrap">${cells.length ? cells.map(sheet).join('') : '<p class="empty">No open work orders.</p>'}</div>${layout === 'side' && cells.length ? `<div class="legend">${legend}</div>` : ''}${spec ? `<section class="spec">${spec}</section>` : ''}</body></html>`;
 }
-function printDialog(p, mode) {
+// 🧪 Testing mode: the last page says exactly how the list was put in order, with the settings used.
+function orderSpecHtml(p, mode, now = new Date()) {
+  const n = (v) => Number(v || 0).toLocaleString('en-GB');
+  const cap = p.capacity || {};
+  const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const dd = (iso) => new Date(`${iso}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const all = [...p.running, ...p.queue];
+  const pinned = p.queue.filter((j) => j.pinned).length;
+  const machines = (p.machines || []).filter((m) => m.active);
+  const capText = !p.projected ? 'none set — no projection' : machines.length ? `${machines.length} running machine${machines.length === 1 ? '' : 's'} (${machines.map((m) => `${m.name}: ${m.types || 'any type'}`).join('; ')}) at the card speeds` : `${n(cap.rate)} cards/h × ${cap.lines} line${cap.lines === 1 ? '' : 's'}`;
+  const groups = (list) => { const c = {}; for (const j of list) c[j.mitigation] = (c[j.mitigation] || 0) + 1; return c; };
+  const md = p.modifiers || {}; const off = new Set((md.off || []).map((x) => x.toLowerCase()));
+  const byMode = {
+    fifo: `<h2>FIFO — by deadline</h2><ol><li>Earliest deadline first (overdue ones, oldest first, are at the top).</li><li>Same deadline: priority High, then Normal, then Low.</li><li>Still the same: by work order / job number.</li></ol>`,
+    bau: `<h2>BAU — by due day, then priority</h2><ol><li>Earliest due <b>day</b> first.</li><li>Within a day: priority High, then Normal, then Low.</li><li>Then the earliest cut-off time, then work order / job number.</li></ol>`,
+    score: `<h2>⚖ Score — highest score first</h2><p>Each job's score is the sum of the modules switched on (ties: earliest deadline first):</p><ul>
+      <li><b>Deadline</b>${off.has('deadline') ? ' — <i>off</i>' : `: overdue = ${md.deadline?.base} + ${md.deadline?.per_day} a day overdue (at most +${md.deadline?.max_extra}); not yet due = ${md.deadline?.lead} ÷ (1 + days left)`}</li>
+      ${(md.lists || []).map((l) => `<li><b>${esc(l)}</b>${off.has(l.toLowerCase()) ? ' — <i>off</i>' : `: ${(md.rules || []).filter((r) => r.list === l).length} row(s) — a row matches on customer, card tag and card type (blank = any); the most specific matching row counts`}</li>`).join('')}
+      <li><b>Shift</b>${off.has('shift') ? ' — <i>off</i>' : `: the ${esc(md.current_shift || '—')} shift's value per customer (${(md.shifts || []).length} customer(s) set)`}</li></ul>`,
+    mitigation: (() => { const g = groups(p.queue); const days = p.mitigation?.days ?? 5; return `<h2>🛟 Mitigation — save as many as possible</h2><ol>
+      <li><b>Due within ${days} working day${days === 1 ? '' : 's'}</b>${p.mitigation?.horizon ? ` (up to ${dd(p.mitigation.horizon)})` : ''} and not yet overdue, that can still be on time — by deadline. <span class="note">(${n(g.on_time)} jobs)</span></li>
+      <li><b>Late anyway</b>, oldest deadline first: already overdue <span class="note">(${n(g.overdue)})</span>${p.projected ? `, and jobs due in that window that would be late even if started next <span class="note">(${n(g.late_anyway)})</span>. These are found by working through the window by deadline and, whenever one would finish late, setting aside the longest job so far — the fewest jobs late (Moore–Hodgson).` : '. With no capacity set, none are set aside for lack of room.'}</li>
+      <li><b>Due later</b> than that — by deadline. <span class="note">(${n(g.later)})</span></li></ol>`; })(),
+  };
+  return `<h1>🧪 How this list was ordered</h1>
+    <p class="note">Testing mode · printed ${esc(now.toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }))}</p>
+    <h2>Source</h2><ul>
+      <li>Open work orders export: <code>${esc(p.source?.name || '—')}</code>, saved ${esc(p.source?.modified ? new Date(p.source.modified).toLocaleString('en-GB') : '—')}.</li>
+      <li>A job is a work order + PER: ${n(all.length)} open (${n(p.running.length)} running).${p.backlog?.hidden_jobs ? ` ${n(p.backlog.hidden_jobs)} due more than ${p.backlog.max_age} days ago left out as likely errors.` : ''}</li>
+      <li>Deadline = the Due Out date at the shipper's cut-off (Shipping Time); no cut-off = the end of that day (23:59).${cap.buffer ? ` Jobs must be ready ${cap.buffer} min before the cut-off.` : ''}</li>
+      <li>Card type (the cell) from the card database${p.cards_db?.name ? ` (<code>${esc(p.cards_db.name)}</code>)` : ''}; "Other" = card not in it. A job with several card types is on each cell's sheet, with that type's cards.</li></ul>
+    <h2>Order — the same on every cell's sheet</h2><ol>
+      <li><b>▶ Running</b> jobs (a card line In Progress) first.</li>
+      <li><b>📌 Pinned</b> jobs next, in the order pinned${pinned ? ` (${pinned} pinned)` : ' (none pinned)'}.</li>
+      <li>Then the rest, as below.</li></ol>
+    ${byMode[mode] || ''}
+    <h2>Capacity used for the projection</h2><ul><li>${esc(capText)}.</li>
+      <li>Working time: ${cap.start === cap.end ? 'round the clock' : `${hm(cap.start)}–${hm(cap.end)}`}, ${(cap.days || []).map((d) => dayNames[d]).join(', ')}.${cap.changeover ? ` Change-over ${cap.changeover} min.` : ''}${(p.oee || []).some((o) => o.oee) || p.oee_default ? ' Estimated OEE per customer applied.' : ''}</li></ul>
+    <h2>The sheet</h2><ul><li>Row colours: red <b>LATE</b> = the deadline had passed when printed; amber <b>TODAY</b>; blue <b>TOMORROW</b>; otherwise the date.</li>
+      <li><b>!</b> = High / Urgent priority (from the export); 📌 = pinned; numbers are the place in the order.</li></ul>`;
+}
+function printDialog(p, mode, settings = {}) {
   const jobs = [...p.running, ...p.queue];
   const cells = cellsOf(jobs);
   const saved = store.get('planPrint', {}) || {};
@@ -606,17 +652,18 @@ function printDialog(p, mode) {
       <div class="f full"><span>Cells</span><div class="row">${cells.map((c) => `<label class="row small"><input type="checkbox" name="cell" value="${esc(c.type)}" ${!saved.cells || saved.cells.includes(c.type) ? 'checked' : ''}> <b>${esc(c.type)}</b> <span class="muted">${c.rows.length}</span></label>`).join('') || '<span class="muted">No open work orders.</span>'}</div></div>
       <label class="f">Layout<select name="layout"><option value="pages" ${saved.layout !== 'side' ? 'selected' : ''}>A page per cell (portrait)</option><option value="side" ${saved.layout === 'side' ? 'selected' : ''}>Side by side on one page (landscape)</option></select></label>
       <label class="f">Work orders per cell<select name="limit">${[[0, 'all'], [10, 'first 10'], [20, 'first 20'], [30, 'first 30']].map(([v, l]) => `<option value="${v}" ${Number(saved.limit || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="row small full"><input type="checkbox" name="testing" ${saved.testing ? 'checked' : ''}> 🧪 <b>Testing mode</b> — a last page explaining how the list was ordered (and TEST on each sheet)</label>
       <p class="small muted full">In the planning list's order (${esc(modeText.replace('order: ', ''))}), running first. Each cell gets the work orders with cards of its type, and that type's cards.</p>
       <div class="full row"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button><button class="primary" type="submit">🖨 Print</button></div>
     </form>`);
   $('#pl-print').addEventListener('submit', (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const opts = { cells: fd.getAll('cell'), layout: fd.get('layout'), limit: Number(fd.get('limit')) };
+    const opts = { cells: fd.getAll('cell'), layout: fd.get('layout'), limit: Number(fd.get('limit')), testing: fd.get('testing') === 'on' };
     store.set('planPrint', opts);
     const w = window.open('', '_blank');
     if (!w) { toast('Allow pop-ups for CI Manager to print', 'error'); return; }
-    w.document.open(); w.document.write(operatorSheetHtml(jobs, { ...opts, method: { fifo: 'FIFO', bau: 'BAU', score: 'Score', mitigation: 'Mitigation' }[mode] || '' })); w.document.close();
+    w.document.open(); w.document.write(operatorSheetHtml(jobs, { ...opts, spec: opts.testing ? orderSpecHtml(p, mode) : '', method: { fifo: 'FIFO', bau: 'BAU', score: 'Score', mitigation: 'Mitigation' }[mode] || '' })); w.document.close();
     closeModal();
     w.focus(); setTimeout(() => w.print(), 300);
   });

@@ -1812,10 +1812,11 @@ router.get('/plan', h((req, res) => {
   let queue = planning.order(jobs.filter((j) => !j.running), mode === 'mitigation' ? 'fifo' : mode, pinRows.filter((pr) => keys.has(pr.key)).map((pr) => pr.key));
   const machines = db.all('SELECT * FROM plan_machines ORDER BY sort_order, id');
   // 🛟 mitigation: what can still be on time first, with the plan deciding what can't
+  const mitiDays = Math.max(0, Number(set.plan_miti_days ?? 5) || 0);
+  const mitigation = { days: mitiDays, horizon: mitiDays ? planning.workingDaysAhead(new Date(), mitiDays, capacity.days) : null };
   if (mode === 'mitigation') {
     const useM = machines.some((m) => m.active);
-    const within = Math.max(0, Number(set.plan_miti_days ?? 5) || 0);
-    queue = planning.mitigate(running, queue, { now: new Date(), horizon: within ? planning.workingDaysAhead(new Date(), within, capacity.days) : null,
+    queue = planning.mitigate(running, queue, { now: new Date(), horizon: mitigation.horizon,
       project: (r, q) => (useM ? !!planning.projectMachines(r, q, machines, capacity, new Date()) : planning.project(r, q, capacity, new Date())) });
   }
   // with machines: each card line planned on a machine that runs its type; else spread over the lines running
@@ -1835,7 +1836,7 @@ router.get('/plan', h((req, res) => {
     due: db.all('SELECT due, qty FROM plan_history_jobs WHERE due >= ?', [localYmd(since)]).map((r) => ({ date: r.due, qty: r.qty })),
     from: histFirst }, capacity, maxAge);
   delete modifiers.tagBy;
-  res.json({ modifiers, backlog, otto, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
+  res.json({ mitigation, modifiers, backlog, otto, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
     source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length, averaged: lines.some((l) => l.speed_from === 'average'),
     capacity, mode, projected, now: new Date().toISOString(), running, queue, slots: planning.loadByDeadline([...running, ...queue]) });
 }));
