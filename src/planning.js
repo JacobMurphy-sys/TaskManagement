@@ -197,19 +197,26 @@ function projectOtto(running, queue, machines, speeds, { start = 360, end = 1320
 }
 
 // ---- 🛟 mitigation: as many jobs on time as possible ---------------------------------------
-// High / Normal jobs that can still make their deadline go first (by deadline); those already
-// overdue — and, with a capacity, those that would be late even so — go after, oldest deadline
-// first; Low priority jobs not yet overdue come last, by deadline. Which
+// Jobs not yet overdue and due within the horizon (e.g. 5 working days) that can still make their
+// deadline go first (by deadline); those already overdue — and, with a capacity, those that would
+// be late even so — go after, oldest deadline first; jobs due beyond the horizon come last. Which
 // can't be saved is found as Moore–Hodgson does: work through by deadline and, whenever one would
 // finish late, set aside the longest job so far — the fewest jobs late. Pinned jobs stay first.
 // project(running, queue) runs the plan (adding finish / late_minutes) and says if it could.
-function mitigate(running, queue, { project = null, now = new Date(), maxRounds = 400 } = {}) {
+// The date `n` working days after `from` (days: 0 = Sunday … 6 = Saturday), as YYYY-MM-DD.
+function workingDaysAhead(from, n, days = [1, 2, 3, 4, 5]) {
+  const d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  for (let left = n; left > 0;) { d.setDate(d.getDate() + 1); if (!days.length || days.includes(d.getDay())) left--; }
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function mitigate(running, queue, { project = null, now = new Date(), horizon = null, maxRounds = 400 } = {}) {
   const pinned = queue.filter((j) => j.pinned);
   const rest = queue.filter((j) => !j.pinned);
   const overdue = rest.filter((j) => j.deadline && localDate(j.deadline) <= now);
-  const isLow = (j) => String(j.prio || '').trim().toLowerCase() === 'low';
-  const low = rest.filter((j) => !overdue.includes(j) && isLow(j));
-  let saveable = rest.filter((j) => !overdue.includes(j) && !isLow(j)); // in deadline order already (FIFO)
+  // beyond the horizon (due date after it): after the overdue
+  const beyond = (j) => { const d = j.due || j.deadline?.slice(0, 10); return !!(horizon && d && d > horizon); };
+  const later = rest.filter((j) => !overdue.includes(j) && beyond(j));
+  let saveable = rest.filter((j) => !overdue.includes(j) && !beyond(j)); // in deadline order already (FIFO)
   const setAside = [];
   if (project) {
     for (let round = 0; round < maxRounds; round++) {
@@ -228,8 +235,8 @@ function mitigate(running, queue, { project = null, now = new Date(), maxRounds 
   for (const j of saveable) j.mitigation = 'on_time';
   for (const j of setAside) j.mitigation = 'late_anyway';
   for (const j of overdue) j.mitigation = 'overdue';
-  for (const j of low) j.mitigation = 'low';
-  return [...pinned, ...saveable, ...[...setAside, ...overdue].sort(byDeadline), ...low];
+  for (const j of later) j.mitigation = 'later';
+  return [...pinned, ...saveable, ...[...setAside, ...overdue].sort(byDeadline), ...later];
 }
 
 // ---- backlog: overdue work and how long catching up takes at the recent pace ----------------
@@ -665,4 +672,4 @@ function readSource({ file, uploaded, parser = parse }) {
   return { status: 'ok', file: target, name: path.basename(target), uploaded: !file, modified: stat.mtime.toISOString(), read_at: cache.read_at, ...cache.parsed };
 }
 
-module.exports = { workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, mitigate, scoreJobs, deadlineScore, shiftAt, SHIFTS, DEADLINE_DEFAULTS, woOfName, OTTO_COLUMNS };
+module.exports = { workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, mitigate, workingDaysAhead, scoreJobs, deadlineScore, shiftAt, SHIFTS, DEADLINE_DEFAULTS, woOfName, OTTO_COLUMNS };

@@ -1814,7 +1814,8 @@ router.get('/plan', h((req, res) => {
   // 🛟 mitigation: what can still be on time first, with the plan deciding what can't
   if (mode === 'mitigation') {
     const useM = machines.some((m) => m.active);
-    queue = planning.mitigate(running, queue, { now: new Date(),
+    const within = Math.max(0, Number(set.plan_miti_days ?? 5) || 0);
+    queue = planning.mitigate(running, queue, { now: new Date(), horizon: within ? planning.workingDaysAhead(new Date(), within, capacity.days) : null,
       project: (r, q) => (useM ? !!planning.projectMachines(r, q, machines, capacity, new Date()) : planning.project(r, q, capacity, new Date())) });
   }
   // with machines: each card line planned on a machine that runs its type; else spread over the lines running
@@ -2107,7 +2108,7 @@ const SETTING_DEFAULTS = {
   kpi_fc_benelux: '', kpi_fc_amex: '',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
-  plan_src: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_oee_default: '', plan_otto_src: '', plan_max_age: '30', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
+  plan_src: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_oee_default: '', plan_otto_src: '', plan_max_age: '30', plan_miti_days: '5', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
 };
 function getSettings() {
   const out = { ...SETTING_DEFAULTS };
