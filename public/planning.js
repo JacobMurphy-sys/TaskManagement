@@ -533,7 +533,7 @@ function cellsOf(jobs) {
   const rank = (t) => { const i = CELL_ORDER.indexOf(t.toLowerCase()); return i < 0 ? (t === 'Other' ? 99 : 50) : i; };
   return [...cells.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0])).map(([type, rows]) => ({ type, rows }));
 }
-function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, now = new Date() } = {}) {
+function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, method = '', now = new Date() } = {}) {
   const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const today = ymd(now); const tm = new Date(now); tm.setDate(tm.getDate() + 1); const tomorrow = ymd(tm);
   const nowKey = `${today}T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -554,7 +554,7 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, now
   const sheet = (c) => {
     const rows = limit > 0 ? c.rows.slice(0, limit) : c.rows;
     return `<section class="cell" style="--c:${colour(c.type)}">
-      <header><div class="name">${esc(c.type)}</div></header>
+      <header><div class="name">${esc(c.type)}</div>${method ? `<div class="method">${esc(method)}</div>` : ''}</header>
       <table><tbody>${rows.map((r, i) => { const w = when(r.job); const hot = /high|urgent/i.test(r.job.prio || ''); return `<tr class="${w.cls}${r.job.running ? ' run' : ''}">
         <td class="box"></td><td class="no">${r.job.running ? '▶' : i + 1}</td>
         <td class="wo">${esc(r.job.wo)}<span>/${esc(r.job.per)}</span></td>
@@ -573,6 +573,7 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, now
     .cell:last-child { page-break-after: auto; break-after: auto; }
     header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; border-bottom: 2px solid #111; padding-bottom: 2mm; margin-bottom: 2mm; }
     .name { font-size: ${layout === 'side' ? 28 : 44}px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: var(--c); }
+    .method { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #555; border: 1px solid #999; border-radius: 3px; padding: 1px 6px; white-space: nowrap; align-self: flex-start; }
     table { width: 100%; border-collapse: collapse; font-size: ${layout === 'side' ? 12 : 17}px; }
     tr { border-bottom: 1px solid #bbb; page-break-inside: avoid; } td { padding: ${layout === 'side' ? '3px 3px' : '5px 6px'}; vertical-align: middle; }
     .box { width: 26px; } .box::before { content: ''; display: inline-block; width: ${layout === 'side' ? 14 : 20}px; height: ${layout === 'side' ? 14 : 20}px; border: 2px solid #111; border-radius: 3px; }
@@ -612,7 +613,7 @@ function printDialog(p, mode) {
     store.set('planPrint', opts);
     const w = window.open('', '_blank');
     if (!w) { toast('Allow pop-ups for CI Manager to print', 'error'); return; }
-    w.document.open(); w.document.write(operatorSheetHtml(jobs, opts)); w.document.close();
+    w.document.open(); w.document.write(operatorSheetHtml(jobs, { ...opts, method: { fifo: 'FIFO', bau: 'BAU', score: 'Score', mitigation: 'Mitigation' }[mode] || '' })); w.document.close();
     closeModal();
     w.focus(); setTimeout(() => w.print(), 300);
   });
