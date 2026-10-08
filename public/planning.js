@@ -533,7 +533,7 @@ function cellsOf(jobs) {
   const rank = (t) => { const i = CELL_ORDER.indexOf(t.toLowerCase()); return i < 0 ? (t === 'Other' ? 99 : 50) : i; };
   return [...cells.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0])).map(([type, rows]) => ({ type, rows }));
 }
-function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, modeText = '', now = new Date() } = {}) {
+function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, now = new Date() } = {}) {
   const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const today = ymd(now); const tm = new Date(now); tm.setDate(tm.getDate() + 1); const tomorrow = ymd(tm);
   const nowKey = `${today}T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -553,20 +553,18 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, mod
   const stamp = now.toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
   const sheet = (c) => {
     const rows = limit > 0 ? c.rows.slice(0, limit) : c.rows;
-    const late = c.rows.filter((r) => when(r.job).cls === 'late').length;
     return `<section class="cell" style="--c:${colour(c.type)}">
-      <header><div class="name">${esc(c.type)}</div><div class="sum"><b>${c.rows.length}</b> work order${c.rows.length === 1 ? '' : 's'} · <b>${n(c.rows.reduce((t, r) => t + r.qty, 0))}</b> cards${late ? ` · <span class="lt">${late} late</span>` : ''}</div></header>
+      <header><div class="name">${esc(c.type)}</div></header>
       <table><tbody>${rows.map((r, i) => { const w = when(r.job); const hot = /high|urgent/i.test(r.job.prio || ''); return `<tr class="${w.cls}${r.job.running ? ' run' : ''}">
         <td class="box"></td><td class="no">${r.job.running ? '▶' : i + 1}</td>
         <td class="wo">${esc(r.job.wo)}<span>/${esc(r.job.per)}</span></td>
         <td class="cu">${esc(r.job.customer || '')}${hot ? ' <span class="hot">!</span>' : ''}${r.job.pinned ? ' <span class="pin">📌</span>' : ''}</td>
         <td class="qty">${n(r.qty)}</td>
         <td class="due"><span class="tag">${esc(w.tag)}</span> ${esc(w.time)}</td></tr>`; }).join('')}</tbody></table>
-      ${limit > 0 && c.rows.length > limit ? `<p class="more">+ ${c.rows.length - limit} more work orders — see the planning screen</p>` : ''}
       ${layout === 'side' ? '' : legend}
     </section>`;
   };
-  const legend = `<footer><span><span class="sw late"></span> late</span><span><span class="sw today"></span> due today</span><span><span class="sw tomorrow"></span> tomorrow</span><span>▶ running</span><span><span class="hot">!</span> high priority</span><span>☐ tick when done</span><span class="st">Printed ${esc(stamp)}${modeText ? ` · ${esc(modeText)}` : ''}</span></footer>`;
+  const legend = `<footer><span><span class="sw late"></span> late</span><span><span class="sw today"></span> due today</span><span><span class="sw tomorrow"></span> tomorrow</span><span>▶ running</span><span><span class="hot">!</span> high priority</span><span>☐ tick when done</span><span class="st">Printed ${esc(stamp)}</span></footer>`;
   return `<!doctype html><html><head><meta charset="utf-8"><title>Open work orders — ${esc(stamp)}</title><style>
     @page { size: A4 ${layout === 'side' ? 'landscape' : 'portrait'}; margin: 10mm; }
     * { box-sizing: border-box; } body { font-family: Arial, Helvetica, sans-serif; margin: 0; color: #111; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -575,7 +573,6 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, mod
     .cell:last-child { page-break-after: auto; break-after: auto; }
     header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; border-bottom: 2px solid #111; padding-bottom: 2mm; margin-bottom: 2mm; }
     .name { font-size: ${layout === 'side' ? 28 : 44}px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: var(--c); }
-    .sum { font-size: ${layout === 'side' ? 12 : 16}px; } .lt { color: #c62828; font-weight: 700; }
     table { width: 100%; border-collapse: collapse; font-size: ${layout === 'side' ? 12 : 17}px; }
     tr { border-bottom: 1px solid #bbb; page-break-inside: avoid; } td { padding: ${layout === 'side' ? '3px 3px' : '5px 6px'}; vertical-align: middle; }
     .box { width: 26px; } .box::before { content: ''; display: inline-block; width: ${layout === 'side' ? 14 : 20}px; height: ${layout === 'side' ? 14 : 20}px; border: 2px solid #111; border-radius: 3px; }
@@ -588,7 +585,6 @@ function operatorSheetHtml(jobs, { cells: pick, layout = 'pages', limit = 0, mod
     tr.tomorrow .tag { border-color: #1f6feb; color: #1f6feb; }
     tr.run .no { color: #111; }
     .hot { display: inline-block; background: #111; color: #fff; border-radius: 50%; width: 1.2em; height: 1.2em; line-height: 1.2em; text-align: center; font-size: .8em; }
-    .more { font-style: italic; color: #555; }
     footer { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4mm; font-size: 11px; color: #333; align-items: center; } footer .st { margin-left: auto; color: #777; }
     .sw { display: inline-block; width: 12px; height: 12px; border: 1px solid #999; vertical-align: middle; } .sw.late { background: #fde2e2; } .sw.today { background: #fff4d6; } .sw.tomorrow { border: 2px solid #1f6feb; }
     .empty { font-size: 24px; padding: 20mm; text-align: center; }
@@ -616,7 +612,7 @@ function printDialog(p, mode) {
     store.set('planPrint', opts);
     const w = window.open('', '_blank');
     if (!w) { toast('Allow pop-ups for CI Manager to print', 'error'); return; }
-    w.document.open(); w.document.write(operatorSheetHtml(jobs, { ...opts, modeText })); w.document.close();
+    w.document.open(); w.document.write(operatorSheetHtml(jobs, opts)); w.document.close();
     closeModal();
     w.focus(); setTimeout(() => w.print(), 300);
   });
