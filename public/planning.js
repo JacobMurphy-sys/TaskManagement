@@ -5,7 +5,7 @@
 // capacity set, each job's projected finish against its deadline. Loaded before app.js.
 
 async function renderPlanning() {
-  const mode = ['bau', 'score'].includes(store.get('planMode', 'fifo')) ? store.get('planMode') : 'fifo';
+  const mode = ['bau', 'score', 'mitigation'].includes(store.get('planMode', 'fifo')) ? store.get('planMode') : 'fifo';
   const half = store.get('planHalf', 'perso') === 'otto' ? 'otto' : 'perso';
   const [p, settings] = await Promise.all([api.get(`/plan?mode=${mode}`), api.get('/settings')]);
   const f = store.get('planFilter', {}) || {};
@@ -42,6 +42,14 @@ async function renderPlanning() {
     const first = os.map((o) => o.deadline).filter(Boolean).sort()[0];
     const after = first && j.finish_at && deadlineAt({ deadline: first }) < new Date(j.finish_at);
     return ` · <span class="${after ? 'pl-late' : ''}" title="${esc(os.map((o) => `${o.name}: Otto plan ${o.deadline?.replace('T', ' ') || '—'} (${o.status || ''})`).join('\n'))}${after ? '\nPerso is projected to finish after Otto\'s plan date' : ''}">Otto ${first ? esc(dayLabel(first.slice(0, 10))) : ''}${after ? ' ⚠' : ''}</span>`;
+  };
+  // 🛟 mitigation groups: can still be on time, then late anyway (already overdue, or no room)
+  const mitiGroup = (j) => (!j ? null : j.mitigation === 'pinned' ? 'pinned' : j.mitigation === 'on_time' ? 'on_time' : 'late');
+  const mitiHead = (j) => {
+    const g = mitiGroup(j); const list = p.queue.filter((x) => mitiGroup(x) === g);
+    const text = { pinned: '📌 Pinned', on_time: `✔ Can still be on time — ${list.length} job${list.length === 1 ? '' : 's'}, ${n(sum(list))} cards`,
+      late: `⚠ Late anyway — ${list.filter((x) => x.mitigation === 'overdue').length} already overdue${list.some((x) => x.mitigation === 'late_anyway') ? `, ${list.filter((x) => x.mitigation === 'late_anyway').length} with no room before their deadline` : ''} · after the ones that can make it, oldest first` }[g];
+    return `<tr class="pl-group pl-group-${g}"><td colspan="${(p.projected ? 8 : 7) + (mode === 'score' ? 1 : 0)}">${esc(text)}</td></tr>`;
   };
   const scoreFmt = (v) => (v === null || v === undefined ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: 1 }));
   const row = (j, i) => {
@@ -274,7 +282,7 @@ async function renderPlanning() {
     <div class="kanban-tools"><h1 style="margin:0">🏭 Planning</h1>
       <div class="seg"><button type="button" data-pl-half="perso" class="${half === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-pl-half="otto" class="${half === 'otto' ? 'on' : ''}">Otto</button></div>
 ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. BAU: by due day, then High / Normal / Low, then cut-off">
-        <button type="button" data-pl-mode="fifo" class="${mode === 'fifo' ? 'on' : ''}">FIFO</button><button type="button" data-pl-mode="bau" class="${mode === 'bau' ? 'on' : ''}">BAU</button><button type="button" data-pl-mode="score" class="${mode === 'score' ? 'on' : ''}" title="Highest score first: the deadline plus the ⚖ modifiers">⚖ Score</button></div>`}
+        <button type="button" data-pl-mode="fifo" class="${mode === 'fifo' ? 'on' : ''}">FIFO</button><button type="button" data-pl-mode="bau" class="${mode === 'bau' ? 'on' : ''}">BAU</button><button type="button" data-pl-mode="score" class="${mode === 'score' ? 'on' : ''}" title="Highest score first: the deadline plus the ⚖ modifiers">⚖ Score</button><button type="button" data-pl-mode="mitigation" class="${mode === 'mitigation' ? 'on' : ''}" title="Save as many as possible: work orders that can still make their deadline first, then those already overdue or that would be late anyway">🛟 Mitigation</button></div>`}
       <div class="spacer"></div>
       <span class="small muted">${(half === 'otto' ? ot.source : src).status === 'ok' ? `${esc((half === 'otto' ? ot.source : src).name)} · saved ${esc(fmtDateTime((half === 'otto' ? ot.source : src).modified))}${(half === 'otto' ? ot.source : src).uploaded ? ' (uploaded copy)' : ''}` : ''}</span>
       <button data-pl="refresh" title="Read the export again if it has changed">🔄 Refresh</button>
@@ -362,8 +370,8 @@ ${half === 'otto' ? ottoSetup() : `
     </div>
     ${runningShown.length ? `<div class="card"><h3 class="pl-h">▶ Running <span class="muted small">${runningShown.length} job${runningShown.length === 1 ? '' : 's'} · ${n(sum(runningShown))} cards</span></h3>
       <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${runningShown.map((j) => row(j, null)).join('')}</tbody></table></div></div>` : ''}
-    <div class="card"><h3 class="pl-h">Next to start — ${mode === 'fifo' ? 'FIFO: by deadline' : mode === 'score' ? '⚖ Score: highest first (deadline + modifiers)' : 'BAU: by due day, then priority, then cut-off'} <span class="muted small">${queueShown.length} job${queueShown.length === 1 ? '' : 's'} · ${n(sum(queueShown))} cards · click a job for its card articles</span></h3>
-      <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${queueShown.map((j) => row(j, p.queue.indexOf(j))).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>`}` : ''}`}`;
+    <div class="card"><h3 class="pl-h">Next to start — ${mode === 'fifo' ? 'FIFO: by deadline' : mode === 'mitigation' ? '🛟 Mitigation: what can still be on time first' : mode === 'score' ? '⚖ Score: highest first (deadline + modifiers)' : 'BAU: by due day, then priority, then cut-off'} <span class="muted small">${queueShown.length} job${queueShown.length === 1 ? '' : 's'} · ${n(sum(queueShown))} cards · click a job for its card articles</span></h3>
+      <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${queueShown.map((j, k) => `${mode === 'mitigation' && mitiGroup(j) !== mitiGroup(queueShown[k - 1]) ? mitiHead(j) : ''}${row(j, p.queue.indexOf(j))}`).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>`}` : ''}`}`;
   if (half === 'perso' && view === 'gantt' && $('#pl-gantt')) {
     const draw = () => drawPlanGantt($('#pl-gantt'), $('#pl-gantt-info'), p, match);
     draw();
@@ -592,7 +600,7 @@ function printDialog(p, mode) {
   const jobs = [...p.running, ...p.queue];
   const cells = cellsOf(jobs);
   const saved = store.get('planPrint', {}) || {};
-  const modeText = { fifo: 'order: FIFO (by deadline)', bau: 'order: BAU', score: 'order: ⚖ score' }[mode] || '';
+  const modeText = { fifo: 'order: FIFO (by deadline)', bau: 'order: BAU', score: 'order: ⚖ score', mitigation: 'order: 🛟 mitigation (can still be on time first)' }[mode] || '';
   openModal(`<div class="modal-head"><h2 style="margin:0">🖨 Print for cells</h2><button class="icon" data-action="close-modal">✕</button></div>
     <form id="pl-print" class="form-grid">
       <div class="f full"><span>Cells</span><div class="row">${cells.map((c) => `<label class="row small"><input type="checkbox" name="cell" value="${esc(c.type)}" ${!saved.cells || saved.cells.includes(c.type) ? 'checked' : ''}> <b>${esc(c.type)}</b> <span class="muted">${c.rows.length}</span></label>`).join('') || '<span class="muted">No open work orders.</span>'}</div></div>

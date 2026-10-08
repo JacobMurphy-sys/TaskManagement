@@ -1056,3 +1056,7 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .pl-mod-dl { grid-template-columns: repeat(4, minmax(120px, 1fr)); }
 .pl-score-parts { margin: 2px 0 8px; }
 .pl-chip { display: inline-block; padding: 1px 8px; border-radius: 10px; background: var(--surface-2, rgba(127,127,127,.12)); margin-right: 4px; }
+
+.pl-group td { font-weight: 700; padding-top: 12px; border-bottom: 2px solid var(--border); }
+.pl-group-on_time td { color: var(--ok, #1a7f37); }
+.pl-group-late td { color: var(--danger); }

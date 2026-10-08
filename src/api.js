@@ -1782,8 +1782,8 @@ router.get('/plan', h((req, res) => {
   const db_ = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
   const cardsDb = { status: db_.status, file: db_.file || null, name: db_.name || null, modified: db_.modified || null, table: db_.table || null, count: db_.count || 0, error: db_.error || null, columns: db_.columns || null };
   const rules = db.all('SELECT * FROM plan_speeds ORDER BY type, material, sides');
-  if (src.status !== 'ok') return res.json({ otto: ottoOf(set, [], capacity), machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: (['bau', 'score'].includes(req.query.mode) ? req.query.mode : 'fifo'), running: [], queue: [], slots: [] });
-  const mode = (['bau', 'score'].includes(req.query.mode) ? req.query.mode : 'fifo');
+  if (src.status !== 'ok') return res.json({ otto: ottoOf(set, [], capacity), machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: (['bau', 'score', 'mitigation'].includes(req.query.mode) ? req.query.mode : 'fifo'), running: [], queue: [], slots: [] });
+  const mode = (['bau', 'score', 'mitigation'].includes(req.query.mode) ? req.query.mode : 'fifo');
   const oeeRows = db.all('SELECT customer, oee FROM plan_oee ORDER BY customer');
   const oeeDefault = Number(set.plan_oee_default) > 0 && Number(set.plan_oee_default) <= 100 ? Number(set.plan_oee_default) / 100 : null;
   const maxAge = planMaxAge(set);
@@ -1809,8 +1809,14 @@ router.get('/plan', h((req, res) => {
   const keys = new Set(jobs.map((j) => j.key));
   const pinRows = db.all('SELECT * FROM plan_pins ORDER BY id');
   for (const pr of pinRows) if (!keys.has(pr.key)) db.run('DELETE FROM plan_pins WHERE id = ?', [pr.id]);
-  const queue = planning.order(jobs.filter((j) => !j.running), mode, pinRows.filter((pr) => keys.has(pr.key)).map((pr) => pr.key));
+  let queue = planning.order(jobs.filter((j) => !j.running), mode === 'mitigation' ? 'fifo' : mode, pinRows.filter((pr) => keys.has(pr.key)).map((pr) => pr.key));
   const machines = db.all('SELECT * FROM plan_machines ORDER BY sort_order, id');
+  // 🛟 mitigation: what can still be on time first, with the plan deciding what can't
+  if (mode === 'mitigation') {
+    const useM = machines.some((m) => m.active);
+    queue = planning.mitigate(running, queue, { now: new Date(),
+      project: (r, q) => (useM ? !!planning.projectMachines(r, q, machines, capacity, new Date()) : planning.project(r, q, capacity, new Date())) });
+  }
   // with machines: each card line planned on a machine that runs its type; else spread over the lines running
   const machineLoad = machines.some((m) => m.active) ? planning.projectMachines(running, queue, machines, capacity, new Date()) : false;
   const projected = machineLoad ? true : planning.project(running, queue, capacity, new Date());

@@ -196,6 +196,38 @@ function projectOtto(running, queue, machines, speeds, { start = 360, end = 1320
   return [...load.values()];
 }
 
+// ---- 🛟 mitigation: as many jobs on time as possible ---------------------------------------
+// Jobs that can still make their deadline go first (by deadline); those already overdue — and,
+// with a capacity, those that would be late even so — go after, oldest deadline first. Which
+// can't be saved is found as Moore–Hodgson does: work through by deadline and, whenever one would
+// finish late, set aside the longest job so far — the fewest jobs late. Pinned jobs stay first.
+// project(running, queue) runs the plan (adding finish / late_minutes) and says if it could.
+function mitigate(running, queue, { project = null, now = new Date(), maxRounds = 400 } = {}) {
+  const pinned = queue.filter((j) => j.pinned);
+  const rest = queue.filter((j) => !j.pinned);
+  const overdue = rest.filter((j) => j.deadline && localDate(j.deadline) <= now);
+  let saveable = rest.filter((j) => !overdue.includes(j)); // in deadline order already (FIFO)
+  const setAside = [];
+  if (project) {
+    for (let round = 0; round < maxRounds; round++) {
+      if (!project(running, [...pinned, ...saveable])) break;
+      const first = saveable.findIndex((j) => j.late_minutes > 0);
+      if (first < 0) break;
+      // the longest job up to the first late one makes room for the most others
+      let worst = 0;
+      for (let i = 1; i <= first; i++) if ((saveable[i].plan_minutes || 0) > (saveable[worst].plan_minutes || 0)) worst = i;
+      setAside.push(saveable[worst]);
+      saveable = saveable.filter((_, i) => i !== worst);
+    }
+  }
+  const byDeadline = (a, b) => ((a.deadline || '9') < (b.deadline || '9') ? -1 : (a.deadline || '9') > (b.deadline || '9') ? 1 : 0);
+  for (const j of pinned) j.mitigation = 'pinned';
+  for (const j of saveable) j.mitigation = 'on_time';
+  for (const j of setAside) j.mitigation = 'late_anyway';
+  for (const j of overdue) j.mitigation = 'overdue';
+  return [...pinned, ...saveable, ...[...setAside, ...overdue].sort(byDeadline)];
+}
+
 // ---- backlog: overdue work and how long catching up takes at the recent pace ----------------
 // done: [{ date: 'YYYY-MM-DD', qty }] finished; due: [{ date, qty }] all work due (done or not);
 // over the last `days` full days (from `from`, when the record starts later), counting working
@@ -629,4 +661,4 @@ function readSource({ file, uploaded, parser = parse }) {
   return { status: 'ok', file: target, name: path.basename(target), uploaded: !file, modified: stat.mtime.toISOString(), read_at: cache.read_at, ...cache.parsed };
 }
 
-module.exports = { workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, scoreJobs, deadlineScore, shiftAt, SHIFTS, DEADLINE_DEFAULTS, woOfName, OTTO_COLUMNS };
+module.exports = { workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, mitigate, scoreJobs, deadlineScore, shiftAt, SHIFTS, DEADLINE_DEFAULTS, woOfName, OTTO_COLUMNS };

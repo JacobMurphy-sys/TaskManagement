@@ -1225,6 +1225,17 @@ async function waitForServer() {
         P.scoreJobs(js, { now, rules, off: ['Matching', 'deadline'] });
         assert.deepEqual(js.map((j) => j.score), [0, 0, 3], 'modules switched off add nothing');
         assert.deepEqual(P.order([{ key: 'a', score: 1, deadline: '2026-10-06T10:00' }, { key: 'b', score: 9, deadline: '2026-10-09T10:00' }], 'score').map((j) => j.key), ['b', 'a'], 'score mode: highest first');
+        // 🛟 mitigation: one machine, 60 min a job back to back from 10:00; deadlines as below
+        {
+          const J = (key, deadline, min = 60) => ({ key, deadline, plan_minutes: min });
+          const q = [J('over', '2026-10-06T09:00'), J('a', '2026-10-06T11:00'), J('big', '2026-10-06T12:00', 180), J('b', '2026-10-06T12:30'), J('c', '2026-10-06T13:30')];
+          const fake = (r, list) => { let t = now.getTime(); for (const j of list) { t += j.plan_minutes * 60000; j.late_minutes = Math.round((t - new Date(j.deadline.replace('T', ' ')).getTime()) / 60000); } return true; };
+          assert.deepEqual(P.mitigate([], q.map((j) => ({ ...j })), { project: fake, now }).map((j) => [j.key, j.mitigation]),
+            [['a', 'on_time'], ['b', 'on_time'], ['c', 'on_time'], ['over', 'overdue'], ['big', 'late_anyway']],
+            'the 3-hour job would make b and c late too: set aside, so three are on time; the overdue and it after, oldest deadline first');
+          assert.deepEqual(P.mitigate([], [...q.map((j) => ({ ...j })), { ...J('pin', '2026-10-09T10:00'), pinned: true }], { now }).map((j) => j.key), ['pin', 'a', 'big', 'b', 'c', 'over'],
+            'with no capacity: pinned first, then not yet overdue by deadline, then overdue');
+        }
       }
       const cols = ['WO', 'PER', 'Card AX', 'QNY', 'Due Out', 'Prio', 'Status', '', 'LIVE', 'GROUP', 'Shipper', 'Shipping Time'].map((h, i) => ({ header: h, type: i === 3 ? 'number' : undefined }));
       const r = (wo, per, ax, q, due, prio, st, ship, time) => [wo, per, ax, q, due, prio, st, '', 'LIVE', 'G', ship, time];
@@ -1423,6 +1434,11 @@ async function waitForServer() {
         const imp = await fetch(`${BASE}/plan/modifiers/import`, { method: 'POST', body: wb, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
         const got = await imp.json();
         assert.deepEqual(got, { lists: { Matching: 1, Dispatch: 1, Manual: 1 }, shifts: 1, tags: 1 }, 'lists, shift values (all-zero rows skipped) and the AX / Tag list');
+        const pm = await call('GET', '/plan?mode=mitigation');
+        assert.equal(pm.mode, 'mitigation');
+        assert.ok(pm.queue.every((j) => j.mitigation), 'each job in a mitigation group');
+        const firstLate = pm.queue.findIndex((j) => j.mitigation === 'overdue' || j.mitigation === 'late_anyway');
+        assert.ok(firstLate < 0 || pm.queue.slice(firstLate).every((j) => j.mitigation !== 'on_time'), 'what can still be on time comes before what can\'t');
         let ps = await call('GET', '/plan?mode=score');
         assert.equal(ps.mode, 'score');
         assert.deepEqual([ps.queue[0].customer, ps.queue[0].score_parts.find((x) => x.module === 'Manual').note], ['AES', 'Escalation'], 'Manual +50 puts AES first');
