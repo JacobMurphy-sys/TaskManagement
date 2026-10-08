@@ -612,7 +612,7 @@ function orderSpecHtml(p, mode, now = new Date()) {
       <li><b>Shift</b> — extra points for particular customers during particular shifts.</li></ul>`,
     mitigation: `<h2>Mitigation — as many on time as possible</h2><ol>
       <li><b>Due within the next ${days} working day${days === 1 ? '' : 's'}</b> and still able to make their deadline — earliest deadline first.</li>
-      <li><b>Late anyway</b> — work orders already overdue, plus any due soon that couldn't be finished in time even if started next — oldest deadline first. Leaving these until after the ones that can still make it means fewer work orders are late overall.</li>
+      <li><b>Late anyway</b> — work orders that will miss their deadline whatever we do, oldest first. They come after the ones that can still be saved.</li>
       <li><b>Due later</b> than that — earliest deadline first.</li></ol>`,
   };
   return `<h1>🧪 How this list was ordered</h1>
