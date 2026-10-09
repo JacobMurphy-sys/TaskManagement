@@ -888,7 +888,7 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .kw-set legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
 .kw-days { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 6px; }
 .kw-set .row .f { flex: 1; }
-.kc-table td.kc-click { cursor: pointer; text-decoration: underline dotted; }
+.kc-table td.kc-click { cursor: pointer; }
 .kc-table td.kc-click:hover { background: var(--accent-soft); }
 
 .kc-tabs button { border: 0; border-radius: 0; background: none; padding: 5px 16px; font-weight: 600; }
@@ -1090,3 +1090,15 @@ body.planner-mode #page { margin-left: 0; }
 #kc-year { width: auto; }
 .kc-about { margin: 4px 0 6px; } .kc-about summary { cursor: pointer; width: max-content; } .kc-about p { margin: 4px 0 0; }
 .kc-wrap > table, .kdb-scroll > table { border-collapse: separate; border-spacing: 0; }
+/* 🔎 the detail behind a KPI figure */
+.kc-table td.kc-click:hover { outline: 1px solid var(--accent); outline-offset: -1px; }
+.kfd-head { display: flex; align-items: baseline; gap: 14px; margin: 4px 0 6px; } .kfd-value { font-size: 26px; font-weight: 700; }
+.kfd-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 8px 22px; }
+.kfd-block h4 { margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
+table.kfd td { padding: 3px 6px; } .kfd-bar { width: 40%; } .kfd-bar span { display: block; height: 8px; border-radius: 4px; background: var(--accent); opacity: .75; }
+.kfd-cases-h { margin: 14px 0 6px; }
+.kfd-case { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: var(--panel-2); }
+.kfd-case .row { gap: 8px; align-items: center; } .kfd-sum { margin: 4px 0; } .kfd-dates { color: var(--muted); }
+.kfd-case details { margin-top: 4px; } .kfd-case details > div { margin: 2px 0; }
+.kfd-sev { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 10px; background: var(--panel); border: 1px solid var(--border); }
+.kfd-critical { background: var(--danger); color: #fff; border-color: var(--danger); } .kfd-major { background: var(--danger-soft); color: var(--danger); } .kfd-minor { background: var(--warn-soft); color: var(--warn); }

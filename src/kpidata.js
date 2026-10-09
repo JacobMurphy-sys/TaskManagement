@@ -34,6 +34,16 @@ const SOURCES = {
     label: 'OTD delays', file: 'OTD Report.xlsx', sheet: 'Table1', table: 'Table1', workbook: 'OTD2.0', typedWeek: true, optional: ['day', 'month', 'reason'],
     columns: { customer: 'Customer', qty: 'Quantity', type: 'Type', day: 'Date', week: 'Week', month: 'Month', reason: 'Reason' },
   },
+  // The Salesforce complaints (an export, or the workbook's SalesforceImport2.0): one row per case,
+  // counted in the week it was opened. Shown behind the complaint figures.
+  salesforce: {
+    label: 'Salesforce complaints', file: 'Salesforce.xlsx', sheet: 'Salesforce', workbook: 'SalesforceImport2.0',
+    optional: ['kind', 'owner', 'target', 'contained', 'closed', 'status', 'category', 'summary', 'defect', 'failure', 'origin', 'cause', 'non_detection', 'parts', 'recurrence', 'failure_type', 'cost'],
+    columns: { ref: 'Reference number', kind: 'Type', owner: 'Case Owner', customer: 'Account Name', day: 'Opened Date', target: 'Containement target date', contained: 'Date contained',
+      closed: 'Closed Date', status: 'Status', type: 'Severity', category: 'Product category', summary: 'Summary of the issue', defect: 'Defect Type', failure: 'Failure / No failure',
+      origin: 'Failure Origin', cause: 'Root cause for occurrence', non_detection: 'Root cause for non detection', parts: 'How many parts are confirmed defective?',
+      recurrence: 'Re-occurence', failure_type: 'FAILURE TYPE', cost: 'Total cost (Euros)' },
+  },
 };
 // Customer forecasts: read when an A3 is built, into the workbook sheet its query fills
 // (the file's sheet, first row as headers, into the Excel table of that name).
@@ -244,11 +254,13 @@ function storeSource(name, rows, meta = {}) {
       if (day && (!first || day < first)) first = day;
       if (day && (!last || day > last)) last = day;
       const dateWeek = day ? weekCode(day, { splitWeekends }) : null;
-      const extra = name === 'remakes' ? JSON.stringify({ wo: r.wo ?? null, machine: r.machine ?? null, mode: r.mode ?? null, time: r.time ?? null, perso_day: dayOf(r.perso_day) })
+      const sfExtra = () => JSON.stringify(Object.fromEntries(['ref', 'kind', 'owner', 'status', 'category', 'summary', 'defect', 'failure', 'origin', 'cause', 'non_detection', 'parts', 'recurrence', 'failure_type', 'cost']
+        .map((k) => [k, r[k] ?? null]).concat([['target', dayOf(r.target)], ['contained', dayOf(r.contained)], ['closed', dayOf(r.closed)]])));
+      const extra = name === 'salesforce' ? sfExtra() : name === 'remakes' ? JSON.stringify({ wo: r.wo ?? null, machine: r.machine ?? null, mode: r.mode ?? null, time: r.time ?? null, perso_day: dayOf(r.perso_day) })
         : typed ? JSON.stringify({ reason: r.reason ?? null, typed_week: typedWeek, date_week: dateWeek, week_raw: r.week ?? null, month_raw: r.month ?? null })
           : (r.due !== undefined ? JSON.stringify({ due: dayOf(r.due) }) : null);
       ins.run(name, day || '', typed ? (typedWeek || '') : dateWeek, r.customer === null ? null : String(r.customer).trim(), r.type === null ? null : String(r.type).trim(),
-        Number(r.qty) || 0, Number(r.scrap) || 0, extra);
+        name === 'salesforce' ? 1 : Number(r.qty) || 0, Number(r.scrap) || 0, extra);
     }
     db.run(`INSERT INTO kpi_sources (source, file, modified, imported_at, rows, skipped, first_day, last_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(source) DO UPDATE SET file = excluded.file, modified = excluded.modified, imported_at = excluded.imported_at,
@@ -345,7 +357,7 @@ function weeklyVolumes(year) {
   }
   // activity filed under a week code the report doesn't list (weekends in split weeks)
   const listed = new Set(weeks.map((w) => w.week));
-  const unlisted = sums.filter((r) => r.source !== 'otd' && !listed.has(r.week) && r.qty).map((r) => ({ source: r.source, week: r.week, ps: r.ps, isi: r.isi, pin: r.pin, qty: r.qty }));
+  const unlisted = sums.filter((r) => r.source !== 'otd' && r.source !== 'salesforce' && !listed.has(r.week) && r.qty).map((r) => ({ source: r.source, week: r.week, ps: r.ps, isi: r.isi, pin: r.pin, qty: r.qty }));
   // OTD rows whose date and typed week disagree (dates read as month/day, usually)
   const otdRows = db.all("SELECT customer, qty, type, day, week, extra FROM kpi_rows WHERE source = 'otd'").map((r) => ({ ...r, ...JSON.parse(r.extra || '{}') }));
   // not counted: no usable week typed, or a split week without telling which part
@@ -403,6 +415,48 @@ function otdRows(week) {
     .map((r) => { const e = JSON.parse(r.extra || '{}'); return { customer: r.customer, qty: r.qty, type: r.type, date: r.day || null, week_typed: e.week_raw ?? null, month: e.month_raw ?? null, reason: e.reason ?? null, date_week: e.date_week || null }; });
 }
 
+// 🔎 What's behind one figure of the Database table (a week and a column): for volumes, the
+// customers, days and types the source rows add up to; for scrap, also the machines, modes and
+// work orders; for the typed-in figures, what was typed and when.
+const VOLUME_FILTER = {
+  ps: (r) => /card/i.test(r.type || '') && r.customer !== ISI_CUSTOMER,
+  isi: (r) => /card/i.test(r.type || '') && r.customer === ISI_CUSTOMER,
+  pin: (r) => /pin/i.test(r.type || ''),
+  total: (r) => /card/i.test(r.type || ''),
+};
+function figureDetail(week, col) {
+  ensure();
+  week = String(week || '').toUpperCase();
+  const group = (rows, key, top = 0) => {
+    const m = new Map();
+    for (const r of rows) { const k = key(r) || '(blank)'; m.set(k, (m.get(k) || 0) + (r.qty || 0)); }
+    const list = [...m.entries()].map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty || String(a.name).localeCompare(String(b.name)));
+    return top ? list.slice(0, top) : list;
+  };
+  const days = (rows) => group(rows, (r) => r.day).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const vm = /^(perso|shipped)_(ps|isi|pin|total)$/.exec(col);
+  if (vm) {
+    const rows = db.all('SELECT day, customer, type, qty FROM kpi_rows WHERE source = ? AND week = ?', [vm[1], week]).filter(VOLUME_FILTER[vm[2]]);
+    return { kind: 'volume', week, col, source: vm[1], total: rows.reduce((t, r) => t + r.qty, 0), rows: rows.length,
+      by_customer: group(rows, (r) => r.customer), by_day: days(rows), by_type: group(rows, (r) => r.type) };
+  }
+  if (col === 'scrap') {
+    const rows = db.all("SELECT day, customer, type, qty, extra FROM kpi_rows WHERE source = 'remakes' AND week = ?", [week]).map((r) => ({ ...r, ...JSON.parse(r.extra || '{}') }));
+    return { kind: 'scrap', week, col, total: rows.reduce((t, r) => t + r.qty, 0), rows: rows.length,
+      by_customer: group(rows, (r) => r.customer), by_day: days(rows), by_machine: group(rows, (r) => r.machine), by_mode: group(rows, (r) => r.mode),
+      by_wo: group(rows, (r) => r.wo, 10), by_type: group(rows, (r) => r.type) };
+  }
+  const m = db.get('SELECT * FROM kpi_manual WHERE week = ?', [week]) || null;
+  // complaints: the Salesforce cases opened in the week (of that severity)
+  const sev = { cc_critical: 'critical', cc_major: 'major', cc_minor: 'minor' }[col];
+  const cases = /^cc_|^complaints$/.test(col) ? db.all("SELECT day, customer, type, extra FROM kpi_rows WHERE source = 'salesforce' AND week = ? ORDER BY day", [week])
+    .map((r) => ({ opened: r.day || null, customer: r.customer, severity: r.type, ...JSON.parse(r.extra || '{}') }))
+    .filter((c) => !sev || String(c.severity || '').trim().toLowerCase() === sev) : null;
+  const sfSource = db.get("SELECT imported_at, file FROM kpi_sources WHERE source = 'salesforce'") || null;
+  return { kind: 'manual', week, col, cases, salesforce: sfSource, typed: m ? { hours: m.hours, protime: m.protime ? JSON.parse(m.protime) : null, hours_from_protime: m.protime ? hoursFromProtime(JSON.parse(m.protime)) : null,
+    contract: m.contract, temps: m.temps, cc_critical: m.cc_critical, cc_major: m.cc_major, cc_minor: m.cc_minor, created_at: m.created_at, updated_at: m.updated_at } : null };
+}
+
 function sourcesStatus() {
   ensure();
   const have = Object.fromEntries(db.all('SELECT * FROM kpi_sources').map((r) => [r.source, r]));
@@ -428,4 +482,4 @@ const hoursFromProtime = (days) => {
   return Math.round((all.reduce((a, b) => a + b, 0) * 7.5 + weekdays * 7.5) * 100) / 100;
 };
 
-module.exports = { SOURCES, FORECASTS, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, typedWeekCode, monthIndex, otdRows, topScrap, shippedFor, weekEnd, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };
+module.exports = { figureDetail, SOURCES, FORECASTS, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, typedWeekCode, monthIndex, otdRows, topScrap, shippedFor, weekEnd, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };

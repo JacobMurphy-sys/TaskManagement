@@ -620,8 +620,9 @@ function kpiTablesHtml(calc, tab) {
         if (same(w[k], ex[k])) cls = 'kc-ok';
         else { cls = 'kc-diff'; differ++; rowDiff = true; title = `Excel: ${kpiFmt(k, ex[k])}`; }
       }
-      const drill = (k === 'otd_internal' || k === 'otd_external') && w[k] ? ` data-kc-otd="${esc(w.week)}"` : '';
-      return `<td class="num ${cls}${group && i ? ' kc-sep' : ''}${manual ? ' kc-manual' : ''}${drill ? ' kc-click' : ''}"${drill} ${title ? `title="${esc(title)}"` : (drill ? 'title="Show the OTD report rows"' : '')}>${kpiFmt(k, w[k])}${cls === 'kc-diff' ? `<span class="kc-was">${esc(kpiFmt(k, ex[k]))}</span>` : ''}</td>`;
+      // a click on a figure shows what's behind it (the delays: the OTD report rows)
+      const drill = (k === 'otd_internal' || k === 'otd_external') ? (w[k] ? ` data-kc-otd="${esc(w.week)}"` : '') : ` data-kc-detail="${esc(k)}|${esc(w.week)}"`;
+      return `<td class="num ${cls}${group && i ? ' kc-sep' : ''}${manual ? ' kc-manual' : ''}${drill ? ' kc-click' : ''}"${drill} title="${esc([title, drill ? (drill.includes('otd') ? 'Click: the OTD report rows' : 'Click for the details') : ''].filter(Boolean).join(' · '))}">${kpiFmt(k, w[k])}${cls === 'kc-diff' ? `<span class="kc-was">${esc(kpiFmt(k, ex[k]))}</span>` : ''}</td>`;
     }).join('');
     return `<tr class="${empty ? 'kc-empty' : ''} ${rowDiff ? 'kc-rowdiff' : ''} ${w.week === calc.excel?.week ? 'kc-current' : ''}"><td>${esc(w.month)}</td><td><b>${esc(w.week)}</b></td>${cells}${edit ? `<td><button class="icon" data-kc-edit="${esc(w.week)}" title="Type in this week's figures">✎</button></td>` : ''}</tr>`;
   };
@@ -660,6 +661,8 @@ function wireKpiTables() {
 async function kpiTablesClick(e, calc) {
   const od = e.target.closest('[data-kc-otd]');
   if (od) { kpiOtdRows(od.dataset.kcOtd); return true; }
+  const fd = e.target.closest('[data-kc-detail]');
+  if (fd) { const [col, week] = fd.dataset.kcDetail.split('|'); kpiFigureDetail(col, week, calc); return true; }
   const ed = e.target.closest('[data-kc-edit]');
   if (ed) { kpiWeekForm(calc.weeks.find((w) => w.week === ed.dataset.kcEdit)); return true; }
   if (e.target.closest('[data-kc-copy]')) {
@@ -838,6 +841,93 @@ function kpiWeekForm(w) {
       closeModal();
     } catch (err) { toast(err.message, 'error'); }
   });
+}
+
+// 🔎 What's behind one figure: volumes by customer, day and type; scrap also by machine, mode and
+// work order; typed-in figures as typed (Protime per day for the hours); KPIs as their sum.
+async function kpiFigureDetail(col, week, calc) {
+  const all = [...KPI_SOURCE_COLS, ...KPI_KPI_COLS];
+  let groupName = ''; const label = (() => { for (const [k, l, g] of all) { if (g) groupName = g; if (k === col) return col === 'scrap' ? 'Scrap' : `${groupName} — ${l}`; } return col; })();
+  const w = calc.weeks.find((x) => x.week === week) || {};
+  const ex = calc.excel?.weeks?.[week];
+  const n = (v, d = 0) => (v === null || v === undefined ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: d }));
+  const dayName = (d) => (d && /^\d{4}-/.test(d) ? new Date(`${d}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : d || '(no date)');
+  // a small table with a bar for each line's share
+  const bars = (title, list, { fmt = (v) => n(v), name = (x) => x, limit = 0 } = {}) => {
+    if (!list?.length) return '';
+    const tot = list.reduce((t, x) => t + x.qty, 0) || 1; const max = Math.max(...list.map((x) => x.qty)) || 1;
+    return `<div class="kfd-block"><h4>${esc(title)}</h4><table class="log small kfd"><tbody>${list.map((x, i) => `<tr ${limit && i >= limit ? 'class="kfd-hide" hidden' : ''}><td>${esc(name(x.name))}</td>
+      <td class="kfd-bar"><span style="width:${Math.max(2, Math.round((x.qty / max) * 100))}%"></span></td><td class="num"><b>${fmt(x.qty)}</b></td><td class="num muted">${Math.round((x.qty / tot) * 100)}%</td></tr>`).join('')}
+      ${limit && list.length > limit ? `<tr class="kfd-more"><td colspan="4"><button class="link small" onclick="const t = this.closest('tbody'); t.querySelectorAll('.kfd-hide').forEach((r) => { r.hidden = false; }); this.closest('tr').remove();">+ ${list.length - limit} more</button></td></tr>` : ''}</tbody></table></div>`;
+  };
+  const head = (value) => `<div class="kfd-head"><div class="kfd-value">${value}</div>${ex && ex[col] !== null && ex[col] !== undefined ? `<div class="small ${Math.abs((ex[col] || 0) - (w[col] || 0)) < 1e-6 * Math.max(1, Math.abs(ex[col] || 0)) ? 'pl-ok' : 'pl-late'}">Excel: ${esc(kpiFmt(col, ex[col]))}</div>` : ''}</div>`;
+  let body = '';
+  // the KPIs: how each is worked out, with this week's numbers
+  const k = (v) => n(v * 1000);
+  const formulas = {
+    otd_sc: () => `1 − internal delays ÷ cards shipped = 1 − ${k(w.otd_internal)} ÷ ${k(w.shipped_total)}`,
+    otd_global: () => `1 − (internal + external delays) ÷ cards shipped = 1 − (${k(w.otd_internal)} + ${k(w.otd_external)}) ÷ ${k(w.shipped_total)}`,
+    cpms: () => `complaints ÷ cards shipped × 1,000,000 = ${n(w.complaints)} ÷ ${k(w.shipped_total)} × 1,000,000`,
+    scrap_rate: () => `scrap ÷ cards persoed = ${n(w.scrap)} ÷ ${k(w.perso_total)}`,
+    productivity: () => `cards persoed ÷ working hours = ${k(w.perso_total)} ÷ ${n(w.hours, 2)}`,
+    hc: () => `contract + temps = ${n(w.contract)} + ${n(w.temps)}`,
+  };
+  if (formulas[col]) {
+    body = `${head(esc(kpiFmt(col, w[col]) || '—'))}<p>${esc(formulas[col]())}</p><p class="small muted">Click the figures on the Source tab for what's behind each of them.</p>`;
+  } else {
+    let d; try { d = await api.get(`/kpi/calc/detail?week=${encodeURIComponent(week)}&col=${encodeURIComponent(col)}`); } catch (err) { toast(err.message, 'error'); return; }
+    if (d.kind === 'volume' || d.kind === 'scrap') {
+      const unit = d.kind === 'scrap' ? 'cards scrapped' : 'cards';
+      body = `${head(`${n(d.total)} <span class="small muted">${unit}${d.kind === 'volume' ? ` (${esc(kpiFmt(col, d.total / 1000))} kU)` : ''}</span>`)}
+        <p class="small muted">${n(d.rows)} row${d.rows === 1 ? '' : 's'} of the ${esc(d.kind === 'scrap' ? 'remakes' : d.source)} export in ${esc(week)}.${col.endsWith('_ps') ? ' PS = every customer but Techniker Krankenkasse (ISI).' : ''}</p>
+        ${d.rows ? `<div class="kfd-grid">${bars('By customer', d.by_customer, { limit: 12 })}${bars('By day', d.by_day, { name: dayName })}
+          ${d.kind === 'scrap' ? `${bars('By machine', d.by_machine, { limit: 10 })}${bars('By mode', d.by_mode)}${bars('Top work orders', d.by_wo)}` : ''}
+          ${d.by_type?.length > 1 ? bars('By type', d.by_type) : ''}</div>` : '<p class="muted">Nothing in the export for this week.</p>'}`;
+    } else {
+      const t = d.typed || {};
+      const when = t.updated_at ? `<p class="small muted">Typed in ${esc(fmtDateTime(t.created_at))}${t.updated_at !== t.created_at ? `, last changed ${esc(fmtDateTime(t.updated_at))}` : ''}.</p>` : '';
+      if (col === 'hours') {
+        const labels = ['Sun night', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+        body = `${head(`${n(w.hours, 2)} <span class="small muted">hours</span>`)}
+          ${t.protime ? `<table class="log small kfd"><thead><tr><th>Day</th><th class="num">Present (Protime)</th><th class="num">Hours</th></tr></thead><tbody>
+            ${labels.map((l, i) => { const v = t.protime[i]; const has = v !== null && v !== undefined && v !== ''; return `<tr><td>${l}</td><td class="num">${has ? n(v) : '—'}</td><td class="num">${has ? n(Number(v) * 7.5 + (i > 0 && Number(v) > 0 ? 7.5 : 0), 1) : ''}</td></tr>`; }).join('')}</tbody></table>
+            <p class="small muted">Each person present works a 7.5 h shift, plus 7.5 h for the full-time support staff on each weekday with anyone present.</p>`
+          : `<p class="muted">${t.hours !== null && t.hours !== undefined ? 'Typed in as a total — no Protime counts for this week.' : 'Nothing typed in for this week yet.'}</p>`}${when}`;
+      } else if (/^cc_|^complaints$/.test(col)) {
+        body = `${head(`${n(w[col])} <span class="small muted">complaint${w[col] === 1 ? '' : 's'}</span>`)}
+          <table class="log small kfd"><tbody><tr><td>Critical</td><td class="num"><b>${n(t.cc_critical)}</b></td></tr><tr><td>Major</td><td class="num"><b>${n(t.cc_major)}</b></td></tr><tr><td>Minor</td><td class="num"><b>${n(t.cc_minor)}</b></td></tr></tbody></table>
+          ${when || '<p class="small muted">Nothing typed in for this week (counted as 0).</p>'}
+          ${kpiCasesHtml(d, col, w)}`;
+      } else {
+        body = `${head(`${n(w[col], 2)}`)}<table class="log small kfd"><tbody><tr><td>Contract</td><td class="num"><b>${n(t.contract)}</b></td></tr><tr><td>Temps</td><td class="num"><b>${n(t.temps)}</b></td></tr></tbody></table>${when || '<p class="small muted">Nothing typed in for this week yet.</p>'}`;
+      }
+    }
+  }
+  openModal(`<div class="modal-head"><h2 style="margin:0">${esc(label)} <span class="muted">· ${esc(week)}</span></h2><button class="icon" data-action="close-modal">✕</button></div>
+    ${body}<div class="row" style="margin-top:12px"><div class="spacer"></div><button onclick="closeModal()">Close</button></div>`, { wide: true });
+}
+
+// The Salesforce cases opened in the week (of the severity clicked), each with what Salesforce holds.
+function kpiCasesHtml(d, col, w) {
+  if (!d.salesforce) return '<div class="kc-note small">Link the <b>Salesforce</b> export on the Sources tab (or read it from the workbook\'s SalesforceImport2.0 sheet) to see each complaint here.</div>';
+  const cases = d.cases || [];
+  const sev = { cc_critical: 'Critical', cc_major: 'Major', cc_minor: 'Minor' }[col];
+  const typed = w[col] ?? 0;
+  const dd = (x) => (x ? new Date(`${x}T12:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—');
+  const chip = (s) => `<span class="kfd-sev kfd-${esc(String(s || '').toLowerCase())}">${esc(s || '?')}</span>`;
+  const line = (label, v) => (v === null || v === undefined || v === '' ? '' : `<div><span class="muted">${label}:</span> ${esc(String(v))}</div>`);
+  return `<h4 class="kfd-cases-h">Salesforce — ${cases.length} ${sev ? `${sev.toLowerCase()} ` : ''}case${cases.length === 1 ? '' : 's'} opened in ${esc(d.week)}
+      ${cases.length !== typed ? `<span class="pl-late small">· ${typed} typed in</span>` : ''}</h4>
+    ${cases.map((c) => `<div class="kfd-case">
+      <div class="row"><b>${esc(c.ref || '—')}</b> ${chip(c.severity)} <b>${esc(c.customer || '')}</b><span class="spacer"></span><span class="small muted">${esc(c.status || '')}</span></div>
+      <div class="kfd-sum">${esc(c.summary || '')}</div>
+      <div class="small kfd-dates">Opened <b>${dd(c.opened)}</b> · contain by ${dd(c.target)} · contained ${dd(c.contained)} · closed ${dd(c.closed)}${c.owner ? ` · owner ${esc(c.owner)}` : ''}</div>
+      <details class="small"><summary>More</summary>
+        ${line('Category', c.category)}${line('Defect type', c.defect)}${line('Failure', c.failure)}${line('Origin', c.origin)}${line('Failure type', c.failure_type)}
+        ${line('Parts confirmed defective', c.parts)}${line('Re-occurrence', c.recurrence)}${line('Total cost (€)', c.cost)}
+        ${line('Root cause (occurrence)', c.cause)}${line('Root cause (non-detection)', c.non_detection)}</details>
+    </div>`).join('') || '<p class="small muted">No cases opened in this week.</p>'}
+    <p class="small muted">From ${esc(d.salesforce.file ? d.salesforce.file.split(/[\\/]/).pop() : 'Salesforce')}, read ${esc(fmtDateTime(d.salesforce.imported_at))}. A case counts in the week it was opened.</p>`;
 }
 
 // The OTD report rows behind a week's delays.

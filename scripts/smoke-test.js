@@ -1023,6 +1023,16 @@ async function waitForServer() {
       calc = await call('GET', '/kpi/calc?year=2026');
       assert.deepEqual([wkOf('W2614_1').perso_ps, wkOf('W2614_2').perso_ps, calc.unlisted.length, calc.split_weekends], [1.3, 0.05, 0, true], 'weekends counted in their month\'s part');
       await call('POST', '/kpi/calc/weekends', { split: false });
+      // 🔎 the detail behind a figure: customers, days and types; scrap also machines and work orders
+      {
+        const dv = await call('GET', '/kpi/calc/detail?week=W2614_2&col=perso_total');
+        assert.deepEqual([dv.kind, dv.total, dv.by_customer.map((x) => [x.name, x.qty]), dv.by_day.map((x) => x.name)], ['volume', 500, [['Techniker Krankenkasse', 500]], ['2026-04-01']],
+          'the card rows of the week (the same 0.5 kU as the table: Saturday is in plain W2614), by customer and by day');
+        assert.deepEqual((await call('GET', '/kpi/calc/detail?week=W2614_2&col=perso_pin')).by_type.map((x) => x.name), ['PIN']);
+        const ds = await call('GET', '/kpi/calc/detail?week=W2614_1&col=scrap');
+        assert.deepEqual([ds.kind, ds.total, ds.by_machine[0].name, ds.by_wo.map((x) => x.name)], ['scrap', 2, 'MX#3', ['WO1', 'WO2']]);
+        await assert.rejects(call('GET', '/kpi/calc/detail?week=nope&col=scrap'), /Which week/);
+      }
       // OTD from Production's report: typed weeks (dates often missing or day/month swapped)
       const otdF = src('OTD Report.xlsx', [['Customer'], ['Quantity', 'number'], ['Type'], ['Date', 'date'], ['Week'], ['Month'], ['Reason']], [
         ['ADY', 50, 'Internal', '2026-03-30', 'W2614_1', 'Mar', 'Card stock out'], ['BEL', 400, 'Internal', '2026-02-04', 'W2614_2', 'Apr', 'Machine Issues'],
@@ -1037,6 +1047,21 @@ async function waitForServer() {
       assert.deepEqual(calc.otd_checks.map((c) => [c.customer, c.date, c.typed_week, c.date_week, c.swapped]), [['BEL', '2026-02-04', 'W2614_2', 'W2606', true]], 'day/month swap spotted');
       assert.deepEqual(calc.otd_uncounted.map((c) => [c.customer, c.qty, c.why]), [['X', 5, 'no week typed']], 'a row without a week isn\'t counted (as in Excel), but listed');
       assert.deepEqual((await call('GET', '/kpi/calc/otd?week=W2614_2')).map((r) => [r.customer, r.qty, r.date_week]), [['ICA', 100, null], ['BEL', 400, 'W2606']], 'the rows behind a week');
+      // Salesforce complaints: one row per case, in the week it was opened; behind the complaint figures
+      {
+        const sfF = src('Salesforce.xlsx', [['Reference number'], ['Type'], ['Case Owner'], ['Account Name'], ['Opened Date'], ['Date contained'], ['Closed Date'], ['Status'], ['Severity'], ['Product category'], ['Summary of the issue'], ['Total cost (Euros)', 'number']], [
+          ['00284776', 'Customer Complaint', 'Nadia', 'Advanzia S A', '31-03-2026', '01-04-2026', '', 'Analysis', 'Major', 'Bank card', 'Cards sent to wrong address', 0],
+          ['00284947', 'Customer Complaint', 'Linda', 'Belfius Bank NV', '01-04-2026', '', '', 'Implementation', 'Minor', 'Bank card', '2 cards in 1 envelope', 5],
+          ['00243149', 'Customer Complaint', 'Linda', 'MONIZZE SA', '', '', '', 'Closed', 'Major', 'Service', 'no date', 0]]);
+        await call('PATCH', '/settings', { kpi_src_salesforce: sfF });
+        const si = (await call('POST', '/kpi/calc/import', {})).find((r) => r.source === 'salesforce');
+        assert.deepEqual([si.status, si.rows, si.skipped], ['imported', 2, 1], 'a case without an opened date is skipped');
+        const cm = await call('GET', '/kpi/calc/detail?week=W2614_1&col=cc_major');
+        assert.deepEqual(cm.cases.map((c) => [c.ref, c.customer, c.severity, c.opened, c.contained, c.summary]), [['00284776', 'Advanzia S A', 'Major', '2026-03-31', '2026-04-01', 'Cards sent to wrong address']], 'the major cases opened in the week');
+        assert.equal((await call('GET', '/kpi/calc/detail?week=W2614_1&col=cc_minor')).cases.length, 0);
+        assert.deepEqual((await call('GET', '/kpi/calc/detail?week=W2614_2&col=complaints')).cases.map((c) => c.ref), ['00284947'], 'all severities behind the total');
+        assert.ok(!(await call('GET', '/kpi/calc?year=2026')).unlisted.some((u) => u.source === 'salesforce'), 'cases aren\'t volumes');
+      }
       // week numbers typed other ways; a date never decides the week
       const otd2 = src('OTD Report 2.xlsx', [['Customer'], ['Quantity', 'number'], ['Type'], ['Date', 'date'], ['Week'], ['Month'], ['Reason']], [
         ['A', 1000, 'Internal', '2026-10-09', '37', 'Sept', 'swapped date, week typed as a number'], ['B', 2000, 'Internal', null, 'Wk 14', 'Mar', 'split week: part from the month'],

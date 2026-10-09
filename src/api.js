@@ -1473,7 +1473,7 @@ router.get('/kpi/calc', h((req, res) => {
 router.post('/kpi/calc/import', h((req, res) => {
   const set = getSettings();
   const results = kpiData.importSources({
-    paths: { perso: set.kpi_src_perso, shipped: set.kpi_src_shipped, remakes: set.kpi_src_remakes, otd: set.kpi_src_otd },
+    paths: { perso: set.kpi_src_perso, shipped: set.kpi_src_shipped, remakes: set.kpi_src_remakes, otd: set.kpi_src_otd, salesforce: set.kpi_src_salesforce },
     workbook: set.kpi_workbook_path || null, force: !!req.body.force, splitWeekends: splitWeekends(),
   });
   log.info('KPI sources imported', results.map((r) => `${r.source}: ${r.status}${r.rows !== undefined ? ` (${r.rows})` : ''}`).join(', '));
@@ -1646,6 +1646,12 @@ router.post('/kpi/build', h((req, res) => {
   res.status(201).json({ ...kpiMeta(saved), flags: w.flags });
 }));
 
+// 🔎 The detail behind one figure of the Database table (?week=W2639&col=perso_ps).
+router.get('/kpi/calc/detail', h((req, res) => {
+  if (!kpiData.WEEK_RE.test(String(req.query.week || ''))) throw new HttpError(400, 'Which week?');
+  if (!/^[a-z_]+$/.test(String(req.query.col || ''))) throw new HttpError(400, 'Which figure?');
+  res.json(kpiData.figureDetail(req.query.week, req.query.col));
+}));
 router.get('/kpi/calc/otd', h((req, res) => {
   const week = String(req.query.week || '').trim().toUpperCase();
   if (!kpiData.WEEK_RE.test(week)) throw new HttpError(400, 'Not a week code');
@@ -2156,7 +2162,7 @@ const SETTING_DEFAULTS = {
   kpi_export_dir: '', kpi_export_sub: 'WK{wk}', kpi_export_name: 'A3 {year} WK{wk}.xlsx',
   // The source files the KPIs are worked out from (blank: use the workbook's import sheets),
   // and whether weekend days in a week split across two months count in their month's part.
-  kpi_src_perso: '', kpi_src_shipped: '', kpi_src_remakes: '', kpi_src_otd: '', kpi_split_weekends: '0',
+  kpi_src_perso: '', kpi_src_shipped: '', kpi_src_remakes: '', kpi_src_otd: '', kpi_src_salesforce: '', kpi_split_weekends: '0',
   // The customer forecast files (blank: the workbook's copy of them).
   kpi_fc_benelux: '', kpi_fc_amex: '',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
