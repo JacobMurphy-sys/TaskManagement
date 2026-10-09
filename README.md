@@ -118,7 +118,7 @@ The workbook is needed once, for the A3's layout and formulas (📥 Load from Ex
 
 1. In Excel, refresh the CI workbook and pick the reporting week as usual, then **save** it (the CI Manager reads the values Excel saved; nothing is recalculated).
 2. In the CI Manager open **📊 KPIs** → **Sources** once (every file location is set there): where the workbook is saved, and where the A3s go — the **A3 folder** that holds the week folders (e.g. `S:\…\Weekly - Monthly OPS Report\{year}\Weekly`), the **week folder** (`WK{wk}`) and the **file name** (e.g. `SC … {year} WK{wk}.xlsx`). `{wk}` is the week as the folders are named — `04`, `39`, or `14_1` / `14_2` for a week split across two months (`{num}`: the number alone); `{year}` → 2026, so next year's folder follows on its own; `{week}` → W2639. The page shows where the latest, a single-digit and a split week would be saved; missing folders are created. The sheet names and the cell holding the week (`Database!B2`) can be changed there too.
-3. **📥 Load this week** (or **📂 Load file…** for a copy). Loading a week again replaces it.
+3. **📥 Load this week** (or **📂 File…** for a copy). Loading a week again replaces it.
 4. Check the **A3 Weekly Report** and **Database** tabs (zoom with the slider; *Fit* fits the A3 to the window), then **💾 Save A3 to folder**. The page shows where and when it was saved; a cell showing an Excel error (#N/A…) is flagged.
 
 Past weeks stay in the list, so any earlier A3 can be viewed or saved again.

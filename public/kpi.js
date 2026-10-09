@@ -36,8 +36,8 @@ async function renderKpi(arg, tab) {
       <div class="spacer"></div>
       <a class="button primary" href="#/kpi/prepare" title="Read the latest exports, fill in the week, build its A3 and save it — step by step">▶ Prepare this week</a>
       ${settings.kpi_workbook_path ? '<button data-kpi="load-path" title="Read the workbook from where it\'s saved (Excel\'s own copy of the week)">📥 Load from Excel</button>' : ''}
-      <label class="button" title="Choose a copy of the workbook">📂 Load file…<input type="file" accept=".xlsm,.xlsx" hidden id="kpi-file"></label>
-      ${snap ? `<button data-kpi="save" ${settings.kpi_export_dir ? '' : 'disabled title="Set the export folder on Sources first"'}>💾 Save A3 to folder</button>
+      <label class="button" title="Load a copy of the workbook from a file">📂 File…<input type="file" accept=".xlsm,.xlsx" hidden id="kpi-file"></label>
+      ${snap && view === 'a3' ? `<button data-kpi="save" ${settings.kpi_export_dir ? '' : 'disabled title="Set the export folder on Sources first"'}>💾 Save A3 to folder</button>
         <button data-kpi="download" title="Download the A3 (values only, charts as pictures)">⬇ A3</button>` : ''}
     </div>
     ${setupMissing ? `<div class="kpi-actions"><div class="kpi-action"><span>⚠ ${!settings.kpi_workbook_path ? 'Set where the CI workbook is saved' : 'Set the folder the A3 is saved in'} to load weeks and save the A3.</span><a class="button small" href="#/kpi/sources">Go to Sources</a></div></div>` : ''}
@@ -638,13 +638,14 @@ function kpiTablesHtml(calc, tab) {
         ${xl ? `<span class="kc-summary ${shown.differ ? 'bad' : 'good'}">${shown.differ ? `⚠ ${shown.differ} of ${shown.checked} figures differ from Excel` : `✔ All ${shown.checked} figures match Excel`}</span>
           ${otherDiffer ? `<span class="small muted">(${otherDiffer} on the ${tab === 'kpi' ? 'Source' : 'KPI'} tab)</span>` : ''}` : ''}
         <div class="spacer"></div>
+        ${tab === 'source' && otdIssues ? `<a class="small" href="#/kpi/sources">⚠ ${otdIssues} OTD report row${otdIssues === 1 ? '' : 's'} to check</a>` : ''}
         <label class="small row"><input type="checkbox" id="kc-only" ${store.get('kcOnly', false) ? 'checked' : ''}> Only weeks that differ</label>
         ${tab === 'source' ? '<button data-kc-copy title="Fill weeks with nothing typed in yet from Excel\'s Database sheet (the loaded week)">⇩ Copy typed-in figures from Excel</button>' : ''}</div>
-      <p class="small muted">${tab === 'source'
+      <details class="kc-about" ${store.get('kcAbout', false) ? 'open' : ''}><summary class="small muted">ⓘ About this table</summary><p class="small muted">${tab === 'source'
         ? `Volumes in kU (thousands), scrap in units. Delays come from the OTD report (click one to see its rows). <span class="kc-manual-key">Shaded</span> columns are typed in each week with ✎ — HR (hours from Protime) and complaints (until the Salesforce export is ready).`
         : 'OTD SC = 1 − internal delays ÷ cards shipped (OTD Global includes external delays) · CPMS = complaints per million cards shipped · Scrap % = scrap ÷ cards persoed · Productivity = cards persoed per working hour · Headcount = contract + temps.'}
         ${calc.excel ? (xl ? ` Checked against Excel's Database sheet (${esc(calc.excel.week)}, loaded ${esc(fmtDateTime(calc.excel.loaded_at))}): green = same, red = different, with Excel's figure underneath.` : ' Load the week again on the A3 tab to check these against Excel.') : ' Load a week on the A3 tab to check these against Excel.'}
-        ${tab === 'source' && otdIssues ? ` <a href="#/kpi/sources">⚠ ${otdIssues} OTD report row${otdIssues === 1 ? '' : 's'} to check</a>` : ''}</p>
+</p></details>
       <div class="kc-wrap"><table class="log kc-table kc-compact ${tab === 'kpi' ? 'kc-kpi' : ''} ${store.get('kcOnly', false) ? 'kc-only' : ''}" id="kc-table"><thead>
         <tr><th></th><th></th>${groups.map((g, i) => `<th colspan="${g.n}" class="kc-group${i ? ' kc-sep' : ''}">${esc(g.g)}</th>`).join('')}${tab === 'source' ? '<th></th>' : ''}</tr>
         <tr><th>Month</th><th>Week</th>${cols.map(([, l, g, manual], i) => `<th class="num${g && i ? ' kc-sep' : ''}${manual ? ' kc-manual' : ''}">${esc(l)}</th>`).join('')}${tab === 'source' ? '<th></th>' : ''}</tr></thead>
@@ -652,6 +653,7 @@ function kpiTablesHtml(calc, tab) {
 }
 function wireKpiTables() {
   $('#kc-year')?.addEventListener('change', (e) => { store.set('kpiYear', Number(e.target.value)); route(); });
+  $('.kc-about')?.addEventListener('toggle', (e) => store.set('kcAbout', e.target.open));
   $('#kc-only')?.addEventListener('change', (e) => { store.set('kcOnly', e.target.checked); $('#kc-table').classList.toggle('kc-only', e.target.checked); });
 }
 // Clicks in the tables; true when handled.

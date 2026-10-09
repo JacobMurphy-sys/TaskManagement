@@ -1086,3 +1086,7 @@ body.planner-mode #page { margin-left: 0; }
 .kc-table thead tr:first-child th { box-shadow: none; }
 @media print { .kc-wrap, .kdb-scroll { max-height: none; overflow: visible; } }
 .kc-table thead th.kc-manual { background: var(--panel-2); }
+/* the year box fits its text; the sticky header paints over the rows completely (separate borders) */
+#kc-year { width: auto; }
+.kc-about { margin: 4px 0 6px; } .kc-about summary { cursor: pointer; width: max-content; } .kc-about p { margin: 4px 0 0; }
+.kc-wrap > table, .kdb-scroll > table { border-collapse: separate; border-spacing: 0; }
