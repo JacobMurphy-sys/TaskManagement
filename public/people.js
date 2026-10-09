@@ -396,10 +396,24 @@ async function contactGroups(projectId) {
   }
   return groups;
 }
-// A role to fill in: only from the contacts lists' details (not "Leader of …" or a role on this project).
+// A role to fill in: only from the contacts lists' details (not "Leader of …" or a role on this project),
+// and only the role part of them — "Quality engineer, jo@site.com, ext 1234" → "Quality engineer".
 const NOT_ROLES = ['Project team', 'Leaders & sponsors', 'Used before'];
-const roleOf = (groups, name) => groups.filter((g) => !NOT_ROLES.includes(g.label))
-  .map((g) => Object.entries(g.details || {}).find(([n]) => n.toLowerCase() === name.toLowerCase())?.[1]).find(Boolean) || '';
+const roleText = (detail) => String(detail || '').split(/\s*(?:[,;|·•]|\s[-–]\s)\s*/).map((x) => x.trim())
+  .find((x) => x && !x.includes('@') && !/^[+\d\s().-]+$/.test(x) && !/^(ext|extension|tel|phone|mob|mobile|x)\b/i.test(x)) || '';
+const roleOf = (groups, name) => roleText(groups.filter((g) => !NOT_ROLES.includes(g.label))
+  .map((g) => Object.entries(g.details || {}).find(([n]) => n.toLowerCase() === name.toLowerCase())?.[1]).find(Boolean));
+// Every role in the contacts lists, for the suggestions in a Role box (most used first).
+const contactRoles = (groups) => {
+  const count = new Map();
+  for (const g of groups.filter((x) => !NOT_ROLES.includes(x.label))) {
+    for (const d of Object.values(g.details || {})) {
+      const r = roleText(d); if (!r) continue;
+      const k = r.toLowerCase(); const c = count.get(k) || { role: r, n: 0 }; c.n++; count.set(k, c);
+    }
+  }
+  return [...count.values()].sort((a, b) => b.n - a.n || a.role.localeCompare(b.role)).map((c) => c.role);
+};
 
 // Typing in a name field suggests contacts (with their role alongside) via
 // <datalist id="people">, and a 📇 button opens the contacts book:
@@ -426,6 +440,29 @@ async function enhanceContactFields(root, projectId) {
     wrap.append(field, btn);
     btn.addEventListener('click', onClick);
   };
+  // Role boxes suggest the roles in the contacts lists (and any typed on this form)
+  const roleInputs = $$('input[name=role]', root);
+  if (roleInputs.length) {
+    let rl = $('datalist#roles', root);
+    if (!rl) { rl = document.createElement('datalist'); rl.id = 'roles'; root.append(rl); }
+    const typed = roleInputs.map((i) => i.value.trim()).filter(Boolean);
+    const seen = new Set();
+    rl.innerHTML = [...contactRoles(groups), ...typed].filter((r) => !seen.has(r.toLowerCase()) && seen.add(r.toLowerCase())).map((r) => `<option value="${esc(r)}">`).join('');
+    for (const i of roleInputs) { i.setAttribute('list', 'roles'); i.setAttribute('autocomplete', 'off'); }
+  }
+  // a name typed (not picked from the book) that's a contact fills an empty role in its row too
+  for (const input of $$('input[data-contact][data-role-field]', root)) {
+    if (input.dataset.roleFill) continue;
+    input.dataset.roleFill = '1';
+    const fill = () => {
+      const role = $('input[name=role]', input.closest('tr'));
+      const detail = input.value.trim() ? roleOf(groups, input.value.trim()) : '';
+      if (role && !role.value.trim() && detail) { role.value = detail; role.dispatchEvent(new Event('change', { bubbles: true })); }
+    };
+    input.addEventListener('change', fill);
+    // a name picked from the suggestions: fill straight away (before Enter adds the row)
+    input.addEventListener('input', () => { if (roleOf(groups, input.value.trim())) fill(); });
+  }
   for (const input of $$('input[data-contact]', root)) {
     addButton(input, async () => {
       const pick = await contactsBook({ groups, title: input.dataset.contact || 'Choose a contact', multiple: false });
