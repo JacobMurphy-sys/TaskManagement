@@ -185,7 +185,15 @@ button.stop-server:hover { color: var(--danger); }
 .timeline li.note::before { background: var(--accent); }
 .timeline li.event { color: var(--muted); font-size: 12px; padding: 4px 0 4px 14px; }
 .timeline li.event::before { top: 9px; width: 6px; height: 6px; left: -4px; }
-.timeline .when { font-size: 12px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.timeline .when { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; min-width: 0; }
+/* the date stays on one line; a long task or meeting name goes under it when there's no room
+   beside it, cut short only if it still doesn't fit (the full name on hover); ✕ keeps its corner */
+.timeline .when-at { white-space: nowrap; flex: none; }
+.timeline .when .badge, .timeline .when .when-what { min-width: min(140px, 100%); max-width: 100%; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timeline li.note .when { padding-right: 24px; }
+.timeline li.note .when > .icon { position: absolute; right: 0; top: 4px; }
+.timeline li { min-width: 0; }
+.timeline .note-body { overflow-wrap: anywhere; }
 .timeline .note-body { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; margin-top: 3px; }
 
 /* ---------- kanban */

@@ -490,14 +490,14 @@ function baselineBox(p) {
 function timelineItem(i) {
   if (i.type === 'meeting') {
     return `<li class="note meeting-item" data-action="open-meeting" data-id="${i.id}" title="Open meeting">
-      <div class="when">🗓 ${esc(fmtDateTime(i.held_at))} <b>${esc(i.title)}</b>
-        ${i.task_title ? `<span class="badge baseline">${esc(i.task_title)}</span>` : ''}
+      <div class="when"><span class="when-at">🗓 ${esc(fmtDateTime(i.held_at))}</span> <b class="when-what" title="${esc(i.title)}">${esc(i.title)}</b>
+        ${i.task_title ? `<span class="badge baseline" title="${esc(i.task_title)}">${esc(i.task_title)}</span>` : ''}
         <span class="spacer"></span><span class="small muted">${actionsLabel(i)}</span></div>
       ${i.attendees ? `<div class="small muted">With ${esc(i.attendees)}</div>` : ''}</li>`;
   }
   if (i.type === 'note') {
-    return `<li class="note"><div class="when">🕘 ${esc(fmtDateTime(i.created_at))}
-        ${i.task_title ? `<span class="badge baseline" data-action="open-task" data-id="${i.task_id}" style="cursor:pointer">${esc(i.task_title)}</span>` : ''}
+    return `<li class="note"><div class="when"><span class="when-at">🕘 ${esc(fmtDateTime(i.created_at))}</span>
+        ${i.task_title ? `<span class="badge baseline" data-action="open-task" data-id="${i.task_id}" style="cursor:pointer" title="${esc(i.task_title)} — open the task">${esc(i.task_title)}</span>` : ''}
         <span class="spacer"></span><button class="icon" data-action="delete-note" data-id="${i.id}" title="Delete note">✕</button></div>
       <div class="note-body pre">${linkify(i.body)}</div></li>`;
   }
