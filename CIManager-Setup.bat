@@ -10,7 +10,7 @@ REM   3. installs the dependencies;
 REM   4. refreshes itself, makes a "CI Manager" shortcut with the CI Manager icon next to this
 REM      file (and on the desktop), and writes "READ ME - where things are" (.txt for Notepad,
 REM      .md for Obsidian);
-REM   5. starts the app.
+REM   5. starts the app (and, on the first install, asks whether to start it at log-in).
 REM Updating happens by itself: each time the CI Manager shortcut starts the app, it checks
 REM GitHub and, if there's a newer version, runs this file to update first. Run it by hand to
 REM update straight away. Your data is kept outside the app folder
@@ -152,6 +152,14 @@ if defined SHAREDDEF call :set_defaults_file
 REM The newest copy of this file comes with the code - keep the one in this folder up to date
 REM (not the one on the network: that stays as it was handed out).
 if not defined INPLACE if exist "%APP%\CIManager-Setup.bat" copy /y "%APP%\CIManager-Setup.bat" "%LOCALSELF%" >nul
+REM First install: ask whether it should start by itself at log-in (a CI Manager shortcut in
+REM the Windows Startup folder; updates keep it up to date, and deleting it turns it off).
+set "MKSTART=$false"
+if not defined FRESH goto :startup_asked
+echo.
+choice /c YN /m "      Start the CI Manager automatically when you log in to Windows"
+if not errorlevel 2 set "MKSTART=$true"
+:startup_asked
 call :make_shortcuts
 
 :readme
@@ -246,10 +254,11 @@ REM It runs start-hidden.vbs through wscript.exe so Windows offers "Pin to taskb
 REM (it won't for a shortcut straight to a script).
 set "MKDESK=$false"
 if defined FRESH set "MKDESK=$true"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$w=New-Object -ComObject WScript.Shell; $a='%APP%'; $q=[char]34; function L($p){$s=$w.CreateShortcut($p); $s.TargetPath=$env:SystemRoot+'\System32\wscript.exe'; $s.Arguments=$q+$a+'\start-hidden.vbs'+$q; $s.WorkingDirectory=$a; $s.IconLocation=$a+'\assets\cimanager.ico,0'; $s.Description='Start the CI Manager'; $s.Save()}; L ('%BASEDIR%'+'\CI Manager.lnk'); $d=[Environment]::GetFolderPath('Desktop')+'\CI Manager.lnk'; if (%MKDESK% -or (Test-Path $d)) { L $d }" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$w=New-Object -ComObject WScript.Shell; $a='%APP%'; $q=[char]34; function L($p){$s=$w.CreateShortcut($p); $s.TargetPath=$env:SystemRoot+'\System32\wscript.exe'; $s.Arguments=$q+$a+'\start-hidden.vbs'+$q; $s.WorkingDirectory=$a; $s.IconLocation=$a+'\assets\cimanager.ico,0'; $s.Description='Start the CI Manager'; $s.Save()}; L ('%BASEDIR%'+'\CI Manager.lnk'); $d=[Environment]::GetFolderPath('Desktop')+'\CI Manager.lnk'; if (%MKDESK% -or (Test-Path $d)) { L $d }; $st=[Environment]::GetFolderPath('Startup')+'\CI Manager.lnk'; if (%MKSTART% -or (Test-Path $st)) { L $st }" >nul 2>&1
 if errorlevel 1 goto :bat_launchers
 echo       Shortcut: CI Manager
 if "%MKDESK%"=="$true" echo       Desktop shortcut: CI Manager
+if "%MKSTART%"=="$true" echo       Starts when you log in: yes ^(the CI Manager shortcut in shell:startup^)
 REM Shortcuts an earlier version made, no longer needed.
 if exist "%BASEDIR%\Update CI Manager.lnk" del "%BASEDIR%\Update CI Manager.lnk"
 if exist "%BASEDIR%\Stop CI Manager.lnk" del "%BASEDIR%\Stop CI Manager.lnk"
