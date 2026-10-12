@@ -174,18 +174,24 @@ async function renderPlanning() {
   const backlogCard = (b, unit, otto) => {
     if (!b) return '';
     const c = b.catch_up; const dd = (iso) => new Date(`${iso}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-    const pace = c.basis_days ? `Last ${c.basis_days} working day${c.basis_days === 1 ? '' : 's'} (${dd(c.from)} – ${dd(c.to)}): <b>${n(c.rate)}</b> ${unit} done a day, <b>${n(c.demand)}</b> due a day.` : '';
-    const est = {
-      ok: `Overdue alone: about <b>${c.clear_days}</b> working day${c.clear_days === 1 ? '' : 's'} of output. Catching up while new work keeps coming: about <b>${c.catch_days}</b> working day${c.catch_days === 1 ? '' : 's'} — by <b>${c.catch_date ? dd(c.catch_date) : '—'}</b>.`,
-      not_catching_up: `Overdue alone: about <b>${c.clear_days}</b> working day${c.clear_days === 1 ? '' : 's'} of output — but at this pace the backlog isn't shrinking: as much or more is due each day as is done.`,
-      nothing_done: 'Nothing finished in that time to measure the pace.',
-      no_record: otto ? 'No finished jobs with an End Date in the export to measure the pace.' : 'The pace comes from the plan history — it needs at least one full working day recorded.',
-      none_overdue: '',
-    }[c.status];
+    const wd = (v) => `≈ ${v < 10 ? PLF.one.format(v) : n(Math.round(v))} <span>working day${v === 1 ? '' : 's'}</span>`;
+    // four blocks side by side: what's overdue, the recent pace, clearing it, catching up
+    const block = (label, value, sub, cls = '') => `<div class="pl-bl-block"><div class="pl-bl-l">${label}</div><div class="pl-bl-v ${cls}">${value}</div><div class="pl-bl-s">${sub}</div></div>`;
+    const net = c.basis_days ? (c.rate || 0) - (c.demand || 0) : null;
+    const blocks = [
+      block('Overdue', b.overdue_qty ? `${n(b.overdue_qty)} <span>${unit}</span>` : '✔ none', b.overdue_qty
+        ? `${n(b.overdue_jobs)} job${b.overdue_jobs === 1 ? '' : 's'} past ${otto ? 'the plan date' : 'the cut-off'}${b.oldest_due ? ` · oldest due <b>${esc(dd(b.oldest_due))}</b>` : ''}` : 'nothing past its deadline', b.overdue_qty ? 'pl-late' : 'pl-ok'),
+      c.basis_days ? block(`Pace · last ${c.basis_days} working day${c.basis_days === 1 ? '' : 's'}`, `${n(c.rate)} <span>${unit} done a day</span>`,
+        `${n(c.demand)} due a day · <b class="${net >= 0 ? 'pl-ok' : 'pl-late'}">${net >= 0 ? '+' : '−'}${n(Math.abs(net))}</b> a day<br><span class="muted">${esc(dd(c.from))} – ${esc(dd(c.to))}</span>`) : '',
+      b.overdue_qty && c.clear_days !== null && c.clear_days !== undefined && ['ok', 'not_catching_up'].includes(c.status)
+        ? block('Clear the overdue', wd(c.clear_days), 'of output, if nothing new came in') : '',
+      !b.overdue_qty ? '' : c.status === 'ok' ? block('Catch up', wd(c.catch_days), `with new work still coming · caught up by <b>${c.catch_date ? esc(dd(c.catch_date)) : '—'}</b>`, c.catch_days > 20 ? 'pl-warn' : '')
+        : c.status === 'not_catching_up' ? block('Catch up', 'not at this pace', 'as much or more is due each day as is done', 'pl-late')
+          : block('Catching up', '—', c.status === 'nothing_done' ? 'nothing finished lately to measure the pace' : otto ? 'no finished jobs with an End Date in the export to measure the pace' : 'the pace comes from the plan history — it needs a full working day recorded'),
+    ].filter(Boolean).join('');
     return `<div class="card pl-backlog"><h3 class="pl-h">⏳ Backlog</h3>
-      <div class="pl-backlog-row"><div class="pl-backlog-big ${b.overdue_qty ? 'pl-late' : 'pl-ok'}">${b.overdue_qty ? `${n(b.overdue_qty)} <span>${unit} overdue</span>` : '✔ <span>nothing overdue</span>'}</div>
-        <div class="small">${b.overdue_qty ? `${n(b.overdue_jobs)} job${b.overdue_jobs === 1 ? '' : 's'} past ${otto ? 'the plan date' : 'the cut-off'}${b.oldest_due ? `, the oldest due ${esc(dd(b.oldest_due))}` : ''}.<br>` : ''}${pace}${est ? `<br>${est}` : ''}</div></div>
-      ${b.hidden_jobs ? `<p class="small muted" style="margin:6px 0 0">${n(b.hidden_jobs)} job${b.hidden_jobs === 1 ? '' : 's'} (${n(b.hidden_qty)} ${unit}) due more than ${b.max_age} days ago ${b.hidden_jobs === 1 ? 'isn\'t' : 'aren\'t'} shown or counted — likely errors. <button class="link small" data-pl="setup">⚙ Change</button></p>` : ''}</div>`;
+      <div class="pl-bl-blocks">${blocks}</div>
+      ${b.hidden_jobs ? `<p class="small muted" style="margin:8px 0 0">${n(b.hidden_jobs)} job${b.hidden_jobs === 1 ? '' : 's'} (${n(b.hidden_qty)} ${unit}) due more than ${b.max_age} days ago ${b.hidden_jobs === 1 ? 'isn\'t' : 'aren\'t'} shown or counted — likely errors. <button class="link small" data-pl="setup">⚙ Change</button></p>` : ''}</div>`;
   };
   // ⚖ Modifiers: each module on or off; the deadline numbers; rule lists; the shift table; card tags
   const md = p.modifiers || { rules: [], shifts: [], tags: [], lists: [], off: [], shift_starts: {}, deadline: {} };
