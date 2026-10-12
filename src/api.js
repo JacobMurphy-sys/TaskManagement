@@ -1822,8 +1822,9 @@ router.get('/plan', h((req, res) => {
   const mitigation = { days: mitiDays, horizon: mitiDays ? planning.workingDaysAhead(new Date(), mitiDays, capacity.days) : null };
   if (mode === 'mitigation') {
     const useM = machines.some((m) => m.active);
-    queue = planning.mitigate(running, queue, { now: new Date(), horizon: mitigation.horizon,
-      project: (r, q) => (useM ? !!planning.projectMachines(r, q, machines, capacity, new Date()) : planning.project(r, q, capacity, new Date())) });
+    const at = new Date();
+    queue = planning.mitigate(running, queue, { now: at, horizon: mitigation.horizon,
+      stepper: (r, q) => (useM ? planning.machineStepper(r, q, machines, capacity, at) : planning.lineStepper(r, q, capacity, at)) });
   }
   // with machines: each card line planned on a machine that runs its type; else spread over the lines running
   const machineLoad = machines.some((m) => m.active) ? planning.projectMachines(running, queue, machines, capacity, new Date()) : false;

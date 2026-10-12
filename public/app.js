@@ -60,10 +60,13 @@ function toast(msg, type = '') {
 
 const pad = (n) => String(n).padStart(2, '0');
 
+// made once each: building a date format for every call is slow on long lists
+const DATE_FMT = { wk: new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }),
+  plain: new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) };
 function fmtDateTime(iso, opts = {}) {
   if (!iso) return '';
   const d = new Date(iso);
-  const date = d.toLocaleDateString(undefined, { weekday: opts.weekday === false ? undefined : 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  const date = (opts.weekday === false ? DATE_FMT.plain : DATE_FMT.wk).format(d);
   return `${date}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 function fmtDate(iso) {

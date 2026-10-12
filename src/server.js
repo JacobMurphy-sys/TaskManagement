@@ -1,4 +1,5 @@
 const path = require('path');
+const zlib = require('zlib');
 const express = require('express');
 const config = require('./config');
 const log = require('./logger');
@@ -29,6 +30,22 @@ const app = express();
 const jsonSmall = express.json({ limit: '1mb' });
 const jsonLarge = express.json({ limit: '80mb' });
 app.use((req, res, next) => (req.path.startsWith('/api/library/import') || /^\/api\/kpi\/snapshots\/\d+\/export$/.test(req.path) ? jsonLarge : jsonSmall)(req, res, next));
+
+// Large answers (the planning list runs to megabytes) go compressed: a fraction of the data to
+// move, which matters most for the shared planner over the network.
+app.use('/api', (req, res, next) => {
+  if (!/\bgzip\b/.test(req.get('Accept-Encoding') || '')) return next();
+  const json = res.json.bind(res);
+  res.json = (body) => {
+    const text = JSON.stringify(body);
+    if (text === undefined || text.length < 64 * 1024) return json(body);
+    res.set('Content-Encoding', 'gzip');
+    res.set('Vary', 'Accept-Encoding');
+    res.type('application/json');
+    return res.send(zlib.gzipSync(text, { level: 4 }));
+  };
+  next();
+});
 
 // Lets the launcher check that the app is already up.
 app.get('/api/health', (req, res) => res.json({ app: 'taskmanager', ok: true, mode: config.mode, lock: require('./instancelock').info() }));

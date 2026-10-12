@@ -1266,6 +1266,23 @@ async function waitForServer() {
             .map((j) => [j.key, j.mitigation]), [['soon', 'on_time'], ['over', 'overdue'], ['far', 'later']],
             'due within the horizon goes before the overdue; due later goes after');
         }
+        // the quick (step-by-step) mitigation gives exactly what re-planning every round gives
+        {
+          let seed = 11; const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+          const types = ['DOD', 'Emboss', 'Laser'];
+          const machines = [{ id: 1, name: 'DOD 1', types: 'DOD', active: 1 }, { id: 2, name: 'DOD 2', types: 'DOD', active: 1 }, { id: 3, name: 'Emboss 1', types: 'Emboss', active: 1 }, { id: 4, name: 'Any', types: '', active: 1 }];
+          const cap = { rate: 600, lines: 2, start: 360, end: 1320, days: [1, 2, 3, 4, 5], buffer: 30, changeover: 15 };
+          const make = () => { seed = 11; return Array.from({ length: 160 }, (_, i) => {
+            const d = new Date(now.getTime() + (rnd() * 9 - 1) * 86400000); const due = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            const articles = Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => ({ qty: 100, minutes: rnd() < 0.05 ? null : 20 + Math.round(rnd() * 200), card: { type: types[Math.floor(rnd() * 3)], material: rnd() < 0.5 ? 'PVC' : 'PC' } }));
+            return { key: `j${i}`, due, deadline: `${due}T${rnd() < 0.5 ? '12:00' : '17:00'}`, qty: 100, minutes: articles.some((a) => a.minutes === null) ? null : articles.reduce((t, a) => t + a.minutes, 0), articles, pinned: i === 7 };
+          }).sort((x, y) => (x.deadline < y.deadline ? -1 : 1)); };
+          const horizon = P.workingDaysAhead(now, 3);
+          const run = (opts) => P.mitigate([], make(), { now, horizon, maxRounds: 1e6, ...opts }).map((j) => `${j.key}:${j.mitigation}`).join(' ');
+          assert.equal(run({ stepper: (r, q) => P.machineStepper(r, q, machines, cap, now) }), run({ project: (r, q) => !!P.projectMachines(r, q, machines, cap, now) }), 'machines: same result as re-planning each round');
+          assert.equal(run({ stepper: (r, q) => P.lineStepper(r, q, cap, now) }), run({ project: (r, q) => P.project(r, q, cap, now) }), 'no machines: same result as re-planning each round');
+          assert.ok(/late_anyway/.test(run({ stepper: (r, q) => P.machineStepper(r, q, machines, cap, now) })), 'the test data does set jobs aside');
+        }
       }
       const cols = ['WO', 'PER', 'Card AX', 'QNY', 'Due Out', 'Prio', 'Status', '', 'LIVE', 'GROUP', 'Shipper', 'Shipping Time'].map((h, i) => ({ header: h, type: i === 3 ? 'number' : undefined }));
       const r = (wo, per, ax, q, due, prio, st, ship, time) => [wo, per, ax, q, due, prio, st, '', 'LIVE', 'G', ship, time];

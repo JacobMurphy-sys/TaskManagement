@@ -209,7 +209,7 @@ function workingDaysAhead(from, n, days = [1, 2, 3, 4, 5]) {
   for (let left = n; left > 0;) { d.setDate(d.getDate() + 1); if (!days.length || days.includes(d.getDay())) left--; }
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
-function mitigate(running, queue, { project = null, now = new Date(), horizon = null, maxRounds = 400 } = {}) {
+function mitigate(running, queue, { project = null, stepper = null, now = new Date(), horizon = null, maxRounds = 400 } = {}) {
   const pinned = queue.filter((j) => j.pinned);
   const rest = queue.filter((j) => !j.pinned);
   const overdue = rest.filter((j) => j.deadline && localDate(j.deadline) <= now);
@@ -218,14 +218,30 @@ function mitigate(running, queue, { project = null, now = new Date(), horizon = 
   const later = rest.filter((j) => !overdue.includes(j) && beyond(j));
   let saveable = rest.filter((j) => !overdue.includes(j) && !beyond(j)); // in deadline order already (FIFO)
   const setAside = [];
-  if (project) {
+  // the longest job up to the first late one makes room for the most others
+  const longest = (upTo) => { let worst = 0; for (let i = 1; i <= upTo; i++) if ((saveable[i].plan_minutes || 0) > (saveable[worst].plan_minutes || 0)) worst = i; return worst; };
+  const st = stepper ? stepper(running, [...pinned, ...saveable]) : null;
+  if (st) {
+    // Planned one job at a time, keeping the state before each: a job's times depend only on the
+    // jobs before it, so after setting one aside the plan carries on from there instead of
+    // starting over (the same result as re-planning everything each round, far quicker).
+    for (const j of pinned) st.step(j);
+    const before = [];
+    let i = 0;
+    for (;;) {
+      while (i < saveable.length) { before[i] = st.save(); if (st.step(saveable[i])) break; i++; }
+      if (i >= saveable.length) break;
+      const worst = longest(i);
+      setAside.push(saveable[worst]);
+      saveable.splice(worst, 1);
+      st.restore(before[worst]); before.length = worst; i = worst;
+    }
+  } else if (project) {
     for (let round = 0; round < maxRounds; round++) {
       if (!project(running, [...pinned, ...saveable])) break;
       const first = saveable.findIndex((j) => j.late_minutes > 0);
       if (first < 0) break;
-      // the longest job up to the first late one makes room for the most others
-      let worst = 0;
-      for (let i = 1; i <= first; i++) if ((saveable[i].plan_minutes || 0) > (saveable[worst].plan_minutes || 0)) worst = i;
+      const worst = longest(first);
       setAside.push(saveable[worst]);
       saveable = saveable.filter((_, i) => i !== worst);
     }
@@ -464,6 +480,59 @@ function project(running, queue, { rate, lines = 1, start = 360, end = 1320, day
 const typesOf = (m) => String(m.types || '').split(/[,;/]/).map((t) => t.trim().toLowerCase()).filter(Boolean);
 const canRun = (m, type) => { const t = typesOf(m); return !t.length || t.includes(String(type || '').trim().toLowerCase()); };
 
+// Step-by-step versions of project / projectMachines for mitigate(): the same rules, one job at a
+// time, setting the job's plan_minutes and late_minutes; step(job) → true when it's late.
+// save() / restore() keep and bring back the state between jobs. null when it can't plan.
+function lineStepper(running, queue, { rate, lines = 1, start = 360, end = 1320, days = [1, 2, 3, 4, 5], buffer = 0 }, now = new Date()) {
+  const nLines = Math.max(1, Number(lines) || 1);
+  const perHour = Number(rate) * nLines;
+  const all = [...running, ...queue];
+  if (!all.length || !all.every((j) => j.minutes !== null || perHour > 0)) return null;
+  const cal = { start, end, days };
+  let t = now;
+  const step = (j) => {
+    const minutes = j.minutes !== null ? j.minutes / nLines : (j.qty / perHour) * 60;
+    j.plan_minutes = minutes;
+    const finish = addWorking(t, minutes, cal);
+    j.late_minutes = finish && j.deadline ? Math.round((finish - localDate(j.deadline)) / 60000 + (Number(buffer) || 0)) : null;
+    if (finish) t = finish;
+    return j.late_minutes > 0;
+  };
+  for (const j of running) step(j);
+  return { step, save: () => t, restore: (x) => { t = x; } };
+}
+function machineStepper(running, queue, machines, { start = 360, end = 1320, days = [1, 2, 3, 4, 5], buffer = 0, changeover = 0 }, now = new Date()) {
+  const active = machines.filter((m) => m.active !== 0 && m.active !== false);
+  if (!active.length) return null;
+  const cal = { start, end, days };
+  const ableFor = new Map(); // type → machines able to run it
+  const able = (type) => { const k = type || ''; if (!ableFor.has(k)) ableFor.set(k, type ? active.filter((m) => canRun(m, type)) : active); return ableFor.get(k); };
+  let free = new Map(active.map((m) => [m.id, now]));
+  let lastKind = new Map();
+  const step = (j) => {
+    let last = null; let unplanned = 0; let minutes = 0;
+    for (const a of j.articles) {
+      const type = a.card?.type || null;
+      const ms = able(type);
+      if (a.minutes === null || !ms.length) { unplanned++; continue; }
+      const m = ms.reduce((best, x) => (free.get(x.id) < free.get(best.id) ? x : best));
+      const kind = `${String(type || '').toLowerCase()}|${String(a.card?.material || '').toLowerCase()}`;
+      const setup = changeover > 0 && lastKind.has(m.id) && lastKind.get(m.id) !== kind ? Number(changeover) : 0;
+      const f = addWorking(free.get(m.id), a.minutes + setup, cal);
+      if (!f) { unplanned++; continue; }
+      free.set(m.id, f); lastKind.set(m.id, kind);
+      minutes += a.minutes + setup;
+      if (!last || f > last) last = f;
+    }
+    j.plan_minutes = minutes;
+    const finish = last && !unplanned ? last : null;
+    j.late_minutes = finish && j.deadline ? Math.round((finish - localDate(j.deadline)) / 60000 + (Number(buffer) || 0)) : null;
+    return j.late_minutes > 0;
+  };
+  for (const j of running) step(j);
+  return { step, save: () => [new Map(free), new Map(lastKind)], restore: ([f, k]) => { free = new Map(f); lastKind = new Map(k); } };
+}
+
 // Plans each card line on a machine: jobs in the list's order (running first), each line on the
 // machine able to run its type that comes free first. A job finishes with its last line.
 // Lines no machine can run (or without a time) are left unplanned and their job flagged.
@@ -672,4 +741,5 @@ function readSource({ file, uploaded, parser = parse }) {
   return { status: 'ok', file: target, name: path.basename(target), uploaded: !file, modified: stat.mtime.toISOString(), read_at: cache.read_at, ...cache.parsed };
 }
 
-module.exports = { workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, mitigate, workingDaysAhead, scoreJobs, deadlineScore, shiftAt, SHIFTS, DEADLINE_DEFAULTS, woOfName, OTTO_COLUMNS };
+module.exports = {
+  lineStepper, machineStepper, workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, mitigate, workingDaysAhead, scoreJobs, deadlineScore, shiftAt, SHIFTS, DEADLINE_DEFAULTS, woOfName, OTTO_COLUMNS };

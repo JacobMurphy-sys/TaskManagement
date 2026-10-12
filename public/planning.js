@@ -4,16 +4,31 @@
 // cut-off) — with what's running on top, the cards due by each cut-off, and, with a
 // capacity set, each job's projected finish against its deadline. Loaded before app.js.
 
+// Date and number formats made once: making one per row is what made long lists slow to draw.
+const PLF = {
+  wkHm: new Intl.DateTimeFormat('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }),
+  hm: new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' }),
+  day: new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }),
+  num: new Intl.NumberFormat('en-GB'),
+  one: new Intl.NumberFormat('en-GB', { maximumFractionDigits: 1 }),
+};
+// Long lists show this many rows at first, with "Show more" for the rest.
+const PL_PAGE = 150;
+
 async function renderPlanning() {
   const mode = ['bau', 'score', 'mitigation'].includes(store.get('planMode', 'fifo')) ? store.get('planMode') : 'fifo';
   const half = store.get('planHalf', 'perso') === 'otto' ? 'otto' : 'perso';
   const [p, settings] = await Promise.all([api.get(`/plan?mode=${mode}`), api.get('/settings')]);
   const f = store.get('planFilter', {}) || {};
   const all = [...p.running, ...p.queue];
+  const byKey = new Map(all.map((j) => [j.key, j]));
+  const qIndex = new Map(p.queue.map((j, i) => [j.key, i]));
+  const plDetail = {}; // perso / otto: key → the job's detail row, built when it's opened
   const today = new Date(); const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const todayIso = ymd(today); const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
   const deadlineAt = (j) => { if (!j.deadline) return null; const [d, t] = j.deadline.split('T'); const [y, m, dd] = d.split('-').map(Number); const [hh, mm] = t.split(':').map(Number); return new Date(y, m - 1, dd, hh, mm); };
-  const dayLabel = (iso) => (iso === todayIso ? 'Today' : iso === ymd(tomorrow) ? 'Tomorrow' : new Date(`${iso}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }));
+  const dayCache = new Map();
+  const dayLabel = (iso) => (iso === todayIso ? 'Today' : iso === ymd(tomorrow) ? 'Tomorrow' : dayCache.get(iso) || dayCache.set(iso, PLF.day.format(new Date(`${iso}T12:00`))).get(iso));
   const left = (j) => {
     const at = deadlineAt(j); if (!at) return { text: '—', cls: '' };
     const min = Math.round((at - today) / 60000);
@@ -25,12 +40,12 @@ async function renderPlanning() {
   const customers = [...new Set(all.map((j) => j.customer).filter(Boolean))].sort();
   const shippers = [...new Set(all.map((j) => j.shipper).filter(Boolean))].sort();
   const sum = (list) => list.reduce((t, j) => t + j.qty, 0);
-  const n = (v) => Number(v || 0).toLocaleString('en-GB');
+  const n = (v) => PLF.num.format(Number(v || 0));
   const overdue = all.filter((j) => deadlineAt(j) && deadlineAt(j) < today);
   const dueToday = all.filter((j) => j.due === todayIso);
   const late = p.projected ? all.filter((j) => j.late_minutes > 0) : [];
   const prioChip = (pr) => `<span class="pl-prio pl-${esc(String(pr || '').toLowerCase())}">${esc(pr || '—')}</span>`;
-  const finish = (j) => (!p.projected ? '' : (j.finish_at ? `<span class="${j.late_minutes > 0 ? 'pl-late' : 'pl-ok'}" title="Projected finish ${esc(fmtDateTime(j.finish_at))}${cap.buffer ? ` — must be ready ${fmtSpan(cap.buffer)} before the cut-off` : ''}">${new Date(j.finish_at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}${j.late_minutes > 0 ? ` · ${fmtSpan(j.late_minutes)} late` : ''}</span>`
+  const finish = (j) => (!p.projected ? '' : (j.finish_at ? `<span class="${j.late_minutes > 0 ? 'pl-late' : 'pl-ok'}" title="Projected finish ${esc(fmtDateTime(j.finish_at))}${cap.buffer ? ` — must be ready ${fmtSpan(cap.buffer)} before the cut-off` : ''}">${PLF.wkHm.format(new Date(j.finish_at))}${j.late_minutes > 0 ? ` · ${fmtSpan(j.late_minutes)} late` : ''}</span>`
     : j.unplanned ? `<span class="pl-warn">⚠ ${esc([
       j.unplanned_why?.includes('machine') ? `no running machine for ${[...new Set(j.articles.filter((a) => a.unplanned === 'machine').map((a) => a.card?.type))].join(', ')}` : '',
       j.unplanned_why?.includes('speed') ? 'no speed for a card' : '',
@@ -53,7 +68,7 @@ async function renderPlanning() {
       late: `⚠ Late anyway — ${list.filter((x) => x.mitigation === 'overdue').length} already overdue${list.some((x) => x.mitigation === 'late_anyway') ? `, ${list.filter((x) => x.mitigation === 'late_anyway').length} with no room before their deadline` : ''} · after the ones that can make it, oldest first` }[g];
     return `<tr class="pl-group pl-group-${g}"><td colspan="${(p.projected ? 8 : 7) + (mode === 'score' ? 1 : 0)}">${esc(text)}</td></tr>`;
   };
-  const scoreFmt = (v) => (v === null || v === undefined ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: 1 }));
+  const scoreFmt = (v) => (v === null || v === undefined ? '—' : PLF.one.format(Number(v)));
   const row = (j, i) => {
     const l = left(j);
     return `<tr class="pl-job ${l.cls ? `${l.cls}-row` : ''} ${p.projected && j.late_minutes > 0 ? 'pl-late-row' : ''}" data-pl-job="${esc(j.key)}">
@@ -66,14 +81,21 @@ async function renderPlanning() {
       <td>${prioChip(j.prio)}</td>
       <td><div>${esc(j.shipper || '—')}</div><div class="small muted">${esc(j.group || '')}</div></td>
       ${p.projected ? `<td>${finish(j)}</td>` : ''}
-    </tr>
-    <tr class="pl-detail" data-pl-detail="${esc(j.key)}" hidden><td></td><td colspan="${(p.projected ? 7 : 6) + (mode === 'score' ? 1 : 0)}">${j.score_parts?.length ? `<div class="pl-score-parts small">⚖ ${j.score_parts.map((x) => `<span class="pl-chip" title="${esc([x.note, x.authoriser ? `authorised by ${x.authoriser}` : ''].filter(Boolean).join(' · '))}">${esc(x.module)}${x.note && x.module === 'Shift' ? ` (${esc(x.note)})` : ''} <b>${x.value > 0 ? '+' : ''}${scoreFmt(x.value)}</b></span>`).join(' ')} = <b>${scoreFmt(j.score)}</b>${j.tags?.length ? ` · tags ${esc(j.tags.join(', '))}` : ''}</div>` : ''}<table class="log small"><thead><tr><th>Card article</th><th>Card</th><th>Type</th><th>Material</th><th>Print sides</th><th class="num">Cards</th><th class="num">Speed</th><th class="num">Time</th>${(p.machines || []).some((m) => m.active) ? '<th>Machine</th>' : ''}<th>Status</th></tr></thead>
+    </tr>`;
+  };
+  // a job's card articles: built when it's opened, not for every row up front
+  const detailRow = (j) => `<tr class="pl-detail" data-pl-detail="${esc(j.key)}"><td></td><td colspan="${(p.projected ? 7 : 6) + (mode === 'score' ? 1 : 0)}">${j.score_parts?.length ? `<div class="pl-score-parts small">⚖ ${j.score_parts.map((x) => `<span class="pl-chip" title="${esc([x.note, x.authoriser ? `authorised by ${x.authoriser}` : ''].filter(Boolean).join(' · '))}">${esc(x.module)}${x.note && x.module === 'Shift' ? ` (${esc(x.note)})` : ''} <b>${x.value > 0 ? '+' : ''}${scoreFmt(x.value)}</b></span>`).join(' ')} = <b>${scoreFmt(j.score)}</b>${j.tags?.length ? ` · tags ${esc(j.tags.join(', '))}` : ''}</div>` : ''}<table class="log small"><thead><tr><th>Card article</th><th>Card</th><th>Type</th><th>Material</th><th>Print sides</th><th class="num">Cards</th><th class="num">Speed</th><th class="num">Time</th>${(p.machines || []).some((m) => m.active) ? '<th>Machine</th>' : ''}<th>Status</th></tr></thead>
       <tbody>${j.articles.map((a) => `<tr><td>${esc(a.article)}</td><td>${a.card ? esc(a.card.name || '') : '<span class="pl-warn">not in the card database</span>'}</td><td>${esc(a.card?.type || '')}</td><td>${esc(a.card?.material || '')}</td><td>${esc(a.card?.sides || '')}</td>
         <td class="num">${n(a.qty)}</td><td class="num">${a.speed ? `${n(a.speed)}/h${a.speed_from === 'fallback' ? ' <span class="muted" title="No speed for this kind of card — the flat rate">≈</span>' : a.speed_from === 'average' ? ' <span class="muted" title="No speed for this card — the average of the others">≈</span>' : ''}${a.oee ? ` <span class="muted small" title="Estimated OEE for this customer — planned at ${n(Math.round(a.speed * a.oee))}/h">× ${Math.round(a.oee * 1000) / 10}%</span>` : ''}` : '<span class="pl-warn">no speed</span>'}</td>
-        <td class="num">${a.minutes !== null ? fmtSpan(a.minutes) : '—'}</td>${(p.machines || []).some((m) => m.active) ? `<td>${a.machine ? `${esc(a.machine)} <span class="muted">${new Date(a.start_at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}–${new Date(a.finish_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>` : '<span class="pl-warn">no machine</span>'}</td>` : ''}<td>${esc(a.status || '')}</td></tr>`).join('')}</tbody></table></td></tr>`;
-  };
+        <td class="num">${a.minutes !== null ? fmtSpan(a.minutes) : '—'}</td>${(p.machines || []).some((m) => m.active) ? `<td>${a.machine ? `${esc(a.machine)} <span class="muted">${PLF.wkHm.format(new Date(a.start_at))}–${PLF.hm.format(new Date(a.finish_at))}</span>` : '<span class="pl-warn">no machine</span>'}</td>` : ''}<td>${esc(a.status || '')}</td></tr>`).join('')}</tbody></table></td></tr>`;
+  plDetail.perso = (key) => (byKey.has(key) ? detailRow(byKey.get(key)) : '');
   const head = `<tr><th></th><th>Deadline</th><th>Work order / job</th><th>Customer</th><th class="num">Cards</th>${mode === 'score' ? '<th class="num">Score</th>' : ''}<th>Prio</th><th>Shipper</th>${p.projected ? '<th>Projected finish</th>' : ''}</tr>`;
   const runningShown = p.running.filter(match); const queueShown = p.queue.filter(match);
+  // long lists: the first PL_PAGE rows, then "Show more" (drawing thousands of rows at once is slow)
+  let qShown = Math.min(PL_PAGE, queueShown.length);
+  const queueRow = (j, k) => `${mode === 'mitigation' && mitiGroup(j) !== mitiGroup(queueShown[k - 1]) ? mitiHead(j) : ''}${row(j, qIndex.get(j.key))}`;
+  const moreRow = () => (qShown >= queueShown.length ? '' : `<tr class="pl-more"><td colspan="9"><button class="small" data-pl-more="${PL_PAGE * 2}">Show ${n(Math.min(PL_PAGE * 2, queueShown.length - qShown))} more</button>
+    <button class="link small" data-pl-more="all">Show all ${n(queueShown.length)}</button> <span class="muted small">showing ${n(qShown)} of ${n(queueShown.length)} — the search box above finds any job</span></td></tr>`);
   const cap = p.capacity;
   const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
   const useMachines = (p.machines || []).some((m) => m.active);
@@ -135,7 +157,7 @@ async function renderPlanning() {
     return `<div class="card"><h3 class="pl-h">Load — hours booked on each machine per day <span class="muted small">of its working hours (${days[0] === Object.keys(p.available).sort()[0] ? 'today from now' : ''})</span></h3>
       <div class="kdb-scroll"><table class="log pl-load"><thead><tr><th>Machine</th>${days.map((d) => `<th class="num">${dayHead(d)}</th>`).join('')}<th class="num">Cards</th><th>Booked until</th></tr></thead><tbody>
       ${ms.map((m) => { const l = loads.get(m.id) || { days: {} }; return `<tr><td><b>${esc(m.name)}</b><div class="small muted">${esc(m.types || 'any type')}</div></td>
-        ${days.map((d) => cell(l.days?.[d]?.minutes || 0, p.available[d])).join('')}<td class="num">${n(l.cards)}</td><td class="small">${l.until ? esc(new Date(l.until).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })) : '<span class="muted">free</span>'}</td></tr>`; }).join('')}
+        ${days.map((d) => cell(l.days?.[d]?.minutes || 0, p.available[d])).join('')}<td class="num">${n(l.cards)}</td><td class="small">${l.until ? esc(PLF.wkHm.format(new Date(l.until))) : '<span class="muted">free</span>'}</td></tr>`; }).join('')}
       <tr class="pl-load-total"><td>All machines</td>${days.map((d) => cell(ms.reduce((t, m) => t + ((loads.get(m.id) || {}).days?.[d]?.minutes || 0), 0), p.available[d] * ms.length)).join('')}<td class="num">${n(ms.reduce((t, m) => t + ((loads.get(m.id) || {}).cards || 0), 0))}</td><td></td></tr>
       </tbody></table></div><p class="small muted">Green below 70% · amber from 70% · red from 95% of the working time. The plan books machines from now in the list's order, so the first days fill up first.</p></div>`;
   };
@@ -227,7 +249,7 @@ async function renderPlanning() {
         ${(ot.customers || []).map((c) => `<tr><td><b>${esc(c.customer)}</b></td><td>${esc(c.name || '')}</td><td class="num">${c.jobs ? n(c.jobs) : '<span class="muted">none open</span>'}</td><td class="num">${n(c.items)}</td>
           <td><input type="number" min="1" step="1" class="plo-speed" data-customer="${esc(c.customer)}" value="${c.speed ?? ''}" placeholder="machine speed"></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Link the Otto export to see its customers.</td></tr>'}</tbody></table></div>
       <p class="small muted">The working day and days above are used for Otto too.</p>`;
-  const finishO = (o) => (!ot.projected ? '' : o.finish_at ? `<span class="${o.late_minutes > 0 ? 'pl-late' : 'pl-ok'}" title="Projected ${esc(fmtDateTime(o.start_at))} → ${esc(fmtDateTime(o.finish_at))} at ${n(o.speed)} items/h">${new Date(o.finish_at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}${o.late_minutes > 0 ? ` · ${fmtSpan(o.late_minutes)} late` : ''}</span>
+  const finishO = (o) => (!ot.projected ? '' : o.finish_at ? `<span class="${o.late_minutes > 0 ? 'pl-late' : 'pl-ok'}" title="Projected ${esc(fmtDateTime(o.start_at))} → ${esc(fmtDateTime(o.finish_at))} at ${n(o.speed)} items/h">${PLF.wkHm.format(new Date(o.finish_at))}${o.late_minutes > 0 ? ` · ${fmtSpan(o.late_minutes)} late` : ''}</span>
       <div class="small muted">${esc(o.machine_planned)}${o.waited_perso ? ' · after perso' : ''}</div>`
     : `<span class="pl-warn">⚠ ${o.unplanned === 'speed' ? 'no speed — ⚙ Setup' : 'no working time — check the working day'}</span>`);
   const ottoHtml = () => {
@@ -244,15 +266,16 @@ async function renderPlanning() {
     const oToday = allO.filter((o) => o.due === todayIso);
     const waiting = allO.filter((o) => o.perso_open);
     const persoCell = (o) => (!o.perso_open ? `<span class="pl-ok" title="No perso job open for ${esc(o.wo)} in the open work orders">✔ perso done</span>`
-      : `<span class="${behind(o) ? 'pl-late' : 'pl-warn'}">⏳ ${o.perso.length} perso job${o.perso.length === 1 ? '' : 's'} open</span>${o.perso_finish_at ? `<div class="small ${behind(o) ? 'pl-late' : 'muted'}">ready ${esc(new Date(o.perso_finish_at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }))}${behind(o) ? ' — after the plan date' : ''}</div>` : ''}`);
+      : `<span class="${behind(o) ? 'pl-late' : 'pl-warn'}">⏳ ${o.perso.length} perso job${o.perso.length === 1 ? '' : 's'} open</span>${o.perso_finish_at ? `<div class="small ${behind(o) ? 'pl-late' : 'muted'}">ready ${esc(PLF.wkHm.format(new Date(o.perso_finish_at)))}${behind(o) ? ' — after the plan date' : ''}</div>` : ''}`);
     const orow = (o, i) => { const l = left(o); return `<tr class="pl-job ${l.cls ? `${l.cls}-row` : ''} ${behind(o) ? 'pl-late-row' : ''}" data-pl-job="otto:${esc(o.key)}">
       <td class="num muted pl-n">${i === null ? '▶' : i + 1}</td>
       <td><b>${esc(o.due ? dayLabel(o.due) : '—')}</b> ${esc(o.deadline?.slice(11) || '')}<div class="small ${l.cls}">${esc(l.text)}</div></td>
       <td><b>${esc(o.wo)}</b><span class="muted">${esc(o.name.slice(o.wo.length))}</span><div class="small muted">${esc(o.group || '')}</div></td>
       <td>${esc(o.customer || '—')}<div class="small muted">${esc(o.customer_name || '')}</div></td>
-      <td class="num"><b>${n(o.qty)}</b></td><td>${prioChip(o.prio)}</td><td>${esc(o.status || '')}<div class="small muted">${esc(o.machine || '')}</div></td><td>${persoCell(o)}</td>${ot.projected ? `<td>${finishO(o)}</td>` : ''}</tr>
-      <tr class="pl-detail" data-pl-detail="otto:${esc(o.key)}" hidden><td></td><td colspan="${ot.projected ? 8 : 7}"><div class="small">${o.sub_customer ? `<b>${esc(o.sub_customer)}</b><br>` : ''}${o.comment ? esc(o.comment).replace(/\n/g, '<br>') : '<span class="muted">No comment.</span>'}</div>
-        ${o.perso.length ? `<table class="log small" style="margin-top:6px"><thead><tr><th>Perso job</th><th class="num">Cards</th><th>Status</th><th>Perso deadline</th><th>Projected finish</th></tr></thead><tbody>${o.perso.map((pj) => `<tr><td>${esc(pj.key)}</td><td class="num">${n(pj.qty)}</td><td>${esc(pj.status || '')}</td><td>${esc(pj.deadline?.replace('T', ' ') || '—')}</td><td>${pj.finish_at ? esc(fmtDateTime(pj.finish_at)) : '—'}</td></tr>`).join('')}</tbody></table>` : ''}</td></tr>`; };
+      <td class="num"><b>${n(o.qty)}</b></td><td>${prioChip(o.prio)}</td><td>${esc(o.status || '')}<div class="small muted">${esc(o.machine || '')}</div></td><td>${persoCell(o)}</td>${ot.projected ? `<td>${finishO(o)}</td>` : ''}</tr>`; };
+    const odetailRow = (o) => `<tr class="pl-detail" data-pl-detail="otto:${esc(o.key)}"><td></td><td colspan="${ot.projected ? 8 : 7}"><div class="small">${o.sub_customer ? `<b>${esc(o.sub_customer)}</b><br>` : ''}${o.comment ? esc(o.comment).replace(/\n/g, '<br>') : '<span class="muted">No comment.</span>'}</div>
+        ${o.perso.length ? `<table class="log small" style="margin-top:6px"><thead><tr><th>Perso job</th><th class="num">Cards</th><th>Status</th><th>Perso deadline</th><th>Projected finish</th></tr></thead><tbody>${o.perso.map((pj) => `<tr><td>${esc(pj.key)}</td><td class="num">${n(pj.qty)}</td><td>${esc(pj.status || '')}</td><td>${esc(pj.deadline?.replace('T', ' ') || '—')}</td><td>${pj.finish_at ? esc(fmtDateTime(pj.finish_at)) : '—'}</td></tr>`).join('')}</tbody></table>` : ''}</td></tr>`;
+    plDetail.otto = (key) => { const o = [...ot.running, ...ot.queue].find((x) => `otto:${x.key}` === key); return o ? odetailRow(o) : ''; };
     const ohead = `<tr><th></th><th>Plan date</th><th>Name</th><th>Customer</th><th class="num">Items</th><th>Priority</th><th>Status</th><th>Perso</th>${ot.projected ? '<th>Projected finish</th>' : ''}</tr>`;
     const rs = ot.running.filter(om); const qs = ot.queue.filter(om);
     return `<div class="kdb-tiles pl-tiles">
@@ -381,7 +404,7 @@ ${half === 'otto' ? ottoSetup() : `
     ${runningShown.length ? `<div class="card"><h3 class="pl-h">▶ Running <span class="muted small">${runningShown.length} job${runningShown.length === 1 ? '' : 's'} · ${n(sum(runningShown))} cards</span></h3>
       <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${runningShown.map((j) => row(j, null)).join('')}</tbody></table></div></div>` : ''}
     <div class="card"><h3 class="pl-h">Next to start — ${mode === 'fifo' ? 'FIFO: by deadline' : mode === 'mitigation' ? '🛟 Mitigation: what can still be on time first' : mode === 'score' ? '⚖ Score: highest first (deadline + modifiers)' : 'BAU: by due day, then priority, then cut-off'} <span class="muted small">${queueShown.length} job${queueShown.length === 1 ? '' : 's'} · ${n(sum(queueShown))} cards · click a job for its card articles</span></h3>
-      <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${queueShown.map((j, k) => `${mode === 'mitigation' && mitiGroup(j) !== mitiGroup(queueShown[k - 1]) ? mitiHead(j) : ''}${row(j, p.queue.indexOf(j))}`).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>`}` : ''}`}`;
+      <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${queueShown.slice(0, qShown).map(queueRow).join('')}${moreRow()}${queueShown.length ? '' : '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>`}` : ''}`}`;
   if (half === 'perso' && view === 'gantt' && $('#pl-gantt')) {
     const draw = () => drawPlanGantt($('#pl-gantt'), $('#pl-gantt-info'), p, match);
     draw();
@@ -531,8 +554,23 @@ ${half === 'otto' ? ottoSetup() : `
       try { if (on) await api.del(`/plan/pins?key=${encodeURIComponent(k)}`); else await api.post('/plan/pins', { key: k }); toast(on ? 'Unpinned' : '📌 Pinned to the front'); } catch (err) { toast(err.message, 'error'); }
       renderPlanning(); return;
     }
+    const more = e.target.closest('[data-pl-more]');
+    if (more) {
+      const to = more.dataset.plMore === 'all' ? queueShown.length : Math.min(queueShown.length, qShown + Number(more.dataset.plMore));
+      const tr = more.closest('tr');
+      tr.insertAdjacentHTML('beforebegin', queueShown.slice(qShown, to).map((j, i) => queueRow(j, qShown + i)).join(''));
+      qShown = to;
+      tr.insertAdjacentHTML('afterend', moreRow()); tr.remove();
+      return;
+    }
+    // a job's details: built the first time it's opened, then shown / hidden
     const job = e.target.closest('[data-pl-job]');
-    if (job) { const d = $(`[data-pl-detail="${CSS.escape(job.dataset.plJob)}"]`); if (d) d.hidden = !d.hidden; }
+    if (job) {
+      const key = job.dataset.plJob; const next = job.nextElementSibling;
+      if (next?.classList.contains('pl-detail') && next.dataset.plDetail === key) { next.hidden = !next.hidden; return; }
+      const html = (key.startsWith('otto:') ? plDetail.otto : plDetail.perso)?.(key);
+      if (html) job.insertAdjacentHTML('afterend', html);
+    }
   };
 }
 
@@ -547,11 +585,11 @@ function startPlanPresence() {
     let r; try { r = await api.post('/presence', { id: me.id, name: me.name, view: 'planning' }); } catch { return; }
     const chip = $('#pl-presence');
     const names = [...new Set(r.others.map((o) => o.name))];
-    if (chip) { chip.textContent = names.length ? `👥 also here: ${names.join(', ')}` : '👤 just you'; chip.title = r.others.map((o) => `${o.name} — since ${new Date(o.since).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`).join('\n') || 'Nobody else has the planner open'; }
+    if (chip) { chip.textContent = names.length ? `👥 also here: ${names.join(', ')}` : '👤 just you'; chip.title = r.others.map((o) => `${o.name} — since ${PLF.hm.format(new Date(o.since))}`).join('\n') || 'Nobody else has the planner open'; }
     const lc = r.last_change; const box = $('#pl-changed');
     if (box && lc && lc.client !== me.id && lc.at > loadedAt) {
       box.hidden = false;
-      box.innerHTML = `✏ <b>${esc(lc.by || 'Someone')}</b> changed the planning setup at ${esc(new Date(lc.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }))} — refresh before changing it yourself. <button class="small" data-pl="refresh">🔄 Refresh</button>`;
+      box.innerHTML = `✏ <b>${esc(lc.by || 'Someone')}</b> changed the planning setup at ${esc(PLF.hm.format(new Date(lc.at)))} — refresh before changing it yourself. <button class="small" data-pl="refresh">🔄 Refresh</button>`;
     }
   };
   planPresence = { timer: setInterval(tick, 20000) };
@@ -584,13 +622,13 @@ function planSheetModel(jobs, { cells: pick, layout = 'pages', limit = 0, method
     const [d, t] = j.deadline.split('T');
     const time = j.no_cutoff ? (side ? 'eod' : 'end of day') : t;
     const short = `${Number(d.slice(8))}/${Number(d.slice(5, 7))}`; // 8/10: the date in the side-by-side pill
-    const day = side ? short : new Date(`${d}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    const day = side ? short : PLF.day.format(new Date(`${d}T12:00`));
     if (j.deadline < nowKey) return { cls: 'late', tag: 'LATE', time: `${day} ${time}`, day: short };
     if (d === today) return { cls: 'today', tag: 'TODAY', time, day: short };
     if (d === tomorrow) return { cls: 'tomorrow', tag: 'TOMORROW', time, day: short };
-    return { cls: 'later', tag: side ? day : new Date(`${d}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase(), time, day: short };
+    return { cls: 'later', tag: side ? day : PLF.day.format(new Date(`${d}T12:00`)).toUpperCase(), time, day: short };
   };
-  const n = (v) => Number(v || 0).toLocaleString('en-GB');
+  const n = (v) => PLF.num.format(Number(v || 0));
   const cells = (groups || cellsOf(jobs)).filter((c) => !pick || pick.includes(c.type));
   // overdue (past its deadline, not running): on a list of its own when split off
   const isOver = (r) => !r.job.running && !r.job.keep && when(r.job).cls === 'late';
@@ -684,7 +722,7 @@ function orderSpec(p, mode, { split = false } = {}, now = new Date()) {
 // Otto: Incoming (its perso work order still open), In Progress (started at Otto), Ready (perso
 // done, not started at Otto) — each in the Otto list's order (plan date, then Urgent / High first).
 function ottoGroups(ot) {
-  const fmt = (iso) => new Date(iso).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const fmt = (iso) => PLF.wkHm.format(new Date(iso));
   const row = (o, extra = {}) => ({ job: { ...o, is_otto: true, running: false, pinned: false, ...extra }, qty: o.qty });
   const all = [...ot.running, ...ot.queue];
   return [
@@ -811,7 +849,7 @@ function drawPlanGantt(el, info, p, match) {
     const l = Math.max(LBL, x(b.s)); const r = Math.min(LBL + W, x(b.f)); const w = Math.max(2, r - l);
     const dim = (sel && sel.key !== j.key) || (match && !match(j));
     return `<div class="pg-bar pg-${state(j)} ${j.running ? 'pg-run' : ''} ${String(j.prio).toLowerCase() === 'high' ? 'pg-high' : ''} ${dim ? 'pg-dim' : ''} ${sel && sel.key === j.key ? 'pg-sel' : ''}" data-pg-job="${esc(j.key)}"
-      style="left:${l}px;width:${w}px;top:${22 + i * ROW + 5}px;height:${ROW - 10}px" title="${esc(`${j.wo} / ${j.per} · ${j.customer || ''} · ${j.qty.toLocaleString('en-GB')} cards\n${b.m}: ${b.s.toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })} – ${b.f.toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}\nDeadline ${j.deadline?.replace('T', ' ')}${j.late_minutes > 0 ? ` — ${fmtSpan(j.late_minutes)} late` : ''}`)}">${w > 70 ? `<span>${j.pinned ? '📌' : ''}${esc(j.customer || '')} ${esc(j.wo.slice(-6))}</span>` : ''}</div>`;
+      style="left:${l}px;width:${w}px;top:${22 + i * ROW + 5}px;height:${ROW - 10}px" title="${esc(`${j.wo} / ${j.per} · ${j.customer || ''} · ${PLF.num.format(j.qty)} cards\n${b.m}: ${b.s.toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })} – ${b.f.toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}\nDeadline ${j.deadline?.replace('T', ' ')}${j.late_minutes > 0 ? ` — ${fmtSpan(j.late_minutes)} late` : ''}`)}">${w > 70 ? `<span>${j.pinned ? '📌' : ''}${esc(j.customer || '')} ${esc(j.wo.slice(-6))}</span>` : ''}</div>`;
   }).join('');
   const dl = sel?.deadline ? (() => { const [d, t] = sel.deadline.split('T'); const [y, mo, dd] = d.split('-').map(Number); const [hh, mm] = t.split(':').map(Number); return new Date(y, mo - 1, dd, hh, mm); })() : null;
   const dlHtml = dl && dl > from && dl < to ? `<div class="pg-deadline" style="left:${x(dl)}px;height:${H}px"><span>due ${esc(sel.deadline.slice(11))}</span></div>` : '';
@@ -819,7 +857,7 @@ function drawPlanGantt(el, info, p, match) {
   el.innerHTML = `<div class="pg" style="width:${LBL + W}px;height:${H}px">${rows}${shade}${ticks}<div class="pg-now" style="left:${x(from)}px;height:${H}px"><span>now</span></div>${barHtml}${dlHtml}</div>`;
   const unplanned = jobs.filter((j) => j.unplanned).length;
   info.innerHTML = sel ? `<b>${esc(sel.wo)} / ${esc(sel.per)}</b> · ${esc(sel.customer || '')} · ${sel.qty.toLocaleString('en-GB')} cards · ${esc(sel.prio || '')} · ${esc(sel.shipper || '')}
-      · due <b>${esc(sel.deadline?.replace('T', ' ') || '—')}</b> · finishes ${sel.finish_at ? esc(new Date(sel.finish_at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })) : '—'}
+      · due <b>${esc(sel.deadline?.replace('T', ' ') || '—')}</b> · finishes ${sel.finish_at ? esc(PLF.wkHm.format(new Date(sel.finish_at))) : '—'}
       ${sel.late_minutes > 0 ? `<span class="pl-late">· ${fmtSpan(sel.late_minutes)} late</span>` : ''}${dl && (dl <= from || dl >= to) ? ` <span class="muted">(deadline outside this view)</span>` : ''} <button class="link small" data-pg-clear>✕</button>`
     : `<span class="muted">${bars.length ? 'Click a bar to pick a job.' : 'Nothing planned.'}${unplanned ? ` ⚠ ${unplanned} job${unplanned === 1 ? '' : 's'} can't be planned — see the list.` : ''}</span>`;
   el.onclick = (e) => { const b = e.target.closest('[data-pg-job]'); planSel = b ? b.dataset.pgJob : null; drawPlanGantt(el, info, p, match); };
