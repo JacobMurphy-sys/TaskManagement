@@ -3,3 +3,5 @@ node_modules/
 data/
 logs/
 backups/
+# written by CIManager-Setup.bat when it's run inside a clone
+READ ME - where things are.txt

@@ -45,6 +45,13 @@ Also included: a **dashboard** in two parts, **Projects** (headline counts plus 
 
 ## 1. One-time setup (Windows)
 
+### The quick way: `CIManager-Setup.bat`
+With Node.js 22.13+ and Git installed, put **`CIManager-Setup.bat`** (from this repository) in the folder you want the CI Manager in, e.g. `C:\CIManager`, and double-click it. It checks Node.js and Git, downloads the code into an **`app`** folder next to it, installs the dependencies, writes **`Start CI Manager.bat`**, **`Stop CI Manager.bat`** and **`READ ME - where things are.txt`** (the folder layout, where your data and backups are, and the optional settings, with this computer's actual paths), then starts the app.
+
+**Run it again to update:** it stops the app, backs up your data, pulls the latest version, reinstalls the dependencies, replaces itself with the newest copy of the setup file, rewrites the launchers and the read-me, and starts the app again. Your data stays in `%LOCALAPPDATA%\CIManager`, outside the folder, so installing or updating never touches it. Run from inside an existing clone of the repository, it updates that clone in place, the same as `update.bat`.
+
+The steps below do the same by hand.
+
 **Prerequisite:** Node.js **22.13 or newer**. Check your version with `node -v`. If yours is older, install the current LTS from <https://nodejs.org> (the Windows installer doesn't need admin rights if you choose *Install for me only*). No database server is needed.
 
 1. **Get the code** into a folder, e.g. `C:\TaskManager`.
@@ -299,6 +306,7 @@ public/              the web UI (plain HTML/CSS/JS, no build step)
 scripts/             init-db, backup, restore, smoke-test
 start-hidden.vbs     double-click launcher for Windows (no console window)
 stop-server.vbs      stops the background app
+CIManager-Setup.bat  one-stop install / update into a folder of your choice (code in app\)
 update.bat           stop → back up → git pull → npm install → restart
 start.bat            launcher that keeps a console window with the log
 ```
