@@ -5,5 +5,6 @@ logs/
 backups/
 # written by CIManager-Setup.bat when it's run inside a clone
 READ ME - where things are.txt
+READ ME - where things are.md
 # the network paths file holds company paths - never commit it
 cimanager-defaults.json

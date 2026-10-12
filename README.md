@@ -46,7 +46,7 @@ Also included: a **dashboard** in two parts, **Projects** (headline counts plus 
 ## 1. One-time setup (Windows)
 
 ### The quick way: `CIManager-Setup.bat`
-With Node.js 22.13+ and Git installed, put **`CIManager-Setup.bat`** (from this repository) in the folder you want the CI Manager in, e.g. `C:\CIManager`, and double-click it. It checks Node.js and Git, downloads the code into an **`app`** folder next to it, installs the dependencies, writes **`Start CI Manager.bat`**, **`Stop CI Manager.bat`** and **`READ ME - where things are.txt`** (the folder layout, where your data and backups are, and the optional settings, with this computer's actual paths), then starts the app.
+With Node.js 22.13+ and Git installed, put **`CIManager-Setup.bat`** (from this repository) in the folder you want the CI Manager in, e.g. `C:\CIManager`, and double-click it. It checks Node.js and Git, downloads the code into an **`app`** folder next to it, installs the dependencies, writes **`Start CI Manager.bat`**, **`Stop CI Manager.bat`** and **`READ ME - where things are`** in two versions, a `.txt` for Notepad and a `.md` for Obsidian (front matter, tables, callouts and links that open each folder), with the folder layout, where your data and backups are, the shared paths and the optional settings, all with that computer's actual paths, then starts the app.
 
 **Sharing it on the network:** put `CIManager-Setup.bat` in a network folder and tell people to double-click it there. Run from a network folder (a `\\server\share` path or a mapped drive) it installs on their own computer, in `%USERPROFILE%\CIManager`, and puts a **CI Manager** shortcut on their desktop; the copy on the network is never changed.
 
@@ -307,7 +307,7 @@ public/charter.js    Charter tab, Tasks page and charter settings
 public/gantt.js      Gantt chart
 public/report.js     status report page
 public/              the web UI (plain HTML/CSS/JS, no build step)
-scripts/             init-db, backup, restore, smoke-test
+scripts/             init-db, backup, restore, smoke-test, where-things-are (the install's read-me)
 start-hidden.vbs     double-click launcher for Windows (no console window)
 stop-server.vbs      stops the background app
 CIManager-Setup.bat  one-stop install / update into a folder of your choice (code in app\)
