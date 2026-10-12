@@ -242,9 +242,11 @@ REM A .bat file can't have an icon of its own, so the app is started from a "CI 
 REM with the CI Manager icon (app\assets): in this folder, and on the desktop (on the first
 REM install, or refreshed if it's still there). Starting it also updates it when there's a
 REM newer version, and it's stopped from inside the app, so that's the only one needed.
+REM It runs start-hidden.vbs through wscript.exe so Windows offers "Pin to taskbar" for it
+REM (it won't for a shortcut straight to a script).
 set "MKDESK=$false"
 if defined FRESH set "MKDESK=$true"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$w=New-Object -ComObject WScript.Shell; function L($p,$t,$i,$d){$s=$w.CreateShortcut($p); $s.TargetPath=$t; $s.WorkingDirectory=(Split-Path $t); $s.IconLocation=$i+',0'; $s.Description=$d; $s.Save()}; $a='%APP%'; $b='%BASEDIR%'; L ($b+'\CI Manager.lnk') ($a+'\start-hidden.vbs') ($a+'\assets\cimanager.ico') 'Start the CI Manager'; $d=[Environment]::GetFolderPath('Desktop')+'\CI Manager.lnk'; if (%MKDESK% -or (Test-Path $d)) { L $d ($a+'\start-hidden.vbs') ($a+'\assets\cimanager.ico') 'Start the CI Manager' }" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$w=New-Object -ComObject WScript.Shell; $a='%APP%'; $q=[char]34; function L($p){$s=$w.CreateShortcut($p); $s.TargetPath=$env:SystemRoot+'\System32\wscript.exe'; $s.Arguments=$q+$a+'\start-hidden.vbs'+$q; $s.WorkingDirectory=$a; $s.IconLocation=$a+'\assets\cimanager.ico,0'; $s.Description='Start the CI Manager'; $s.Save()}; L ('%BASEDIR%'+'\CI Manager.lnk'); $d=[Environment]::GetFolderPath('Desktop')+'\CI Manager.lnk'; if (%MKDESK% -or (Test-Path $d)) { L $d }" >nul 2>&1
 if errorlevel 1 goto :bat_launchers
 echo       Shortcut: CI Manager
 if "%MKDESK%"=="$true" echo       Desktop shortcut: CI Manager

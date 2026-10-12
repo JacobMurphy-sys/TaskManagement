@@ -35,6 +35,7 @@ const doc = [
       ['Start', `Double-click ${launch}. It runs in the background and opens http://localhost:${config.port} in your browser. Double-click it again to just open the browser.`],
       ['Stop', 'In the app: the top bar\'s ⋯ menu › Stop server.'],
       ['Update', 'Automatic: each time the CI Manager shortcut starts the app, it checks for a newer version first, and if there is one, updates in a window (backing up your data first) and then starts. To update straight away, stop the app and double-click CIManager-Setup.bat. AUTO_UPDATE=0 in .env turns the automatic check off.'],
+      ['Taskbar', 'Right-click the CI Manager shortcut › Pin to taskbar (on Windows 11: Show more options › Pin to taskbar). Or, with the app open in Edge or Chrome: ⋯ menu › Apps › Install CI Manager, which gives it a window and taskbar icon of its own (it needs the app running, so start it with the shortcut or at log-in).'],
       ['At log-in', `Optional: press Win+R, type shell:startup, and copy the CI Manager shortcut into the folder that opens.`],
     ] },
   ] },
