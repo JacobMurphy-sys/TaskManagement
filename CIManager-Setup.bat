@@ -7,15 +7,15 @@ REM   1. checks Node.js and Git;
 REM   2. first run: downloads the code from GitHub into the "app" folder next to this file;
 REM      later runs: stops the app, backs up your data and pulls the latest version;
 REM   3. installs the dependencies;
-REM   4. refreshes itself and writes "Start CI Manager.bat", "Stop CI Manager.bat"
-REM      and "READ ME - where things are" (.txt for Notepad, .md for Obsidian) next to this file;
+REM   4. refreshes itself and makes "CI Manager", "Update CI Manager" and "Stop CI Manager"
+REM      shortcuts with the CI Manager icons next to this file (and "CI Manager" on the desktop),
+REM      and "READ ME - where things are" (.txt for Notepad, .md for Obsidian);
 REM   5. starts the app.
 REM Run it again any time to update. Your data is kept outside the app folder
 REM (%LOCALAPPDATA%\CIManager), so installing or updating never touches it.
 REM
 REM Shared on the network: double-clicked from a network folder it installs into
-REM %USERPROFILE%\CIManager on this computer (and puts a CI Manager shortcut on the
-REM desktop). A cimanager-defaults.json next to it (exported on KPIs, Sources, Shared paths)
+REM %USERPROFILE%\CIManager on this computer. A cimanager-defaults.json next to it (exported on KPIs, Sources, Shared paths)
 REM gives every install the same network file paths, read again each time the app starts.
 REM
 REM Run from inside a clone of the repository it updates that clone in place instead.
@@ -146,18 +146,10 @@ call :read_env
 if not exist "%DATA%\" mkdir "%DATA%"
 echo       Data:   %DATA%
 if defined SHAREDDEF call :set_defaults_file
-if defined INPLACE goto :readme
 REM The newest copy of this file comes with the code - keep the one in this folder up to date
 REM (not the one on the network: that stays as it was handed out).
-if exist "%APP%\CIManager-Setup.bat" copy /y "%APP%\CIManager-Setup.bat" "%LOCALSELF%" >nul
-> "%BASEDIR%\Start CI Manager.bat" echo @echo off
->>"%BASEDIR%\Start CI Manager.bat" echo REM Starts the CI Manager in the background and opens it in the browser.
->>"%BASEDIR%\Start CI Manager.bat" echo wscript "%%~dp0app\start-hidden.vbs"
-> "%BASEDIR%\Stop CI Manager.bat" echo @echo off
->>"%BASEDIR%\Stop CI Manager.bat" echo REM Stops the CI Manager running in the background.
->>"%BASEDIR%\Stop CI Manager.bat" echo wscript "%%~dp0app\stop-server.vbs"
-echo       Launchers: Start CI Manager.bat, Stop CI Manager.bat
-if defined FRESH call :desktop_shortcut
+if not defined INPLACE if exist "%APP%\CIManager-Setup.bat" copy /y "%APP%\CIManager-Setup.bat" "%LOCALSELF%" >nul
+call :make_shortcuts
 
 :readme
 echo.
@@ -180,8 +172,8 @@ if defined FAILED (
 )
 if defined FRESH (
   echo Installed in %BASEDIR%.
-  echo Next time, start it from the CI Manager shortcut on the desktop or "Start CI Manager.bat" there,
-  echo and run CIManager-Setup.bat again to update. "READ ME - where things are" (.txt or .md) there says what is kept where.
+  echo Next time, start it from the CI Manager shortcut on the desktop,
+  echo and use "Update CI Manager" in that folder to update. "READ ME - where things are" (.txt or .md) there says what is kept where.
   pause
 ) else (
   echo Up to date.
@@ -240,10 +232,31 @@ set "SHAREDNOW=%SHAREDDEF%"
 echo       Shared paths: %SHAREDDEF%
 exit /b 0
 
-:desktop_shortcut
-REM A "CI Manager" shortcut on the desktop that starts it (in the background) and opens it.
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\CI Manager.lnk'); $s.TargetPath='%APP%\start-hidden.vbs'; $s.WorkingDirectory='%APP%'; $s.Description='Start the CI Manager'; $s.Save()" >nul 2>&1
-if errorlevel 1 (echo       Couldn't make the desktop shortcut - use Start CI Manager.bat.) else (echo       Desktop shortcut: CI Manager)
+:make_shortcuts
+REM A .bat file can't have an icon of its own, so the app is started, updated and stopped from
+REM shortcuts that carry the CI Manager icons (app\assets): "CI Manager", "Update CI Manager" and
+REM "Stop CI Manager" in this folder, and "CI Manager" on the desktop (on the first install, or
+REM refreshed if it's still there).
+set "MKDESK=$false"
+if defined FRESH set "MKDESK=$true"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$w=New-Object -ComObject WScript.Shell; function L($p,$t,$i,$d){$s=$w.CreateShortcut($p); $s.TargetPath=$t; $s.WorkingDirectory=(Split-Path $t); $s.IconLocation=$i+',0'; $s.Description=$d; $s.Save()}; $a='%APP%'; $b='%BASEDIR%'; L ($b+'\CI Manager.lnk') ($a+'\start-hidden.vbs') ($a+'\assets\cimanager.ico') 'Start the CI Manager'; L ($b+'\Update CI Manager.lnk') '%LOCALSELF%' ($a+'\assets\cimanager-update.ico') 'Update the CI Manager'; L ($b+'\Stop CI Manager.lnk') ($a+'\stop-server.vbs') ($a+'\assets\cimanager-stop.ico') 'Stop the CI Manager'; $d=[Environment]::GetFolderPath('Desktop')+'\CI Manager.lnk'; if (%MKDESK% -or (Test-Path $d)) { L $d ($a+'\start-hidden.vbs') ($a+'\assets\cimanager.ico') 'Start the CI Manager' }" >nul 2>&1
+if errorlevel 1 goto :bat_launchers
+echo       Shortcuts: CI Manager, Update CI Manager, Stop CI Manager
+if "%MKDESK%"=="$true" echo       Desktop shortcut: CI Manager
+REM Launchers from before the shortcuts are kept up to date only if they're still there
+REM (something, e.g. a start-up shortcut, may point at them).
+if exist "%BASEDIR%\Start CI Manager.bat" goto :bat_launchers_write
+exit /b 0
+:bat_launchers
+echo       Couldn't make the shortcuts - writing Start CI Manager.bat and Stop CI Manager.bat instead.
+:bat_launchers_write
+if defined INPLACE exit /b 0
+> "%BASEDIR%\Start CI Manager.bat" echo @echo off
+>>"%BASEDIR%\Start CI Manager.bat" echo REM Starts the CI Manager in the background and opens it in the browser.
+>>"%BASEDIR%\Start CI Manager.bat" echo wscript "%%~dp0app\start-hidden.vbs"
+> "%BASEDIR%\Stop CI Manager.bat" echo @echo off
+>>"%BASEDIR%\Stop CI Manager.bat" echo REM Stops the CI Manager running in the background.
+>>"%BASEDIR%\Stop CI Manager.bat" echo wscript "%%~dp0app\stop-server.vbs"
 exit /b 0
 
 :is_listening

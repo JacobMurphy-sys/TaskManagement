@@ -23,8 +23,9 @@ let version = 'unknown';
 try { version = execFileSync('git', ['-C', app, 'log', '-1', '--format=%h, %cs'], { encoding: 'utf8' }).trim(); } catch { /* not a clone */ }
 const now = new Date().toLocaleString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-const launch = inplace ? 'start-hidden.vbs (in this folder)' : 'the CI Manager shortcut on the desktop, or Start CI Manager.bat';
-const stop = inplace ? 'stop-server.vbs (in this folder)' : 'Stop CI Manager.bat';
+// The installer makes shortcuts with the CI Manager icons (CI Manager, Update CI Manager, Stop CI Manager).
+const launch = 'the CI Manager shortcut (on the desktop, or in this folder)';
+const stop = 'the Stop CI Manager shortcut in this folder';
 const planner = inplace ? 'planner.bat' : 'app\\planner.bat';
 
 // The content once; rendered as plain text and as Markdown below.
@@ -34,8 +35,8 @@ const doc = [
     { files: [
       ['Start', `Double-click ${launch}. It runs in the background and opens http://localhost:${config.port} in your browser. Double-click it again to just open the browser.`],
       ['Stop', `The top bar's ⋯ menu › Stop server, or double-click ${stop}.`],
-      ['Update', 'Double-click CIManager-Setup.bat again (this folder\'s copy, or the one on the network). It stops the app, backs up your data, downloads the latest version and starts it again.'],
-      ['At log-in', `Optional: press Win+R, type shell:startup, and put a shortcut to ${inplace ? 'start-hidden.vbs' : 'Start CI Manager.bat'} in the folder that opens.`],
+      ['Update', 'Double-click the Update CI Manager shortcut (or CIManager-Setup.bat, here or on the network). It stops the app, backs up your data, downloads the latest version and starts it again.'],
+      ['At log-in', `Optional: press Win+R, type shell:startup, and copy the CI Manager shortcut into the folder that opens.`],
     ] },
   ] },
   { h: 'What is kept where', blocks: [
@@ -43,9 +44,10 @@ const doc = [
       ['(this folder)', `A copy of the program from GitHub (${repo}). Updates replace its files, so don't keep your own files in it. The only file of yours in it is .env (optional settings, below).`],
       [`${NAME}.txt / .md`, 'This file, rewritten on every update.'],
     ] : [
+      ['CI Manager', 'Shortcut: starts the app and opens it (the desktop shortcut does the same).'],
+      ['Update CI Manager', 'Shortcut: runs CIManager-Setup.bat to update.'],
+      ['Stop CI Manager', 'Shortcut: stops the app.'],
       ['CIManager-Setup.bat', 'Install and update. Refreshes itself on each run.'],
-      ['Start CI Manager.bat', 'Starts the app (the desktop shortcut does the same).'],
-      ['Stop CI Manager.bat', 'Stops the app.'],
       [`${NAME}.txt / .md`, 'This file, rewritten on every update.'],
       ['app\\', 'The program, downloaded from GitHub. Replaced on every update, so don\'t keep your own files in it. The only file of yours in it is app\\.env (optional settings, below).'],
     ] },
