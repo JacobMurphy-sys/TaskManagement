@@ -1586,6 +1586,47 @@ async function waitForServer() {
       assert.equal((await fetch(`${BASE}/plan/sheet/nope/x.pdf`)).status, 404);
     }
 
+    // ⏱ Production actuals: the daily timing report, kept run by run, with anomalies set aside
+    {
+      const PA = require('../src/prodactual');
+      assert.equal(PA.dateTime(46307.1588657407, 46307.1588657407), '2026-10-12T03:48:46', 'one cell holding the date and time');
+      assert.equal(PA.dateTime(46307, 0.5), '2026-10-12T12:00:00', 'a date cell and a time cell');
+      assert.equal(PA.dateTime('12/10/2026', '03:48:05'), '2026-10-12T03:48:05', 'text, day first');
+      const head = ['Import Date', 'Due Date', 'job', 'Product Type', 'Job Qty', 'Qty Persoed', 'Start Date', 'Start Time', 'End Date', 'End Time', 'Remake', 'Machine WS Name', 'Machine  Name', 'Production Mode', 'Item AXRef', 'Item Name', 'Customer Name', 'CO Ref'];
+      const day = 46304; // Fri 9 Oct 2026
+      const run = (i, m, startH, minutes, qty, extra = {}) => { const s0 = day + startH / 24; const e0 = s0 + minutes / 1440;
+        return [day, day + 2, extra.job || `CKBCS2610${String(i).padStart(4, '0')}PER0001`, 'Card', qty, qty, s0, s0, extra.end ?? e0, extra.end ?? e0, extra.remake ? 'Yes' : 'No', 'WS1', m, 'LIVE', '2260001', 'KBC card', 'KBC Bank', 'KBC']; };
+      const rows = []; let t = 6;
+      for (let i = 0; i < 30; i++) { const q = 100 + i * 37; const min = 5 + (q * 2.4) / 60; rows.push(run(i, 'MX#1', t, min, q)); t += (min + 3) / 60; }
+      rows.push(run(90, 'MX#1', 21, 0.2, 900, { job: 'QUICK' }), run(91, 'MX#1', 21.5, 900, 500, { job: 'SLOW' }), run(92, 'MX#1', 22, 30, 40, { job: 'BACKWARDS', end: day + 21 / 24 }));
+      const xlsx = require('../src/xlsx').buildXlsx([{ name: 'DailyPersoTiming', columns: head.map((h, i) => ({ header: h, type: [0, 1, 4, 5, 6, 7, 8, 9].includes(i) ? 'number' : undefined })), rows }]);
+      const file = path.join(tmp, 'DailyPersoTiming.xlsx');
+      fs.writeFileSync(file, xlsx);
+      const parsed = PA.parse(xlsx);
+      assert.equal(parsed.rows.length, 33); assert.equal(parsed.rows[0].machine, 'MX#1', '"Machine  Name" (two spaces) found'); assert.equal(parsed.rows[0].trigram, 'KBC');
+      await call('PATCH', '/settings', { kpi_time_perso: file });
+      let r = await call('POST', '/prod/read', { source: 'perso' });
+      assert.equal(r.status, 'read'); assert.equal(r.added, 33);
+      r = await call('POST', '/prod/read', { source: 'perso' });
+      assert.equal(r.added, 0, 'read again: the same runs are updated, not added twice'); assert.equal(r.updated, 33);
+      const v = await call('GET', '/prod?source=perso&from=2026-10-09&days=1');
+      assert.equal(v.runs.length, 33);
+      const flagged = Object.fromEntries(v.runs.filter((x) => x.anomaly).map((x) => [x.job, x.anomaly.kind]));
+      assert.deepEqual(flagged, { QUICK: 'quick', SLOW: 'slow', BACKWARDS: 'invalid' }, 'far too quick, far too long and backwards are set aside; the ordinary runs are not');
+      assert.equal(v.totals.runs, 30); assert.equal(v.totals.anomalies, 3);
+      assert.equal(v.totals.cards, rows.slice(0, 30).reduce((a, x) => a + x[5], 0), 'the figures leave the anomalies out');
+      const mx = v.load.find((l) => l.machine === 'MX#1');
+      assert.ok(mx.days['2026-10-09'].busy_minutes > 0 && mx.days['2026-10-09'].busy_minutes <= 24 * 60);
+      const usual = v.runs.find((x) => x.job === 'QUICK').usual;
+      assert.ok(Math.abs(usual.spc - 2.4) < 0.3, `learned the machine's time a card (2.4 s): ${usual.spc}`);
+      const all = await call('GET', '/prod?source=perso&from=2026-10-09&days=1&anomalies=1');
+      assert.ok(all.totals.busy_minutes > v.totals.busy_minutes, 'counted anyway: the slow run adds its time');
+      // older reports loaded by hand fill in the history
+      const up = await fetch(`${BASE}/prod/upload?source=perso`, { method: 'POST', body: xlsx, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': 'old.xlsx' } }).then((x) => x.json());
+      assert.equal(up.rows, 33); assert.equal(up.added, 0);
+      await call('PATCH', '/settings', { kpi_time_perso: '' });
+    }
+
     // 🌐 shared defaults: network paths for everyone, filling in only what isn't set by hand
     {
       const file = path.join(tmp, 'share', 'cimanager-defaults.json');

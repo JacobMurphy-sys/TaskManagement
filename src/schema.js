@@ -326,6 +326,30 @@ const TABLES = {
     done_at      TEXT,
     late_minutes INTEGER`,
 
+  // ⏱ Production actuals: each run in the daily timing reports (perso, Otto) — a job on a
+  // machine from start to end — kept as the reports roll over (not audited: written by the reader).
+  prod_runs: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    source      TEXT    NOT NULL,
+    job         TEXT    NOT NULL,
+    machine     TEXT    NOT NULL DEFAULT '',
+    station     TEXT,
+    start_at    TEXT    NOT NULL,
+    end_at      TEXT,
+    qty         INTEGER,
+    job_qty     INTEGER,
+    remake      INTEGER NOT NULL DEFAULT 0,
+    mode        TEXT,
+    product     TEXT,
+    item        TEXT,
+    item_name   TEXT,
+    customer    TEXT,
+    trigram     TEXT,
+    due         TEXT,
+    file        TEXT,
+    read_at     TEXT    NOT NULL,
+    UNIQUE (source, job, machine, start_at)`,
+
   // 🏭 Planning: jobs pinned to the front of the queue (work order / job key), in pin order.
   plan_pins: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -489,6 +513,7 @@ const INDEXES = `
   CREATE INDEX IF NOT EXISTS meetings_project_idx ON meetings(project_id, held_at);
   CREATE INDEX IF NOT EXISTS meetings_task_idx ON meetings(task_id);
   CREATE INDEX IF NOT EXISTS meetings_held_idx ON meetings(held_at);
+  CREATE INDEX IF NOT EXISTS prod_runs_time_idx ON prod_runs(source, start_at);
 
   -- Default project ID (editable), like ideas' references.
   DROP TRIGGER IF EXISTS projects_code;

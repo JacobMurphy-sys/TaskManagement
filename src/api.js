@@ -12,6 +12,7 @@ const { parseQuick, nextOccurrence, shiftKey, dateKey } = require('./dates');
 const { buildXlsx } = require('./xlsx');
 const { RECURRENCES } = require('./schema');
 const charter = require('./charter');
+const prod = require('./prodactual');
 
 const router = express.Router();
 
@@ -2174,6 +2175,8 @@ const SETTING_DEFAULTS = {
   kpi_src_perso: '', kpi_src_shipped: '', kpi_src_remakes: '', kpi_src_otd: '', kpi_src_salesforce: '', kpi_split_weekends: '0',
   // The customer forecast files (blank: the workbook's copy of them).
   kpi_fc_benelux: '', kpi_fc_amex: '',
+  // ⏱ The daily timing reports (each job's start and end on its machine), perso and Otto.
+  kpi_time_perso: '', kpi_time_otto: '',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
   plan_src: '', planner_url: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_oee_default: '', plan_otto_src: '', plan_max_age: '30', plan_miti_days: '5', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
@@ -2195,6 +2198,52 @@ router.patch('/settings', h((req, res) => {
     }
   });
   res.json(getSettings());
+}));
+
+// ---- ⏱ Production actuals: the daily timing reports, kept as they roll over --------------------
+const prodFile = (source) => cleanPath(getSettings()[`kpi_time_${source}`]) || null;
+const prodSource = (v) => (v === 'otto' ? 'otto' : 'perso');
+// Read every 10 minutes (and at start-up) so no day is missed even with the page closed.
+function readProdReports() {
+  for (const source of Object.keys(prod.SOURCES)) {
+    const r = prod.readLinked(source, prodFile(source));
+    if (r.status === 'read') log.info(`Production ${source}: read ${r.rows} runs (${r.added} new)`);
+    else if (r.status === 'error') log.warn(`Production ${source}: ${r.error}`);
+  }
+}
+setTimeout(readProdReports, 4000).unref();
+setInterval(readProdReports, 10 * 60 * 1000).unref();
+
+// The runs from a day (from=YYYY-MM-DD, days=1..31): Gantt, load, totals and anomalies.
+router.get('/prod', h((req, res) => {
+  const source = prodSource(req.query.source);
+  prod.readLinked(source, prodFile(source));
+  const m = String(req.query.from || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const now = new Date();
+  const from = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const days = Math.min(31, Math.max(1, Number(req.query.days) || 1));
+  const to = new Date(from.getFullYear(), from.getMonth(), from.getDate() + days);
+  const set = getSettings();
+  res.json({ ...prod.view(source, from, to, { sensitivity: String(req.query.sensitivity || 'normal'), withAnomalies: req.query.anomalies === '1' }),
+    days, linked: { perso: !!prodFile('perso'), otto: !!prodFile('otto') }, file: prodFile(source),
+    work: { start: set.plan_day_start, end: set.plan_day_end, days: String(set.plan_days || '1,2,3,4,5').split(',').map(Number) } });
+}));
+// Read the linked report now (even if it looks unchanged).
+router.post('/prod/read', h((req, res) => {
+  const source = prodSource(req.body?.source);
+  const r = prod.readLinked(source, prodFile(source), { force: true });
+  if (r.status === 'none') throw new HttpError(400, `Set where the ${prod.SOURCES[source]} timing report is saved first`);
+  res.json(r);
+}));
+// Older reports, loaded by hand to fill in the history.
+router.post('/prod/upload', express.raw({ type: '*/*', limit: '100mb' }), h((req, res) => {
+  const source = prodSource(req.query.source);
+  if (!req.body?.length) throw new HttpError(400, 'Choose a timing report');
+  const name = fileNameHeader(req, 'report.xlsx');
+  if (!/\.xls[xm]$/i.test(name)) throw new HttpError(400, 'Choose an Excel file (.xlsx)');
+  let parsed;
+  try { parsed = prod.parse(req.body); } catch (err) { throw new HttpError(400, `${name}: ${err.message}`); }
+  res.status(201).json({ source, file: name, rows: parsed.rows.length, skipped: parsed.skipped, ...prod.store(source, parsed.rows, name) });
 }));
 
 // ---- shared defaults: the file paths that are the same for everyone on the network
