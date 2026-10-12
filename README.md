@@ -46,13 +46,13 @@ Also included: a **dashboard** in two parts, **Projects** (headline counts plus 
 ## 1. One-time setup (Windows)
 
 ### The quick way: `CIManager-Setup.bat`
-With Node.js 22.13+ and Git installed, put **`CIManager-Setup.bat`** (from this repository) in the folder you want the CI Manager in, e.g. `C:\CIManager`, and double-click it. It checks Node.js and Git, downloads the code into an **`app`** folder next to it, installs the dependencies, makes **CI Manager**, **Update CI Manager** and **Stop CI Manager** shortcuts with the CI Manager icons (a `.bat` file can't have an icon of its own, so the shortcuts make it look and start like an application; the first install also puts **CI Manager** on the desktop), writes **`READ ME - where things are`** in two versions, a `.txt` for Notepad and a `.md` for Obsidian (front matter, tables, callouts and links that open each folder), with the folder layout, where your data and backups are, the shared paths and the optional settings, all with that computer's actual paths, then starts the app.
+With Node.js 22.13+ and Git installed, put **`CIManager-Setup.bat`** (from this repository) in the folder you want the CI Manager in, e.g. `C:\CIManager`, and double-click it. It checks Node.js and Git, downloads the code into an **`app`** folder next to it, installs the dependencies, makes a **CI Manager** shortcut with the CI Manager icon (a `.bat` file can't have an icon of its own, so the shortcut makes it look and start like an application; the first install also puts it on the desktop), writes **`READ ME - where things are`** in two versions, a `.txt` for Notepad and a `.md` for Obsidian (front matter, tables, callouts and links that open each folder), with the folder layout, where your data and backups are, the shared paths and the optional settings, all with that computer's actual paths, then starts the app.
 
-**Sharing it on the network:** put `CIManager-Setup.bat` in a network folder and tell people to double-click it there. To give it an icon there too, make a shortcut to it in the same folder (right-click › *Show more options* › *Create shortcut*), rename it e.g. *Install CI Manager*, and under *Properties › Change Icon…* pick `cimanager-update.ico` from the repository's `assets` folder (copy the icon to the share first). Run from a network folder (a `\\server\share` path or a mapped drive) it installs on their own computer, in `%USERPROFILE%\CIManager`, and puts a **CI Manager** shortcut on their desktop; the copy on the network is never changed.
+**Sharing it on the network:** put `CIManager-Setup.bat` in a network folder and tell people to double-click it there. To give it an icon there too, make a shortcut to it in the same folder (right-click › *Show more options* › *Create shortcut*), rename it e.g. *Install CI Manager*, and under *Properties › Change Icon…* pick `cimanager.ico` from the repository's `assets` folder (copy the icon to the share first). Run from a network folder (a `\\server\share` path or a mapped drive) it installs on their own computer, in `%USERPROFILE%\CIManager`, and puts a **CI Manager** shortcut on their desktop; the copy on the network is never changed.
 
 **The same network paths for everyone:** on **KPIs › Sources › 🌐 Shared paths**, click **⬇ Export these paths for everyone** and save the file as **`cimanager-defaults.json`** next to `CIManager-Setup.bat` on the share. Each install made from there points at that file (`DEFAULTS_FILE` in `app\.env`, as a `\\server\share` path even when it was run from a mapped drive) and reads it every time the app starts. It holds the CI workbook, the A3 folder and file name, the KPI source files and forecasts, and Planning's export paths (the work orders, Otto and card database exports and the shared planner address). A path is filled in only where it's blank, still the built-in default, or still what the file said last time, so a path someone set for themselves is kept and a path changed in the file reaches everyone else at their next start. Off the network the app just carries on with the paths it has. **📂 Use a paths file…** fills them in from a file by hand, and **🔄 Read the shared file now** applies an updated file without restarting.
 
-**Run it again to update:** it stops the app, backs up your data, pulls the latest version, reinstalls the dependencies, replaces itself with the newest copy of the setup file, rewrites the launchers and the read-me, and starts the app again. Your data stays in `%LOCALAPPDATA%\CIManager`, outside the folder, so installing or updating never touches it. Run from inside an existing clone of the repository, it updates that clone in place, the same as `update.bat`.
+**Updating is automatic:** each time the **CI Manager** shortcut starts the app, it first checks GitHub for a newer version (a quick `git fetch`; offline, it just starts). If there is one, it runs `CIManager-Setup.bat` in a window: stop, back up your data, pull the latest version, reinstall the dependencies, refresh the shortcut and the read-mes, and start the app. If the app is already running, the shortcut just opens it; the update comes at the next start. Stopping is done in the app (**⋯ › Stop server**), so the one shortcut is all anyone needs. To update straight away, stop the app and double-click `CIManager-Setup.bat`; to turn the automatic check off, put `AUTO_UPDATE=0` in `app\.env`.  Your data stays in `%LOCALAPPDATA%\CIManager`, outside the folder, so installing or updating never touches it. Run from inside an existing clone of the repository, it updates that clone in place, the same as `update.bat`.
 
 The steps below do the same by hand.
 
@@ -77,6 +77,8 @@ Press `Win+R`, type `shell:startup`, and put a shortcut to **`start-hidden.vbs`*
 > If Windows reports that VBScript isn't available (Microsoft is gradually retiring it; it's still installed by default on Windows 10 and 11), use `start.bat` instead.
 
 ### Getting updates (during development)
+`start-hidden.vbs` (what the **CI Manager** shortcut runs) checks for updates when it starts the app, as above, if `CIManager-Setup.bat` is next to the app folder or in it. Or update by hand:
+
 Double-click **`update.bat`** in your clone of the repository. It:
 1. stops the running CI Manager (whether it was started hidden or with `start.bat`);
 2. takes a backup of your data;
@@ -308,7 +310,7 @@ public/gantt.js      Gantt chart
 public/report.js     status report page
 public/              the web UI (plain HTML/CSS/JS, no build step)
 scripts/             init-db, backup, restore, smoke-test, where-things-are (the install's read-me)
-assets/              the CI Manager icons (start, update, stop) as .svg and .ico
+assets/              the CI Manager icon as .svg and .ico
 start-hidden.vbs     double-click launcher for Windows (no console window)
 stop-server.vbs      stops the background app
 CIManager-Setup.bat  one-stop install / update into a folder of your choice (code in app\)

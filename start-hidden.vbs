@@ -1,9 +1,11 @@
 ' Starts the CI Manager in the background (no console window) and opens it
 ' in your browser. If it's already running, it just opens the browser.
+' Before starting, it checks GitHub for a newer version; if there is one, CIManager-Setup.bat
+' updates it (in a window, so you can see it) and starts it. AUTO_UPDATE=0 in .env turns that off.
 ' Put a shortcut to this file in shell:startup to start it when you log in.
 Option Explicit
 
-Dim sh, fso, dir, url, i
+Dim sh, fso, dir, url, i, setup
 Set sh = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 dir = fso.GetParentFolderName(WScript.ScriptFullName)
@@ -14,6 +16,18 @@ If Not IsRunning() Then
   If sh.Run("cmd /c where node", 0, True) <> 0 Then
     MsgBox "Node.js was not found. Install it from https://nodejs.org and try again.", vbExclamation, "CI Manager"
     WScript.Quit 1
+  End If
+
+  ' A newer version on GitHub: let the setup update and start it. Not when the setup itself
+  ' is starting the app (CIM_NOUPDATE), so a failed update can't go round in circles.
+  If sh.ExpandEnvironmentStrings("%CIM_NOUPDATE%") <> "1" Then
+    setup = SetupFile()
+    If setup <> "" Then
+      If sh.Run("cmd /c node scripts\check-update.js", 0, True) = 10 Then
+        sh.Run "cmd /c """"" & setup & """""", 1, False
+        WScript.Quit 0
+      End If
+    End If
   End If
 
   ' First run: install dependencies (this window is visible so you can see progress).
@@ -53,6 +67,16 @@ Function IsRunning()
     If http.status = 200 And InStr(http.responseText, "taskmanager") > 0 Then IsRunning = True
   End If
   On Error GoTo 0
+End Function
+
+' CIManager-Setup.bat next to the app folder (installed by it), or in it (a clone), or "".
+Function SetupFile()
+  SetupFile = ""
+  If fso.FileExists(fso.GetParentFolderName(dir) & "\CIManager-Setup.bat") Then
+    SetupFile = fso.GetParentFolderName(dir) & "\CIManager-Setup.bat"
+  ElseIf fso.FileExists(dir & "\CIManager-Setup.bat") Then
+    SetupFile = dir & "\CIManager-Setup.bat"
+  End If
 End Function
 
 ' PORT from .env, or 3000.

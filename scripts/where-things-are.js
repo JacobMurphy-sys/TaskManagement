@@ -23,9 +23,8 @@ let version = 'unknown';
 try { version = execFileSync('git', ['-C', app, 'log', '-1', '--format=%h, %cs'], { encoding: 'utf8' }).trim(); } catch { /* not a clone */ }
 const now = new Date().toLocaleString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-// The installer makes shortcuts with the CI Manager icons (CI Manager, Update CI Manager, Stop CI Manager).
+// The installer makes a CI Manager shortcut with the CI Manager icon, here and on the desktop.
 const launch = 'the CI Manager shortcut (on the desktop, or in this folder)';
-const stop = 'the Stop CI Manager shortcut in this folder';
 const planner = inplace ? 'planner.bat' : 'app\\planner.bat';
 
 // The content once; rendered as plain text and as Markdown below.
@@ -34,8 +33,8 @@ const doc = [
   { h: 'Day to day', blocks: [
     { files: [
       ['Start', `Double-click ${launch}. It runs in the background and opens http://localhost:${config.port} in your browser. Double-click it again to just open the browser.`],
-      ['Stop', `The top bar's ⋯ menu › Stop server, or double-click ${stop}.`],
-      ['Update', 'Double-click the Update CI Manager shortcut (or CIManager-Setup.bat, here or on the network). It stops the app, backs up your data, downloads the latest version and starts it again.'],
+      ['Stop', 'In the app: the top bar\'s ⋯ menu › Stop server.'],
+      ['Update', 'Automatic: each time the CI Manager shortcut starts the app, it checks for a newer version first, and if there is one, updates in a window (backing up your data first) and then starts. To update straight away, stop the app and double-click CIManager-Setup.bat. AUTO_UPDATE=0 in .env turns the automatic check off.'],
       ['At log-in', `Optional: press Win+R, type shell:startup, and copy the CI Manager shortcut into the folder that opens.`],
     ] },
   ] },
@@ -44,10 +43,8 @@ const doc = [
       ['(this folder)', `A copy of the program from GitHub (${repo}). Updates replace its files, so don't keep your own files in it. The only file of yours in it is .env (optional settings, below).`],
       [`${NAME}.txt / .md`, 'This file, rewritten on every update.'],
     ] : [
-      ['CI Manager', 'Shortcut: starts the app and opens it (the desktop shortcut does the same).'],
-      ['Update CI Manager', 'Shortcut: runs CIManager-Setup.bat to update.'],
-      ['Stop CI Manager', 'Shortcut: stops the app.'],
-      ['CIManager-Setup.bat', 'Install and update. Refreshes itself on each run.'],
+      ['CI Manager', 'Shortcut: updates the app if there\'s a newer version, starts it and opens it (the desktop shortcut does the same).'],
+      ['CIManager-Setup.bat', 'Install and update (the shortcut runs it when there\'s an update). Refreshes itself on each run.'],
       [`${NAME}.txt / .md`, 'This file, rewritten on every update.'],
       ['app\\', 'The program, downloaded from GitHub. Replaced on every update, so don\'t keep your own files in it. The only file of yours in it is app\\.env (optional settings, below).'],
     ] },
@@ -72,7 +69,7 @@ const doc = [
     { p: 'None set up. To give everyone the same network paths: on KPIs › Sources › Shared paths, click Export these paths for everyone, and save the file as cimanager-defaults.json next to CIManager-Setup.bat on the network. Installs and updates run from there then use it.' },
   ] },
   { h: 'Optional settings', blocks: [
-    { p: `To change the port, the data folder, the backup schedule or the shared paths file, copy .env.example to .env in ${app} and edit it (PORT, DATA_DIR, BACKUP_INTERVAL_HOURS, BACKUP_KEEP, DEFAULTS_FILE). Restart the app afterwards.` },
+    { p: `To change the port, the data folder, the backup schedule or the shared paths file, copy .env.example to .env in ${app} and edit it (PORT, DATA_DIR, BACKUP_INTERVAL_HOURS, BACKUP_KEEP, DEFAULTS_FILE, AUTO_UPDATE). Restart the app afterwards.` },
     { note: 'Keep the data folder on this computer\'s own disk, not a network drive or a synced (OneDrive) folder.' },
   ] },
   { h: 'Moving to another computer', blocks: [
