@@ -1607,16 +1607,19 @@ async function waitForServer() {
       const file = path.join(tmp, 'DailyPersoTiming.xlsx');
       fs.writeFileSync(file, xlsx);
       const parsed = PA.parse(xlsx);
-      assert.equal(parsed.rows.length, 35); assert.equal(parsed.rows[0].machine, 'MX#1', '"Machine  Name" (two spaces) found'); assert.equal(parsed.rows[0].trigram, 'KBC');
+      assert.equal(parsed.rows.length, 34, 'the M work order isn\'t taken in at all'); assert.equal(parsed.rows[0].machine, 'MX#1', '"Machine  Name" (two spaces) found'); assert.equal(parsed.rows[0].trigram, 'KBC');
       await call('PATCH', '/settings', { kpi_time_perso: file });
       let r = await call('POST', '/prod/read', { source: 'perso' });
-      assert.equal(r.status, 'read'); assert.equal(r.added, 35);
+      assert.equal(r.status, 'read'); assert.equal(r.added, 34);
       assert.deepEqual([r.first, r.last, r.days], ['2026-10-08', '2026-10-09', 2], 'what the report holds: two days (the M work order not counted)');
       r = await call('POST', '/prod/read', { source: 'perso' });
-      assert.equal(r.added, 0, 'read again: the same runs are updated, not added twice'); assert.equal(r.updated, 35);
+      assert.equal(r.added, 0, 'read again: the same runs are updated, not added twice'); assert.equal(r.updated, 34);
       const v = await call('GET', '/prod?source=perso&from=2026-10-09&days=1');
       assert.equal((await call('GET', '/prod?source=perso')).from.slice(0, 10), '2026-10-09', 'no day asked for: the latest day with runs');
       assert.equal(v.runs.length, 33, 'the M work order is left out');
+      const effs = v.runs.filter((x) => !x.anomaly).map((x) => x.efficiency);
+      assert.ok(effs.every((e) => e > 0.8 && e < 1.25), `ordinary runs come out near 100% efficient: ${effs.map((e) => Math.round(e * 100)).join(' ')}`);
+      assert.ok(v.runs.find((x) => x.job === 'SLOW').efficiency < 0.2 && v.runs.find((x) => x.job === 'QUICK').efficiency > 5, 'far too slow: low; far too quick: very high');
       assert.ok(!v.runs.some((x) => /^M/.test(x.job)));
       assert.deepEqual(v.history.days.map((d) => d.day), ['2026-10-08', '2026-10-09'], 'every day kept, for the history strip');
       assert.equal((await call('GET', '/prod?source=perso&from=2026-10-08&days=1')).runs.length, 1, 'the earlier day is shown when it\'s picked');
@@ -1632,7 +1635,7 @@ async function waitForServer() {
       assert.ok(all.totals.busy_minutes > v.totals.busy_minutes, 'counted anyway: the slow run adds its time');
       // older reports loaded by hand fill in the history
       const up = await fetch(`${BASE}/prod/upload?source=perso`, { method: 'POST', body: xlsx, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': 'old.xlsx' } }).then((x) => x.json());
-      assert.equal(up.rows, 35); assert.equal(up.added, 0); assert.equal(up.days, 2);
+      assert.equal(up.rows, 34); assert.equal(up.added, 0); assert.equal(up.days, 2);
       await call('PATCH', '/settings', { kpi_time_perso: '' });
     }
 

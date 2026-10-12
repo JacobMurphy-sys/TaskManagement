@@ -6,6 +6,9 @@
 const prodState = { sel: null };
 const PROD_COLORS = ['#3b78d8', '#3c9a5f', '#d07a1f', '#8a55c7', '#c2457a', '#2a9d9c', '#7a8a1f', '#b0553a', '#5468d4', '#9a7b2f'];
 const prodColor = (key) => { let h = 0; for (const ch of String(key || '?')) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return PROD_COLORS[h % PROD_COLORS.length]; };
+// efficiency as a coloured %: green from 90%, amber from 70%, red below
+const prodEffHtml = (e, title = '') => (e === null || e === undefined ? '<span class="muted">—</span>'
+  : `<b class="${e >= 0.9 ? 'pl-ok' : e >= 0.7 ? 'pl-warn' : 'pl-late'}" title="${esc(title || 'What a job this size usually takes on this machine ÷ what it took: 100% = usual, more = quicker')}">${Math.round(e * 100)}%</b>`);
 const prodYmd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 async function renderKpiProduction() {
@@ -25,6 +28,9 @@ async function renderKpiProduction() {
   const hm = (iso) => iso.slice(11, 16);
   const when = (iso) => `${PLF.day.format(new Date(`${iso.slice(0, 10)}T12:00`))} ${hm(iso)}`;
   const secs = (s) => (s === null || s === undefined ? '—' : s >= 90 ? `${PLF.one.format(s / 60)} min` : `${PLF.one.format(s)} s`);
+  // efficiency: what the runs usually take on their machines ÷ what they took (100% = usual)
+  const effOf = (rs) => { const u = rs.filter((r) => r.usual && r.minutes > 0); const took = u.reduce((a, r) => a + r.minutes, 0); return took ? u.reduce((a, r) => a + r.usual.minutes, 0) / took : null; };
+  const effHtml = prodEffHtml;
   // working hours from Planning's Setup: for the utilisation and the shading
   const wStart = /^\d{1,2}:\d{2}$/.test(p.work.start || '') ? p.work.start : '06:00';
   const wEnd = /^\d{1,2}:\d{2}$/.test(p.work.end || '') ? p.work.end : '22:00';
@@ -44,7 +50,7 @@ async function renderKpiProduction() {
   const tiles = `<div class="kdb-tiles pl-tiles">
       <div class="kdb-tile"><div class="kdb-tile-l">${label} ${unit} made</div><div class="kdb-tile-v">${n(t.cards)}</div><div class="kdb-tile-s">${n(t.jobs)} job${t.jobs === 1 ? '' : 's'} · ${n(t.runs)} run${t.runs === 1 ? '' : 's'}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Machine time busy</div><div class="kdb-tile-v">${PLF.one.format(t.busy_minutes / 60)} h</div><div class="kdb-tile-s">${capacity ? `${Math.round((t.busy_minutes / capacity) * 100)}% of ${p.machines.length} machine${p.machines.length === 1 ? '' : 's'} × ${wStart}–${wEnd}` : 'no working days in view'}</div></div>
-      <div class="kdb-tile"><div class="kdb-tile-l">Average a ${unit === 'cards' ? 'card' : 'item'}</div><div class="kdb-tile-v">${secs(t.spc)}</div><div class="kdb-tile-s">including set-up, all machines</div></div>
+      <div class="kdb-tile"><div class="kdb-tile-l">Average a ${unit === 'cards' ? 'card' : 'item'}</div><div class="kdb-tile-v">${secs(t.spc)}</div><div class="kdb-tile-s">including set-up · efficiency ${effHtml(effOf(good))}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Remakes</div><div class="kdb-tile-v">${n(t.remakes)}</div><div class="kdb-tile-s">${unit}${t.cards ? ` · ${PLF.one.format((t.remakes / t.cards) * 100)}%` : ''}</div></div>
       <div class="kdb-tile" ${anomalies.length ? 'data-prod-jump="anom" style="cursor:pointer"' : ''} title="Runs far too quick or far too long for their machine and size — left out of the figures${withAnom ? ' (now counted anyway)' : ''}">
         <div class="kdb-tile-l">Anomalies set aside</div><div class="kdb-tile-v ${anomalies.length ? 'kdb-warn' : 'kdb-ok'}">${n(anomalies.length)}</div><div class="kdb-tile-s">${withAnom ? 'counted anyway' : 'left out of the figures'}${t.open ? ` · ${t.open} without an end` : ''}</div></div>
@@ -66,19 +72,19 @@ async function renderKpiProduction() {
     };
     const dayTot = (d) => p.load.reduce((a, l) => { const v = l.days[d]; return v ? { busy_minutes: a.busy_minutes + v.busy_minutes, cards: a.cards + v.cards, jobs: a.jobs + v.jobs } : a; }, { busy_minutes: 0, cards: 0, jobs: 0 });
     return `<div class="card"><h3 class="pl-h">▦ Load — machine time busy a day <span class="muted small">bar = share of the working day ${wStart}–${wEnd} (from Planning's Setup); runs that overlap on a machine count once</span></h3>
-      <div class="kdb-scroll"><table class="log pl-load"><thead><tr><th>Machine</th>${days.map((d) => `<th class="num">${esc(PLF.day.format(new Date(`${d}T12:00`)))}</th>`).join('')}<th class="num">Total</th><th class="num">Avg a ${unit === 'cards' ? 'card' : 'item'}</th></tr></thead>
+      <div class="kdb-scroll"><table class="log pl-load"><thead><tr><th>Machine</th>${days.map((d) => `<th class="num">${esc(PLF.day.format(new Date(`${d}T12:00`)))}</th>`).join('')}<th class="num">Total</th><th class="num">Avg a ${unit === 'cards' ? 'card' : 'item'}</th><th class="num">Efficiency</th></tr></thead>
       <tbody>${p.load.map((l) => {
         const rs = good.filter((r) => r.machine === l.machine && r.spc);
         const spc = rs.reduce((a, r) => a + r.minutes * 60, 0) / Math.max(1, rs.reduce((a, r) => a + r.qty, 0));
-        return `<tr><td><b>${esc(l.machine)}</b></td>${days.map((d) => cell(l.days[d])).join('')}<td class="num"><b>${PLF.one.format(l.busy_minutes / 60)} h</b><div class="small muted">${n(l.cards)} ${unit}</div></td><td class="num">${rs.length ? secs(spc) : '—'}</td></tr>`;
-      }).join('') || `<tr><td colspan="${days.length + 3}" class="muted">Nothing ran in this period.</td></tr>`}
-      ${p.load.length > 1 ? `<tr class="pl-load-total"><td>All</td>${days.map((d) => { const v = dayTot(d); return `<td class="num">${PLF.one.format(v.busy_minutes / 60)} h<div class="small muted">${n(v.cards)} ${unit}</div></td>`; }).join('')}<td class="num">${PLF.one.format(t.busy_minutes / 60)} h<div class="small muted">${n(t.cards)} ${unit}</div></td><td class="num">${secs(t.spc)}</td></tr>` : ''}</tbody></table></div></div>`;
+        return `<tr><td><b>${esc(l.machine)}</b></td>${days.map((d) => cell(l.days[d])).join('')}<td class="num"><b>${PLF.one.format(l.busy_minutes / 60)} h</b><div class="small muted">${n(l.cards)} ${unit}</div></td><td class="num">${rs.length ? secs(spc) : '—'}</td><td class="num">${effHtml(effOf(good.filter((r) => r.machine === l.machine)))}</td></tr>`;
+      }).join('') || `<tr><td colspan="${days.length + 4}" class="muted">Nothing ran in this period.</td></tr>`}
+      ${p.load.length > 1 ? `<tr class="pl-load-total"><td>All</td>${days.map((d) => { const v = dayTot(d); return `<td class="num">${PLF.one.format(v.busy_minutes / 60)} h<div class="small muted">${n(v.cards)} ${unit}</div></td>`; }).join('')}<td class="num">${PLF.one.format(t.busy_minutes / 60)} h<div class="small muted">${n(t.cards)} ${unit}</div></td><td class="num">${secs(t.spc)}</td><td class="num">${effHtml(effOf(good))}</td></tr>` : ''}</tbody></table></div></div>`;
   };
 
   const runRow = (r) => `<tr class="${r.anomaly && r.anomaly.kind !== 'open' ? 'pl-late-row' : ''}"><td>${esc(when(r.start_at))}</td><td>${r.end_at ? esc(hm(r.end_at)) : '—'}</td><td><b>${esc(r.machine)}</b></td><td>${esc(r.job)}${r.remake ? ' <span class="chip">remake</span>' : ''}</td>
       <td>${esc(r.trigram || '')}<div class="small muted">${esc(r.item_name || '')}</div></td><td class="num">${n(r.qty)}</td><td class="num">${r.minutes !== null ? fmtSpan(r.minutes) : '—'}</td>
-      <td class="num">${secs(r.spc)}${r.usual ? `<div class="small muted" title="What this machine usually takes for a job this size">usual ${fmtSpan(r.usual.minutes)}</div>` : ''}</td><td class="small">${r.anomaly ? `<span class="${r.anomaly.kind === 'open' ? 'muted' : 'pl-late'}">${esc(r.anomaly.text)}</span>` : ''}</td></tr>`;
-  const runHead = `<tr><th>Start</th><th>End</th><th>Machine</th><th>Job</th><th>Customer</th><th class="num">${unit[0].toUpperCase()}${unit.slice(1)}</th><th class="num">Took</th><th class="num">A ${unit === 'cards' ? 'card' : 'item'}</th><th></th></tr>`;
+      <td class="num">${secs(r.spc)}${r.usual ? `<div class="small muted" title="What this machine usually takes for a job this size">usual ${fmtSpan(r.usual.minutes)}</div>` : ''}</td><td class="small">${r.anomaly ? `<span class="${r.anomaly.kind === 'open' ? 'muted' : 'pl-late'}">${esc(r.anomaly.text)}</span>` : ''}</td><td class="num">${effHtml(r.efficiency, r.usual ? `Usually about ${fmtSpan(r.usual.minutes)} on ${r.machine} for ${r.qty} ${unit}; took ${fmtSpan(r.minutes)}` : '')}</td></tr>`;
+  const runHead = `<tr><th>Start</th><th>End</th><th>Machine</th><th>Job</th><th>Customer</th><th class="num">${unit[0].toUpperCase()}${unit.slice(1)}</th><th class="num">Took</th><th class="num">A ${unit === 'cards' ? 'card' : 'item'}</th><th></th><th class="num" title="What a job this size usually takes on its machine ÷ what it took: 100% = usual, more = quicker">Efficiency</th></tr>`;
   const runsHtml = () => `<div class="card"><h3 class="pl-h">☰ Runs <span class="muted small">${n(p.runs.length)} in this period</span></h3>
       <div class="kdb-scroll"><table class="log">${runHead}${p.runs.slice(0, 400).map(runRow).join('')}</table></div>${p.runs.length > 400 ? `<div class="small muted">The first 400 of ${n(p.runs.length)}.</div>` : ''}</div>`;
   const anomHtml = anomalies.length ? `<div class="card" id="prod-anom"><h3 class="pl-h">⚠ Anomalies <span class="muted small">${n(anomalies.length)} run${anomalies.length === 1 ? '' : 's'} that can't be right for their machine and size — ${withAnom ? 'counted anyway (untick “count them anyway” to leave them out)' : 'left out of the figures above'}</span></h3>
@@ -210,7 +216,7 @@ function drawProdGantt(el, info, p, { from, span, withAnom, wStart, wEnd, unit }
   el.style.height = `${H + 6}px`;
   el.innerHTML = `<div class="pg" style="width:${LBL + W}px;height:${H}px">${rows}${shade}${ticks}${bars}</div>`;
   info.innerHTML = sel ? `<b>${esc(sel.job)}</b> on <b>${esc(sel.machine)}</b>${sel.station ? ` (${esc(sel.station)})` : ''} · ${esc(sel.customer || sel.trigram || '')} · ${esc(sel.item_name || '')} · ${PLF.num.format(sel.qty || 0)} ${unit}${sel.remake ? ' · remake' : ''}
-      · ${esc(sel.start_at.slice(11, 16))}–${esc(sel.end_at.slice(11, 16))}, ${fmtSpan(sel.minutes)}${sel.usual ? ` (usual for this size about ${fmtSpan(sel.usual.minutes)})` : ''}${sel.anomaly ? ` · <span class="pl-late">⚠ ${esc(sel.anomaly.text)}</span>` : ''} <button class="link small" data-prod-clear>✕</button>`
+      · ${esc(sel.start_at.slice(11, 16))}–${esc(sel.end_at.slice(11, 16))}, ${fmtSpan(sel.minutes)}${sel.usual ? ` (usual for this size about ${fmtSpan(sel.usual.minutes)}) · efficiency ${prodEffHtml(sel.efficiency)}` : ''}${sel.anomaly ? ` · <span class="pl-late">⚠ ${esc(sel.anomaly.text)}</span>` : ''} <button class="link small" data-prod-clear>✕</button>`
     : `<span class="muted">${runs.length ? 'Click a bar for the job. Gaps between bars are a machine standing still; shading is outside the working day.' : 'Nothing ran in this period.'}</span>`;
   el.onclick = (e) => { const b = e.target.closest('[data-prod-run]'); prodState.sel = b ? Number(b.dataset.prodRun) : null; drawProdGantt(el, info, p, { from, span, withAnom, wStart, wEnd, unit }); };
   info.onclick = (e) => { if (e.target.closest('[data-prod-clear]')) { prodState.sel = null; drawProdGantt(el, info, p, { from, span, withAnom, wStart, wEnd, unit }); } };

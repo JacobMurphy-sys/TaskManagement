@@ -2211,7 +2211,7 @@ function readProdReports() {
     else if (r.status === 'error') log.warn(`Production ${source}: ${r.error}`);
   }
 }
-setTimeout(readProdReports, 4000).unref();
+setTimeout(() => { try { prod.purgeUncounted(); } catch (err) { log.warn('Production: tidying', err.message); } readProdReports(); }, 4000).unref();
 setInterval(readProdReports, 10 * 60 * 1000).unref();
 
 // The runs from a day (from=YYYY-MM-DD, days=1..31): Gantt, load, totals and anomalies.

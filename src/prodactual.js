@@ -9,8 +9,8 @@ const db = require('./db');
 const { readBook } = require('./xlsxread');
 
 const SOURCES = { perso: 'Perso', otto: 'Otto' };
-// Work orders starting with M aren't production runs to count: kept as read, but left out of
-// everything shown (and of each machine's usual).
+// Work orders starting with M aren't production runs: not kept at all (left out when a report is
+// read; any kept before are removed), and left out of every query in case one slips in.
 const KEEP = "job NOT LIKE 'M%'";
 const counted = (job) => !/^m/i.test(String(job || '').trim());
 
@@ -98,6 +98,7 @@ function parse(buf) {
   for (let r = headRow + 1; r < grid.length; r++) {
     const row = grid[r];
     if (!row || !String(at(row, 'job') ?? '').trim()) continue;
+    if (!counted(at(row, 'job'))) continue; // an M work order
     const start = dateTime(at(row, 'start_date'), at(row, 'start_time'));
     if (!start) { skipped++; continue; }
     rows.push({
@@ -218,6 +219,8 @@ function judge(runs, base, sens = SENSITIVITY.normal) {
     if (!b) return out;
     const expected = (b.setup + r.qty * b.perCard) * Math.exp(b.med);
     out.usual = { minutes: expected, spc: b.perCard * 60 };
+    // efficiency: what a job this size usually takes on this machine ÷ what it took (100% = usual)
+    out.efficiency = expected / min;
     const x = Math.log(min / expected);
     const ratio = Math.exp(Math.abs(x));
     if (ratio < sens.ratio || (0.6745 * Math.abs(x)) / b.mad < sens.z) return out;
@@ -287,7 +290,7 @@ function view(source, from, to, { sensitivity = 'normal', withAnomalies = false 
       days: db.all(`SELECT substr(start_at, 1, 10) AS day, count(*) AS runs, sum(coalesce(qty, 0)) AS cards FROM prod_runs WHERE source = ? AND ${KEEP} GROUP BY day ORDER BY day`, [source]) },
     machines: [...new Set([...runs.map((r) => r.machine), ...load.map((l) => l.machine)])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
     runs: runs.map((r) => ({ id: r.id, job: r.job, machine: r.machine, station: r.station, start_at: r.start_at, end_at: r.end_at, qty: r.qty, job_qty: r.job_qty, remake: !!r.remake, mode: r.mode,
-      item: r.item, item_name: r.item_name, customer: r.customer, trigram: trigramOf(r.job, r.trigram), due: r.due, minutes: r.minutes, spc: r.spc, usual: r.usual, anomaly: r.anomaly })),
+      item: r.item, item_name: r.item_name, customer: r.customer, trigram: trigramOf(r.job, r.trigram), due: r.due, minutes: r.minutes, spc: r.spc, usual: r.usual, efficiency: r.efficiency ?? null, anomaly: r.anomaly })),
     load,
     totals: { runs: good.length, cards: sum(good, (r) => r.qty), jobs: new Set(good.map((r) => r.job)).size, remakes: sum(good, (r) => (r.remake ? r.qty : 0)),
       busy_minutes: sum(load, (l) => l.busy_minutes), anomalies: runs.filter((r) => r.anomaly && r.anomaly.kind !== 'open').length, open: runs.filter((r) => r.anomaly?.kind === 'open').length,
@@ -295,4 +298,7 @@ function view(source, from, to, { sensitivity = 'normal', withAnomalies = false 
   };
 }
 
-module.exports = { counted, KEEP, coverage, trigramOf, SOURCES, SENSITIVITY, parse, store, readLinked, baselines, judge, loadOf, view, dateTime, partsOf };
+// Runs of M work orders kept by an earlier version: removed.
+const purgeUncounted = () => db.run(`DELETE FROM prod_runs WHERE NOT (${KEEP})`);
+
+module.exports = { purgeUncounted, counted, KEEP, coverage, trigramOf, SOURCES, SENSITIVITY, parse, store, readLinked, baselines, judge, loadOf, view, dateTime, partsOf };
