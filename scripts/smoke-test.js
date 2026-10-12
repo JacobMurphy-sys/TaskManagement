@@ -33,6 +33,7 @@ async function waitForServer() {
     env: {
       ...process.env, PORT: String(PORT), BACKUP_INTERVAL_HOURS: '0',
       DATA_DIR: tmp, DB_FILE: path.join(tmp, 'test.db'), BACKUP_DIR: path.join(tmp, 'backups'), LOG_DIR: path.join(tmp, 'logs'),
+      DEFAULTS_FILE: path.join(tmp, 'share', 'cimanager-defaults.json'),
     },
     stdio: 'inherit',
   });
@@ -1566,6 +1567,37 @@ async function waitForServer() {
       assert.equal(await gen({ layout: 'pages', pages: [] }), 1, 'nothing open: one page saying so');
       await assert.rejects(call('POST', '/plan/sheet', { layout: 'pages' }), /Nothing to draw/);
       assert.equal((await fetch(`${BASE}/plan/sheet/nope/x.pdf`)).status, 404);
+    }
+
+    // 🌐 shared defaults: network paths for everyone, filling in only what isn't set by hand
+    {
+      const file = path.join(tmp, 'share', 'cimanager-defaults.json');
+      let sh = await call('GET', '/settings/shared');
+      assert.equal(sh.file, file); assert.equal(sh.file_found, false, 'not there yet (e.g. off the network)');
+      await assert.rejects(call('POST', '/settings/shared/apply', {}), /Can't reach/);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const write = (settings) => fs.writeFileSync(file, `\uFEFF${JSON.stringify({ app: 'CI Manager', kind: 'shared-defaults', settings })}`);
+      write({ plan_src: '\\\\srv\\wo.xlsx', plan_otto_src: '\\\\srv\\otto.xlsx', kpi_a3_sheet: 'A3', currency: '$' });
+      let r = await call('POST', '/settings/shared/apply', {});
+      assert.deepEqual(r.changed.sort(), ['kpi_a3_sheet', 'plan_otto_src'], 'blank and built-in values are filled in');
+      assert.deepEqual(r.kept, ['plan_src'], 'a path set by hand is kept');
+      assert.notEqual(r.settings.currency, '$', 'only the shared keys are read from the file');
+      await call('PATCH', '/settings', { plan_otto_src: 'C:\\mine.xlsx' });
+      write({ plan_otto_src: '\\\\srv\\otto2.xlsx', kpi_a3_sheet: 'A3 v2' });
+      r = await call('POST', '/settings/shared/apply', {});
+      assert.deepEqual(r.changed, ['kpi_a3_sheet'], 'a value still as the file last set it follows the file');
+      assert.deepEqual(r.kept, ['plan_otto_src']);
+      sh = await call('GET', '/settings/shared');
+      assert.equal(sh.file_found, true); assert.equal(sh.from, file); assert.deepEqual(sh.own, ['plan_otto_src']);
+      const res = await fetch(`${BASE}/settings/shared/export`);
+      assert.match(res.headers.get('content-disposition'), /cimanager-defaults\.json/);
+      const out = await res.json();
+      assert.equal(out.kind, 'shared-defaults'); assert.equal(out.settings.kpi_a3_sheet, 'A3 v2');
+      assert.equal(out.settings.currency, undefined); assert.equal(out.settings.kpi_db_sheet, undefined, 'built-in values are left out');
+      r = await call('POST', '/settings/shared/apply', { doc: { settings: { kpi_db_sheet: 'DB' } }, name: 'paths.json' });
+      assert.deepEqual(r.changed, ['kpi_db_sheet']);
+      await assert.rejects(call('POST', '/settings/shared/apply', { doc: { nope: 1 } }), /Not a CI Manager shared defaults file/);
+      await call('PATCH', '/settings', { kpi_a3_sheet: 'A3 Weekly Report', kpi_db_sheet: 'Database', plan_otto_src: '' });
     }
 
     // 🔒 one app at a time on a database: a second copy on the same one stops, naming the first

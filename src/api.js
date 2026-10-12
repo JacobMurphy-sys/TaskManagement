@@ -2188,6 +2188,76 @@ router.patch('/settings', h((req, res) => {
   res.json(getSettings());
 }));
 
+// ---- shared defaults: the file paths that are the same for everyone on the network
+// (the CI workbook, the KPI sources and forecasts, the A3 folder, the planning exports), handed
+// out in one file — exported on KPIs › Sources, put next to CIManager-Setup.bat on the share and
+// read by every install when it starts (DEFAULTS_FILE). A value is filled in only where it's blank,
+// still the built-in default, or still what the last shared file said: anything someone set
+// for themselves is left alone.
+const SHARED_KEYS = Object.keys(SETTING_DEFAULTS).filter((k) => k.startsWith('kpi_')
+  || ['plan_src', 'plan_otto_src', 'plan_db', 'plan_db_table', 'planner_url'].includes(k));
+const metaGet = (key) => db.get('SELECT value FROM settings WHERE key = ?', [key])?.value;
+const metaSet = (key, value) => db.run(`INSERT INTO settings (key, value) VALUES (?, ?)
+  ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [key, value]);
+
+function sharedValues(doc) {
+  const values = doc && typeof doc === 'object' && doc.settings && typeof doc.settings === 'object' ? doc.settings : null;
+  if (!values) throw new HttpError(400, 'Not a CI Manager shared defaults file');
+  return Object.fromEntries(SHARED_KEYS.filter((k) => typeof values[k] === 'string').map((k) => [k, values[k].trim()]));
+}
+
+function applyShared(values, from) {
+  const cur = getSettings();
+  let prev = {};
+  try { prev = JSON.parse(metaGet('shared_defaults_values') || '{}'); } catch { /* none yet */ }
+  const changed = []; const kept = [];
+  db.tx(() => {
+    for (const [k, v] of Object.entries(values)) {
+      if (cur[k] === v) continue;
+      if (cur[k] === '' || cur[k] === SETTING_DEFAULTS[k] || (k in prev && cur[k] === prev[k])) {
+        metaSet(k, v); changed.push(k);
+      } else kept.push(k);
+    }
+    metaSet('shared_defaults_values', JSON.stringify(values));
+    metaSet('shared_defaults_from', from);
+    metaSet('shared_defaults_at', new Date().toISOString());
+  });
+  return { changed, kept };
+}
+
+function readSharedFile(file) {
+  return sharedValues(JSON.parse(fs.readFileSync(file, 'utf8').replace(/^﻿/, '')));
+}
+
+router.get('/settings/shared', h((req, res) => {
+  let values = {};
+  try { values = JSON.parse(metaGet('shared_defaults_values') || '{}'); } catch { /* none */ }
+  const cur = getSettings();
+  res.json({ file: config.defaultsFile, file_found: !!config.defaultsFile && fs.existsSync(config.defaultsFile),
+    from: metaGet('shared_defaults_from') || null, at: metaGet('shared_defaults_at') || null, keys: SHARED_KEYS,
+    own: Object.keys(values).filter((k) => cur[k] !== values[k]) });
+}));
+
+// The paths set here, as a file for everyone else.
+router.get('/settings/shared/export', h((req, res) => {
+  const cur = getSettings();
+  const settings = Object.fromEntries(SHARED_KEYS.filter((k) => cur[k] !== '' && cur[k] !== SETTING_DEFAULTS[k]).map((k) => [k, cur[k]]));
+  res.set('Content-Disposition', 'attachment; filename="cimanager-defaults.json"');
+  res.type('application/json').send(JSON.stringify({ app: 'CI Manager', kind: 'shared-defaults', exported_at: new Date().toISOString(), settings }, null, 2));
+}));
+
+// Apply a file picked in the browser ({ doc, name }), or the shared file again ({}).
+router.post('/settings/shared/apply', express.json({ limit: '1mb' }), h((req, res) => {
+  let values; let from;
+  if (req.body?.doc) { values = sharedValues(req.body.doc); from = String(req.body.name || 'a file'); } else {
+    if (!config.defaultsFile) throw new HttpError(400, 'No shared defaults file is set up (DEFAULTS_FILE)');
+    if (!fs.existsSync(config.defaultsFile)) throw new HttpError(400, `Can't reach ${config.defaultsFile}`);
+    try { values = readSharedFile(config.defaultsFile); } catch (err) { throw err instanceof HttpError ? err : new HttpError(400, `Couldn't read ${config.defaultsFile}: ${err.message}`); }
+    from = config.defaultsFile;
+  }
+  res.json({ ...applyShared(values, from), settings: getSettings() });
+}));
+
 router.get('/areas', h((req, res) => {
   res.json(db.all(`SELECT a.*, (SELECT count(*) FROM ideas i WHERE i.area_id = a.id) AS idea_count
     FROM areas a ORDER BY a.sort_order, a.name COLLATE NOCASE`).map((a) => ({ ...a, active: !!a.active })));
@@ -3133,3 +3203,10 @@ router.use((err, req, res, _next) => {
 });
 
 module.exports = router;
+// On start-up: read the shared defaults file, if there is one and it can be reached.
+module.exports.applySharedDefaults = () => {
+  const file = config.defaultsFile;
+  if (!file) return null;
+  if (!fs.existsSync(file)) return { file, error: 'not found (not on the network?)' };
+  try { return { file, ...applyShared(readSharedFile(file), file) }; } catch (err) { return { file, error: err.message }; }
+};

@@ -87,6 +87,9 @@ app.use(express.static(path.join(config.ROOT, 'public')));
 const server = app.listen(config.port, config.host, () => {
   log.info(`${config.mode === 'planner' ? 'CI Planner' : 'CI Manager'} running at http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);
   log.info(`Database file: ${config.dbFile}`);
+  const shared = api.applySharedDefaults();
+  if (shared?.error) log.warn(`Shared defaults ${shared.file}: ${shared.error}`);
+  else if (shared) log.info(`Shared defaults ${shared.file}: ${shared.changed.length ? `filled in ${shared.changed.join(', ')}` : 'nothing new'}${shared.kept.length ? ` (kept your own ${shared.kept.join(', ')})` : ''}`);
   const inside = (p) => !path.relative(config.ROOT, p).startsWith('..') && !path.isAbsolute(path.relative(config.ROOT, p));
   if (inside(config.dbFile) || inside(config.backup.dir)) {
     log.warn('Your database or backups are inside the app folder, where replacing or re-cloning the code could '

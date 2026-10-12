@@ -13,6 +13,11 @@ REM   5. starts the app.
 REM Run it again any time to update. Your data is kept outside the app folder
 REM (%LOCALAPPDATA%\CIManager), so installing or updating never touches it.
 REM
+REM Shared on the network: double-clicked from a network folder it installs into
+REM %USERPROFILE%\CIManager on this computer (and puts a CI Manager shortcut on the
+REM desktop). A cimanager-defaults.json next to it (exported on KPIs, Sources, Shared paths)
+REM gives every install the same network file paths, read again each time the app starts.
+REM
 REM Run from inside a clone of the repository it updates that clone in place instead.
 setlocal EnableExtensions
 
@@ -29,14 +34,33 @@ title CI Manager - setup
 set "SELF=%~2"
 for %%F in ("%SELF%") do set "BASEDIR=%%~dpF"
 set "BASEDIR=%BASEDIR:~0,-1%"
+set "SRCDIR=%BASEDIR%"
 set "INPLACE="
 set "FAILED="
 set "FRESH="
-if exist "%BASEDIR%\package.json" if exist "%BASEDIR%\.git\" set "INPLACE=1"
+REM Run from a network folder (\\server\share or a mapped drive): install on this computer instead.
+set "REMOTE="
+if "%BASEDIR:~0,2%"=="\\" set "REMOTE=1"
+if not defined REMOTE if "%BASEDIR:~1,1%"==":" (
+  net use %BASEDIR:~0,2% >nul 2>&1
+  if not errorlevel 1 set "REMOTE=1"
+)
+if defined REMOTE set "BASEDIR=%USERPROFILE%\CIManager"
+if not exist "%BASEDIR%\" mkdir "%BASEDIR%"
+set "LOCALSELF=%BASEDIR%\CIManager-Setup.bat"
+if not defined REMOTE set "LOCALSELF=%SELF%"
+REM The network file paths everyone uses, if they're handed out next to this file.
+REM A mapped drive letter can differ between people, so keep its \\server\share name.
+set "SHAREDDEF="
+set "SRCUNC=%SRCDIR%"
+if defined REMOTE if not "%SRCDIR:~0,2%"=="\\" for /f "delims=" %%r in ('powershell -NoProfile -Command "(Get-PSDrive %SRCDIR:~0,1%).DisplayRoot"') do set "SRCUNC=%%r%SRCDIR:~2%"
+if exist "%SRCDIR%\cimanager-defaults.json" set "SHAREDDEF=%SRCUNC%\cimanager-defaults.json"
+if not defined REMOTE if exist "%BASEDIR%\package.json" if exist "%BASEDIR%\.git\" set "INPLACE=1"
 if defined INPLACE (set "APP=%BASEDIR%") else (set "APP=%BASEDIR%\app")
 
 echo.
 echo CI Manager setup
+if defined REMOTE echo   Run from the network - installing on this computer.
 echo   Folder: %BASEDIR%
 echo   Code:   %APP%
 
@@ -121,9 +145,11 @@ echo [4/6] Setting up the folders...
 call :read_env
 if not exist "%DATA%\" mkdir "%DATA%"
 echo       Data:   %DATA%
+if defined SHAREDDEF call :set_defaults_file
 if defined INPLACE goto :readme
-REM The newest copy of this file comes with the code - keep the one in this folder up to date.
-if exist "%APP%\CIManager-Setup.bat" copy /y "%APP%\CIManager-Setup.bat" "%SELF%" >nul
+REM The newest copy of this file comes with the code - keep the one in this folder up to date
+REM (not the one on the network: that stays as it was handed out).
+if exist "%APP%\CIManager-Setup.bat" copy /y "%APP%\CIManager-Setup.bat" "%LOCALSELF%" >nul
 > "%BASEDIR%\Start CI Manager.bat" echo @echo off
 >>"%BASEDIR%\Start CI Manager.bat" echo REM Starts the CI Manager in the background and opens it in the browser.
 >>"%BASEDIR%\Start CI Manager.bat" echo wscript "%%~dp0app\start-hidden.vbs"
@@ -131,6 +157,7 @@ if exist "%APP%\CIManager-Setup.bat" copy /y "%APP%\CIManager-Setup.bat" "%SELF%
 >>"%BASEDIR%\Stop CI Manager.bat" echo REM Stops the CI Manager running in the background.
 >>"%BASEDIR%\Stop CI Manager.bat" echo wscript "%%~dp0app\stop-server.vbs"
 echo       Launchers: Start CI Manager.bat, Stop CI Manager.bat
+if defined FRESH call :desktop_shortcut
 
 :readme
 echo.
@@ -152,8 +179,9 @@ if defined FAILED (
   exit /b 1
 )
 if defined FRESH (
-  echo Installed. Next time, start it with "Start CI Manager.bat" and run this file again to update.
-  echo See "READ ME - where things are.txt" for what is kept where.
+  echo Installed in %BASEDIR%.
+  echo Next time, start it from the CI Manager shortcut on the desktop or "Start CI Manager.bat" there,
+  echo and run CIManager-Setup.bat again to update. "READ ME - where things are.txt" there says what is kept where.
   pause
 ) else (
   echo Up to date.
@@ -190,14 +218,32 @@ exit /b 1
 REM ---- helpers -------------------------------------------------------------
 
 :read_env
-REM PORT and DATA_DIR from app\.env (optional), else the defaults.
+REM PORT, DATA_DIR and DEFAULTS_FILE from app\.env (optional), else the defaults.
 set "PORT=3000"
 set "DATA=%LOCALAPPDATA%\CIManager"
+set "SHAREDNOW="
 if not exist "%APP%\.env" exit /b 0
 for /f "usebackq eol=# tokens=1,* delims==" %%a in ("%APP%\.env") do (
   if /i "%%a"=="PORT" set "PORT=%%b"
   if /i "%%a"=="DATA_DIR" set "DATA=%%~fb"
+  if /i "%%a"=="DEFAULTS_FILE" set "SHAREDNOW=%%~b"
 )
+exit /b 0
+
+:set_defaults_file
+REM Point the app at the shared paths file (DEFAULTS_FILE in app\.env); it reads it each time it starts.
+type nul > "%TEMP%\cimanager-env.tmp"
+if exist "%APP%\.env" findstr /v /b /i /c:"DEFAULTS_FILE=" "%APP%\.env" > "%TEMP%\cimanager-env.tmp"
+>>"%TEMP%\cimanager-env.tmp" echo DEFAULTS_FILE=%SHAREDDEF%
+copy /y "%TEMP%\cimanager-env.tmp" "%APP%\.env" >nul
+set "SHAREDNOW=%SHAREDDEF%"
+echo       Shared paths: %SHAREDDEF%
+exit /b 0
+
+:desktop_shortcut
+REM A "CI Manager" shortcut on the desktop that starts it (in the background) and opens it.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\CI Manager.lnk'); $s.TargetPath='%APP%\start-hidden.vbs'; $s.WorkingDirectory='%APP%'; $s.Description='Start the CI Manager'; $s.Save()" >nul 2>&1
+if errorlevel 1 (echo       Couldn't make the desktop shortcut - use Start CI Manager.bat.) else (echo       Desktop shortcut: CI Manager)
 exit /b 0
 
 :is_listening
@@ -229,7 +275,8 @@ if defined INPLACE (set "PLANNERBAT=planner.bat") else (set "PLANNERBAT=app\plan
 >>"%RM%" echo Start:   double-click %LAUNCH%. It runs in the background and opens
 >>"%RM%" echo          http://localhost:%PORT% in your browser. Double-click it again to just open the browser.
 >>"%RM%" echo Stop:    the top bar's ... menu, Stop server - or double-click %STOP%.
->>"%RM%" echo Update:  double-click CIManager-Setup.bat again. It stops the app, backs up your data,
+>>"%RM%" echo Update:  double-click CIManager-Setup.bat again (this folder's copy, or the one on the network).
+>>"%RM%" echo          It stops the app, backs up your data,
 >>"%RM%" echo          downloads the latest version, and starts it again.
 >>"%RM%" echo At log-in (optional): press Win+R, type shell:startup, and put a shortcut to
 >>"%RM%" echo          %LAUNCH% in the folder that opens.
@@ -273,11 +320,26 @@ goto :readme_data
 >>"%RM%" echo   Settings:             the project charter template and the report options
 >>"%RM%" echo.
 >>"%RM%" echo.
+>>"%RM%" echo SHARED FILE PATHS
+>>"%RM%" echo -----------------
+if defined SHAREDNOW goto :readme_shared
+>>"%RM%" echo None set up. To give everyone the same network paths: on KPIs, Sources, Shared paths, click
+>>"%RM%" echo Export these paths for everyone, and save the file as cimanager-defaults.json next to
+>>"%RM%" echo CIManager-Setup.bat on the network. Installs and updates run from there then use it.
+goto :readme_options
+:readme_shared
+>>"%RM%" echo Read from %SHAREDNOW%
+>>"%RM%" echo each time the app starts. It fills in the KPI workbook, sources, forecasts and A3 folder, and
+>>"%RM%" echo Planning's export paths, where they are blank or still as the file last set them. A path you
+>>"%RM%" echo change yourself is kept. See KPIs, Sources, Shared paths.
+:readme_options
+>>"%RM%" echo.
+>>"%RM%" echo.
 >>"%RM%" echo OPTIONAL SETTINGS
 >>"%RM%" echo -----------------
 >>"%RM%" echo To change the port, the data folder or the backup schedule, copy .env.example to .env in
 >>"%RM%" echo %APP%
->>"%RM%" echo and edit it (PORT, DATA_DIR, BACKUP_INTERVAL_HOURS, BACKUP_KEEP). Restart the app afterwards.
+>>"%RM%" echo and edit it (PORT, DATA_DIR, BACKUP_INTERVAL_HOURS, BACKUP_KEEP, DEFAULTS_FILE). Restart the app afterwards.
 >>"%RM%" echo Keep the data folder on this computer's own disk, not a network drive or a synced folder.
 >>"%RM%" echo.
 >>"%RM%" echo.

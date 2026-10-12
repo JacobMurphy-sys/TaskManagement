@@ -77,6 +77,10 @@ module.exports = {
     keep: Math.max(1, num(env.BACKUP_KEEP, 30)),
   },
   logDir: inData(env.LOG_DIR, 'logs'),
+  // Shared defaults (the network file paths everyone uses): DEFAULTS_FILE, else
+  // cimanager-defaults.json in the folder above the app (where CIManager-Setup.bat puts the app).
+  defaultsFile: env.DEFAULTS_FILE ? resolve(env.DEFAULTS_FILE)
+    : (fs.existsSync(path.join(ROOT, '..', 'cimanager-defaults.json')) ? path.join(ROOT, '..', 'cimanager-defaults.json') : null),
   // Files attached to tasks and meetings (screenshots, documents…).
   attachDir: inData(env.ATTACH_DIR, 'attachments'),
 };

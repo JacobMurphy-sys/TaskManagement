@@ -527,7 +527,7 @@ const kpiFmt = (key, v) => {
 
 async function renderKpiSources() {
   const year = Number(store.get('kpiYear', new Date().getFullYear()));
-  const [calc, settings] = await Promise.all([api.get(`/kpi/calc?year=${year}`), api.get('/settings')]);
+  const [calc, settings, shared] = await Promise.all([api.get(`/kpi/calc?year=${year}`), api.get('/settings'), api.get('/settings/shared')]);
   const unlisted = calc.unlisted.filter((u) => u.qty);
   const srcRow = (s) => `<tr data-src="${s.source}">
       <td><b>${esc(s.label)}</b><div class="small muted">${esc(s.default_file)}</div></td>
@@ -560,8 +560,10 @@ async function renderKpiSources() {
           <td><input type="text" name="kpi_fc_${esc(f.key)}" value="${esc(f.path || '')}" placeholder="Blank: the workbook's ${esc(f.workbook_sheet)} sheet, as Excel last refreshed it" title="Full path, e.g. S:\\public\\Forecast Central\\${esc(f.default_file)}"></td>
           <td class="small">${f.path ? (f.found ? esc(fmtDateTime(f.modified)) : '<span style="color:var(--danger)">⚠ can\'t find this file</span>') : '<span class="muted">the workbook\'s copy</span>'}</td></tr>`).join('')}</tbody></table>
     </div>
+    ${kpiSharedHtml(shared)}
     ${calc.otd_uncounted?.length || calc.otd_checks?.length ? `<div class="card" style="margin-top:12px"><h2 style="margin-top:0">OTD report checks <span class="muted small">— rows to fix in Production's OTD report</span></h2>${kpiOtdChecksHtml(calc)}</div>` : ''}`;
   wireKpiSetup();
+  wireKpiShared();
   $('#kc-weekends').addEventListener('change', async (e) => {
     try { await api.post('/kpi/calc/weekends', { split: e.target.checked }); toast(e.target.checked ? 'Weekend days now counted in their month\'s part' : 'Weekend days of split weeks left out, as in Excel'); } catch (err) { toast(err.message, 'error'); }
     route();
@@ -587,6 +589,45 @@ async function renderKpiSources() {
     } catch (err) { toast(err.message, 'error'); }
     route();
   };
+}
+
+// 🌐 Shared paths: the network file paths everyone uses, handed out as one file (cimanager-defaults.json)
+// that each install reads when it starts. Only paths someone hasn't set for themselves are filled in.
+function kpiSharedHtml(sh) {
+  const own = sh.own?.length ? ` · <span title="${esc(sh.own.join(', '))}">${sh.own.length} set differently here, kept</span>` : '';
+  const status = sh.file
+    ? (sh.file_found ? `Read from <code>${esc(sh.file)}</code> each time the CI Manager starts${sh.at ? ` — last ${esc(fmtDateTime(sh.at))}` : ''}${own}.`
+      : `<span style="color:var(--danger)">⚠ Can't reach <code>${esc(sh.file)}</code></span> — not on the network? The paths already here keep working.`)
+    : sh.from ? `Last filled in from ${esc(sh.from)}${sh.at ? ` on ${esc(fmtDateTime(sh.at))}` : ''}${own}.` : 'No shared paths file is used on this computer.';
+  return `<div class="card kpi-shared" style="margin-top:12px">
+    <h2 style="margin-top:0">🌐 Shared paths <span class="muted small">— the same network paths for everyone</span></h2>
+    <p class="small">${status}</p>
+    <p class="small muted">The file holds the workbook, the A3 folder and name, the source files and forecasts above, and Planning's export paths.
+      Put it next to <b>CIManager-Setup.bat</b> on the share as <code>cimanager-defaults.json</code>: every install made from there reads it each time it starts,
+      so a path changed in the file reaches everyone. It only fills in paths that are blank or still as the file last set them — a path someone changed for themselves is kept.</p>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <a class="button" href="/api/settings/shared/export" download="cimanager-defaults.json" title="The paths set on this computer, as a file for everyone else">⬇ Export these paths for everyone</a>
+      <label class="button" title="Fill in the paths from a cimanager-defaults.json file">📂 Use a paths file…<input type="file" accept=".json" hidden id="ksh-file"></label>
+      ${sh.file && sh.file_found ? '<button data-ksh="apply" title="Read the shared file again now">🔄 Read the shared file now</button>' : ''}
+    </div></div>`;
+}
+
+function wireKpiShared() {
+  const done = (r) => {
+    toast(r.changed.length ? `Filled in ${r.changed.length} path${r.changed.length === 1 ? '' : 's'}${r.kept.length ? ` · kept ${r.kept.length} of your own` : ''}`
+      : r.kept.length ? `Nothing changed — kept ${r.kept.length} of your own` : 'Already up to date');
+    route();
+  };
+  $('#ksh-file')?.addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    try { done(await api.post('/settings/shared/apply', { doc: JSON.parse(await f.text()), name: f.name })); } catch (err) { toast(err instanceof SyntaxError ? 'That isn\'t a paths file' : err.message, 'error'); }
+  });
+  $('[data-ksh="apply"]')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    try { done(await api.post('/settings/shared/apply', {})); } catch (err) { toast(err.message, 'error'); }
+  });
 }
 
 // Rows of the OTD report that aren't counted, or whose date and typed week disagree.
