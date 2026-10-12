@@ -19,7 +19,8 @@ REM
 REM Shared on the network: double-clicked from a network folder it installs into
 REM %USERPROFILE%\CIManager on this computer. A cimanager-defaults.json next to it (exported on
 REM KPIs, Sources, Shared paths) gives every install the same network file paths, read again
-REM each time the app starts.
+REM each time the app starts; a planning-setup*.json there (Planning, Setup, Export setup + history)
+REM gives a new install the planning setup and everyone the history so far.
 REM
 REM Run from inside a clone of the repository it updates that clone in place instead.
 setlocal EnableExtensions
@@ -58,6 +59,10 @@ set "SHAREDDEF="
 set "SRCUNC=%SRCDIR%"
 if defined REMOTE if not "%SRCDIR:~0,2%"=="\\" for /f "delims=" %%r in ('powershell -NoProfile -Command "(Get-PSDrive %SRCDIR:~0,1%).DisplayRoot"') do set "SRCUNC=%%r%SRCDIR:~2%"
 if exist "%SRCDIR%\cimanager-defaults.json" set "SHAREDDEF=%SRCUNC%\cimanager-defaults.json"
+REM A planning setup (and history) exported from Planning, handed out next to this file too.
+set "SHAREDDIR="
+if exist "%SRCDIR%\planning-setup*.json" set "SHAREDDIR=%SRCUNC%"
+if defined SHAREDDEF set "SHAREDDIR=%SRCUNC%"
 if not defined REMOTE if exist "%BASEDIR%\package.json" if exist "%BASEDIR%\.git\" set "INPLACE=1"
 if defined INPLACE (set "APP=%BASEDIR%") else (set "APP=%BASEDIR%\app")
 
@@ -149,6 +154,8 @@ call :read_env
 if not exist "%DATA%\" mkdir "%DATA%"
 echo       Data:   %DATA%
 if defined SHAREDDEF call :set_defaults_file
+if defined SHAREDDIR call :set_env SHARED_DIR "%SHAREDDIR%"
+if defined SHAREDDIR if exist "%SRCDIR%\planning-setup*.json" echo       Planning setup and history: applied by the app from %SHAREDDIR%
 REM The newest copy of this file comes with the code - keep the one in this folder up to date
 REM (not the one on the network: that stays as it was handed out).
 if not defined INPLACE if exist "%APP%\CIManager-Setup.bat" copy /y "%APP%\CIManager-Setup.bat" "%LOCALSELF%" >nul
@@ -237,12 +244,17 @@ exit /b 0
 
 :set_defaults_file
 REM Point the app at the shared paths file (DEFAULTS_FILE in app\.env); it reads it each time it starts.
-type nul > "%TEMP%\cimanager-env.tmp"
-if exist "%APP%\.env" findstr /v /b /i /c:"DEFAULTS_FILE=" "%APP%\.env" > "%TEMP%\cimanager-env.tmp"
->>"%TEMP%\cimanager-env.tmp" echo DEFAULTS_FILE=%SHAREDDEF%
-copy /y "%TEMP%\cimanager-env.tmp" "%APP%\.env" >nul
+call :set_env DEFAULTS_FILE "%SHAREDDEF%"
 set "SHAREDNOW=%SHAREDDEF%"
 echo       Shared paths: %SHAREDDEF%
+exit /b 0
+
+:set_env
+REM Sets KEY=value in app\.env (replacing a line for it that's there): call :set_env KEY "value"
+type nul > "%TEMP%\cimanager-env.tmp"
+if exist "%APP%\.env" findstr /v /b /i /c:"%~1=" "%APP%\.env" > "%TEMP%\cimanager-env.tmp"
+>>"%TEMP%\cimanager-env.tmp" echo %~1=%~2
+copy /y "%TEMP%\cimanager-env.tmp" "%APP%\.env" >nul
 exit /b 0
 
 :make_shortcuts

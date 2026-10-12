@@ -1797,7 +1797,8 @@ router.get('/plan', h((req, res) => {
   const db_ = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
   const cardsDb = { status: db_.status, file: db_.file || null, name: db_.name || null, modified: db_.modified || null, table: db_.table || null, count: db_.count || 0, error: db_.error || null, columns: db_.columns || null };
   const rules = db.all('SELECT * FROM plan_speeds ORDER BY type, material, sides');
-  if (src.status !== 'ok') return res.json({ otto: ottoOf(set, [], capacity), machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: (['bau', 'score', 'mitigation'].includes(req.query.mode) ? req.query.mode : 'fifo'), running: [], queue: [], slots: [] });
+  let sharedSetup = null; try { sharedSetup = JSON.parse(metaGet('shared_setup_info') || 'null'); } catch { /* none */ }
+  if (src.status !== 'ok') return res.json({ shared_setup: sharedSetup, otto: ottoOf(set, [], capacity), machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: (['bau', 'score', 'mitigation'].includes(req.query.mode) ? req.query.mode : 'fifo'), running: [], queue: [], slots: [] });
   const mode = (['bau', 'score', 'mitigation'].includes(req.query.mode) ? req.query.mode : 'fifo');
   const oeeRows = db.all('SELECT customer, oee FROM plan_oee ORDER BY customer');
   const oeeDefault = Number(set.plan_oee_default) > 0 && Number(set.plan_oee_default) <= 100 ? Number(set.plan_oee_default) / 100 : null;
@@ -1852,7 +1853,7 @@ router.get('/plan', h((req, res) => {
     due: db.all('SELECT due, qty FROM plan_history_jobs WHERE due >= ?', [localYmd(since)]).map((r) => ({ date: r.due, qty: r.qty })),
     from: histFirst }, capacity, maxAge);
   delete modifiers.tagBy;
-  res.json({ mitigation, modifiers, backlog, otto, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
+  res.json({ shared_setup: sharedSetup, mitigation, modifiers, backlog, otto, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
     source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length, averaged: lines.some((l) => l.speed_from === 'average'),
     capacity, mode, projected, now: new Date().toISOString(), running, queue, slots: planning.loadByDeadline([...running, ...queue]) });
 }));
@@ -2050,9 +2051,8 @@ router.get('/plan/setup', h((req, res) => {
   res.set('Content-Disposition', `attachment; filename="planning-setup${withHistory ? '-with-history' : ''}-${new Date().toISOString().slice(0, 10)}.json"`);
   res.json({ kind: 'ci-planning-setup', version: 1, exported_at: new Date().toISOString(), settings, tables, ...(history ? { history } : {}) });
 }));
-router.post('/plan/setup', express.json({ limit: '400mb' }), h((req, res) => {
-  const b = req.body || {};
-  if (b.kind !== 'ci-planning-setup' || !b.tables) throw new HttpError(400, 'Not a planning setup file');
+function importSetup(b) {
+  if (b?.kind !== 'ci-planning-setup' || !b.tables) throw new HttpError(400, 'Not a planning setup file');
   const got = {};
   db.tx(() => {
     for (const t of SETUP_TABLES) {
@@ -2064,8 +2064,46 @@ router.post('/plan/setup', express.json({ limit: '400mb' }), h((req, res) => {
     }
     for (const [k, v] of Object.entries(b.settings || {})) if (/^plan_[a-z0-9_]+$/.test(k) && k in SETTING_DEFAULTS) db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, v === null ? null : String(v)]);
   });
+  return { tables: got, settings: Object.keys(b.settings || {}).filter((k) => /^plan_/.test(k)).length };
+}
+router.post('/plan/setup', express.json({ limit: '400mb' }), h((req, res) => {
+  const b = req.body || {};
+  const r = importSetup(b);
+  res.json({ ok: true, ...r, history: b.history ? mergeHistory(b.history) : null });
+}));
+
+// 📦 Handed out on the network: the newest planning-setup*.json next to CIManager-Setup.bat
+// (config.sharedDir), applied by itself when a new one appears — its history merged (only ever
+// adds), its setup only on an install that has no planning setup yet (never over one in use).
+function sharedSetupFile() {
+  try {
+    const dir = config.sharedDir;
+    if (!dir || !fs.existsSync(dir)) return null;
+    const files = fs.readdirSync(dir).filter((f) => /^planning-setup.*\.json$/i.test(f))
+      .map((f) => { const st = fs.statSync(path.join(dir, f)); return { file: path.join(dir, f), mtime: st.mtimeMs, size: st.size }; })
+      .sort((a, b) => b.mtime - a.mtime);
+    return files[0] || null;
+  } catch { return null; }
+}
+function applySharedSetup() {
+  const f = sharedSetupFile();
+  if (!f) return null;
+  const sig = `${path.basename(f.file)}|${f.mtime}|${f.size}`;
+  if (metaGet('shared_setup_applied') === sig) return null;
+  const b = JSON.parse(fs.readFileSync(f.file, 'utf8').replace(/^\uFEFF/, ''));
+  if (b?.kind !== 'ci-planning-setup') throw new Error('not a planning setup file');
+  const empty = !db.get('SELECT 1 FROM plan_machines UNION ALL SELECT 1 FROM plan_speeds UNION ALL SELECT 1 FROM plan_otto_machines LIMIT 1');
+  const setup = empty && b.tables ? importSetup(b) : null;
   const history = b.history ? mergeHistory(b.history) : null;
-  res.json({ ok: true, tables: got, settings: Object.keys(b.settings || {}).filter((k) => /^plan_/.test(k)).length, history });
+  metaSet('shared_setup_applied', sig);
+  metaSet('shared_setup_info', JSON.stringify({ file: f.file, at: new Date().toISOString(), setup: !!setup, kept_own: !empty, history }));
+  return { file: f.file, setup, kept_own: !empty, history };
+}
+const applySharedSetupSafe = () => { try { return applySharedSetup(); } catch (err) { return { error: err.message }; } };
+setInterval(() => { const r = applySharedSetupSafe(); if (r?.file) log.info(`Planning: shared setup ${r.file} applied`, r); }, 30 * 60 * 1000).unref();
+router.get('/plan/setup/shared', h((req, res) => {
+  let info = null; try { info = JSON.parse(metaGet('shared_setup_info') || 'null'); } catch { /* none */ }
+  res.json({ dir: config.sharedDir, file: sharedSetupFile()?.file || null, applied: info });
 }));
 
 // History from another install, merged into this one's (nothing here is lost):
@@ -3324,6 +3362,8 @@ router.use((err, req, res, _next) => {
 });
 
 module.exports = router;
+// On start-up: a planning setup handed out on the network (see applySharedSetup).
+module.exports.applySharedSetup = applySharedSetupSafe;
 // On start-up: read the shared defaults file, if there is one and it can be reached.
 module.exports.applySharedDefaults = () => {
   const file = config.defaultsFile;

@@ -331,6 +331,9 @@ ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. 
         <a class="button small" href="/api/plan/setup" download title="Machines, speeds, OEE, modifiers, card tags, pins and these settings — to move them to the shared planner (or back)">⬇ Export setup</a>
         <a class="button small" href="/api/plan/setup?history=1" download title="The setup plus the history built up from the exports (the pace, catch-up and on-time figures) and the ⏱ Production runs — so a new install starts where this one is">⬇ Export setup + history</a>
         <label class="button small" title="Replace this setup with one exported before">⬆ Import setup…<input type="file" accept=".json" hidden id="pl-setup-file"></label></div>
+      ${p.shared_setup ? `<p class="small muted" style="margin:6px 0 0">📦 From the network: <span title="${esc(p.shared_setup.file)}">${esc(p.shared_setup.file.split(/[\\/]/).pop())}</span>, ${esc(fmtDateTime(p.shared_setup.at))} —
+        ${p.shared_setup.setup ? 'setup applied' : 'this install\'s own setup kept'}${p.shared_setup.history ? `; history added: ${n(p.shared_setup.history.reads)} exports, ${n(p.shared_setup.history.jobs + p.shared_setup.history.jobs_updated)} jobs, ${n(p.shared_setup.history.prod_runs)} production runs` : ''}.
+        A newer planning-setup file next to CIManager-Setup.bat is picked up by itself.</p>` : ''}
       ${state.mode === 'planner' ? '' : `<label class="f full" style="margin:10px 0">Shared planner address <span class="muted small">(optional) — when Planning runs on a server for everyone, its address, e.g. http://servername:3100. The Planning tab then opens it.</span>
         <input type="url" name="planner_url" class="pl-setting-any" value="${esc(settings.planner_url || '')}" placeholder="http://servername:3100"></label>`}
       <div class="form-grid">

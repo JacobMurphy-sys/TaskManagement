@@ -80,7 +80,12 @@ module.exports = {
   // Shared defaults (the network file paths everyone uses): DEFAULTS_FILE, else
   // cimanager-defaults.json in the folder above the app (where CIManager-Setup.bat puts the app).
   defaultsFile: env.DEFAULTS_FILE ? resolve(env.DEFAULTS_FILE)
-    : (fs.existsSync(path.join(ROOT, '..', 'cimanager-defaults.json')) ? path.join(ROOT, '..', 'cimanager-defaults.json') : null),
+    : env.SHARED_DIR && fs.existsSync(path.join(resolve(env.SHARED_DIR), 'cimanager-defaults.json')) ? path.join(resolve(env.SHARED_DIR), 'cimanager-defaults.json')
+      : (fs.existsSync(path.join(ROOT, '..', 'cimanager-defaults.json')) ? path.join(ROOT, '..', 'cimanager-defaults.json') : null),
+  // The folder things are handed out in (next to CIManager-Setup.bat on the network): SHARED_DIR,
+  // else the shared paths file's folder, else the folder above the app. A planning-setup*.json
+  // there (Planning's Export setup + history) is applied by itself.
+  sharedDir: env.SHARED_DIR ? resolve(env.SHARED_DIR) : env.DEFAULTS_FILE ? path.dirname(resolve(env.DEFAULTS_FILE)) : path.join(ROOT, '..'),
   // Files attached to tasks and meetings (screenshots, documents…).
   attachDir: inData(env.ATTACH_DIR, 'attachments'),
 };

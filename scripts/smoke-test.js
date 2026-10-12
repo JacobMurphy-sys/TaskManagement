@@ -1720,6 +1720,40 @@ async function waitForServer() {
         assert.equal((await pc('GET', '/plan/history')).reads, myReads, 'the new install has the same history');
         const again = await pc('POST', '/plan/setup', withHist);
         assert.deepEqual([again.history.reads, again.history.jobs, again.history.prod_runs], [0, 0, 0], 'imported twice: nothing added twice');
+        // handed out on the network: a planning-setup file next to the installer is applied by itself
+        {
+          const sdir = fs.mkdtempSync(path.join(os.tmpdir(), 'shared-')); const ndir = fs.mkdtempSync(path.join(os.tmpdir(), 'newinstall-'));
+          fs.writeFileSync(path.join(sdir, 'planning-setup-with-history-2026-10-12.json'), JSON.stringify(withHist));
+          const start = async () => {
+            const child = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], { env: { ...process.env, PORT: '3996', BACKUP_INTERVAL_HOURS: '0', DATA_DIR: ndir, DB_FILE: '', SHARED_DIR: sdir, DEFAULTS_FILE: '' }, stdio: 'ignore' });
+            for (let i = 0; i < 60; i++) { try { await fetch('http://127.0.0.1:3996/api/health'); break; } catch { await new Promise((r) => setTimeout(r, 200)); } }
+            await new Promise((r) => setTimeout(r, 400));
+            return child;
+          };
+          const stop = async (child) => { child.kill(); await new Promise((r) => child.once('exit', r)); };
+          const nget = async (u) => (await fetch(`http://127.0.0.1:3996/api${u}`)).json();
+          let child = await start();
+          try {
+            const pl = await nget('/plan');
+            assert.ok(pl.machines.some((m) => m.name === 'Move me'), 'a new install gets the setup by itself');
+            assert.equal(pl.shared_setup.setup, true);
+            assert.equal((await nget('/plan/history')).reads, myReads, '…and the history');
+          } finally { await stop(child); }
+          child = await start();
+          try { assert.equal((await nget('/plan')).shared_setup.at, (await nget('/plan')).shared_setup.at, 'the same file isn\'t applied again'); } finally { await stop(child); }
+          // a newer file: the history is added, but an install with its own setup keeps it
+          const newer = JSON.parse(JSON.stringify(withHist)); newer.tables.plan_machines = [{ name: 'Not over mine', types: 'DOD', active: 1, sort_order: 0 }];
+          newer.history.reads.push({ file_modified: '2099-01-01T00:00:00.000Z', file: 'x', read_at: '2099-01-01T00:00:00.000Z', jobs: 1, cards: 1, running: 0, done: 0 });
+          fs.writeFileSync(path.join(sdir, 'planning-setup-with-history-2026-10-13.json'), JSON.stringify(newer));
+          fs.utimesSync(path.join(sdir, 'planning-setup-with-history-2026-10-13.json'), new Date(), new Date(Date.now() + 60000));
+          child = await start();
+          try {
+            const pl = await nget('/plan');
+            assert.ok(!pl.machines.some((m) => m.name === 'Not over mine') && pl.machines.some((m) => m.name === 'Move me'), 'its own setup is kept');
+            assert.equal(pl.shared_setup.kept_own, true); assert.equal(pl.shared_setup.history.reads, 1, 'the new history is added');
+          } finally { await stop(child); }
+          fs.rmSync(sdir, { recursive: true, force: true }); fs.rmSync(ndir, { recursive: true, force: true });
+        }
         const back = await pc('GET', '/plan/setup?history=1');
         const lastRead = back.history.reads[back.history.reads.length - 1].file_modified;
         assert.equal(lastRead, withHist.history.reads.map((r) => r.file_modified).sort().pop(), 'the newest export read stays the last one, for the next export to be compared with');

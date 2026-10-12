@@ -69,8 +69,11 @@ const doc = [
   ] : [
     { p: 'None set up. To give everyone the same network paths: on KPIs › Sources › Shared paths, click Export these paths for everyone, and save the file as cimanager-defaults.json next to CIManager-Setup.bat on the network. Installs and updates run from there then use it.' },
   ] },
+  { h: 'Planning setup and history from the network', blocks: [
+    { p: `The newest planning-setup….json in ${config.sharedDir} (made with Planning › Setup › Export setup + history and put next to CIManager-Setup.bat) is applied by itself when the app starts, and checked again every 30 minutes. Its history (the exports read and jobs seen, for the pace and catch-up figures, and the Production runs) is added to this install's own; nothing is added twice. Its setup (machines, speeds, OEE, modifiers) is only used if this install has no planning setup yet, so your own changes are never overwritten. Planning › Setup shows what was applied.` },
+  ] },
   { h: 'Optional settings', blocks: [
-    { p: `To change the port, the data folder, the backup schedule or the shared paths file, copy .env.example to .env in ${app} and edit it (PORT, DATA_DIR, BACKUP_INTERVAL_HOURS, BACKUP_KEEP, DEFAULTS_FILE, AUTO_UPDATE). Restart the app afterwards.` },
+    { p: `To change the port, the data folder, the backup schedule or the shared paths file, copy .env.example to .env in ${app} and edit it (PORT, DATA_DIR, BACKUP_INTERVAL_HOURS, BACKUP_KEEP, DEFAULTS_FILE, SHARED_DIR, AUTO_UPDATE). Restart the app afterwards.` },
     { note: 'Keep the data folder on this computer\'s own disk, not a network drive or a synced (OneDrive) folder.' },
   ] },
   { h: 'Moving to another computer', blocks: [

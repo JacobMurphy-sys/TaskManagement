@@ -104,6 +104,9 @@ app.use(express.static(path.join(config.ROOT, 'public')));
 const server = app.listen(config.port, config.host, () => {
   log.info(`${config.mode === 'planner' ? 'CI Planner' : 'CI Manager'} running at http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);
   log.info(`Database file: ${config.dbFile}`);
+  const sharedSetup = api.applySharedSetup();
+  if (sharedSetup?.error) log.warn(`Planning: shared setup file: ${sharedSetup.error}`);
+  else if (sharedSetup) log.info(`Planning: shared setup ${sharedSetup.file}: ${sharedSetup.setup ? 'setup applied' : 'setup kept (this install has its own)'}${sharedSetup.history ? `, history added (${sharedSetup.history.reads} exports, ${sharedSetup.history.jobs} jobs, ${sharedSetup.history.prod_runs} production runs)` : ''}`);
   const shared = api.applySharedDefaults();
   if (shared?.error) log.warn(`Shared defaults ${shared.file}: ${shared.error}`);
   else if (shared) log.info(`Shared defaults ${shared.file}: ${shared.changed.length ? `filled in ${shared.changed.join(', ')}` : 'nothing new'}${shared.kept.length ? ` (kept your own ${shared.kept.join(', ')})` : ''}`);
