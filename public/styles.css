@@ -1112,3 +1112,11 @@ table.kfd td { padding: 3px 6px; } .kfd-bar { width: 40%; } .kfd-bar span { disp
 .prod-key.prod-remake, .pg-bar.pg-run { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.3), rgba(255,255,255,.3) 3px, transparent 3px, transparent 6px); }
 .pg-bar.prod-anom, .prod-key.prod-anom { outline: 2px dashed #c93636; outline-offset: -2px; opacity: .65; }
 .prod-key.prod-anom { background: transparent; }
+.prod-hist { padding: 10px 14px; }
+.prod-hstrip { display: flex; align-items: flex-end; gap: 1px; height: 64px; overflow-x: auto; padding-bottom: 14px; margin-top: 6px; }
+.prod-hday { position: relative; flex: 0 0 8px; height: 48px; display: flex; align-items: flex-end; cursor: pointer; border-radius: 2px; }
+.prod-hday:hover, .prod-hday.on { background: var(--accent-soft); }
+.prod-hday.m1 { border-left: 1px solid var(--border); }
+.prod-hbar { width: 100%; background: var(--accent); border-radius: 2px 2px 0 0; opacity: .75; }
+.prod-hday.on .prod-hbar { opacity: 1; }
+.prod-hday span { position: absolute; top: 50px; left: 1px; font-size: 10px; color: var(--muted); white-space: nowrap; }

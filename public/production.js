@@ -10,7 +10,7 @@ const prodYmd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2
 
 async function renderKpiProduction() {
   const source = store.get('prodSource', 'perso') === 'otto' ? 'otto' : 'perso';
-  const span = [1, 3, 7, 14].includes(Number(store.get('prodSpan', 1))) ? Number(store.get('prodSpan', 1)) : 1;
+  const span = [1, 3, 7, 14, 31].includes(Number(store.get('prodSpan', 1))) ? Number(store.get('prodSpan', 1)) : 1;
   const view = ['gantt', 'load', 'runs'].includes(store.get('prodView', 'gantt')) ? store.get('prodView', 'gantt') : 'gantt';
   const sens = ['strict', 'normal', 'loose'].includes(store.get('prodSens', 'normal')) ? store.get('prodSens', 'normal') : 'normal';
   const withAnom = !!store.get('prodWithAnom', false);
@@ -86,10 +86,24 @@ async function renderKpiProduction() {
       <p class="small muted">Each machine's usual set-up time and time a card are learned from its own runs over the last 120 days. Strictness: <b>${{ strict: 'Strict — 2× off', normal: 'Normal — 3× off', loose: 'Loose — 5× off' }[sens]}</b> what's usual, and well outside the machine's normal spread. Runs over 24 hours, ending before they start, or with nothing made are always set aside.</p></div>` : '';
 
   const linked = p.linked[source];
-  // the report only ever holds one day: say how far back the history goes, and how to fill it in
-  const histDays = p.history.first ? Math.round((new Date(p.history.last) - new Date(p.history.first)) / 86400000) + 1 : 0;
-  const histNote = p.history.runs && histDays < 14 ? `<div class="kc-note small">History so far: <b>${esc(p.history.first.slice(0, 10))} to ${esc(p.history.last.slice(0, 10))}</b>. The daily report only holds one day, so the history builds up from when it was linked, a day at a time.
-      To fill in earlier weeks or months, export the timing report for a longer period once (e.g. the last 3 months — same columns) and load it with <b>📂 Load reports…</b>; runs already kept aren't added twice.</div>` : '';
+  // what the report itself held when last read, and every day kept (a bar each: click to open it)
+  const lr = p.history.last_read;
+  const coverageTxt = lr?.first ? `the report held ${n(lr.rows)} run${lr.rows === 1 ? '' : 's'} ${lr.days > 1 ? `over ${lr.days} days, ${lr.first} to ${lr.last}` : `from one day, ${lr.first}`}` : '';
+  const histDays = p.history.days || [];
+  const histNote = !histDays.length ? '' : (() => {
+    const byDay = new Map(histDays.map((d) => [d.day, d]));
+    const all = []; for (let d = histDays[0].day; d <= histDays[histDays.length - 1].day; d = shift(d, 1)) all.push(d);
+    const max = Math.max(1, ...histDays.map((d) => d.cards));
+    const inView = new Set(days);
+    const bars = all.map((d) => { const v = byDay.get(d); const dt = new Date(`${d}T12:00`);
+      return `<div class="prod-hday ${inView.has(d) ? 'on' : ''} ${dt.getDate() === 1 ? 'm1' : ''}" data-prod-goto="${d}" title="${esc(PLF.day.format(dt))} ${dt.getFullYear()}: ${v ? `${n(v.cards)} ${unit}, ${v.runs} runs` : 'nothing'}">
+        <div class="prod-hbar" style="height:${v ? Math.max(2, Math.round((v.cards / max) * 46)) : 0}px"></div>${dt.getDate() === 1 || d === all[0] ? `<span>${esc(dt.toLocaleDateString('en-GB', { month: 'short' }))}</span>` : ''}</div>`; }).join('');
+    return `<div class="card prod-hist"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:6px"><b class="small">History kept: ${n(p.history.runs)} runs, ${esc(histDays[0].day)} to ${esc(histDays[histDays.length - 1].day)} — ${n(histDays.length)} day${histDays.length === 1 ? '' : 's'}</b>
+        <span class="small muted">${unit} a day as reported · click a day to open it</span></div>
+      <div class="prod-hstrip" id="prod-hstrip">${bars}</div>
+      ${histDays.length < 14 ? `<div class="small muted" style="margin-top:4px">Every run the report holds is kept, whatever its day${coverageTxt ? ` — when last read, ${esc(coverageTxt)}` : ''}. A report that only holds the current day builds the history up a day at a time; to fill in earlier weeks, export it once for a longer period (same columns) and load it with <b>📂 Load reports…</b>.</div>` : ''}</div>`;
+  })();
+
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 KPIs</h1>
       <div class="seg"><a href="#/kpi">A3 Weekly Report</a><a href="#/kpi/0/database">Database</a><a href="#/kpi/sources">Sources</a><a href="#/kpi/production" class="on">⏱ Production</a></div>
@@ -105,7 +119,7 @@ async function renderKpiProduction() {
     ${p.history.runs ? `
     <div class="row prod-controls" style="gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0">
       <button class="small" data-prod-day="-1" title="Earlier">◀</button><input type="date" id="prod-from" value="${esc(from)}" style="width:auto"><button class="small" data-prod-day="1" title="Later">▶</button>
-      <select id="prod-span" style="width:auto">${[[1, '1 day'], [3, '3 days'], [7, 'a week'], [14, 'two weeks']].map(([v, l]) => `<option value="${v}" ${span === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select id="prod-span" style="width:auto">${[[1, '1 day'], [3, '3 days'], [7, 'a week'], [14, 'two weeks'], [31, 'a month']].map(([v, l]) => `<option value="${v}" ${span === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <div class="seg">${[['gantt', '▤ Gantt'], ['load', '▦ Load'], ['runs', '☰ Runs']].map(([k, l]) => `<button type="button" data-prod-view="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <span class="spacer"></span>
       <label class="row small" style="gap:6px">Anomalies <select id="prod-sens" style="width:auto">${[['strict', 'Strict (2× off)'], ['normal', 'Normal (3× off)'], ['loose', 'Loose (5× off)']].map(([k, l]) => `<option value="${k}" ${sens === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
@@ -117,6 +131,7 @@ async function renderKpiProduction() {
       : view === 'gantt' ? ganttHtml() : view === 'load' ? loadHtml() : runsHtml()}
     ${anomHtml}` : linked ? '<div class="card muted">No runs read yet — 📥 Read now, or load older reports with 📂 Load reports….</div>' : ''}`;
 
+  const hs = $('#prod-hstrip'); if (hs) { const on = hs.querySelector('.prod-hday.on'); hs.scrollLeft = on ? on.offsetLeft - hs.clientWidth / 2 : hs.scrollWidth; }
   if (view === 'gantt' && $('#prod-gantt')) {
     const draw = () => drawProdGantt($('#prod-gantt'), $('#prod-gantt-info'), p, { from, span, withAnom, wStart, wEnd, unit });
     draw();
@@ -151,6 +166,7 @@ async function renderKpiProduction() {
     const s = e.target.closest('[data-prod-source]'); if (s) { prodState.sel = null; set('prodSource', s.dataset.prodSource); return; }
     const v = e.target.closest('[data-prod-view]'); if (v) { set('prodView', v.dataset.prodView); return; }
     const d = e.target.closest('[data-prod-day]'); if (d) { set('prodFrom', shift(from, Number(d.dataset.prodDay) * span)); return; }
+    const go = e.target.closest('[data-prod-goto]'); if (go) { set('prodFrom', go.dataset.prodGoto); return; }
     if (e.target.closest('[data-prod-latest]')) { store.set('prodFrom', null); renderKpiProduction(); return; }
     if (e.target.closest('[data-prod-jump]')) { $('#prod-anom')?.scrollIntoView({ behavior: 'smooth' }); return; }
     if (e.target.closest('[data-prod="read"]')) {

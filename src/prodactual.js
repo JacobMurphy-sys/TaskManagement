@@ -9,6 +9,10 @@ const db = require('./db');
 const { readBook } = require('./xlsxread');
 
 const SOURCES = { perso: 'Perso', otto: 'Otto' };
+// Work orders starting with M aren't production runs to count: kept as read, but left out of
+// everything shown (and of each machine's usual).
+const KEEP = "job NOT LIKE 'M%'";
+const counted = (job) => !/^m/i.test(String(job || '').trim());
 
 // Header names each field may go by (the first found wins); compared without case, spaces or
 // punctuation, so "Machine  Name" is "machine name".
@@ -137,6 +141,11 @@ function store(source, rows, file) {
 }
 
 const seenKey = (source) => `prod_seen_${source}`;
+// The days a report's runs fall on: { first, last, days }.
+function coverage(rows) {
+  const ds = [...new Set(rows.filter((r) => counted(r.job)).map((r) => r.start_at.slice(0, 10)))].sort();
+  return { first: ds[0] || null, last: ds[ds.length - 1] || null, days: ds.length };
+}
 // Reads the linked report if it changed since the last read. → { status, ... }
 function readLinked(source, file, { force = false } = {}) {
   if (!file) return { source, status: 'none' };
@@ -148,8 +157,8 @@ function readLinked(source, file, { force = false } = {}) {
     const parsed = parse(fs.readFileSync(file));
     const r = store(source, parsed.rows, path.basename(file));
     db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [seenKey(source), sig]);
-    db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [`prod_read_${source}`, JSON.stringify({ at: new Date().toISOString(), file, modified: stat.mtime.toISOString(), rows: parsed.rows.length, ...r })]);
-    return { source, status: 'read', file, rows: parsed.rows.length, skipped: parsed.skipped, ...r };
+    db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [`prod_read_${source}`, JSON.stringify({ at: new Date().toISOString(), file, modified: stat.mtime.toISOString(), rows: parsed.rows.length, ...coverage(parsed.rows), ...r })]);
+    return { source, status: 'read', file, rows: parsed.rows.length, skipped: parsed.skipped, ...coverage(parsed.rows), ...r };
   } catch (err) {
     return { source, status: 'error', file, error: err.code === 'EBUSY' ? 'the file is open elsewhere and locked' : err.message };
   }
@@ -262,18 +271,20 @@ function view(source, from, to, { sensitivity = 'normal', withAnomalies = false 
   if (!baseCache || baseCache.sig !== sig) {
     const since = new Date(to.getTime() - 120 * 86400000);
     const bs = stamp(since.getFullYear(), since.getMonth() + 1, since.getDate());
-    baseCache = { sig, base: baselines(db.all('SELECT machine, start_at, end_at, qty FROM prod_runs WHERE source = ? AND start_at >= ? AND start_at < ?', [source, bs, t])) };
+    baseCache = { sig, base: baselines(db.all(`SELECT machine, start_at, end_at, qty FROM prod_runs WHERE source = ? AND ${KEEP} AND start_at >= ? AND start_at < ?`, [source, bs, t])) };
   }
-  const runs = judge(db.all(`SELECT * FROM prod_runs WHERE source = ? AND start_at < ? AND coalesce(end_at, start_at) > ? ORDER BY machine, start_at`, [source, t, f]), baseCache.base, k);
+  const runs = judge(db.all(`SELECT * FROM prod_runs WHERE source = ? AND ${KEEP} AND start_at < ? AND coalesce(end_at, start_at) > ? ORDER BY machine, start_at`, [source, t, f]), baseCache.base, k);
   const good = runs.filter((r) => !r.anomaly);
   const used = withAnomalies ? runs.filter((r) => r.anomaly?.kind !== 'open' && r.anomaly?.kind !== 'invalid') : good;
   const load = loadOf(used, from, to);
   const sum = (xs, fn) => xs.reduce((a, x) => a + (fn(x) || 0), 0);
-  const range = db.get('SELECT min(start_at) AS first, max(start_at) AS last, count(*) AS n FROM prod_runs WHERE source = ?', [source]);
+  const range = db.get(`SELECT min(start_at) AS first, max(start_at) AS last, count(*) AS n FROM prod_runs WHERE source = ? AND ${KEEP}`, [source]);
   let last = null; try { last = JSON.parse(db.get('SELECT value FROM settings WHERE key = ?', [`prod_read_${source}`])?.value || 'null'); } catch { /* none */ }
   return {
     source, from: f, to: t, sensitivity: Object.keys(SENSITIVITY).find((x) => SENSITIVITY[x] === k),
-    history: { runs: range?.n || 0, first: range?.first || null, last: range?.last || null, last_read: last },
+    history: { runs: range?.n || 0, first: range?.first || null, last: range?.last || null, last_read: last,
+      // every day kept, as reported (anomalies not taken out): for the overview strip
+      days: db.all(`SELECT substr(start_at, 1, 10) AS day, count(*) AS runs, sum(coalesce(qty, 0)) AS cards FROM prod_runs WHERE source = ? AND ${KEEP} GROUP BY day ORDER BY day`, [source]) },
     machines: [...new Set([...runs.map((r) => r.machine), ...load.map((l) => l.machine)])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
     runs: runs.map((r) => ({ id: r.id, job: r.job, machine: r.machine, station: r.station, start_at: r.start_at, end_at: r.end_at, qty: r.qty, job_qty: r.job_qty, remake: !!r.remake, mode: r.mode,
       item: r.item, item_name: r.item_name, customer: r.customer, trigram: trigramOf(r.job, r.trigram), due: r.due, minutes: r.minutes, spc: r.spc, usual: r.usual, anomaly: r.anomaly })),
@@ -284,4 +295,4 @@ function view(source, from, to, { sensitivity = 'normal', withAnomalies = false 
   };
 }
 
-module.exports = { trigramOf, SOURCES, SENSITIVITY, parse, store, readLinked, baselines, judge, loadOf, view, dateTime, partsOf };
+module.exports = { counted, KEEP, coverage, trigramOf, SOURCES, SENSITIVITY, parse, store, readLinked, baselines, judge, loadOf, view, dateTime, partsOf };

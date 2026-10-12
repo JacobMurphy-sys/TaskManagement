@@ -2219,7 +2219,7 @@ router.get('/prod', h((req, res) => {
   const source = prodSource(req.query.source);
   prod.readLinked(source, prodFile(source));
   // no day asked for: the latest day with runs (else today)
-  const latest = db.get('SELECT max(start_at) AS d FROM prod_runs WHERE source = ?', [source])?.d;
+  const latest = db.get(`SELECT max(start_at) AS d FROM prod_runs WHERE source = ? AND ${prod.KEEP}`, [source])?.d;
   const m = String(req.query.from || '').match(/^(\d{4})-(\d{2})-(\d{2})$/) || String(latest || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
   const now = new Date();
   const from = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -2253,7 +2253,7 @@ router.post('/prod/upload', express.raw({ type: '*/*', limit: '100mb' }), h((req
   if (!/\.xls[xm]$/i.test(name)) throw new HttpError(400, 'Choose an Excel file (.xlsx)');
   let parsed;
   try { parsed = prod.parse(req.body); } catch (err) { throw new HttpError(400, `${name}: ${err.message}`); }
-  res.status(201).json({ source, file: name, rows: parsed.rows.length, skipped: parsed.skipped, ...prod.store(source, parsed.rows, name) });
+  res.status(201).json({ source, file: name, rows: parsed.rows.length, skipped: parsed.skipped, ...prod.coverage(parsed.rows), ...prod.store(source, parsed.rows, name) });
 }));
 
 // ---- shared defaults: the file paths that are the same for everyone on the network
