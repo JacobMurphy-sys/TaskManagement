@@ -2035,15 +2035,22 @@ router.get('/plan/sheet/:id/:name?', h((req, res) => {
 
 // 📦 The planning setup on its own — to move it to a planner on a server (or back): the plan_*
 // settings and the machines, speeds, OEE, Otto machines and speeds, modifiers, shift values, card
-// tags and pins. The plan history isn't included (it builds up again from the exports).
+// tags and pins. With ?history=1 also the history built up from the exports (each export read and
+// each job seen, for the pace and on-time figures) and the ⏱ Production runs — merged on import.
 const SETUP_TABLES = ['plan_machines', 'plan_speeds', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags', 'plan_pins'];
 router.get('/plan/setup', h((req, res) => {
   const settings = Object.fromEntries(db.all("SELECT key, value FROM settings WHERE key LIKE 'plan\\_%' ESCAPE '\\'").map((r) => [r.key, r.value]));
   const tables = Object.fromEntries(SETUP_TABLES.map((t) => [t, db.all(`SELECT * FROM ${t} ORDER BY id`).map(({ id, created_at, updated_at, ...rest }) => rest)]));
-  res.set('Content-Disposition', `attachment; filename="planning-setup-${new Date().toISOString().slice(0, 10)}.json"`);
-  res.json({ kind: 'ci-planning-setup', version: 1, exported_at: new Date().toISOString(), settings, tables });
+  const withHistory = req.query.history === '1';
+  const history = withHistory ? {
+    reads: db.all('SELECT file_modified, file, read_at, jobs, cards, running, done FROM plan_history_reads ORDER BY id'),
+    jobs: db.all('SELECT * FROM plan_history_jobs ORDER BY id').map(({ id, ...rest }) => rest),
+    prod_runs: db.all('SELECT * FROM prod_runs ORDER BY id').map(({ id, ...rest }) => rest),
+  } : undefined;
+  res.set('Content-Disposition', `attachment; filename="planning-setup${withHistory ? '-with-history' : ''}-${new Date().toISOString().slice(0, 10)}.json"`);
+  res.json({ kind: 'ci-planning-setup', version: 1, exported_at: new Date().toISOString(), settings, tables, ...(history ? { history } : {}) });
 }));
-router.post('/plan/setup', express.json({ limit: '20mb' }), h((req, res) => {
+router.post('/plan/setup', express.json({ limit: '400mb' }), h((req, res) => {
   const b = req.body || {};
   if (b.kind !== 'ci-planning-setup' || !b.tables) throw new HttpError(400, 'Not a planning setup file');
   const got = {};
@@ -2057,8 +2064,54 @@ router.post('/plan/setup', express.json({ limit: '20mb' }), h((req, res) => {
     }
     for (const [k, v] of Object.entries(b.settings || {})) if (/^plan_[a-z0-9_]+$/.test(k) && k in SETTING_DEFAULTS) db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, v === null ? null : String(v)]);
   });
-  res.json({ ok: true, tables: got, settings: Object.keys(b.settings || {}).filter((k) => /^plan_/.test(k)).length });
+  const history = b.history ? mergeHistory(b.history) : null;
+  res.json({ ok: true, tables: got, settings: Object.keys(b.settings || {}).filter((k) => /^plan_/.test(k)).length, history });
 }));
+
+// History from another install, merged into this one's (nothing here is lost):
+// - exports read: added where not here yet (same saved time = same export); they're filed under this
+//   install's own export path, so the next read isn't taken for a different file being linked;
+// - jobs: added where not here yet; where both have one, the one seen more recently wins (the
+//   earliest first sighting kept);
+// - Production runs: added where not here yet.
+function mergeHistory(h) {
+  const out = { reads: 0, jobs: 0, jobs_updated: 0, prod_runs: 0 };
+  const ownFile = cleanPath(getSettings().plan_src) || null;
+  db.tx(() => {
+    // the newest export read must be the last one (by id): the next export is compared with it
+    for (const r of Array.isArray(h.reads) ? h.reads : []) {
+      if (!r?.file_modified || db.get('SELECT 1 FROM plan_history_reads WHERE file_modified = ?', [r.file_modified])) continue;
+      db.run('INSERT INTO plan_history_reads (file_modified, file, read_at, jobs, cards, running, done) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [r.file_modified, ownFile || r.file || null, r.read_at || new Date().toISOString(), r.jobs || 0, r.cards || 0, r.running || 0, r.done || 0]);
+      out.reads++;
+    }
+    const last = db.get('SELECT * FROM plan_history_reads ORDER BY file_modified DESC LIMIT 1');
+    if (last && last.id !== db.get('SELECT max(id) AS m FROM plan_history_reads').m) {
+      // move the latest export read to the end, filed under this install's export
+      db.run('DELETE FROM plan_history_reads WHERE id = ?', [last.id]);
+      db.run('INSERT INTO plan_history_reads (file_modified, file, read_at, jobs, cards, running, done) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [last.file_modified, ownFile || last.file, last.read_at, last.jobs, last.cards, last.running, last.done]);
+    }
+    const cols = ['key', 'wo', 'per', 'customer', 'qty', 'due', 'deadline', 'prio', 'shipper', 'first_seen', 'last_seen', 'started_at', 'done_at', 'late_minutes'];
+    for (const j of Array.isArray(h.jobs) ? h.jobs : []) {
+      if (!j?.key || !j.wo || !j.first_seen || !j.last_seen) continue;
+      const mine = db.get('SELECT * FROM plan_history_jobs WHERE key = ?', [j.key]);
+      if (!mine) { db.run(`INSERT INTO plan_history_jobs (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`, cols.map((c) => j[c] ?? null)); out.jobs++; continue; }
+      const first = j.first_seen < mine.first_seen ? j.first_seen : mine.first_seen;
+      if (j.last_seen > mine.last_seen) {
+        db.run(`UPDATE plan_history_jobs SET ${cols.slice(1).map((c) => `${c} = ?`).join(', ')} WHERE id = ?`, [...cols.slice(1).map((c) => (c === 'first_seen' ? first : j[c] ?? null)), mine.id]);
+        out.jobs_updated++;
+      } else if (first !== mine.first_seen) db.run('UPDATE plan_history_jobs SET first_seen = ? WHERE id = ?', [first, mine.id]);
+    }
+    const pcols = ['source', 'job', 'machine', 'station', 'start_at', 'end_at', 'qty', 'job_qty', 'remake', 'mode', 'product', 'item', 'item_name', 'customer', 'trigram', 'due', 'file', 'read_at'];
+    for (const r of Array.isArray(h.prod_runs) ? h.prod_runs : []) {
+      if (!r?.source || !r.job || !r.start_at || !prod.counted(r.job)) continue;
+      const ch = db.run(`INSERT OR IGNORE INTO prod_runs (${pcols.join(', ')}) VALUES (${pcols.map(() => '?').join(', ')})`, pcols.map((c) => (c === 'machine' ? r.machine ?? '' : c === 'remake' ? (r.remake ? 1 : 0) : c === 'read_at' ? r.read_at || new Date().toISOString() : r[c] ?? null)));
+      if (ch?.changes) out.prod_runs++;
+    }
+  });
+  return out;
+}
 
 // Otto machines: name, items per hour, how the export's Machine column names it (optional).
 const ottoMachineFields = (b) => {

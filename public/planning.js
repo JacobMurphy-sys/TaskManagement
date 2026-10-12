@@ -329,6 +329,7 @@ ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. 
     <div class="card pl-setup" id="pl-setup" ${src.status === 'ok' && !store.get('planSetupOpen', false) ? 'hidden' : ''}>
       <div class="row"><h2 style="margin:0">Setup</h2><div class="spacer"></div>
         <a class="button small" href="/api/plan/setup" download title="Machines, speeds, OEE, modifiers, card tags, pins and these settings — to move them to the shared planner (or back)">⬇ Export setup</a>
+        <a class="button small" href="/api/plan/setup?history=1" download title="The setup plus the history built up from the exports (the pace, catch-up and on-time figures) and the ⏱ Production runs — so a new install starts where this one is">⬇ Export setup + history</a>
         <label class="button small" title="Replace this setup with one exported before">⬆ Import setup…<input type="file" accept=".json" hidden id="pl-setup-file"></label></div>
       ${state.mode === 'planner' ? '' : `<label class="f full" style="margin:10px 0">Shared planner address <span class="muted small">(optional) — when Planning runs on a server for everyone, its address, e.g. http://servername:3100. The Planning tab then opens it.</span>
         <input type="url" name="planner_url" class="pl-setting-any" value="${esc(settings.planner_url || '')}" placeholder="http://servername:3100"></label>`}
@@ -437,8 +438,13 @@ ${half === 'otto' ? ottoSetup() : `
   $('#pl-setup-file')?.addEventListener('change', async (e) => {
     const file = e.target.files[0]; if (!file) return;
     let body; try { body = JSON.parse(await file.text()); } catch { toast('That isn\'t a planning setup file', 'error'); return; }
-    if (!confirm(`Replace this planner's setup (machines, speeds, OEE, modifiers, card tags, pins and settings) with the one in ${file.name}?`)) return;
-    try { const r = await api.post('/plan/setup', body); toast(`Setup imported — ${Object.values(r.tables).reduce((a, b) => a + b, 0)} rows, ${r.settings} settings`); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+    if (!confirm(`Replace this planner's setup (machines, speeds, OEE, modifiers, card tags, pins and settings) with the one in ${file.name}?${body.history ? '\n\nIts history (exports read, jobs seen, Production runs) is added to this one\'s — nothing here is lost.' : ''}`)) return;
+    try {
+      const r = await api.post('/plan/setup', body);
+      const hh = r.history;
+      toast(`Setup imported — ${Object.values(r.tables).reduce((a, b) => a + b, 0)} rows, ${r.settings} settings${hh ? ` · history: ${hh.reads} exports, ${hh.jobs + hh.jobs_updated} jobs, ${hh.prod_runs} production runs added` : ''}`);
+      renderPlanning();
+    } catch (err) { toast(err.message, 'error'); }
   });
   if (state.mode === 'planner') startPlanPresence();
   $$('#pl-setup input[name]').forEach((el) => el.addEventListener('change', async () => {

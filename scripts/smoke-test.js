@@ -1687,6 +1687,10 @@ async function waitForServer() {
       await call('PATCH', '/settings', { plan_miti_days: '4' });
       const setup = await call('GET', '/plan/setup');
       assert.equal(setup.kind, 'ci-planning-setup');
+      assert.equal(setup.history, undefined, 'the history only when asked for');
+      const withHist = await call('GET', '/plan/setup?history=1');
+      assert.ok(withHist.history.reads.length && withHist.history.jobs.length && withHist.history.prod_runs.length, 'exports read, jobs seen and Production runs');
+      const myReads = (await call('GET', '/plan/history')).reads;
       assert.ok(setup.tables.plan_machines.some((m) => m.name === 'Move me') && setup.settings.plan_miti_days === '4');
       const ptmp = fs.mkdtempSync(path.join(os.tmpdir(), 'planner-test-'));
       const PB = 'http://127.0.0.1:3997/api';
@@ -1709,6 +1713,16 @@ async function waitForServer() {
         const pl = await pc('GET', '/plan');
         assert.ok(pl.machines.some((m) => m.name === 'Move me'), 'the setup moved over');
         assert.equal((await pc('GET', '/settings')).plan_miti_days, '4');
+        // the history comes along when it's in the file — added to what's there, never twice
+        assert.equal((await pc('GET', '/plan/history')).reads, 0);
+        const ih = await pc('POST', '/plan/setup', withHist);
+        assert.deepEqual([ih.history.reads, ih.history.jobs, ih.history.prod_runs], [withHist.history.reads.length, withHist.history.jobs.length, withHist.history.prod_runs.length]);
+        assert.equal((await pc('GET', '/plan/history')).reads, myReads, 'the new install has the same history');
+        const again = await pc('POST', '/plan/setup', withHist);
+        assert.deepEqual([again.history.reads, again.history.jobs, again.history.prod_runs], [0, 0, 0], 'imported twice: nothing added twice');
+        const back = await pc('GET', '/plan/setup?history=1');
+        const lastRead = back.history.reads[back.history.reads.length - 1].file_modified;
+        assert.equal(lastRead, withHist.history.reads.map((r) => r.file_modified).sort().pop(), 'the newest export read stays the last one, for the next export to be compared with');
         // presence: who's here, and the last change to the setup (with who made it)
         await pc('POST', '/presence', { id: 'a1', name: 'Sam' });
         const seen = await pc('POST', '/presence', { id: 'b2', name: 'Jo' });
