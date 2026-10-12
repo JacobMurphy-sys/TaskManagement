@@ -93,8 +93,8 @@ When an update changes how data is stored, the app upgrades your database automa
 - **Boards:** **🗂 Board** in the top bar shows all ongoing projects; drag a card between *Active*, *On hold* and *Completed*, or click it to open the project. On a project page, switch the Tasks panel between **☰ List** (tick-box checklist with subtasks) and **▦ Board** (that project's own Kanban: drag tasks between columns). The choice is remembered.
 - **Due-date alerts:** a pop-up appears once on the day a task is due, and again once it becomes overdue.
 - **Re-baseline:** use this after an agreed change of scope. All current tasks become the new baseline.
-- **Keyboard:** `N` quick note, `T` add task (in a project), `/` search.
-- **Layout:** the page tabs (Dashboard, Tasks, Calendar, Board, Ideas, Library, Report, Contacts) and search are in the top bar; Activity log, Backups, Settings, dark mode, desktop alerts and Stop server are in its **⋯** menu. The sidebar is kept for your projects list. On a smaller window the tabs show icons only (hover for the name).
+- **Keyboard:** `N` quick note, `T` add task (in a project), `/` search, `[` hide or show the sidebar.
+- **Layout:** the page tabs (Dashboard, Tasks, Calendar, Board, Ideas, Library, Report, Contacts) and search are in the top bar; Activity log, Backups, Settings, dark mode, desktop alerts and Stop server are in its **⋯** menu. The sidebar is kept for your projects list; **☰** at the left of the top bar (or `[`) hides it for more room and brings it back, and the choice is remembered. On a smaller window the tabs show icons only (hover for the name).
 - **Closing windows:** click anywhere outside a pop-up window (or press Esc). Windows that save as you go (tasks, meetings) save first; a form you haven't saved yet (new project, phase, person…) asks before discarding what you typed. Clicking outside the 📇 contacts book keeps what you ticked.
 - **Repeating tasks:** add `*weekly` (or `*daily`, `*weekdays`, `*fortnightly`, `*monthly`, `*quarterly`, `*yearly`) when adding a task, or set *Repeats* in the task window.
 - **Waiting on someone:** fill in *Waiting on* in the task window (names you've used are suggested). Clear it when they've replied.
@@ -137,7 +137,7 @@ Past weeks stay in the list, so any earlier A3 can be viewed or saved again.
 
 **Notes.** Under each week's A3 is a notes box for anything to remember about that week — follow-ups, what was said in the review, what to change next time. It saves as you type, stays with the week (backed up and in the activity log) and isn't part of the saved A3.
 
-**Editing the A3.** **✎ Edit A3** (on the A3 tab) lets you change a week's A3 by hand:
+**Editing the A3.** **✎ Edit A3** (on the A3 tab; its row stays at the top while you scroll, so **Done editing** is always in reach) lets you change a week's A3 by hand:
 - Click a **text box** (executive summary, comments, headcount notes, …) to change its text — **Ctrl+Enter** saves, **Esc** cancels; *Put back the original text* undoes it.
 - Click a **coloured figure** (a KPI or % with conditional colours) to set it **green**, **yellow** or **red** — or *Automatic* to let the formula decide again.
 - Click a **trend symbol** to pick **▲** (green), **▬** (yellow) or **▼** (red): the symbol and its colour always go together. On every A3 the symbols are coloured that way whatever the cell's own colour — the workbook's rules only colour ▲ and ▼ in some cells and ▬ nowhere.

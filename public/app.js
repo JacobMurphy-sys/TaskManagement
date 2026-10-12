@@ -1855,7 +1855,10 @@ document.addEventListener('keydown', (e) => {
 });
 
 const actions = {
-  'toggle-sidebar': () => document.body.classList.toggle('sidebar-open'),
+  'toggle-sidebar': () => {
+    if (matchMedia('(max-width: 700px)').matches) { document.body.classList.toggle('sidebar-open'); return; }
+    setSidebarHidden(!document.body.classList.contains('sidebar-hidden'));
+  },
   'toggle-menu': () => toggleMenu(),
   'new-project': () => projectForm(),
   'edit-project': () => projectForm(state.project),
@@ -2202,7 +2205,16 @@ document.addEventListener('change', (e) => {
   if (el && (el.tagName === 'SELECT' || el.type === 'checkbox')) runAction(el, e);
 });
 
-// Keyboard shortcuts: N = quick note, T = add task, / = search
+// The sidebar can be hidden for more room (☰ or [); remembered on this computer.
+function setSidebarHidden(hidden) {
+  document.body.classList.toggle('sidebar-hidden', hidden);
+  store.set('sidebarHidden', hidden);
+  const b = $('.menu-toggle');
+  if (b) b.title = hidden ? 'Show the sidebar ( [ )' : 'Hide the sidebar ( [ )';
+}
+setSidebarHidden(store.get('sidebarHidden', false));
+
+// Keyboard shortcuts: N = quick note, T = add task, / = search, [ = sidebar
 document.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey || modal().open) return;
   if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
@@ -2210,6 +2222,7 @@ document.addEventListener('keydown', (e) => {
   const addTask = $('#add-task-input') || $('#board-add');
   if (e.key === 't' && addTask) { e.preventDefault(); addTask.focus(); }
   if (e.key === '/') { e.preventDefault(); $('#search').focus(); }
+  if (e.key === '[' && !matchMedia('(max-width: 700px)').matches) { e.preventDefault(); setSidebarHidden(!document.body.classList.contains('sidebar-hidden')); }
 });
 
 $('#search').addEventListener('keydown', (e) => {

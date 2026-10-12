@@ -42,7 +42,7 @@ async function renderKpi(arg, tab) {
     </div>
     ${setupMissing ? `<div class="kpi-actions"><div class="kpi-action"><span>⚠ ${!settings.kpi_workbook_path ? 'Set where the CI workbook is saved' : 'Set the folder the A3 is saved in'} to load weeks and save the A3.</span><a class="button small" href="#/kpi/sources">Go to Sources</a></div></div>` : ''}
     ${notes.actions.length ? `<div class="kpi-actions">${notes.actions.map((a) => `<div class="kpi-action"><span>⚠ ${a.text}</span>${a.buttons}</div>`).join('')}</div>` : ''}
-    ${snap ? `<div class="kpi-meta small muted">${esc(snap.week)} · ${snap.origin === 'ci' ? `built ${esc(fmtDateTime(snap.loaded_at))} from the source figures` : `loaded ${esc(fmtDateTime(snap.loaded_at))} from Excel`}
+    ${snap ? `<div class="kpi-meta small muted${view === 'a3' ? ' sticky' : ''}">${esc(snap.week)} · ${snap.origin === 'ci' ? `built ${esc(fmtDateTime(snap.loaded_at))} from the source figures` : `loaded ${esc(fmtDateTime(snap.loaded_at))} from Excel`}
         <details class="kpi-info"><summary title="Where this A3 came from">ⓘ</summary><div class="kpi-info-pop card">${notes.info.map((t) => `<div>${t}</div>`).join('')}</div></details>
         <button class="link small" data-kpi="rebuild" title="${snap.origin === 'ci' ? 'Build it again from the latest source figures' : 'Replace the Excel copy with the CI Manager\'s own figures for this week'}">🔄 ${snap.origin === 'ci' ? 'Rebuild' : 'Build from sources instead'}</button>
         ${snap.exported_to ? ` · <span title="${esc(snap.exported_to)}">💾 saved ${esc(fmtDateTime(snap.exported_at))}</span>` : ''}
