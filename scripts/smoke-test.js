@@ -1592,6 +1592,8 @@ async function waitForServer() {
       assert.equal(PA.dateTime(46307.1588657407, 46307.1588657407), '2026-10-12T03:48:46', 'one cell holding the date and time');
       assert.equal(PA.dateTime(46307, 0.5), '2026-10-12T12:00:00', 'a date cell and a time cell');
       assert.equal(PA.dateTime('12/10/2026', '03:48:05'), '2026-10-12T03:48:05', 'text, day first');
+      assert.equal(PA.trigramOf('CADXS26101101PER0001', 'XYZ'), 'ADX', 'the customer from the work order, as Planning does');
+      assert.equal(PA.trigramOf('12345', 'kbc'), 'KBC', 'else the report\'s own code');
       const head = ['Import Date', 'Due Date', 'job', 'Product Type', 'Job Qty', 'Qty Persoed', 'Start Date', 'Start Time', 'End Date', 'End Time', 'Remake', 'Machine WS Name', 'Machine  Name', 'Production Mode', 'Item AXRef', 'Item Name', 'Customer Name', 'CO Ref'];
       const day = 46304; // Fri 9 Oct 2026
       const run = (i, m, startH, minutes, qty, extra = {}) => { const s0 = day + startH / 24; const e0 = s0 + minutes / 1440;
@@ -1610,6 +1612,7 @@ async function waitForServer() {
       r = await call('POST', '/prod/read', { source: 'perso' });
       assert.equal(r.added, 0, 'read again: the same runs are updated, not added twice'); assert.equal(r.updated, 33);
       const v = await call('GET', '/prod?source=perso&from=2026-10-09&days=1');
+      assert.equal((await call('GET', '/prod?source=perso')).from.slice(0, 10), '2026-10-09', 'no day asked for: the latest day with runs');
       assert.equal(v.runs.length, 33);
       const flagged = Object.fromEntries(v.runs.filter((x) => x.anomaly).map((x) => [x.job, x.anomaly.kind]));
       assert.deepEqual(flagged, { QUICK: 'quick', SLOW: 'slow', BACKWARDS: 'invalid' }, 'far too quick, far too long and backwards are set aside; the ordinary runs are not');

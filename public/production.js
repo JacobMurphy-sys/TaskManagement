@@ -14,10 +14,11 @@ async function renderKpiProduction() {
   const view = ['gantt', 'load', 'runs'].includes(store.get('prodView', 'gantt')) ? store.get('prodView', 'gantt') : 'gantt';
   const sens = ['strict', 'normal', 'loose'].includes(store.get('prodSens', 'normal')) ? store.get('prodSens', 'normal') : 'normal';
   const withAnom = !!store.get('prodWithAnom', false);
-  let from = store.get('prodFrom', null);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(from || '')) { const y = new Date(); y.setDate(y.getDate() - 1); from = prodYmd(y); }
+  // the day picked, or (none picked) the latest day with runs
+  const picked = /^\d{4}-\d{2}-\d{2}$/.test(store.get('prodFrom', '') || '') ? store.get('prodFrom') : null;
   const [p, settings] = await Promise.all([
-    api.get(`/prod?source=${source}&from=${from}&days=${span}&sensitivity=${sens}${withAnom ? '&anomalies=1' : ''}`), api.get('/settings')]);
+    api.get(`/prod?source=${source}${picked ? `&from=${picked}` : ''}&days=${span}&sensitivity=${sens}${withAnom ? '&anomalies=1' : ''}`), api.get('/settings')]);
+  const from = p.from.slice(0, 10);
   const n = (v) => PLF.num.format(Math.round(Number(v || 0)));
   const label = source === 'otto' ? 'Otto' : 'Perso';
   const unit = source === 'otto' ? 'items' : 'cards';
@@ -85,6 +86,10 @@ async function renderKpiProduction() {
       <p class="small muted">Each machine's usual set-up time and time a card are learned from its own runs over the last 120 days. Strictness: <b>${{ strict: 'Strict — 2× off', normal: 'Normal — 3× off', loose: 'Loose — 5× off' }[sens]}</b> what's usual, and well outside the machine's normal spread. Runs over 24 hours, ending before they start, or with nothing made are always set aside.</p></div>` : '';
 
   const linked = p.linked[source];
+  // the report only ever holds one day: say how far back the history goes, and how to fill it in
+  const histDays = p.history.first ? Math.round((new Date(p.history.last) - new Date(p.history.first)) / 86400000) + 1 : 0;
+  const histNote = p.history.runs && histDays < 14 ? `<div class="kc-note small">History so far: <b>${esc(p.history.first.slice(0, 10))} to ${esc(p.history.last.slice(0, 10))}</b>. The daily report only holds one day, so the history builds up from when it was linked, a day at a time.
+      To fill in earlier weeks or months, export the timing report for a longer period once (e.g. the last 3 months — same columns) and load it with <b>📂 Load reports…</b>; runs already kept aren't added twice.</div>` : '';
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 KPIs</h1>
       <div class="seg"><a href="#/kpi">A3 Weekly Report</a><a href="#/kpi/0/database">Database</a><a href="#/kpi/sources">Sources</a><a href="#/kpi/production" class="on">⏱ Production</a></div>
@@ -106,8 +111,10 @@ async function renderKpiProduction() {
       <label class="row small" style="gap:6px">Anomalies <select id="prod-sens" style="width:auto">${[['strict', 'Strict (2× off)'], ['normal', 'Normal (3× off)'], ['loose', 'Loose (5× off)']].map(([k, l]) => `<option value="${k}" ${sens === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="row small"><input type="checkbox" id="prod-with" ${withAnom ? 'checked' : ''}> count them anyway</label>
     </div>
+    ${histNote}
     ${tiles}
-    ${view === 'gantt' ? ganttHtml() : view === 'load' ? loadHtml() : runsHtml()}
+    ${!p.runs.length ? `<div class="card muted">Nothing ran in this period. Runs kept: ${esc(p.history.first.slice(0, 10))} to ${esc(p.history.last.slice(0, 10))}. <button class="link" data-prod-latest>Go to the latest day</button></div>`
+      : view === 'gantt' ? ganttHtml() : view === 'load' ? loadHtml() : runsHtml()}
     ${anomHtml}` : linked ? '<div class="card muted">No runs read yet — 📥 Read now, or load older reports with 📂 Load reports….</div>' : ''}`;
 
   if (view === 'gantt' && $('#prod-gantt')) {
@@ -144,6 +151,7 @@ async function renderKpiProduction() {
     const s = e.target.closest('[data-prod-source]'); if (s) { prodState.sel = null; set('prodSource', s.dataset.prodSource); return; }
     const v = e.target.closest('[data-prod-view]'); if (v) { set('prodView', v.dataset.prodView); return; }
     const d = e.target.closest('[data-prod-day]'); if (d) { set('prodFrom', shift(from, Number(d.dataset.prodDay) * span)); return; }
+    if (e.target.closest('[data-prod-latest]')) { store.set('prodFrom', null); renderKpiProduction(); return; }
     if (e.target.closest('[data-prod-jump]')) { $('#prod-anom')?.scrollIntoView({ behavior: 'smooth' }); return; }
     if (e.target.closest('[data-prod="read"]')) {
       try { const r = await api.post('/prod/read', { source }); toast(r.status === 'read' ? `Read ${r.rows} runs (${r.added} new)` : r.status === 'missing' ? 'Can\'t find the report' : r.error || 'Read', r.status === 'read' ? '' : 'error'); } catch (err) { toast(err.message, 'error'); }

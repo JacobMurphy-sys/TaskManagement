@@ -2218,13 +2218,23 @@ setInterval(readProdReports, 10 * 60 * 1000).unref();
 router.get('/prod', h((req, res) => {
   const source = prodSource(req.query.source);
   prod.readLinked(source, prodFile(source));
-  const m = String(req.query.from || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  // no day asked for: the latest day with runs (else today)
+  const latest = db.get('SELECT max(start_at) AS d FROM prod_runs WHERE source = ?', [source])?.d;
+  const m = String(req.query.from || '').match(/^(\d{4})-(\d{2})-(\d{2})$/) || String(latest || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
   const now = new Date();
-  const from = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const from = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const days = Math.min(31, Math.max(1, Number(req.query.days) || 1));
   const to = new Date(from.getFullYear(), from.getMonth(), from.getDate() + days);
   const set = getSettings();
-  res.json({ ...prod.view(source, from, to, { sensitivity: String(req.query.sensitivity || 'normal'), withAnomalies: req.query.anomalies === '1' }),
+  const v = prod.view(source, from, to, { sensitivity: String(req.query.sensitivity || 'normal'), withAnomalies: req.query.anomalies === '1' });
+  // customer names from Planning's card database, where the report has none
+  const cards = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+  if (cards.status === 'ok') {
+    const names = new Map();
+    for (const c of cards.cards.values()) if (c.trigram && c.customer && !names.has(c.trigram.toUpperCase())) names.set(c.trigram.toUpperCase(), c.customer);
+    for (const r of v.runs) if (!r.customer && r.trigram) r.customer = names.get(r.trigram) || null;
+  }
+  res.json({ ...v,
     days, linked: { perso: !!prodFile('perso'), otto: !!prodFile('otto') }, file: prodFile(source),
     work: { start: set.plan_day_start, end: set.plan_day_end, days: String(set.plan_days || '1,2,3,4,5').split(',').map(Number) } });
 }));

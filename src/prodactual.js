@@ -66,6 +66,9 @@ function dateTime(dateV, timeV) {
   return date ? stamp(...date, ...time) : null;
 }
 const dayOf = (v) => { const p = partsOf(v).date; return p ? stamp(...p).slice(0, 10) : null; };
+// The customer from the work order, as Planning does: characters 2–4 of the job (CADXS2610… → ADX);
+// else the report's own customer code (CO Ref).
+const trigramOf = (job, own = null) => { const m = String(job || '').trim().match(/^[A-Z]([A-Z]{3})/i); return m ? m[1].toUpperCase() : (own ? String(own).trim().toUpperCase() || null : null); };
 const yes = (v) => /^(yes|y|true|1|ja|oui)$/i.test(String(v ?? '').trim());
 const intOf = (v) => (v === null || v === undefined || v === '' || Number.isNaN(Number(v)) ? null : Math.round(Number(v)));
 
@@ -107,7 +110,7 @@ function parse(buf) {
       item: String(at(row, 'item') ?? '').trim() || null,
       item_name: String(at(row, 'item_name') ?? '').trim() || null,
       customer: String(at(row, 'customer') ?? '').trim() || null,
-      trigram: String(at(row, 'trigram') ?? '').trim().toUpperCase() || null,
+      trigram: trigramOf(at(row, 'job'), at(row, 'trigram')),
       due: dayOf(at(row, 'due')),
     });
   }
@@ -273,7 +276,7 @@ function view(source, from, to, { sensitivity = 'normal', withAnomalies = false 
     history: { runs: range?.n || 0, first: range?.first || null, last: range?.last || null, last_read: last },
     machines: [...new Set([...runs.map((r) => r.machine), ...load.map((l) => l.machine)])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
     runs: runs.map((r) => ({ id: r.id, job: r.job, machine: r.machine, station: r.station, start_at: r.start_at, end_at: r.end_at, qty: r.qty, job_qty: r.job_qty, remake: !!r.remake, mode: r.mode,
-      item: r.item, item_name: r.item_name, customer: r.customer, trigram: r.trigram, due: r.due, minutes: r.minutes, spc: r.spc, usual: r.usual, anomaly: r.anomaly })),
+      item: r.item, item_name: r.item_name, customer: r.customer, trigram: trigramOf(r.job, r.trigram), due: r.due, minutes: r.minutes, spc: r.spc, usual: r.usual, anomaly: r.anomaly })),
     load,
     totals: { runs: good.length, cards: sum(good, (r) => r.qty), jobs: new Set(good.map((r) => r.job)).size, remakes: sum(good, (r) => (r.remake ? r.qty : 0)),
       busy_minutes: sum(load, (l) => l.busy_minutes), anomalies: runs.filter((r) => r.anomaly && r.anomaly.kind !== 'open').length, open: runs.filter((r) => r.anomaly?.kind === 'open').length,
@@ -281,4 +284,4 @@ function view(source, from, to, { sensitivity = 'normal', withAnomalies = false 
   };
 }
 
-module.exports = { SOURCES, SENSITIVITY, parse, store, readLinked, baselines, judge, loadOf, view, dateTime, partsOf };
+module.exports = { trigramOf, SOURCES, SENSITIVITY, parse, store, readLinked, baselines, judge, loadOf, view, dateTime, partsOf };
