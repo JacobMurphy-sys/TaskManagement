@@ -1767,13 +1767,21 @@ function recordPlan(src) {
   if (src.status !== 'ok' || src.uploaded) return;
   try { const r = planHistory.ingest(src.lines, src.modified, src.file); if (r) log.info('Planning: export recorded', r); } catch (err) { log.warn('Planning: history not recorded', err.message); }
 }
-// Hourly exports are caught even with Planning closed: the linked file is checked every 10 minutes.
+// Hourly exports are caught even with Planning closed, and the files Planning reads are read in
+// the background (at start-up and whenever one is saved again), so opening the tab finds them
+// ready instead of reading them from the network then. Checking is cheap: a file is only read
+// again when it has changed.
 function checkPlanExport() {
-  const file = cleanPath(getSettings().plan_src);
-  if (file) recordPlan(planning.readSource({ file }));
+  const set = getSettings();
+  const file = cleanPath(set.plan_src);
+  try {
+    if (file) recordPlan(planning.readSource({ file }));
+    if (cleanPath(set.plan_db)) planning.readCards({ file: cleanPath(set.plan_db), table: set.plan_db_table || 'Cards' });
+    if (cleanPath(set.plan_otto_src)) planning.readSource({ file: cleanPath(set.plan_otto_src), parser: planning.parseOtto });
+  } catch (err) { log.warn('Planning: reading ahead', err.message); }
 }
-setTimeout(checkPlanExport, 5000).unref();
-setInterval(checkPlanExport, 10 * 60 * 1000).unref();
+setTimeout(checkPlanExport, 3000).unref();
+setInterval(checkPlanExport, 2 * 60 * 1000).unref();
 const planTime = (s, fallback) => { const m = String(s || '').match(/^(\d{1,2}):(\d{2})$/); return m ? Number(m[1]) * 60 + Number(m[2]) : fallback; };
 // The open work orders, as jobs in order (mode fifo | bau), with the capacity projection.
 router.get('/plan', h((req, res) => {
