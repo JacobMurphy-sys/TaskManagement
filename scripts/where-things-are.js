@@ -59,7 +59,7 @@ const doc = [
     { p: 'Your own files stay where they are. The app only reads them, from the paths set in the app:' },
     { list: [
       'KPIs › Sources: the CI workbook, the source exports, the forecasts, and the folder the A3 is saved to.',
-      'Planning › Setup: the open work orders export, the Otto export and the card database.',
+      'Planning › Setup: the open work orders export, the Matching export and the card database.',
       'Settings: the project charter template and the report options.',
     ] },
   ] },

@@ -1,5 +1,5 @@
 'use strict';
-// ⏱ KPIs › Production: what actually ran, from the daily timing reports (perso, Otto) — a Gantt
+// ⏱ KPIs › Production: what actually ran, from the daily timing reports (perso, Matching) — a Gantt
 // of each machine's jobs, the load per machine per day, and the runs set aside as anomalies
 // (far too quick, far too long) so they don't skew the picture. Loaded before app.js.
 
@@ -23,7 +23,7 @@ async function renderKpiProduction() {
     api.get(`/prod?source=${source}${picked ? `&from=${picked}` : ''}&days=${span}&sensitivity=${sens}${withAnom ? '&anomalies=1' : ''}`), api.get('/settings')]);
   const from = p.from.slice(0, 10);
   const n = (v) => PLF.num.format(Math.round(Number(v || 0)));
-  const label = source === 'otto' ? 'Otto' : 'Perso';
+  const label = source === 'otto' ? 'Matching' : 'Perso';
   const unit = source === 'otto' ? 'items' : 'cards';
   const hm = (iso) => iso.slice(11, 16);
   const when = (iso) => `${PLF.day.format(new Date(`${iso.slice(0, 10)}T12:00`))} ${hm(iso)}`;
@@ -45,8 +45,8 @@ async function renderKpiProduction() {
   const shift = (d, by) => { const x = new Date(`${d}T12:00`); x.setDate(x.getDate() + by); return prodYmd(x); };
 
   const fileHtml = (s) => `<div class="row small" style="gap:8px;flex-wrap:wrap">
-      <label class="f" style="flex:1;min-width:320px">${s === 'otto' ? 'Otto' : 'Perso'} timing report (where it's saved)
-        <input type="text" data-prod-path="${s}" value="${esc(settings[`kpi_time_${s}`] || '')}" placeholder="e.g. S:\\…\\Daily${s === 'otto' ? 'Otto' : 'Perso'}Timing.xlsx"></label></div>`;
+      <label class="f" style="flex:1;min-width:320px">${s === 'otto' ? 'Matching' : 'Perso'} timing report (where it's saved)
+        <input type="text" data-prod-path="${s}" value="${esc(settings[`kpi_time_${s}`] || '')}" placeholder="e.g. S:\\…\\Daily${s === 'otto' ? 'Matching' : 'Perso'}Timing.xlsx"></label></div>`;
   const tiles = `<div class="kdb-tiles pl-tiles">
       <div class="kdb-tile"><div class="kdb-tile-l">${label} ${unit} made</div><div class="kdb-tile-v">${n(t.cards)}</div><div class="kdb-tile-s">${n(t.jobs)} job${t.jobs === 1 ? '' : 's'} · ${n(t.runs)} run${t.runs === 1 ? '' : 's'}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Machine time busy</div><div class="kdb-tile-v">${PLF.one.format(t.busy_minutes / 60)} h</div><div class="kdb-tile-s">${capacity ? `${Math.round((t.busy_minutes / capacity) * 100)}% of ${p.machines.length} machine${p.machines.length === 1 ? '' : 's'} × ${wStart}–${wEnd}` : 'no working days in view'}</div></div>
@@ -113,7 +113,7 @@ async function renderKpiProduction() {
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 KPIs</h1>
       <div class="seg"><a href="#/kpi">A3 Weekly Report</a><a href="#/kpi/0/database">Database</a><a href="#/kpi/sources">Sources</a><a href="#/kpi/production" class="on">⏱ Production</a></div>
-      <div class="seg"><button type="button" data-prod-source="perso" class="${source === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-prod-source="otto" class="${source === 'otto' ? 'on' : ''}">Otto</button></div>
+      <div class="seg"><button type="button" data-prod-source="perso" class="${source === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-prod-source="otto" class="${source === 'otto' ? 'on' : ''}">Matching</button></div>
       <div class="spacer"></div>
       ${linked ? '<button data-prod="read" title="Read the report again now">📥 Read now</button>' : ''}
       <label class="button" title="Load older daily reports to fill in the history (several at once is fine)">📂 Load reports…<input type="file" accept=".xlsx,.xlsm" multiple hidden id="prod-files"></label>
@@ -121,7 +121,7 @@ async function renderKpiProduction() {
     ${linked ? `<div class="kpi-meta small muted">${esc(label)} timing report: <span title="${esc(p.file || '')}">${esc((p.file || '').split(/[\\/]/).pop())}</span>${p.history.last_read ? ` · read ${esc(fmtDateTime(p.history.last_read.at))}` : ''}
         · ${n(p.history.runs)} runs kept${p.history.first ? `, ${esc(p.history.first.slice(0, 10))} to ${esc(p.history.last.slice(0, 10))}` : ''} <details class="kpi-info"><summary>⚙</summary><div class="kpi-info-pop card">${fileHtml('perso')}${fileHtml('otto')}</div></details></div>`
     : `<div class="card"><h3 style="margin-top:0">Link the daily ${esc(label.toLowerCase())} timing report</h3>
-        <p class="small">The report with each job's start and end on its machine (${source === 'otto' ? 'Otto\'s daily timing report' : 'e.g. DailyPersoTiming'}). It's read every 10 minutes and each run is kept, so the history builds up day by day even though the report only holds a day. Older reports can be loaded with 📂 Load reports….</p>${fileHtml(source)}</div>`}
+        <p class="small">The report with each job's start and end on its machine (${source === 'otto' ? 'Matching\'s daily timing report' : 'e.g. DailyPersoTiming'}). It's read every 10 minutes and each run is kept, so the history builds up day by day even though the report only holds a day. Older reports can be loaded with 📂 Load reports….</p>${fileHtml(source)}</div>`}
     ${p.history.runs ? `
     <div class="row prod-controls" style="gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0">
       <button class="small" data-prod-day="-1" title="Earlier">◀</button><input type="date" id="prod-from" value="${esc(from)}" style="width:auto"><button class="small" data-prod-day="1" title="Later">▶</button>

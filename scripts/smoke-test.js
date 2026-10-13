@@ -1368,6 +1368,12 @@ async function waitForServer() {
         const ind = po.otto.queue[1];
         assert.deepEqual([ind.perso_open, ind.perso.map((x) => x.key), !!ind.perso_finish_at], [true, ['CINDS26100602/0001'], true], 'linked to its open perso job, with the projected finish');
         assert.equal(po.otto.running[0].perso_open, false, 'no perso job open for its WO');
+        const indPerso = po.queue.find((j) => j.key === 'CINDS26100602/0001');
+        if (!indPerso.no_cutoff) {
+          assert.deepEqual([ind.time_from, ind.deadline.slice(11), ind.shipper], ['perso', indPerso.deadline.slice(11), indPerso.shipper], 'a 23:59 matching job takes its perso work order\'s shipper and cut-off');
+          assert.equal(ind.deadline.slice(0, 10), '2026-10-08', '…on its own plan date');
+        }
+        assert.deepEqual([po.otto.queue[0].deadline, po.otto.queue[0].time_from], ['2026-10-07T14:00', undefined], 'a matching job with a time of its own keeps it');
         assert.deepEqual(po.queue.find((j) => j.key === 'CINDS26100602/0001').otto.map((x) => x.name), ['CINDS26100602MAT0001'], 'perso jobs list their Otto jobs');
         assert.equal((await fetch(`${BASE}/plan/upload?half=otto`, { method: 'POST', body: exp, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } })).status, 400, 'a perso export isn\'t an Otto export');
         // Otto machines and speeds: each job on the machine where it finishes first, never before its perso work

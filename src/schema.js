@@ -326,7 +326,7 @@ const TABLES = {
     done_at      TEXT,
     late_minutes INTEGER`,
 
-  // ⏱ Production actuals: each run in the daily timing reports (perso, Otto) — a job on a
+  // ⏱ Production actuals: each run in the daily timing reports (perso, Matching) — a job on a
   // machine from start to end — kept as the reports roll over (not audited: written by the reader).
   prod_runs: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -357,7 +357,7 @@ const TABLES = {
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
 
-  // 🏭 Planning, Otto: its machines (items per hour; match = how the export's Machine column names it)
+  // 🏭 Planning, Matching: its machines (items per hour; match = how the export's Machine column names it)
   plan_otto_machines: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT    NOT NULL,
@@ -368,7 +368,7 @@ const TABLES = {
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
 
-  // 🏭 Planning, Otto: items per hour for a customer (trigram) — wins over the machine's speed.
+  // 🏭 Planning, Matching: items per hour for a customer (trigram) — wins over the machine's speed.
   plan_otto_speeds: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     customer    TEXT    NOT NULL UNIQUE COLLATE NOCASE,

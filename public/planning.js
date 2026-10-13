@@ -51,12 +51,12 @@ async function renderPlanning() {
       j.unplanned_why?.includes('speed') ? 'no speed for a card' : '',
       j.unplanned_why?.includes('time') ? 'no working time — check the working day and days in ⚙ Setup' : ''].filter(Boolean).join(' · '))}</span>` : '<span class="muted">—</span>')
     + (j.machines?.length ? `<div class="small muted">${esc(j.machines.join(', '))}</div>` : ''));
-  // the WO's Otto jobs, and whether perso is projected to finish after the first one's plan date
+  // the WO's Matching jobs, and whether perso is projected to finish after the first one's plan date
   const ottoTag = (j) => {
     const os = (j.otto || []).filter((o) => !o.done); if (!os.length) return '';
     const first = os.map((o) => o.deadline).filter(Boolean).sort()[0];
     const after = first && j.finish_at && deadlineAt({ deadline: first }) < new Date(j.finish_at);
-    return ` · <span class="${after ? 'pl-late' : ''}" title="${esc(os.map((o) => `${o.name}: Otto plan ${o.deadline?.replace('T', ' ') || '—'} (${o.status || ''})`).join('\n'))}${after ? '\nPerso is projected to finish after Otto\'s plan date' : ''}">Otto ${first ? esc(dayLabel(first.slice(0, 10))) : ''}${after ? ' ⚠' : ''}</span>`;
+    return ` · <span class="${after ? 'pl-late' : ''}" title="${esc(os.map((o) => `${o.name}: Matching plan ${o.deadline?.replace('T', ' ') || '—'} (${o.status || ''})`).join('\n'))}${after ? '\nPerso is projected to finish after Matching\'s plan date' : ''}">Matching ${first ? esc(dayLabel(first.slice(0, 10))) : ''}${after ? ' ⚠' : ''}</span>`;
   };
   // 🛟 mitigation groups: can still be on time, then late anyway (already overdue, or no room)
   const mitiGroup = (j) => (!j ? null : j.mitigation === 'pinned' ? 'pinned' : j.mitigation === 'on_time' ? 'on_time' : j.mitigation === 'later' ? 'later' : 'late');
@@ -243,26 +243,26 @@ async function renderPlanning() {
   };
   const planning_shifts = ['night', 'morning', 'afternoon'];
   const ottoSetup = () => `
-      <h3 class="pl-h" style="margin-top:14px">Otto machines <span class="muted small">— items per hour</span></h3>
+      <h3 class="pl-h" style="margin-top:14px">Matching machines <span class="muted small">— items per hour</span></h3>
       <table class="log pl-speeds pl-machines"><thead><tr><th>Machine</th><th>Named in the export as <span class="muted small">(optional, e.g. HMT PC#1)</span></th><th>Items per hour</th><th></th><th></th></tr></thead><tbody>
         ${(ot.machines || []).map((m) => `<tr data-plo-machine="${m.id}"><td><input type="text" name="name" value="${esc(m.name)}"></td><td><input type="text" name="match" value="${esc(m.match || '')}" placeholder="—"></td>
           <td><input type="number" min="1" step="1" name="speed" value="${m.speed ?? ''}" placeholder="items/h"></td><td><label class="row small"><input type="checkbox" name="active" ${m.active ? 'checked' : ''}> running</label></td>
           <td><button class="icon" data-plo-del-machine="${m.id}" title="Remove">✕</button></td></tr>`).join('')}
         <tr><td><input type="text" id="plo-new-machine" placeholder="Machine name"></td><td><input type="text" id="plo-new-match" placeholder="Named in the export as"></td><td><input type="number" min="1" id="plo-new-speed" placeholder="items/h"></td><td></td><td><button class="small" data-pl="add-otto-machine">Add</button></td></tr></tbody></table>
-      <p class="small muted">Each Otto job goes on the running machine where it can finish first. A job whose Machine in the export contains a machine's "named as" text goes on that machine. A job never starts before its perso work order is projected to be done.</p>
-      <h3 class="pl-h" style="margin-top:14px">Otto speeds by customer <span class="muted small">— items per hour, instead of the machine's speed</span></h3>
+      <p class="small muted">Each Matching job goes on the running machine where it can finish first. A job whose Machine in the export contains a machine's "named as" text goes on that machine. A job never starts before its perso work order is projected to be done.</p>
+      <h3 class="pl-h" style="margin-top:14px">Matching speeds by customer <span class="muted small">— items per hour, instead of the machine's speed</span></h3>
       <div class="kdb-scroll"><table class="log pl-speeds"><thead><tr><th>Customer</th><th>Name</th><th class="num">Jobs open</th><th class="num">Items open</th><th>Items per hour</th></tr></thead><tbody>
         ${(ot.customers || []).map((c) => `<tr><td><b>${esc(c.customer)}</b></td><td>${esc(c.name || '')}</td><td class="num">${c.jobs ? n(c.jobs) : '<span class="muted">none open</span>'}</td><td class="num">${n(c.items)}</td>
-          <td><input type="number" min="1" step="1" class="plo-speed" data-customer="${esc(c.customer)}" value="${c.speed ?? ''}" placeholder="machine speed"></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Link the Otto export to see its customers.</td></tr>'}</tbody></table></div>
-      <p class="small muted">The working day and days above are used for Otto too.</p>`;
+          <td><input type="number" min="1" step="1" class="plo-speed" data-customer="${esc(c.customer)}" value="${c.speed ?? ''}" placeholder="machine speed"></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Link the Matching export to see its customers.</td></tr>'}</tbody></table></div>
+      <p class="small muted">The working day and days above are used for Matching too.</p>`;
   const finishO = (o) => (!ot.projected ? '' : o.finish_at ? `<span class="${o.late_minutes > 0 ? 'pl-late' : 'pl-ok'}" title="Projected ${esc(fmtDateTime(o.start_at))} → ${esc(fmtDateTime(o.finish_at))} at ${n(o.speed)} items/h">${PLF.wkHm.format(new Date(o.finish_at))}${o.late_minutes > 0 ? ` · ${fmtSpan(o.late_minutes)} late` : ''}</span>
       <div class="small muted">${esc(o.machine_planned)}${o.waited_perso ? ' · after perso' : ''}</div>`
     : `<span class="pl-warn">⚠ ${o.unplanned === 'speed' ? 'no speed — ⚙ Setup' : 'no working time — check the working day'}</span>`);
   const ottoHtml = () => {
     const os = ot.source; const allO = [...ot.running, ...ot.queue];
-    if (os.status === 'missing') return `<div class="kc-note">⚠ Can't find <code>${esc(os.file)}</code> — check the Otto path in ⚙ Setup.</div>`;
+    if (os.status === 'missing') return `<div class="kc-note">⚠ Can't find <code>${esc(os.file)}</code> — check the Matching path in ⚙ Setup.</div>`;
     if (os.status === 'error') return `<div class="kc-note">⚠ Couldn't read <code>${esc(os.file)}</code>: ${esc(os.error)}</div>`;
-    if (os.status !== 'ok') return '<div class="card lib-empty"><h2>Otto</h2><p>Set where the Otto export is saved in ⚙ Setup (or try it with 📂 Load file…). Each Otto job is matched to its perso work order by the start of its Name, so you can see which are still waiting on perso.</p></div>';
+    if (os.status !== 'ok') return '<div class="card lib-empty"><h2>Matching</h2><p>Set where the Matching export is saved in ⚙ Setup (or try it with 📂 Load file…). Each Matching job is matched to its perso work order by the start of its Name, so you can see which are still waiting on perso.</p></div>';
     const of = store.get('planOttoFilter', {}) || {};
     const om = (o) => (!of.customer || o.customer === of.customer) && (!of.waiting || (of.waiting === 'perso' ? o.perso_open : !o.perso_open))
       && (!of.q || `${o.name} ${o.customer} ${o.customer_name || ''} ${o.group || ''} ${o.machine || ''}`.toLowerCase().includes(of.q.toLowerCase()));
@@ -275,8 +275,8 @@ async function renderPlanning() {
       : `<span class="${behind(o) ? 'pl-late' : 'pl-warn'}">⏳ ${o.perso.length} perso job${o.perso.length === 1 ? '' : 's'} open</span>${o.perso_finish_at ? `<div class="small ${behind(o) ? 'pl-late' : 'muted'}">ready ${esc(PLF.wkHm.format(new Date(o.perso_finish_at)))}${behind(o) ? ' — after the plan date' : ''}</div>` : ''}`);
     const orow = (o, i) => { const l = left(o); return `<tr class="pl-job ${l.cls ? `${l.cls}-row` : ''} ${behind(o) ? 'pl-late-row' : ''}" data-pl-job="otto:${esc(o.key)}">
       <td class="num muted pl-n">${i === null ? '▶' : i + 1}</td>
-      <td><b>${esc(o.due ? dayLabel(o.due) : '—')}</b> ${esc(o.deadline?.slice(11) || '')}<div class="small ${l.cls}">${esc(l.text)}</div></td>
-      <td><b>${esc(o.wo)}</b><span class="muted">${esc(o.name.slice(o.wo.length))}</span><div class="small muted">${esc(o.group || '')}</div></td>
+      <td><b>${esc(o.due ? dayLabel(o.due) : '—')}</b> <span ${o.time_from ? 'title="The cut-off of the perso work order\'s shipper — the matching export has no time of its own"' : ''}>${esc(o.deadline?.slice(11) || '')}</span><div class="small ${l.cls}">${esc(l.text)}</div></td>
+      <td><b>${esc(o.wo)}</b><span class="muted">${esc(o.name.slice(o.wo.length))}</span><div class="small muted">${o.shipper ? `🚚 ${esc(o.shipper)}${o.group ? ' · ' : ''}` : ''}${esc(o.group || '')}</div></td>
       <td>${esc(o.customer || '—')}<div class="small muted">${esc(o.customer_name || '')}</div></td>
       <td class="num"><b>${n(o.qty)}</b></td><td>${prioChip(o.prio)}</td><td>${esc(o.status || '')}<div class="small muted">${esc(o.machine || '')}</div></td><td>${persoCell(o)}</td>${ot.projected ? `<td>${finishO(o)}</td>` : ''}</tr>`; };
     const odetailRow = (o) => `<tr class="pl-detail" data-pl-detail="otto:${esc(o.key)}"><td></td><td colspan="${ot.projected ? 8 : 7}"><div class="small">${o.sub_customer ? `<b>${esc(o.sub_customer)}</b><br>` : ''}${o.comment ? esc(o.comment).replace(/\n/g, '<br>') : '<span class="muted">No comment.</span>'}</div>
@@ -285,7 +285,7 @@ async function renderPlanning() {
     const ohead = `<tr><th></th><th>Plan date</th><th>Name</th><th>Customer</th><th class="num">Items</th><th>Priority</th><th>Status</th><th>Perso</th>${ot.projected ? '<th>Projected finish</th>' : ''}</tr>`;
     const rs = ot.running.filter(om); const qs = ot.queue.filter(om);
     return `<div class="kdb-tiles pl-tiles">
-      <div class="kdb-tile"><div class="kdb-tile-l">Open Otto jobs</div><div class="kdb-tile-v">${n(allO.length)}</div><div class="kdb-tile-s">${n(sum(allO))} items${ot.done ? ` · ${n(ot.done)} finished not shown` : ''}</div></div>
+      <div class="kdb-tile"><div class="kdb-tile-l">Open Matching jobs</div><div class="kdb-tile-v">${n(allO.length)}</div><div class="kdb-tile-s">${n(sum(allO))} items${ot.done ? ` · ${n(ot.done)} finished not shown` : ''}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Running</div><div class="kdb-tile-v">${n(ot.running.length)}</div><div class="kdb-tile-s">${n(sum(ot.running))} items</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Due today</div><div class="kdb-tile-v ${oToday.length ? 'kdb-warn' : ''}">${n(oToday.length)}</div><div class="kdb-tile-s">${n(sum(oToday))} items</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Overdue items</div><div class="kdb-tile-v ${oOver.length ? 'kdb-bad' : 'kdb-ok'}">${n(sum(oOver))}</div><div class="kdb-tile-s">${n(oOver.length)} job${oOver.length === 1 ? '' : 's'}${ot.backlog?.catch_up?.catch_days ? ` · caught up in ~${ot.backlog.catch_up.catch_days} d` : ''}</div></div>
@@ -297,30 +297,30 @@ async function renderPlanning() {
       <select id="plo-customer"><option value="">All customers</option>${oCust.map((c) => `<option ${of.customer === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
       <select id="plo-waiting"><option value="">Perso: any</option><option value="perso" ${of.waiting === 'perso' ? 'selected' : ''}>Waiting on perso</option><option value="ready" ${of.waiting === 'ready' ? 'selected' : ''}>Perso done</option></select>
       ${of.q || of.customer || of.waiting ? '<button class="link small" data-pl="oclear">Clear</button>' : ''}</div>
-    ${ot.projected ? `<div class="card"><h3 class="pl-h">Otto capacity <span class="muted small">— ${esc(dayText)}, ${cap.days.length} day${cap.days.length === 1 ? '' : 's'} a week</span></h3>
+    ${ot.projected ? `<div class="card"><h3 class="pl-h">Matching capacity <span class="muted small">— ${esc(dayText)}, ${cap.days.length} day${cap.days.length === 1 ? '' : 's'} a week</span></h3>
       <div class="kdb-scroll"><table class="log pl-cap"><thead><tr><th>Machine</th><th class="num">Speed</th><th class="num">Max items a day</th><th class="num">Jobs</th><th class="num">Items planned</th><th class="num">Work</th><th>Booked until</th></tr></thead><tbody>
       ${(ot.machines || []).filter((m) => m.active).map((m) => { const l = (ot.load || []).find((x) => x.id === m.id) || {};
         return `<tr><td><b>${esc(m.name)}</b>${m.match ? `<div class="small muted">${esc(m.match)}</div>` : ''}</td><td class="num">${m.speed ? `${n(m.speed)}/h` : '—'}</td><td class="num"><b>${m.speed ? n(Math.round((m.speed * ((cap.start === cap.end ? 1440 : (cap.end - cap.start + 1440) % 1440))) / 60)) : '—'}</b></td>
           <td class="num">${n(l.jobs)}</td><td class="num">${n(l.items)}</td><td class="num">${l.minutes ? fmtSpan(l.minutes) : '—'}</td><td>${l.until ? esc(new Date(l.until).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) : '<span class="muted">free</span>'}</td></tr>`; }).join('')}
       </tbody></table></div><p class="small muted">Max items a day: the machine's own speed for a full working day (a customer speed can be higher or lower).</p></div>` : ''}
     ${rs.length ? `<div class="card"><h3 class="pl-h">▶ Running <span class="muted small">${rs.length} job${rs.length === 1 ? '' : 's'} · ${n(sum(rs))} items</span></h3><div class="kdb-scroll"><table class="log pl-table"><thead>${ohead}</thead><tbody>${rs.map((o) => orow(o, null)).join('')}</tbody></table></div></div>` : ''}
-    <div class="card"><h3 class="pl-h">Otto — by plan date, then priority <span class="muted small">${qs.length} job${qs.length === 1 ? '' : 's'} · ${n(sum(qs))} items · click a job for its comment and perso jobs</span></h3>
+    <div class="card"><h3 class="pl-h">Matching — by plan date, then priority <span class="muted small">${qs.length} job${qs.length === 1 ? '' : 's'} · ${n(sum(qs))} items · click a job for its comment and perso jobs</span></h3>
       <div class="kdb-scroll"><table class="log pl-table"><thead>${ohead}</thead><tbody>${qs.map((o) => orow(o, ot.queue.indexOf(o))).join('') || '<tr><td colspan="9" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>
     ${os.skipped?.length ? `<p class="small muted">${os.skipped.length} row${os.skipped.length === 1 ? '' : 's'} with a plan date not understood.</p>` : ''}`;
   };
 
   main().innerHTML = `
     <div class="kanban-tools"><h1 style="margin:0">🏭 Planning</h1>
-      <div class="seg"><button type="button" data-pl-half="perso" class="${half === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-pl-half="otto" class="${half === 'otto' ? 'on' : ''}">Otto</button></div>
+      <div class="seg"><button type="button" data-pl-half="perso" class="${half === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-pl-half="otto" class="${half === 'otto' ? 'on' : ''}">Matching</button></div>
 ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. BAU: by due day, then High / Normal / Low, then cut-off">
         <button type="button" data-pl-mode="fifo" class="${mode === 'fifo' ? 'on' : ''}">FIFO</button><button type="button" data-pl-mode="bau" class="${mode === 'bau' ? 'on' : ''}">BAU</button><button type="button" data-pl-mode="score" class="${mode === 'score' ? 'on' : ''}" title="Highest score first: the deadline plus the ⚖ modifiers">⚖ Score</button><button type="button" data-pl-mode="mitigation" class="${mode === 'mitigation' ? 'on' : ''}" title="Save as many as possible: work orders due in the next few working days that can still make it first, then those already overdue or that would be late anyway, then those due later">🛟 Mitigation</button></div>`}
       <div class="spacer"></div>
       ${state.mode === 'planner' ? '<span id="pl-presence" class="pl-presence" title="Others with the planner open">👤 just you</span>' : ''}
       <span class="small muted">${(half === 'otto' ? ot.source : src).status === 'ok' ? `${esc((half === 'otto' ? ot.source : src).name)} · saved ${esc(fmtDateTime((half === 'otto' ? ot.source : src).modified))}${(half === 'otto' ? ot.source : src).uploaded ? ' (uploaded copy)' : ''}` : ''}</span>
       <button data-pl="refresh" title="Read the export again if it has changed">🔄 Refresh</button>
-      <label class="button" title="Try it with a copy of the ${half === 'otto' ? 'Otto' : 'open work orders'} export">📂 Load file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
+      <label class="button" title="Try it with a copy of the ${half === 'otto' ? 'Matching' : 'open work orders'} export">📂 Load file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
       ${half === 'perso' && src.status === 'ok' ? '<button data-pl="print" title="A plan per cell (DOD, Emboss, Laser) of the work orders still open, as a PDF to print and hand out">📄 Generate plan</button>' : ''}
-      ${half === 'otto' && ot.source.status === 'ok' ? '<button data-pl="print" title="A plan of the Otto jobs — Incoming, In Progress and Ready — as a PDF to print and hand out">📄 Generate plan</button>' : ''}
+      ${half === 'otto' && ot.source.status === 'ok' ? '<button data-pl="print" title="A plan of the Matching jobs — Incoming, In Progress and Ready — as a PDF to print and hand out">📄 Generate plan</button>' : ''}
       ${half === 'perso' ? '<button data-pl="mods" title="Priority modifiers: customers and work order types that go first">⚖ Modifiers</button>' : ''}
       <button data-pl="setup" title="Where the export is, and the capacity">⚙ Setup</button>
     </div>
@@ -339,8 +339,8 @@ ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. 
       <div class="form-grid">
         <label class="f full">Open work orders export (where it's saved)<input type="text" name="plan_src" value="${esc(settings.plan_src || '')}" placeholder="e.g. S:\\…\\Source Data\\OpenPersoWorkorders_PerAx.xlsx">
           <span class="small muted">Read again whenever it's saved (e.g. the hourly SSRS export). Nothing in it is changed.</span></label>
-        <label class="f full">Otto export (where it's saved) — Name, Prod. Status, Items, Plan Date<input type="text" name="plan_otto_src" value="${esc(settings.plan_otto_src || '')}" placeholder="e.g. S:\\…\\Source Data\\Otto.xlsx">
-          <span class="small ${ot.source.status === 'missing' || ot.source.status === 'error' ? 'pl-late' : 'muted'}">${ot.source.status === 'ok' ? `✔ ${n(ot.running.length + ot.queue.length)} open Otto jobs · saved ${esc(fmtDateTime(ot.source.modified))}` : ot.source.status === 'missing' ? '⚠ Can\'t find this file' : ot.source.status === 'error' ? `⚠ ${esc(ot.source.error)}` : 'Each Otto job is matched to its perso work order by the start of its Name.'}</span></label>
+        <label class="f full">Matching export (where it's saved) — Name, Prod. Status, Items, Plan Date<input type="text" name="plan_otto_src" value="${esc(settings.plan_otto_src || '')}" placeholder="e.g. S:\\…\\Source Data\\Matching.xlsx">
+          <span class="small ${ot.source.status === 'missing' || ot.source.status === 'error' ? 'pl-late' : 'muted'}">${ot.source.status === 'ok' ? `✔ ${n(ot.running.length + ot.queue.length)} open Matching jobs · saved ${esc(fmtDateTime(ot.source.modified))}` : ot.source.status === 'missing' ? '⚠ Can\'t find this file' : ot.source.status === 'error' ? `⚠ ${esc(ot.source.error)}` : 'Each Matching job is matched to its perso work order by the start of its Name.'}</span></label>
         <label class="f full">Card database (Access) — the Cards table gives each card article's type, material and print sides<input type="text" name="plan_db" value="${esc(settings.plan_db || '')}" placeholder="e.g. S:\\…\\Cards.accdb">
           <span class="small ${cdb.status === 'error' || cdb.status === 'missing' ? 'pl-late' : 'muted'}">${cdb.status === 'ok' ? `✔ ${n(cdb.count)} cards in the ${esc(cdb.table)} table · saved ${esc(fmtDateTime(cdb.modified))} — read again whenever it's saved` : cdb.status === 'missing' ? '⚠ Can\'t find this file' : cdb.status === 'error' ? `⚠ ${esc(cdb.error)}` : 'Read only — nothing in the database is changed. It can stay open in Access.'}</span></label>
         <label class="f">Table<input type="text" name="plan_db_table" value="${esc(settings.plan_db_table || 'Cards')}"></label>
@@ -531,7 +531,7 @@ ${half === 'otto' ? ottoSetup() : `
     if (e.target.closest('[data-pl="print"]')) { printDialog(p, mode, settings, half); return; }
     if (e.target.closest('[data-pl="mods"]')) { const m = $('#pl-mods'); m.hidden = !m.hidden; store.set('planModsOpen', !m.hidden); if (!m.hidden) m.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     const delO = e.target.closest('[data-plo-del-machine]');
-    if (delO) { if (!confirm('Remove this Otto machine?')) return; try { await api.del(`/plan/otto/machines/${delO.dataset.ploDelMachine}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
+    if (delO) { if (!confirm('Remove this Matching machine?')) return; try { await api.del(`/plan/otto/machines/${delO.dataset.ploDelMachine}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
     if (e.target.closest('[data-pl="add-otto-machine"]')) {
       try { await api.post('/plan/otto/machines', { name: $('#plo-new-machine').value, match: $('#plo-new-match').value, speed: $('#plo-new-speed').value }); toast('Machine added'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
       return;
@@ -734,8 +734,8 @@ function orderSpec(p, mode, { split = false } = {}, now = new Date()) {
     ...(byMode[mode] || []),
     { h2: 'The sheet' }, { ul: ['Colours: **red** = past its deadline when printed (LATE); **amber** = due today; **blue** = due tomorrow; otherwise the date is shown.', '**!** = High / Urgent priority; **PIN** = pinned; the number is the place in the order.'] }];
 }
-// Otto: Incoming (its perso work order still open), In Progress (started at Otto), Ready (perso
-// done, not started at Otto) — each in the Otto list's order (plan date, then Urgent / High first).
+// Matching: Incoming (its perso work order still open), In Progress (started at Matching), Ready (perso
+// done, not started at Matching) — each in the Matching list's order (plan date, then Urgent / High first).
 function ottoGroups(ot) {
   const fmt = (iso) => PLF.wkHm.format(new Date(iso));
   const row = (o, extra = {}) => ({ job: { ...o, is_otto: true, running: false, pinned: false, ...extra }, qty: o.qty });
@@ -748,12 +748,12 @@ function ottoGroups(ot) {
 }
 function ottoSpec({ split = false } = {}, now = new Date()) {
   return [{ h1: 'How this list was ordered' }, { note: `Testing mode · printed ${now.toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` },
-    { h2: 'The three lists' }, { ul: ['**Incoming** — Otto jobs whose perso work order is still being made. They can\'t start yet; the note shows when perso is expected to be ready.', '**In Progress** — Otto jobs already started.',
-      '**Ready** — Otto jobs whose perso work is finished and that haven\'t been started yet: these can be picked up now.', ...(split ? ['Overdue Incoming and Ready jobs (past their plan date) are put on a separate **Overdue** sheet for that list.'] : [])] },
+    { h2: 'The three lists' }, { ul: ['**Incoming** — Matching jobs whose perso work order is still being made. They can\'t start yet; the note shows when perso is expected to be ready.', '**In Progress** — Matching jobs already started.',
+      '**Ready** — Matching jobs whose perso work is finished and that haven\'t been started yet: these can be picked up now.', ...(split ? ['Overdue Incoming and Ready jobs (past their plan date) are put on a separate **Overdue** sheet for that list.'] : [])] },
     { h2: 'Order — in every list' }, { ol: ['Earliest plan date and time first.', 'Same time: Urgent, then High, then the rest.', 'Still the same: by name.'] },
     { h2: 'The sheet' }, { ul: ['Colours: **red** = past its plan date when printed (LATE); **amber** = due today; **blue** = due tomorrow; otherwise the date is shown.', '**!** = Urgent / High priority; the number is the place in the list.'] }];
 }
-// 📄 Generate plan — Perso (a sheet per cell) or Otto (Incoming / In Progress / Ready): as a PDF to
+// 📄 Generate plan — Perso (a sheet per cell) or Matching (Incoming / In Progress / Ready): as a PDF to
 // print, or as a web page.
 const SIDE_ROWS = 20; // rows per sheet side by side that keep it to one page
 function printDialog(p, mode, settings = {}, half = 'perso') {
@@ -765,7 +765,7 @@ function printDialog(p, mode, settings = {}, half = 'perso') {
   const word = otto ? 'list' : 'cell';
   const modeText = otto ? 'plan date, then Urgent / High first' : ({ fifo: 'FIFO, by deadline', bau: 'BAU', score: 'Score', mitigation: 'Mitigation: what can still be on time first' }[mode] || '');
   const limit = Number(saved.limit) || 0;
-  openModal(`<div class="modal-head"><h2 style="margin:0">📄 Generate plan${otto ? ' — Otto' : ''}</h2><button class="icon" data-action="close-modal">✕</button></div>
+  openModal(`<div class="modal-head"><h2 style="margin:0">📄 Generate plan${otto ? ' — Matching' : ''}</h2><button class="icon" data-action="close-modal">✕</button></div>
     <form id="pl-print" class="form-grid">
       <div class="f full"><span>${otto ? 'Lists' : 'Cells'}</span><div class="row">${groups.map((c) => `<label class="row small"><input type="checkbox" name="cell" value="${esc(c.type)}" ${!saved.cells || saved.cells.includes(c.type) ? 'checked' : ''}> <b>${esc(c.type)}</b> <span class="muted">${c.rows.length}</span></label>`).join('') || '<span class="muted">Nothing open.</span>'}</div></div>
       <label class="f">Layout<select name="layout"><option value="pages" ${saved.layout !== 'side' ? 'selected' : ''}>A page per ${word} (portrait)</option><option value="side" ${saved.layout === 'side' ? 'selected' : ''}>Side by side (landscape)</option></select></label>
@@ -794,9 +794,9 @@ function printDialog(p, mode, settings = {}, half = 'perso') {
     const opts = { cells: fd.getAll('cell'), layout: fd.get('layout'), limit: fd.get('limitMode') === 'n' ? n : 0, testing: fd.get('testing') === 'on', split: fd.get('split') === 'on', output: fd.get('output') };
     store.set(key, opts);
     const model = planSheetModel(jobs, { cells: opts.cells, layout: opts.layout, limit: opts.limit, splitOverdue: opts.split, groups: otto ? groups : null, test: opts.testing,
-      method: otto ? 'Otto' : ({ fifo: 'FIFO', bau: 'BAU', score: 'Score', mitigation: 'Mitigation' }[mode] || ''),
+      method: otto ? 'Matching' : ({ fifo: 'FIFO', bau: 'BAU', score: 'Score', mitigation: 'Mitigation' }[mode] || ''),
       spec: opts.testing ? (otto ? ottoSpec({ split: opts.split }) : orderSpec(p, mode, { split: opts.split })) : null,
-      title: otto ? 'Otto plan' : 'Production plan', fileLabel: otto ? 'Otto plan' : 'Production plan' });
+      title: otto ? 'Matching plan' : 'Production plan', fileLabel: otto ? 'Matching plan' : 'Production plan' });
     // the window opens now (a click), the PDF follows when it's ready
     const w = window.open('', '_blank');
     if (!w) { toast('Allow pop-ups for CI Manager to open the plan', 'error'); return; }

@@ -1,5 +1,5 @@
 'use strict';
-// ⏱ Production actuals: the daily timing reports (perso's DailyPersoTiming, and Otto's matching
+// ⏱ Production actuals: the daily timing reports (perso's DailyPersoTiming, and Matching's matching
 // report) — each row a job run on a machine, with its start and end — kept in prod_runs as the
 // reports roll over, so the history builds up. Runs that can't be right (far too quick, far too
 // long) are picked out, so they don't skew the Gantt, the load or the speeds.
@@ -8,7 +8,7 @@ const path = require('path');
 const db = require('./db');
 const { readBook } = require('./xlsxread');
 
-const SOURCES = { perso: 'Perso', otto: 'Otto' };
+const SOURCES = { perso: 'Perso', otto: 'Matching' };
 // Work orders starting with M aren't production runs: not kept at all (left out when a report is
 // read; any kept before are removed), and left out of every query in case one slips in.
 const KEEP = "job NOT LIKE 'M%'";

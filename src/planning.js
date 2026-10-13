@@ -73,8 +73,8 @@ function parse(buf) {
   return { sheet: info.name, lines, skipped };
 }
 
-// ---- Otto: the other half of production, from its own export -----------------------------
-// One row per Otto job: Name (starts with the perso work order, e.g. CADXS26010101MAT0001 →
+// ---- Matching: the other half of production, from its own export -----------------------------
+// One row per Matching job: Name (starts with the perso work order, e.g. CADXS26010101MAT0001 →
 // CADXS26010101; customer = characters 2–4), Prod. Status, Items, Plan Date (+ PlanTime) …
 const OTTO_COLUMNS = { name: 'Name', status: 'Prod. Status', qty: 'Items', due: 'Plan Date', time: 'PlanTime', prio: 'Priority', done: 'Is Done', test: 'Is Test',
   machine: 'Machine', customer_name: 'Customer', sub_customer: 'Sub Customer', group: 'Plan Group', start: 'Start Date', end: 'End Date', comment: 'Comment' };
@@ -94,7 +94,7 @@ function parseOtto(buf) {
     for (const c of sh.cells.values()) if (c.row === r) for (const [k, h] of Object.entries(OTTO_COLUMNS)) if (!found[k] && text(c) === h.toLowerCase()) found[k] = c.col;
     if (found.name && found.qty && found.due) { headRow = r; Object.assign(col, found); }
   }
-  if (!headRow) throw new Error(`Can't find the Otto column headings (Name, Items, Plan Date) in ${info.name}`);
+  if (!headRow) throw new Error(`Can't find the Matching column headings (Name, Items, Plan Date) in ${info.name}`);
   const L = (n) => { let t = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) t = String.fromCharCode(65 + ((n - 1) % 26)) + t; return t; };
   const jobs = []; const skipped = [];
   for (let r = headRow + 1; r <= sh.maxRow; r++) {
@@ -122,14 +122,37 @@ function parseOtto(buf) {
   }
   return { sheet: info.name, jobs, skipped };
 }
-// Otto first by plan date and time, then Urgent / High before the rest, then name.
+// Matching first by plan date and time, then Urgent / High before the rest, then name.
 const OTTO_PRIO = (p) => (/urgent/i.test(p || '') ? 0 : /high/i.test(p || '') ? 1 : /low/i.test(p || '') ? 3 : 2);
 function orderOtto(jobs) {
   return [...jobs].sort((a, b) => ((a.deadline || '9') !== (b.deadline || '9') ? ((a.deadline || '9') < (b.deadline || '9') ? -1 : 1)
     : OTTO_PRIO(a.prio) - OTTO_PRIO(b.prio) || a.name.localeCompare(b.name)));
 }
-// Perso jobs ↔ Otto jobs by work order: each Otto job lists the perso jobs still open for its WO
-// (and when the last is projected to finish); each perso job lists its WO's Otto jobs.
+// Perso jobs ↔ Matching jobs by work order: each Matching job lists the perso jobs still open for its WO
+// (and when the last is projected to finish); each perso job lists its WO's Matching jobs.
+// Matching jobs carry no shipping time of their own (the export gives 23:59): the shipper and its
+// cut-off come from the work order's perso jobs — the open ones, else (past) ones seen before,
+// e.g. from the plan history: [{ wo, shipper, cutoff (minutes) }]. The earliest cut-off counts.
+// A matching job with a real time of its own keeps it. Sets shipper, time_from 'perso'.
+function shipFromPerso(jobs, persoJobs, past = []) {
+  const byWo = new Map();
+  const add = (wo, shipper, cutoff, from) => {
+    const k = String(wo || '').toUpperCase(); if (!k) return;
+    const cur = byWo.get(k);
+    if (!cur || (cur.from === 'past' && from === 'open') || (cur.from === from && cutoff !== null && (cur.cutoff === null || cutoff < cur.cutoff))) byWo.set(k, { shipper: shipper || cur?.shipper || null, cutoff, from });
+  };
+  for (const j of persoJobs) add(j.wo, j.shipper, j.cutoff ?? null, 'open');
+  for (const p of past) add(p.wo, p.shipper, p.cutoff ?? null, 'past');
+  for (const o of jobs) {
+    const s = byWo.get(String(o.wo || '').toUpperCase());
+    if (!s) continue;
+    o.shipper = s.shipper || null;
+    if (s.cutoff !== null && o.due && (o.time === null || o.time === undefined || o.time >= 23 * 60 + 59)) {
+      o.time = s.cutoff; o.deadline = `${o.due}T${hhmm(s.cutoff)}`; o.time_from = 'perso';
+    }
+  }
+}
+
 function linkOtto(persoJobs, ottoJobs) {
   const byWo = new Map();
   for (const j of persoJobs) { const k = String(j.wo).toUpperCase(); if (!byWo.has(k)) byWo.set(k, []); byWo.get(k).push(j); }
@@ -145,13 +168,13 @@ function linkOtto(persoJobs, ottoJobs) {
   for (const j of persoJobs) j.otto = (ottoByWo.get(String(j.wo).toUpperCase()) || []).map((o) => ({ name: o.name, due: o.due, deadline: o.deadline, status: o.status, qty: o.qty, done: o.done }));
 }
 
-// Otto machines: name, items per hour, and optionally the text that identifies it in the export's
+// Matching machines: name, items per hour, and optionally the text that identifies it in the export's
 // Machine column (e.g. "HMT PC#1"). Speed per customer (trigram) wins over the machine's own.
 const ottoMatches = (m, job) => {
   const key = String(m.match || '').trim().toLowerCase();
   return !!key && String(job.machine || '').toLowerCase().includes(key);
 };
-// Plans each Otto job, in the list's order (running first), on the running machine where it can
+// Plans each Matching job, in the list's order (running first), on the running machine where it can
 // start first — never before its perso work order is projected to be done. A job whose Machine
 // in the export names one of the machines goes on that one. Adds machine, start, finish, late.
 function projectOtto(running, queue, machines, speeds, { start = 360, end = 1320, days = [1, 2, 3, 4, 5] }, now = new Date()) {
@@ -742,4 +765,4 @@ function readSource({ file, uploaded, parser = parse }) {
 }
 
 module.exports = {
-  lineStepper, machineStepper, workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, mitigate, workingDaysAhead, scoreJobs, deadlineScore, shiftAt, SHIFTS, DEADLINE_DEFAULTS, woOfName, OTTO_COLUMNS };
+  shipFromPerso, lineStepper, machineStepper, workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, mitigate, workingDaysAhead, scoreJobs, deadlineScore, shiftAt, SHIFTS, DEADLINE_DEFAULTS, woOfName, OTTO_COLUMNS };

@@ -1,6 +1,6 @@
 'use strict';
 // 📄 Generate plan: the operator sheets as a PDF (A4), drawn from the model the Planning page
-// builds — a sheet per cell (or Otto list), or all side by side, each row with a tick box, its
+// builds — a sheet per cell (or Matching list), or all side by side, each row with a tick box, its
 // place in the order, the work order, customer, cards and deadline, colour-coded.
 //
 // model = { layout: 'pages' | 'side', method, test, stamp, title, running_legend,

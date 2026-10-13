@@ -1722,7 +1722,7 @@ const planning = require('./planning');
 const PLAN_UPLOAD = path.join(config.dataDir, 'plan', 'open-workorders.xlsx');
 const OTTO_UPLOAD = path.join(config.dataDir, 'plan', 'otto.xlsx');
 const planHistory = require('./planhistory');
-// Otto (the other half of production): its export, open jobs in plan-date order, linked to the
+// Matching (the other half of production): its export, open jobs in plan-date order, linked to the
 // perso jobs by work order. Finished and test jobs are counted but not listed.
 // Max age (days) of what's shown: older is likely an error (0 = show everything).
 const planMaxAge = (set) => { const v = String(set.plan_max_age ?? '').trim(); return v === '' ? 30 : Math.max(0, Number(v) || 0); };
@@ -1748,10 +1748,22 @@ function ottoOf(set, persoJobs, capacity) {
   const openAll = o.jobs.filter((j) => !j.done && !j.test);
   const hidden = openAll.filter((j) => planning.tooOld(j.due, maxAge));
   const open = openAll.filter((j) => !planning.tooOld(j.due, maxAge)).map((j) => ({ ...j }));
+  // the shipper and cut-off from the perso work orders (open, else from the plan history)
+  const wos = [...new Set(open.map((j) => String(j.wo || '').toUpperCase()).filter(Boolean))];
+  const past = [];
+  for (let i = 0; i < wos.length; i += 400) {
+    const part = wos.slice(i, i + 400);
+    for (const r of db.all(`SELECT wo, shipper, deadline FROM plan_history_jobs WHERE upper(wo) IN (${part.map(() => '?').join(',')})`, part)) {
+      const t = /T(\d{2}):(\d{2})/.exec(r.deadline || '');
+      const cutoff = t ? Number(t[1]) * 60 + Number(t[2]) : null;
+      past.push({ wo: r.wo, shipper: r.shipper, cutoff: cutoff !== null && cutoff < 23 * 60 + 59 ? cutoff : null });
+    }
+  }
+  planning.shipFromPerso(open, persoJobs, past);
   planning.linkOtto(persoJobs, open);
   const running = planning.orderOtto(open.filter((j) => j.running)); const queue = planning.orderOtto(open.filter((j) => !j.running));
   const load = planning.projectOtto(running, queue, machines, speeds, capacity, new Date());
-  // customers for the speeds table: those in the open Otto jobs, and any with a speed set before
+  // customers for the speeds table: those in the open Matching jobs, and any with a speed set before
   const cust = new Map();
   for (const j of open) if (j.customer) { const c = cust.get(j.customer) || { customer: j.customer, name: j.customer_name, items: 0, jobs: 0 }; c.items += j.qty; c.jobs++; cust.set(j.customer, c); }
   for (const r of speeds) if (!cust.has(r.customer.toUpperCase())) cust.set(r.customer.toUpperCase(), { customer: r.customer.toUpperCase(), name: null, items: 0, jobs: 0 });
@@ -2035,7 +2047,7 @@ router.get('/plan/sheet/:id/:name?', h((req, res) => {
 }));
 
 // 📦 The planning setup on its own — to move it to a planner on a server (or back): the plan_*
-// settings and the machines, speeds, OEE, Otto machines and speeds, modifiers, shift values, card
+// settings and the machines, speeds, OEE, Matching machines and speeds, modifiers, shift values, card
 // tags and pins. With ?history=1 also the history built up from the exports (each export read and
 // each job seen, for the pace and on-time figures) and the ⏱ Production runs — merged on import.
 const SETUP_TABLES = ['plan_machines', 'plan_speeds', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags', 'plan_pins'];
@@ -2215,7 +2227,7 @@ function mergeHistory(h) {
   return out;
 }
 
-// Otto machines: name, items per hour, how the export's Machine column names it (optional).
+// Matching machines: name, items per hour, how the export's Machine column names it (optional).
 const ottoMachineFields = (b) => {
   const f = {};
   if ('name' in b) { f.name = String(b.name || '').trim(); if (!f.name) throw new HttpError(400, 'Give the machine a name'); }
@@ -2242,7 +2254,7 @@ router.delete('/plan/otto/machines/:id', h((req, res) => {
   if (!db.run('DELETE FROM plan_otto_machines WHERE id = ?', [req.params.id]).changes) throw notFound('Machine');
   res.status(204).end();
 }));
-// Otto items per hour for a customer (trigram); blank removes it (the machine's speed is used).
+// Matching items per hour for a customer (trigram); blank removes it (the machine's speed is used).
 router.put('/plan/otto/speeds/:customer', h((req, res) => {
   const customer = String(req.params.customer || '').trim().toUpperCase();
   if (!/^[A-Z0-9]{2,6}$/.test(customer)) throw new HttpError(400, 'Not a customer code');
@@ -2309,7 +2321,7 @@ router.get('/plan/history', h((req, res) => {
 // A copy of the export, to try it out before linking the file itself.
 router.post('/plan/upload', express.raw({ type: '*/*', limit: '50mb' }), h((req, res) => {
   const otto = req.query.half === 'otto';
-  if (!req.body?.length) throw new HttpError(400, otto ? 'Choose the Otto export' : 'Choose the open work orders export');
+  if (!req.body?.length) throw new HttpError(400, otto ? 'Choose the Matching export' : 'Choose the open work orders export');
   try { (otto ? planning.parseOtto : planning.parse)(req.body); } catch (err) { throw new HttpError(400, err.message); }
   const to = otto ? OTTO_UPLOAD : PLAN_UPLOAD;
   fs.mkdirSync(path.dirname(to), { recursive: true });
@@ -2330,7 +2342,7 @@ const SETTING_DEFAULTS = {
   kpi_src_perso: '', kpi_src_shipped: '', kpi_src_remakes: '', kpi_src_otd: '', kpi_src_salesforce: '', kpi_split_weekends: '0',
   // The customer forecast files (blank: the workbook's copy of them).
   kpi_fc_benelux: '', kpi_fc_amex: '',
-  // ⏱ The daily timing reports (each job's start and end on its machine), perso and Otto.
+  // ⏱ The daily timing reports (each job's start and end on its machine), perso and Matching.
   kpi_time_perso: '', kpi_time_otto: '',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
