@@ -1127,3 +1127,4 @@ table.kfd td { padding: 3px 6px; } .kfd-bar { width: 40%; } .kfd-bar span { disp
 .pl-bl-v { font-size: 26px; font-weight: 700; line-height: 1.25; }
 .pl-bl-v span { font-size: 13px; font-weight: 500; color: var(--muted); }
 .pl-bl-s { font-size: 12.5px; line-height: 1.45; }
+.xc .xface { height: 0.9em; width: 0.9em; flex: none; display: block; }

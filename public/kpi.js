@@ -271,7 +271,7 @@ function sheetViewHtml(m, scope) {
     const w = m.x[Math.min(col - 1 + cs, m.x.length - 1)] - left; const h = m.y[Math.min(row - 1 + rs, m.y.length - 1)] - top;
     if (w <= 0 || h <= 0) return '';
     const turn = rot === 255 ? 'writing-mode:vertical-lr;text-orientation:upright;' : rot ? `writing-mode:vertical-rl;${rot > 90 ? '' : 'transform:rotate(180deg);'}` : '';
-    return `<div class="xc xs${s}${text ? ' xt' : ''}${m.styles[s].includes('pre-wrap') ? ' xw' : ''}" data-cell="${row}:${col}" style="left:${left}px;top:${top}px;width:${w}px;height:${h}px;${turn}">${text ? `<span>${esc(text)}</span>` : ''}</div>`;
+    return `<div class="xc xs${s}${text ? ' xt' : ''}${m.styles[s].includes('pre-wrap') ? ' xw' : ''}" data-cell="${row}:${col}" style="left:${left}px;top:${top}px;width:${w}px;height:${h}px;${turn}">${text ? (isFaceCell(m.styles[s], text) ? faceSvg(text) : `<span>${esc(text)}</span>`) : ''}</div>`;
   }).join('');
   const images = m.images.map((im) => `<img class="xi" src="${im.src}" alt="" style="left:${im.x}px;top:${im.y}px;width:${im.w}px;height:${im.h}px">`).join('');
   const charts = m.charts.map((c, i) => `<canvas class="xchart" data-chart="${i}" style="left:${c.x}px;top:${c.y}px;width:${c.w}px;height:${c.h}px"></canvas>`).join('');
@@ -1003,6 +1003,18 @@ async function kpiBuild(week, replace, el, view) {
 const KPI_COLOURS = [['green', '00B050', 'Green'], ['yellow', 'FFC000', 'Yellow'], ['red', 'FF0000', 'Red']];
 // trend symbols: the symbol and its colour go together
 const KPI_SYMBOLS = [['▲', '00B050', 'Up — green'], ['▬', 'FFC000', 'Level — yellow'], ['▼', 'FF0000', 'Down — red']];
+// Wingdings faces (J ☺, K 😐, L ☹), drawn as Excel draws them — a line face in the cell's colour —
+// rather than as emoji, which come in their own colours.
+const KPI_FACES = [['J', '00B050', 'Happy'], ['K', 'FFC000', 'Neutral'], ['L', 'FF0000', 'Unhappy']];
+const FACE_OF = { J: 'J', K: 'K', L: 'L', '☺': 'J', '😐': 'K', '☹': 'L' };
+const faceSvg = (ch) => {
+  const f = FACE_OF[String(ch || '').trim()];
+  const mouth = f === 'J' ? 'M31 60 Q50 79 69 60' : f === 'L' ? 'M31 73 Q50 55 69 73' : 'M32 66 L68 66';
+  return `<svg class="xface" viewBox="0 0 100 100" aria-label="${f === 'J' ? 'happy' : f === 'L' ? 'unhappy' : 'neutral'} face"><circle cx="50" cy="50" r="43" fill="none" stroke="currentColor" stroke-width="7"/>
+    <ellipse cx="36" cy="38" rx="5.5" ry="7.5" fill="currentColor"/><ellipse cx="64" cy="38" rx="5.5" ry="7.5" fill="currentColor"/>
+    <path d="${mouth}" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/></svg>`;
+};
+const isFaceCell = (style, text) => /wingdings/i.test(style || '') && !!FACE_OF[String(text || '').trim()];
 const xlRef = (row, col) => { let s = ''; for (let n = col; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return `${s}${row}`; };
 
 // The sheet view with a week's edits in: typed text in place, chosen colours as text colour
@@ -1033,15 +1045,20 @@ function kpiEditCell(snap, model, el, done) {
   $('#kpi-pop')?.remove();
   const ref = el.dataset.ref; const kind = model.edit[ref] || '';
   const cur = snap.edits?.[ref] || {};
-  const original = model.cells.find((c) => c[0] === Number(el.dataset.cell.split(':')[0]) && c[1] === Number(el.dataset.cell.split(':')[1]))?.[2] ?? '';
+  const cell = model.cells.find((c) => c[0] === Number(el.dataset.cell.split(':')[0]) && c[1] === Number(el.dataset.cell.split(':')[1]));
+  const original = cell?.[2] ?? '';
+  // a face (also in A3s loaded before faces were marked): picked as a face, not typed
+  const face = kind.includes('w') || isFaceCell(model.styles[cell?.[3]], original);
   const text = cur.text ?? original;
   const pop = document.createElement('div');
   pop.id = 'kpi-pop';
   pop.className = 'kpi-pop card';
   pop.innerHTML = `<div class="row small muted"><b>${esc(ref)}</b><span class="spacer"></span>${cur.text !== undefined && cur.text !== null || cur.color ? '<span class="kpi-ed-key">changed by hand</span>' : ''}</div>
-    ${kind.includes('t') ? `<textarea rows="${Math.min(12, Math.max(3, text.split('\n').length + 1))}">${esc(text)}</textarea>
+    ${kind.includes('t') && !face ? `<textarea rows="${Math.min(12, Math.max(3, text.split('\n').length + 1))}">${esc(text)}</textarea>
       ${cur.text !== null && cur.text !== undefined ? `<div class="small muted">Was: ${original ? esc(original.length > 120 ? `${original.slice(0, 120)}…` : original) : '<i>empty</i>'}</div>` : ''}` : ''}
-    ${kind.includes('s') ? `<div class="kpi-swatches">${KPI_SYMBOLS.map(([sym, hex, label]) => `<button type="button" data-symbol="${sym}" class="${cur.text === sym ? 'on' : ''}" title="${label}"><b style="color:#${hex}">${sym}</b>${label.split(' — ')[0]}</button>`).join('')}
+    ${face ? `<div class="kpi-swatches">${KPI_FACES.map(([ch, hex, label]) => `<button type="button" data-face="${ch}" class="${FACE_OF[cur.text] === ch ? 'on' : ''}" title="${label}"><b style="color:#${hex};display:inline-flex;width:22px;height:22px">${faceSvg(ch)}</b>${label}</button>`).join('')}
+      <button type="button" data-face="" class="${cur.text ? '' : 'on'}" title="As the workbook gives it">Automatic</button></div>`
+    : kind.includes('s') ? `<div class="kpi-swatches">${KPI_SYMBOLS.map(([sym, hex, label]) => `<button type="button" data-symbol="${sym}" class="${cur.text === sym ? 'on' : ''}" title="${label}"><b style="color:#${hex}">${sym}</b>${label.split(' — ')[0]}</button>`).join('')}
       <button type="button" data-symbol="" class="${cur.text ? '' : 'on'}" title="As the workbook's formula gives it">Automatic</button></div>`
     : /[fb]/.test(kind) ? `<div class="kpi-swatches">${KPI_COLOURS.map(([name, hex, label]) => `<button type="button" data-colour="${name}" class="${cur.color === hex ? 'on' : ''}" title="${label}"><i style="background:#${hex}"></i>${label}</button>`).join('')}
       <button type="button" data-colour="" class="${cur.color ? '' : 'on'}" title="As the conditional format colours it">Automatic</button></div>` : ''}
@@ -1069,6 +1086,11 @@ function kpiEditCell(snap, model, el, done) {
   };
   setTimeout(() => { document.addEventListener('mousedown', outside, true); document.addEventListener('keydown', keys, true); });
   pop.addEventListener('click', (e) => {
+    const fc = e.target.closest('[data-face]');
+    if (fc) {
+      const f = KPI_FACES.find(([x]) => x === fc.dataset.face);
+      return save(f ? { text: f[0], color: f[1] } : { text: null, color: null });
+    }
     const sy = e.target.closest('[data-symbol]');
     if (sy) {
       const sym = KPI_SYMBOLS.find(([x]) => x === sy.dataset.symbol);

@@ -305,7 +305,10 @@ function editKinds(book, sheet, view) {
     const ref = `${colLetters(col)}${row}`;
     const c = sheet.cells.get(ref);
     const symbol = typeof c?.v === 'string' && SYMBOL_COLOURS[c.v.trim()];
-    const k = symbol ? 'fs' : `${c?.f ? '' : 't'}${mode.get(ref) || ''}`;
+    // a Wingdings face (J ☺, K 😐, L ☹ — e.g. GM confidence): picked as a face with its colour
+    const font = c ? book.styles.fonts[book.styles.xfs[c.s]?.fontId] || {} : {};
+    const face = /^wingdings/i.test(font.name || '') && /^[JKL]$/.test(String(c?.v ?? '').trim());
+    const k = face ? 'wf' : symbol ? 'fs' : `${c?.f ? '' : 't'}${mode.get(ref) || ''}`;
     if (k) out[ref] = k;
   }
   return out;

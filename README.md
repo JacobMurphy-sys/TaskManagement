@@ -155,6 +155,8 @@ Past weeks stay in the list, so any earlier A3 can be viewed or saved again.
 **Notes.** Under each week's A3 is a notes box for anything to remember about that week — follow-ups, what was said in the review, what to change next time. It saves as you type, stays with the week (backed up and in the activity log) and isn't part of the saved A3.
 
 **Editing the A3.** **✎ Edit A3** (on the A3 tab; its row stays at the top while you scroll, so **Done editing** is always in reach) lets you change a week's A3 by hand:
+
+**Faces** (e.g. *GM Confidence*, Excel's Wingdings ☺ 😐 ☹) are drawn as Excel draws them — a line face in the cell's colour, not an emoji. In ✎ Edit A3, click the face to pick **Happy** (green), **Neutral** (yellow) or **Unhappy** (red); it changes at once, and the saved A3 gets Excel's own face in that colour.
 - Click a **text box** (executive summary, comments, headcount notes, …) to change its text — **Ctrl+Enter** saves, **Esc** cancels; *Put back the original text* undoes it.
 - Click a **coloured figure** (a KPI or % with conditional colours) to set it **green**, **yellow** or **red** — or *Automatic* to let the formula decide again.
 - Click a **trend symbol** to pick **▲** (green), **▬** (yellow) or **▼** (red): the symbol and its colour always go together. On every A3 the symbols are coloured that way whatever the cell's own colour — the workbook's rules only colour ▲ and ▼ in some cells and ▬ nowhere.
