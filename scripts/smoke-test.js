@@ -1639,6 +1639,31 @@ async function waitForServer() {
       await call('PATCH', '/settings', { kpi_time_perso: '' });
     }
 
+    // 📦 team pack: contacts lists and project lists for everyone, only ever added
+    {
+      const pack = await (await fetch(`${BASE}/team-pack`)).json();
+      assert.equal(pack.kind, 'ci-team-pack');
+      assert.ok(pack.contacts.some((l) => l.name === 'People') && Array.isArray(pack.lookups));
+      const people = pack.contacts.find((l) => l.name === 'People');
+      const extra = JSON.parse(JSON.stringify(pack));
+      extra.contacts.find((l) => l.name === 'People').items.push({ name: 'Team Pack Person', detail: 'Process Engineer', department: null, active: true, sort_order: 99 });
+      extra.contacts.push({ name: 'Suppliers', sort_order: 9, items: [{ name: 'Acme', detail: 'cards', active: true, sort_order: 0 }] });
+      extra.lookups.push({ list: 'category', name: 'Team pack category', active: true, sort_order: 50 });
+      if (people.items[0]) people.items[0].detail = people.items[0].detail || 'should not overwrite';
+      let r = await call('POST', '/team-pack', extra);
+      assert.deepEqual([r.lists, r.names, r.lookups], [1, 2, 1], 'the new list, its name and the new person; the new category');
+      r = await call('POST', '/team-pack', extra);
+      assert.deepEqual([r.lists, r.names, r.filled, r.lookups], [0, 0, 0, 0], 'added once only');
+      const lists = await call('GET', '/name-lists');
+      assert.equal(lists.find((l) => l.name === 'People').items.find((i) => i.name === 'Team Pack Person').detail, 'Process Engineer');
+      // a blank role is filled in, a role set here is kept
+      const blank = JSON.parse(JSON.stringify(extra)); blank.contacts.find((l) => l.name === 'Suppliers').items[0].detail = 'printed cards';
+      await call('POST', '/team-pack', blank);
+      assert.equal((await call('GET', '/name-lists')).find((l) => l.name === 'Suppliers').items[0].detail, 'cards', 'details set here aren\'t overwritten');
+      await assert.rejects(call('POST', '/team-pack', { kind: 'x' }), /Not a CI Manager team pack/);
+      globalThis.__teamPack = extra;
+    }
+
     // 🌐 shared defaults: network paths for everyone, filling in only what isn't set by hand
     {
       const file = path.join(tmp, 'share', 'cimanager-defaults.json');
@@ -1724,6 +1749,7 @@ async function waitForServer() {
         {
           const sdir = fs.mkdtempSync(path.join(os.tmpdir(), 'shared-')); const ndir = fs.mkdtempSync(path.join(os.tmpdir(), 'newinstall-'));
           fs.writeFileSync(path.join(sdir, 'planning-setup-with-history-2026-10-12.json'), JSON.stringify(withHist));
+          fs.writeFileSync(path.join(sdir, 'cimanager-team-2026-10-13.json'), JSON.stringify(globalThis.__teamPack));
           const start = async () => {
             const child = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], { env: { ...process.env, PORT: '3996', BACKUP_INTERVAL_HOURS: '0', DATA_DIR: ndir, DB_FILE: '', SHARED_DIR: sdir, DEFAULTS_FILE: '' }, stdio: 'ignore' });
             for (let i = 0; i < 60; i++) { try { await fetch('http://127.0.0.1:3996/api/health'); break; } catch { await new Promise((r) => setTimeout(r, 200)); } }
@@ -1738,6 +1764,10 @@ async function waitForServer() {
             assert.ok(pl.machines.some((m) => m.name === 'Move me'), 'a new install gets the setup by itself');
             assert.equal(pl.shared_setup.setup, true);
             assert.equal((await nget('/plan/history')).reads, myReads, '…and the history');
+            const nl = await nget('/name-lists');
+            assert.ok(nl.find((l) => l.name === 'Suppliers')?.items.some((i) => i.name === 'Acme'), '…and the team pack: contacts');
+            assert.ok((await nget('/lookups')).category.some((c) => c.name === 'Team pack category'), '…and project categories');
+            assert.equal((await nget('/team-pack/status')).applied.added.lists >= 1, true);
           } finally { await stop(child); }
           child = await start();
           try { assert.equal((await nget('/plan')).shared_setup.at, (await nget('/plan')).shared_setup.at, 'the same file isn\'t applied again'); } finally { await stop(child); }

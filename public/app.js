@@ -1291,8 +1291,9 @@ async function escalateDialog(i) {
 // ======================================================================
 
 async function renderSettings() {
-  const [areas, settings] = await Promise.all([loadAreas(), api.get('/settings')]);
+  const [areas, settings, team] = await Promise.all([loadAreas(), api.get('/settings'), api.get('/team-pack/status').catch(() => null)]);
   state.settings = settings;
+  const ta = team?.applied;
   main().innerHTML = `
     <h1>⚙ Settings</h1>
     <div class="grid dash">
@@ -1322,7 +1323,24 @@ async function renderSettings() {
         <label class="f">Currency symbol for idea costs
           <input type="text" id="currency" value="${esc(settings.currency)}" maxlength="5" style="max-width:120px"></label>
       </div>
+      <div class="card">
+        <h2>📦 Team pack</h2>
+        <p class="small muted">What everyone on the team shares: the <b>contacts lists</b> (People with their roles, Departments and any lists added)
+          and the <b>project categories</b> and <b>policy deployment</b> lists. Save it as <code>cimanager-team-….json</code> next to <b>CIManager-Setup.bat</b> on the network:
+          each install picks up the newest one by itself (at start-up and every 30 minutes) and <b>adds</b> what it doesn't have yet — nothing is removed or overwritten,
+          and a person's role or department is only filled in where it's blank.</p>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <a class="button" href="/api/team-pack" download>⬇ Export team pack</a>
+          <label class="button">⬆ Add from a team pack…<input type="file" accept=".json" hidden id="team-file"></label></div>
+        ${ta ? `<p class="small muted" style="margin:8px 0 0">From the network: <span title="${esc(ta.file)}">${esc(ta.file.split(/[\\/]/).pop())}</span>, ${esc(fmtDateTime(ta.at))} — added ${ta.added.lists} list${ta.added.lists === 1 ? '' : 's'}, ${ta.added.names} name${ta.added.names === 1 ? '' : 's'}${ta.added.filled ? ` (${ta.added.filled} filled in)` : ''}, ${ta.added.lookups} project list entr${ta.added.lookups === 1 ? 'y' : 'ies'}.</p>` : ''}
+      </div>
     </div>`;
+  $('#team-file').addEventListener('change', async (e) => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    let body; try { body = JSON.parse(await f.text()); } catch { toast('That isn\'t a team pack', 'error'); return; }
+    try { const r = await api.post('/team-pack', body); toast(`Added ${r.lists} list${r.lists === 1 ? '' : 's'}, ${r.names} name${r.names === 1 ? '' : 's'}${r.filled ? ` (${r.filled} filled in)` : ''}, ${r.lookups} project list entr${r.lookups === 1 ? 'y' : 'ies'}`); } catch (err) { toast(err.message, 'error'); }
+    renderSettings();
+  });
 
   const patchArea = async (id, body) => {
     try { await api.patch(`/areas/${id}`, body); toast('Area saved'); } catch (err) { toast(err.message, 'error'); }

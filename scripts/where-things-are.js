@@ -72,6 +72,9 @@ const doc = [
   { h: 'Planning setup and history from the network', blocks: [
     { p: `The newest planning-setup….json in ${config.sharedDir} (made with Planning › Setup › Export setup + history and put next to CIManager-Setup.bat) is applied by itself when the app starts, and checked again every 30 minutes. Its history (the exports read and jobs seen, for the pace and catch-up figures, and the Production runs) is added to this install's own; nothing is added twice. Its setup (machines, speeds, OEE, modifiers) is only used if this install has no planning setup yet, so your own changes are never overwritten. Planning › Setup shows what was applied.` },
   ] },
+  { h: 'Team pack from the network', blocks: [
+    { p: `The newest cimanager-team….json in ${config.sharedDir} (Settings › Team pack › Export team pack, put next to CIManager-Setup.bat) is picked up by itself at start-up and every 30 minutes: the contacts lists (People with their roles, Departments and other lists) and the project categories and policy deployment lists. It only adds what this install doesn't have yet; nothing is removed or overwritten.` },
+  ] },
   { h: 'Optional settings', blocks: [
     { p: `To change the port, the data folder, the backup schedule or the shared paths file, copy .env.example to .env in ${app} and edit it (PORT, DATA_DIR, BACKUP_INTERVAL_HOURS, BACKUP_KEEP, DEFAULTS_FILE, SHARED_DIR, AUTO_UPDATE). Restart the app afterwards.` },
     { note: 'Keep the data folder on this computer\'s own disk, not a network drive or a synced (OneDrive) folder.' },

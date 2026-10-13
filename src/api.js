@@ -2075,11 +2075,11 @@ router.post('/plan/setup', express.json({ limit: '400mb' }), h((req, res) => {
 // 📦 Handed out on the network: the newest planning-setup*.json next to CIManager-Setup.bat
 // (config.sharedDir), applied by itself when a new one appears — its history merged (only ever
 // adds), its setup only on an install that has no planning setup yet (never over one in use).
-function sharedSetupFile() {
+function sharedSetupFile(pattern = /^planning-setup.*\.json$/i) {
   try {
     const dir = config.sharedDir;
     if (!dir || !fs.existsSync(dir)) return null;
-    const files = fs.readdirSync(dir).filter((f) => /^planning-setup.*\.json$/i.test(f))
+    const files = fs.readdirSync(dir).filter((f) => pattern.test(f))
       .map((f) => { const st = fs.statSync(path.join(dir, f)); return { file: path.join(dir, f), mtime: st.mtimeMs, size: st.size }; })
       .sort((a, b) => b.mtime - a.mtime);
     return files[0] || null;
@@ -2099,6 +2099,70 @@ function applySharedSetup() {
   metaSet('shared_setup_info', JSON.stringify({ file: f.file, at: new Date().toISOString(), setup: !!setup, kept_own: !empty, history }));
   return { file: f.file, setup, kept_own: !empty, history };
 }
+// 📦 Team pack: what everyone on the team shares, handed out the same way — the contacts lists
+// (People with their roles, Departments and any lists added) and the project categories and
+// policy deployment lists. Applying it only ever adds: missing lists, names and entries; a
+// person's details or department filled in only where they're blank here.
+const TEAM_PATTERN = /^cimanager-team.*\.json$/i;
+router.get('/team-pack', h((req, res) => {
+  const lists = db.all('SELECT * FROM name_lists ORDER BY sort_order, id');
+  const pack = {
+    kind: 'ci-team-pack', version: 1, exported_at: new Date().toISOString(),
+    contacts: lists.map((l) => ({ name: l.name, sort_order: l.sort_order,
+      items: db.all('SELECT name, detail, department, active, sort_order FROM name_list_items WHERE list_id = ? ORDER BY sort_order, id', [l.id]).map((i) => ({ ...i, active: !!i.active })) })),
+    lookups: db.all('SELECT list, name, active, sort_order FROM lookups ORDER BY list, sort_order, id').map((l) => ({ ...l, active: !!l.active })),
+  };
+  res.set('Content-Disposition', `attachment; filename="cimanager-team-${new Date().toISOString().slice(0, 10)}.json"`);
+  res.json(pack);
+}));
+function mergeTeamPack(b) {
+  if (b?.kind !== 'ci-team-pack') throw new HttpError(400, 'Not a CI Manager team pack');
+  const out = { lists: 0, names: 0, filled: 0, lookups: 0 };
+  db.tx(() => {
+    for (const l of Array.isArray(b.contacts) ? b.contacts : []) {
+      const name = String(l?.name || '').trim(); if (!name) continue;
+      let list = db.get('SELECT * FROM name_lists WHERE name = ?', [name]);
+      if (!list) { db.run('INSERT INTO name_lists (name, sort_order) VALUES (?, ?)', [name, Number(l.sort_order) || 0]); list = db.get('SELECT * FROM name_lists WHERE name = ?', [name]); out.lists++; }
+      for (const i of Array.isArray(l.items) ? l.items : []) {
+        const n = String(i?.name || '').trim(); if (!n) continue;
+        const mine = db.get('SELECT * FROM name_list_items WHERE list_id = ? AND name = ?', [list.id, n]);
+        if (!mine) {
+          db.run('INSERT INTO name_list_items (list_id, name, detail, department, active, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
+            [list.id, n, i.detail || null, i.department || null, i.active === false ? 0 : 1, Number(i.sort_order) || 0]);
+          out.names++;
+        } else if ((!mine.detail && i.detail) || (!mine.department && i.department)) {
+          db.run('UPDATE name_list_items SET detail = coalesce(detail, ?), department = coalesce(department, ?) WHERE id = ?', [i.detail || null, i.department || null, mine.id]);
+          out.filled++;
+        }
+      }
+    }
+    for (const l of Array.isArray(b.lookups) ? b.lookups : []) {
+      const name = String(l?.name || '').trim();
+      if (!name || !LOOKUP_LISTS.includes(l.list) || db.get('SELECT 1 FROM lookups WHERE list = ? AND name = ?', [l.list, name])) continue;
+      db.run('INSERT INTO lookups (list, name, active, sort_order) VALUES (?, ?, ?, ?)', [l.list, name, l.active === false ? 0 : 1, Number(l.sort_order) || 0]);
+      out.lookups++;
+    }
+  });
+  return out;
+}
+router.post('/team-pack', express.json({ limit: '20mb' }), h((req, res) => res.json(mergeTeamPack(req.body))));
+function applySharedTeam() {
+  const f = sharedSetupFile(TEAM_PATTERN);
+  if (!f) return null;
+  const sig = `${path.basename(f.file)}|${f.mtime}|${f.size}`;
+  if (metaGet('shared_team_applied') === sig) return null;
+  const added = mergeTeamPack(JSON.parse(fs.readFileSync(f.file, 'utf8').replace(/^\uFEFF/, '')));
+  metaSet('shared_team_applied', sig);
+  metaSet('shared_team_info', JSON.stringify({ file: f.file, at: new Date().toISOString(), added }));
+  return { file: f.file, added };
+}
+router.get('/team-pack/status', h((req, res) => {
+  let info = null; try { info = JSON.parse(metaGet('shared_team_info') || 'null'); } catch { /* none */ }
+  res.json({ dir: config.sharedDir, applied: info });
+}));
+const applySharedTeamSafe = () => { try { return applySharedTeam(); } catch (err) { return { error: err.message }; } };
+setInterval(() => { const r = applySharedTeamSafe(); if (r?.file) log.info(`Team pack ${r.file} applied`, r.added); }, 30 * 60 * 1000).unref();
+
 const applySharedSetupSafe = () => { try { return applySharedSetup(); } catch (err) { return { error: err.message }; } };
 setInterval(() => { const r = applySharedSetupSafe(); if (r?.file) log.info(`Planning: shared setup ${r.file} applied`, r); }, 30 * 60 * 1000).unref();
 router.get('/plan/setup/shared', h((req, res) => {
@@ -3364,6 +3428,7 @@ router.use((err, req, res, _next) => {
 module.exports = router;
 // On start-up: a planning setup handed out on the network (see applySharedSetup).
 module.exports.applySharedSetup = applySharedSetupSafe;
+module.exports.applySharedTeam = applySharedTeamSafe;
 // On start-up: read the shared defaults file, if there is one and it can be reached.
 module.exports.applySharedDefaults = () => {
   const file = config.defaultsFile;

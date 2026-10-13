@@ -104,6 +104,11 @@ app.use(express.static(path.join(config.ROOT, 'public')));
 const server = app.listen(config.port, config.host, () => {
   log.info(`${config.mode === 'planner' ? 'CI Planner' : 'CI Manager'} running at http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);
   log.info(`Database file: ${config.dbFile}`);
+  if (config.mode !== 'planner') {
+    const team = api.applySharedTeam();
+    if (team?.error) log.warn(`Team pack: ${team.error}`);
+    else if (team) log.info(`Team pack ${team.file}: added ${team.added.lists} lists, ${team.added.names} names (${team.added.filled} filled in), ${team.added.lookups} project list entries`);
+  }
   const sharedSetup = api.applySharedSetup();
   if (sharedSetup?.error) log.warn(`Planning: shared setup file: ${sharedSetup.error}`);
   else if (sharedSetup) log.info(`Planning: shared setup ${sharedSetup.file}: ${sharedSetup.setup ? 'setup applied' : 'setup kept (this install has its own)'}${sharedSetup.history ? `, history added (${sharedSetup.history.reads} exports, ${sharedSetup.history.jobs} jobs, ${sharedSetup.history.prod_runs} production runs)` : ''}`);

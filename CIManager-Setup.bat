@@ -59,9 +59,11 @@ set "SHAREDDEF="
 set "SRCUNC=%SRCDIR%"
 if defined REMOTE if not "%SRCDIR:~0,2%"=="\\" for /f "delims=" %%r in ('powershell -NoProfile -Command "(Get-PSDrive %SRCDIR:~0,1%).DisplayRoot"') do set "SRCUNC=%%r%SRCDIR:~2%"
 if exist "%SRCDIR%\cimanager-defaults.json" set "SHAREDDEF=%SRCUNC%\cimanager-defaults.json"
-REM A planning setup (and history) exported from Planning, handed out next to this file too.
+REM A planning setup (and history) exported from Planning, and a team pack (contacts, project
+REM categories) from Settings, handed out next to this file too.
 set "SHAREDDIR="
 if exist "%SRCDIR%\planning-setup*.json" set "SHAREDDIR=%SRCUNC%"
+if exist "%SRCDIR%\cimanager-team*.json" set "SHAREDDIR=%SRCUNC%"
 if defined SHAREDDEF set "SHAREDDIR=%SRCUNC%"
 if not defined REMOTE if exist "%BASEDIR%\package.json" if exist "%BASEDIR%\.git\" set "INPLACE=1"
 if defined INPLACE (set "APP=%BASEDIR%") else (set "APP=%BASEDIR%\app")
@@ -156,6 +158,7 @@ echo       Data:   %DATA%
 if defined SHAREDDEF call :set_defaults_file
 if defined SHAREDDIR call :set_env SHARED_DIR "%SHAREDDIR%"
 if defined SHAREDDIR if exist "%SRCDIR%\planning-setup*.json" echo       Planning setup and history: applied by the app from %SHAREDDIR%
+if defined SHAREDDIR if exist "%SRCDIR%\cimanager-team*.json" echo       Team pack (contacts, project categories): added by the app from %SHAREDDIR%
 REM The newest copy of this file comes with the code - keep the one in this folder up to date
 REM (not the one on the network: that stays as it was handed out).
 if not defined INPLACE if exist "%APP%\CIManager-Setup.bat" copy /y "%APP%\CIManager-Setup.bat" "%LOCALSELF%" >nul
