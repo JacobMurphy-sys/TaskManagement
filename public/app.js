@@ -1027,7 +1027,17 @@ function areaOptions(selected) {
   return '<option value="">— none —</option>' + list.map((a) =>
     `<option value="${a.id}" ${a.id === selected ? 'selected' : ''}>${esc(a.name)}${a.active ? '' : ' (inactive)'}</option>`).join('');
 }
-const submitterList = (names) => `<datalist id="submitters">${names.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>`;
+const submitterList = (names) => `<datalist id="people">${names.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>`;
+// "Submitted by" suggests the contacts lists (with a 📇 button for the contacts book), then
+// anyone who has submitted an idea before and isn't in them.
+async function submitterField(root, submitters) {
+  await enhanceContactFields(root, null);
+  const dl = $('datalist#people', root);
+  if (!dl) return;
+  const have = new Set([...dl.options].map((o) => o.value.toLowerCase()));
+  dl.insertAdjacentHTML('beforeend', submitters.filter((n) => !have.has(n.toLowerCase()))
+    .map((n) => `<option value="${esc(n)}" label="Submitted an idea before">`).join(''));
+}
 
 // Reads an idea form's fields into API values.
 function ideaValue(name, value) {
@@ -1131,7 +1141,7 @@ async function ideaForm() {
       <label class="f full">Description<textarea name="description" rows="3"></textarea></label>
       <label class="f full">Proposed solution<textarea name="proposed_solution" rows="2"></textarea></label>
       <label class="f full">Benefit<textarea name="benefit" rows="2" placeholder="e.g. saves 2 h a week, fewer remakes"></textarea></label>
-      <label class="f">Submitted by<input type="text" name="submitted_by" list="submitters" autocomplete="off" value="${esc(store.get('lastSubmitter', ''))}"></label>
+      <label class="f">Submitted by<input type="text" name="submitted_by" list="people" data-contact="Submitted by" autocomplete="off" value="${esc(store.get('lastSubmitter', ''))}"></label>
       <label class="f">Submitted on<input type="date" name="submitted_at" value="${toDateInput(new Date().toISOString())}" max="${toDateInput(new Date().toISOString())}"></label>
       <label class="f">Area<select name="area_id">${areaOptions(null)}</select></label>
       <label class="f">Priority<select name="priority">${options(PRIORITY, 2)}</select></label>
@@ -1146,6 +1156,7 @@ async function ideaForm() {
         <button class="primary" type="submit">Create idea</button></div>
     </form>`);
   $('#idea-form [name=title]').focus();
+  submitterField($('#idea-form'), submitters);
   $('#idea-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const body = {};
@@ -1195,7 +1206,7 @@ async function renderIdea(id) {
           <label class="f">Status<select name="status" ${locked ? 'disabled' : ''}>${options(statusOpts, i.status)}</select></label>
           <label class="f">Priority<select name="priority">${options(PRIORITY, i.priority)}</select></label>
           <label class="f">Area<select name="area_id">${areaOptions(i.area_id)}</select></label>
-          <label class="f">Submitted by<input type="text" name="submitted_by" list="submitters" autocomplete="off" value="${esc(i.submitted_by)}"></label>
+          <label class="f">Submitted by<input type="text" name="submitted_by" list="people" data-contact="Submitted by" autocomplete="off" value="${esc(i.submitted_by)}"></label>
           <label class="f">Submitted on<input type="date" name="submitted_at" value="${toDateInput(i.created_at)}" max="${toDateInput(new Date().toISOString())}"></label>
           <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(i.due_at)}"></label>
           <label class="f">Cost (${esc(state.settings.currency)})<input type="number" name="cost" min="0" step="0.01" inputmode="decimal" value="${i.cost ?? ''}"></label>
@@ -1218,6 +1229,7 @@ async function renderIdea(id) {
       </div>
     </div>`;
 
+  submitterField($('#idea-edit'), submitters);
   // Auto-save each field as it changes.
   $$('#idea-edit [name]').forEach((el) => el.addEventListener('change', async () => {
     if (el.name === 'title' && !el.value.trim()) { el.value = i.title; return; }
