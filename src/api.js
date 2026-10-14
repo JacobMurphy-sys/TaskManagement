@@ -1817,8 +1817,13 @@ router.get('/plan', h((req, res) => {
   const oeeDefault = Number(set.plan_oee_default) > 0 && Number(set.plan_oee_default) <= 100 ? Number(set.plan_oee_default) / 100 : null;
   const maxAge = planMaxAge(set);
   const hiddenJobs = planning.jobsOf(src.lines.filter((l) => planning.tooOld(l.due, maxAge)));
+  // 🧠 learned run times (Setup › Run times): each card line timed from the history of that card
+  const learnOn = set.plan_learned_times === '1';
+  const model = learnOn ? planLearn.modelFor({ cards: db_.status === 'ok' ? db_.cards : null, cardsKey: `${db_.file}|${db_.modified}|${db_.count}` }) : null;
+  const kindKey = (c) => [c.type, c.material, c.sides].map((v) => String(v ?? '').trim().toLowerCase()).join('|');
+  const learned = model ? (l, withRule) => planLearn.predict(model, { article: l.article, qty: l.qty, customer: l.customer, kindKey: l.card ? kindKey(l.card) : null }, { withRule }) : null;
   const lines = planning.withSpeeds(src.lines.filter((l) => !planning.tooOld(l.due, maxAge)).map((l) => ({ ...l })), db_.status === 'ok' ? db_.cards : null, rules, capacity.rate,
-    { by: new Map(oeeRows.map((r) => [r.customer.toUpperCase(), r.oee])), fallback: oeeDefault });
+    { by: new Map(oeeRows.map((r) => [r.customer.toUpperCase(), r.oee])), fallback: oeeDefault }, learned);
   // customers for the OEE table: those in the open work orders (name from the card database) and any set before
   const custNames = new Map();
   if (db_.status === 'ok') for (const c of db_.cards.values()) if (c.trigram && c.customer && !custNames.has(c.trigram.toUpperCase())) custNames.set(c.trigram.toUpperCase(), c.customer);
@@ -1867,7 +1872,9 @@ router.get('/plan', h((req, res) => {
     from: histFirst }, capacity, maxAge);
   delete modifiers.tagBy;
   res.json({ shared_setup: sharedSetup, mitigation, modifiers, backlog, otto, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
-    source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length, averaged: lines.some((l) => l.speed_from === 'average'),
+    source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length,
+    learned_times: { on: learnOn, runs: model?.runs || 0, setup: model ? Math.round(model.setup * 10) / 10 : null, lines: lines.length,
+      card: lines.filter((l) => l.speed_from === 'learned:card').length, kind: lines.filter((l) => l.speed_from === 'learned:kind').length, all: lines.filter((l) => l.speed_from === 'learned:all').length }, averaged: lines.some((l) => l.speed_from === 'average'),
     capacity, mode, projected, now: new Date().toISOString(), running, queue, slots: planning.loadByDeadline([...running, ...queue]) });
 }));
 // The machines and the product types each runs ("DOD, Laser"; blank = any).
@@ -2333,7 +2340,7 @@ function learnNow(daysQ, toQ) {
     shiftStarts: { night: hm(set.plan_shift_night, 21 * 60 + 45), morning: hm(set.plan_shift_morning, 5 * 60 + 45), afternoon: hm(set.plan_shift_afternoon, 13 * 60 + 45) },
     ottoSpeeds: new Map(db.all('SELECT customer, speed FROM plan_otto_speeds').map((r) => [r.customer.toUpperCase(), r.speed])),
     ottoMachines: db.all('SELECT name, speed FROM plan_otto_machines WHERE active = 1'),
-  }), cards_status: dbc.status, oee_default: oeeDefault ? Math.round(oeeDefault * 100) : null };
+  }), learned_on: set.plan_learned_times === '1', cards_status: dbc.status, oee_default: oeeDefault ? Math.round(oeeDefault * 100) : null };
 }
 router.get('/plan/learn', h((req, res) => res.json(learnNow(req.query.days, req.query.to))));
 // The same as a workbook, to share or work on further.
@@ -2345,7 +2352,7 @@ router.get('/plan/learn.xlsx', h((req, res) => {
   const sheets = [
     { name: 'Findings', columns: [c('Kind', 10), c('Finding', 120)], rows: [
       ['Window', `${L.days} days: ${L.runs.used} runs, ${L.runs.cards} cards over ${L.runs.days} days (${L.runs.anomalies} anomalies left out)`],
-      ['Accuracy', `Planned within 25%: ${L.accuracy.now?.within ?? '—'}% now, ${L.accuracy.learned?.within ?? '—'}% with the learned values`],
+      ['Accuracy', `Planned within 25%: ${L.accuracy.now?.within ?? '—'}% now, ${L.accuracy.learned?.within ?? '—'}% with learned speeds + OEE, ${L.accuracy.items?.within ?? '—'}% card by card`],
       ...L.findings.map((f) => [f.kind, f.text])] },
     { name: 'Speeds', columns: [c('Type', 16), c('Material', 14), c('Print sides', 11), c('Runs', 8), c('Cards', 11), c('Learned cards/h', 14), c('From', 9), c('To', 9), c('Planned now', 12), c('Planned from', 22), c('Change %', 10), c('Confidence', 11)],
       rows: L.speeds.map((x) => [x.type, x.material, x.sides, x.runs, x.cards, x.speed, x.p25, x.p75, x.current, x.current_from, x.change, x.confidence]) },
@@ -2400,7 +2407,7 @@ const SETTING_DEFAULTS = {
   kpi_time_perso: '', kpi_time_otto: '',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
-  plan_src: '', planner_url: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_oee_default: '', plan_otto_src: '', plan_max_age: '30', plan_miti_days: '5', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
+  plan_src: '', planner_url: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_learned_times: '0', plan_oee_default: '', plan_otto_src: '', plan_max_age: '30', plan_miti_days: '5', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
 };
 function getSettings() {
   const out = { ...SETTING_DEFAULTS };

@@ -1652,6 +1652,17 @@ async function waitForServer() {
       const PL = require('../src/planlearn');
       assert.equal(PL.wmedian([100, 200, 900], [1, 1, 10]), 900, 'the median weighted by cards');
       assert.deepEqual(PL.closeness([[100, 110], [100, 200], [100, 90]]).within, 66.7, 'within 25% either way');
+      // card by card: a card's own runs, leaning on its kind while it has few; the set-up on every line
+      const mk = (item, rate, n, kind = 'k|m|s', customer = 'ADX') => Array.from({ length: n }, (_, i) => ({ item, rate, qty: 1000, kindKey: kind, kind: { type: kind }, customer, setup: 10, start_at: `2026-10-0${1 + (i % 9)}T08:00` }));
+      const model = PL.buildModel([...mk('A1', 600, 20), ...mk('B2', 1200, 20), ...mk('C3', 300, 1)]);
+      const tm = (article, kindKey = 'k|m|s', o) => PL.predict(model, { article, qty: 600, customer: 'ADX', kindKey }, o);
+      assert.equal(model.setup, 10);
+      assert.equal(tm('A1').from, 'card'); assert.ok(Math.abs(tm('A1').rate - 600) / 600 < 0.12, 'a card with plenty of runs: about its own speed');
+      assert.ok(tm('B2').minutes < tm('A1').minutes, 'the quicker card takes less time for the same cards');
+      assert.ok(tm('C3').rate > 300 * 1.3, 'one run of its own: still leaning on its kind');
+      assert.equal(tm('NEW').from, 'kind'); assert.equal(Math.round(tm('NEW').minutes - 10), Math.round((600 / tm('NEW').rate) * 60), 'set-up + cards at the speed');
+      assert.equal(tm('NEW', 'other|x|y').from, 'all', 'no history for the card or its kind: all runs');
+      assert.equal(tm('NEW', 'other|x|y', { withRule: true }), null, 'a speed rule covers it: the rule is kept');
       await call('PATCH', '/settings', { kpi_time_perso: '' });
     }
 

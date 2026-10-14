@@ -104,6 +104,52 @@ const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frida
 const SIZES = [[0, 100, 'Under 100'], [100, 500, '100–499'], [500, 2000, '500–1,999'], [2000, Infinity, '2,000 and over']];
 const mondayOf = (d) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return ymd(x); };
 
+// ---- item-level run times ------------------------------------------------------------------------
+// A card line's time = the usual set-up + its cards at its own running speed. The speed is learned
+// for each card (AX) from its runs, leaning on what's known about it when it has few:
+//   prior  = its kind's speed (type · material · sides; else all runs') × its customer's factor
+//   speed  = the card's own speed blended with the prior: n runs of its own count against K_ITEM
+//            (1 run: mostly the prior; 10 runs: mostly its own). Blended on the log scale.
+// The customer factor (how their cards run against their kind) is blended to 1 the same way.
+const K_ITEM = 3; const K_CUST = 10;
+const logMean = (xs) => xs.reduce((t, x) => t + Math.log(x), 0) / xs.length;
+function buildModel(runs) {
+  if (!runs.length) return null;
+  const kinds = speedsOf(runs);
+  const fleet = overallRate(runs);
+  const kindRate = (r) => kinds.get(r.kindKey)?.speed || fleet;
+  const cust = new Map();
+  for (const [c, l] of groupBy(runs, (r) => r.customer)) {
+    const m = l.reduce((t, r) => t + Math.log(r.rate / kindRate(r)), 0) / l.length;
+    cust.set(c, { factor: Math.exp((l.length / (l.length + K_CUST)) * m), runs: l.length });
+  }
+  const items = new Map();
+  for (const [it, l] of groupBy(runs.filter((r) => r.item), (r) => planning.axKey(r.item))) items.set(it, { lr: logMean(l.map((r) => r.rate)), runs: l.length });
+  const setups = runs.map((r) => r.setup).filter((x) => x > 0);
+  return { kinds, fleet, cust, items, setup: setups.length ? quantile(setups, 0.5) : 0, runs: runs.length };
+}
+// → { minutes, rate, setup, from: 'card' | 'kind' | 'all', runs } or null when the model has nothing for it
+// line: { article|item, qty, kindKey, customer }. withRule: a speed rule covers it — then only the
+// card's own or its kind's history is used, never the all-runs average.
+function predict(model, line, { withRule = false } = {}) {
+  if (!model || !(line.qty > 0)) return null;
+  const kind = model.kinds.get(line.kindKey);
+  if (withRule && !kind && !model.items.has(planning.axKey(line.article ?? line.item))) return null;
+  const c = model.cust.get(line.customer);
+  const prior = (kind?.speed || model.fleet) * (c ? c.factor : 1);
+  const own = model.items.get(planning.axKey(line.article ?? line.item));
+  const rate = own ? Math.exp((own.runs * own.lr + K_ITEM * Math.log(prior)) / (own.runs + K_ITEM)) : prior;
+  if (!(rate > 0)) return null;
+  return { minutes: model.setup + (line.qty / rate) * 60, rate, setup: model.setup, from: own ? 'card' : kind ? 'kind' : 'all', runs: own ? own.runs : kind ? kind.runs : model.runs };
+}
+// The model from the last `days` of perso runs (cached until the runs or the cards change).
+let modelCache = null;
+function modelFor({ days = 180, now = new Date(), cards = null, cardsKey = '' } = {}) {
+  const sig = `${days}|${ymd(now)}|${cardsKey}|${JSON.stringify(db.get("SELECT count(*) AS n, max(id) AS m, max(read_at) AS r FROM prod_runs WHERE source = 'perso'"))}`;
+  if (!modelCache || modelCache.sig !== sig) modelCache = { sig, model: buildModel(runsFor('perso', days, now, cards).runs) };
+  return modelCache.model;
+}
+
 /**
  * opts: { days, now, cards (Map|null), rules, oee: { by: Map, fallback }, rate (flat cards/h),
  *         custNames: Map, shiftStarts, ottoSpeeds: Map(customer → items/h), ottoMachines: [{ name, speed }] }
@@ -149,8 +195,10 @@ function learn(opts) {
   const tOee = oeeOf(train, (r) => (tSpeed(r) ? (r.qty / tSpeed(r)) * 60 : null));
   const plannedNow = (r) => { const s = currentSpeed(r); if (!s) return null; return ((r.qty / s) * 60) / (currentOee(r.customer) || 1); };
   const plannedLearned = (r) => { const s = tSpeed(r); if (!s) return null; const o = tOee.get(r.customer)?.oee; return ((r.qty / s) * 60) / (o > 0 ? Math.min(o, 1.5) : 1); };
+  const tModel = buildModel(train);
   const accuracy = { tested_on: split ? 'newest' : 'all', runs: test.length,
-    now: closeness(test.map((r) => [plannedNow(r), r.minutes])), learned: closeness(test.map((r) => [plannedLearned(r), r.minutes])) };
+    now: closeness(test.map((r) => [plannedNow(r), r.minutes])), learned: closeness(test.map((r) => [plannedLearned(r), r.minutes])),
+    items: closeness(test.map((r) => [predict(tModel, r)?.minutes, r.minutes])) };
 
   // ---- pace: against each kind's learned running speed
   const expOf = (r) => { const s = learned.get(r.kindKey)?.speed || fleetRate; return s ? (r.qty / s) * 60 : null; };
@@ -233,6 +281,9 @@ function learn(opts) {
   } else if (accuracy.now && accuracy.now.bias !== null && Math.abs(accuracy.now.bias) >= 15) {
     findings.push({ kind: 'deploy', weight: 90, text: `Runs typically take ${pct(accuracy.now.bias)} ${accuracy.now.bias > 0 ? 'longer' : 'less time'} than Planning gives them.` });
   }
+  if (accuracy.items && accuracy.learned && accuracy.items.within - Math.max(accuracy.learned.within, accuracy.now?.within ?? 0) >= 5) {
+    findings.push({ kind: 'deploy', weight: 95, text: `Timing each card from its own runs, plus the set-up, would have planned ${accuracy.items.within}% of runs within 25% — the closest of the three ways. Switch it on with "Use it in the plan".` });
+  }
   const toApply = speeds.filter((s) => s.suggest && s.confidence !== 'low');
   if (toApply.length) findings.push({ kind: 'deploy', weight: 80, text: `${toApply.length} kind${toApply.length === 1 ? '' : 's'} of card run${toApply.length === 1 ? 's' : ''} at a different speed from the one planned — biggest: ${toApply.slice(0, 3).map((s) => `${[s.type, s.material, s.sides].filter(Boolean).join(' · ')} ${s.speed}/h (now ${s.current ?? 'none'})`).join('; ')}.` });
   for (const c of oees.filter((o) => o.confidence !== 'low' && o.current && Math.abs(o.suggested - o.current) >= 10).slice(0, 3)) {
@@ -280,4 +331,4 @@ function learn(opts) {
   };
 }
 
-module.exports = { learn, wmedian, closeness };
+module.exports = { learn, wmedian, closeness, buildModel, predict, modelFor };

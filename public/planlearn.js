@@ -43,11 +43,14 @@ function planLearnHtml(L) {
       <span class="spacer"></span><button type="button" data-pll="xlsx">⬇ Excel</button></div>
     <div class="kdb-tiles">
       ${accTile(A.now, 'Planned within 25% — now', 'the setup as it is')}
-      ${accTile(A.learned, 'With the learned values', A.tested_on === 'newest' ? `learned on older runs, tested on the newest ${pllN(A.runs)}` : 'all runs')}
+      ${accTile(A.learned, 'With learned speeds + OEE', A.tested_on === 'newest' ? `learned on older runs, tested on the newest ${pllN(A.runs)}` : 'all runs')}
+      ${accTile(A.items, `🧠 Card by card${L.learned_on ? ' — in use' : ''}`, 'each card\'s own time + set-up')}
       <div class="kdb-tile"><div class="kdb-tile-l">Runs vs plan</div><div class="kdb-tile-v ${A.now && Math.abs(A.now.bias) >= 15 ? 'kdb-bad' : ''}">${A.now?.bias === null || !A.now ? '—' : `${A.now.bias > 0 ? '+' : ''}${pllN(A.now.bias)}%`}</div><div class="kdb-tile-s">typical run, against its planned time</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Set-up a run</div><div class="kdb-tile-v">${L.setup.all === null ? '—' : `${pllN(L.setup.all)} min`}</div><div class="kdb-tile-s">before cards flow, usual</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Remakes</div><div class="kdb-tile-v">${L.runs.cards ? `${pllN((L.runs.remade / L.runs.cards) * 100, 1)}%` : '—'}</div><div class="kdb-tile-s">${pllN(L.runs.remade)} cards</div></div>
     </div>
+    <div class="kc-note pll-switch">${L.learned_on ? `🧠 Planning is timing each card line from its card's own runs. <button type="button" class="small" data-pll="learned-off">Go back to the speeds and OEE</button>`
+      : `🧠 <b>Card by card</b>: time each card line in a work order from that card's own runs (and its kind's, while it has few), plus the set-up — so a work order is timed by what's actually in it.${A.items && A.learned && A.items.within > A.learned.within ? ` It has been the closest of the three (${pllN(A.items.within)}% within 25%).` : ''} <button type="button" class="primary small" data-pll="learned-on">Use it in the plan</button>`}</div>
     ${L.findings.length ? `<div class="card"><h3 class="pl-h">What stands out</h3><ul class="pll-find">${L.findings.map((f) => `<li class="pll-${f.kind}"><span>${PLL.icon[f.kind] || '•'}</span> ${esc(f.text)}</li>`).join('')}</ul></div>` : ''}
 
     <div class="card"><h3 class="pl-h">Speeds by kind of card <span class="muted small">— running speed once a run is going (its machine's usual set-up taken off), the middle of its runs weighted by cards</span></h3>
@@ -141,6 +144,10 @@ async function planLearnClick(e, L, rerender) {
   if (what === 'ottos') {
     const list = L.matching.customers.filter((c) => c.suggest && c.confidence !== 'low');
     await run(async () => { for (const c of list) await api.put(`/plan/otto/speeds/${encodeURIComponent(c.customer)}`, { speed: c.speed }); }, `${list.length} Matching speed${list.length === 1 ? '' : 's'} applied`);
+    return true;
+  }
+  if (what === 'learned-on' || what === 'learned-off') {
+    await run(async () => { state.settings = await api.patch('/settings', { plan_learned_times: what === 'learned-on' ? '1' : '0' }); }, what === 'learned-on' ? 'Planning now times each card line from its history' : 'Planning uses the speeds and OEE again');
     return true;
   }
   if (what === 'xlsx') { location.href = `/api/plan/learn.xlsx?days=${L.days}`; return true; }

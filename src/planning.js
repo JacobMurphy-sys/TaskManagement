@@ -379,7 +379,7 @@ function jobsOf(lines) {
       map.set(key, j);
     }
     j.qty += l.qty;
-    j.articles.push({ article: l.article, qty: l.qty, status: l.status, card: l.card || null, speed: l.speed ?? null, speed_from: l.speed_from || null, oee: l.oee ?? null, minutes: l.minutes ?? null });
+    j.articles.push({ article: l.article, qty: l.qty, status: l.status, card: l.card || null, speed: l.speed ?? null, speed_from: l.speed_from || null, oee: l.oee ?? null, minutes: l.minutes ?? null, learned: l.learned || null });
     if (/progress/i.test(l.status || '')) j.status = l.status; // any line running → the job is running
     if (l.cutoff !== null && (j.cutoff === null || l.cutoff < j.cutoff)) j.cutoff = l.cutoff;
     if (PRIO_RANK[String(l.prio).toLowerCase()] < (PRIO_RANK[String(j.prio).toLowerCase()] ?? 9)) j.prio = l.prio;
@@ -712,10 +712,14 @@ function speedFor(card, rules) {
 // Each export line gets its card (from the database), speed and production minutes.
 // oee: { by: Map(customer trigram → 0.85), fallback: 0.8 | null } — the machine speed × the
 // customer's estimated OEE is what's planned (no OEE: the speed as it is).
-function withSpeeds(lines, cards, rules, fallbackRate, oee = null) {
+// learned (optional): line → { minutes, rate, setup, from, runs } or null — the run time learned
+// from history (planlearn.predict); a line it times takes that instead of its speed and OEE.
+function withSpeeds(lines, cards, rules, fallbackRate, oee = null, learned = null) {
   for (const l of lines) {
     l.card = cards ? cards.get(axKey(l.article)) || null : null;
     const rule = speedFor(l.card, rules);
+    const p = learned ? learned(l, !!rule) : null;
+    if (p) { l.speed = Math.round(p.rate); l.speed_from = `learned:${p.from}`; l.learned = { runs: p.runs, setup: Math.round(p.setup * 10) / 10 }; l.minutes = p.minutes; continue; }
     l.speed = rule ? Number(rule.speed) : Number(fallbackRate) > 0 ? Number(fallbackRate) : null;
     l.speed_from = rule ? `rule:${rule.id}` : l.speed ? 'fallback' : null;
     l.minutes = l.speed ? (l.qty / l.speed) * 60 : null;
@@ -727,7 +731,7 @@ function withSpeeds(lines, cards, rules, fallbackRate, oee = null) {
   // estimated OEE per customer: the time at the machine's speed ÷ OEE
   for (const l of lines) {
     const f = oee?.by?.get(String(l.customer || '').toUpperCase()) ?? oee?.fallback ?? null;
-    l.oee = f && f > 0 && f <= 1 ? f : null;
+    l.oee = f && f > 0 && f <= 1 && !l.learned ? f : null;
     if (l.oee && l.minutes !== null) l.minutes /= l.oee;
   }
   return lines;
