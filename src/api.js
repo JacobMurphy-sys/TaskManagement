@@ -13,6 +13,7 @@ const { buildXlsx } = require('./xlsx');
 const { RECURRENCES } = require('./schema');
 const charter = require('./charter');
 const prod = require('./prodactual');
+const planLearn = require('./planlearn');
 
 const router = express.Router();
 
@@ -2314,6 +2315,59 @@ router.delete('/plan/pins', h((req, res) => {
 }));
 
 // What's been done: completions per day (on time or late), the week, the latest jobs done.
+// 🧠 Learned from the production runs: speeds, OEE, accuracy, patterns and findings (see planlearn.js).
+function learnNow(daysQ, toQ) {
+  const set = getSettings();
+  const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+  const cards = dbc.status === 'ok' ? dbc.cards : null;
+  const custNames = new Map();
+  if (cards) for (const c of cards.values()) if (c.trigram && c.customer && !custNames.has(c.trigram.toUpperCase())) custNames.set(c.trigram.toUpperCase(), c.customer);
+  const hm = (v, d) => planTime(v, d);
+  const oeeDefault = Number(set.plan_oee_default) > 0 && Number(set.plan_oee_default) <= 100 ? Number(set.plan_oee_default) / 100 : null;
+  return { ...planLearn.learn({
+    days: [30, 60, 90, 180, 365].includes(Number(daysQ)) ? Number(daysQ) : 90,
+    // the window ends now, or at the end of a day asked for (?to=YYYY-MM-DD)
+    now: /^\d{4}-\d{2}-\d{2}$/.test(String(toQ || '')) ? new Date(`${toQ}T23:59:59`) : new Date(),
+    cards, custNames, rules: db.all('SELECT * FROM plan_speeds'), rate: Number(set.plan_rate) || null,
+    oee: { by: new Map(db.all('SELECT customer, oee FROM plan_oee').map((r) => [r.customer.toUpperCase(), r.oee])), fallback: oeeDefault },
+    shiftStarts: { night: hm(set.plan_shift_night, 21 * 60 + 45), morning: hm(set.plan_shift_morning, 5 * 60 + 45), afternoon: hm(set.plan_shift_afternoon, 13 * 60 + 45) },
+    ottoSpeeds: new Map(db.all('SELECT customer, speed FROM plan_otto_speeds').map((r) => [r.customer.toUpperCase(), r.speed])),
+    ottoMachines: db.all('SELECT name, speed FROM plan_otto_machines WHERE active = 1'),
+  }), cards_status: dbc.status, oee_default: oeeDefault ? Math.round(oeeDefault * 100) : null };
+}
+router.get('/plan/learn', h((req, res) => res.json(learnNow(req.query.days, req.query.to))));
+// The same as a workbook, to share or work on further.
+router.get('/plan/learn.xlsx', h((req, res) => {
+  const L = learnNow(req.query.days, req.query.to);
+  const c = (header, width = 12, type) => ({ header, width, ...(type ? { type } : {}) });
+  const pace = (title, rows) => ({ name: title, columns: [c(title.replace(/^By /, '').replace(/^./, (x) => x.toUpperCase()), 22), c('Name', 24), c('Runs', 8), c('Cards', 11), c('Hours', 9), c('Cards/h', 9), c('Pace %', 9)],
+    rows: rows.map((r) => [r.label, r.name || '', r.runs, r.cards, r.hours, r.per_hour, r.pace]) });
+  const sheets = [
+    { name: 'Findings', columns: [c('Kind', 10), c('Finding', 120)], rows: [
+      ['Window', `${L.days} days: ${L.runs.used} runs, ${L.runs.cards} cards over ${L.runs.days} days (${L.runs.anomalies} anomalies left out)`],
+      ['Accuracy', `Planned within 25%: ${L.accuracy.now?.within ?? '—'}% now, ${L.accuracy.learned?.within ?? '—'}% with the learned values`],
+      ...L.findings.map((f) => [f.kind, f.text])] },
+    { name: 'Speeds', columns: [c('Type', 16), c('Material', 14), c('Print sides', 11), c('Runs', 8), c('Cards', 11), c('Learned cards/h', 14), c('From', 9), c('To', 9), c('Planned now', 12), c('Planned from', 22), c('Change %', 10), c('Confidence', 11)],
+      rows: L.speeds.map((x) => [x.type, x.material, x.sides, x.runs, x.cards, x.speed, x.p25, x.p75, x.current, x.current_from, x.change, x.confidence]) },
+    { name: 'OEE', columns: [c('Customer', 10), c('Name', 26), c('Runs', 8), c('Cards', 11), c('Measured %', 11), c('Suggested %', 11), c('Planned now %', 13), c('Confidence', 11)],
+      rows: L.oee.map((x) => [x.customer, x.name, x.runs, x.cards, x.oee, x.suggested, x.current, x.confidence]) },
+    pace('By shift', L.patterns.shift), pace('By job size', L.patterns.size), pace('By machine', L.patterns.machine), pace('By weekday', L.patterns.weekday),
+    pace('By customer', L.patterns.customer), pace('By week', L.patterns.week),
+    { name: 'Cards off their kind', columns: [c('Card AX', 14), c('Name', 26), c('Customer', 10), c('Type', 14), c('Material', 12), c('Print sides', 10), c('Runs', 8), c('Cards', 11), c('Its cards/h', 11), c('Kind cards/h', 11), c('Relative %', 10)],
+      rows: L.cards.map((x) => [x.item, x.name, x.customer, x.type, x.material, x.sides, x.runs, x.cards, x.speed, x.kind_speed, Math.round(x.ratio * 100)]) },
+    { name: 'Jobs over', columns: [c('Job', 18), c('Customer', 10), c('Started', 18), c('Runs', 8), c('Cards', 11), c('Machines', 16), c('Usual min', 10), c('Took min', 10), c('Over min', 10)],
+      rows: L.overruns.map((x) => [x.job, x.customer, x.first.replace('T', ' '), x.runs, x.cards, x.machines, x.expected, x.actual, x.over]) },
+    { name: 'Remakes', columns: [c('Customer', 10), c('Name', 26), c('Cards', 11), c('Remade', 10), c('Share %', 9)], rows: L.remakes.map((x) => [x.customer, x.name, x.cards, x.remade, x.pct]) },
+    { name: 'Late', columns: [c('By', 10), c('Customer / shipper', 22), c('Jobs', 8), c('Late', 8), c('Share %', 9), c('Average late min', 15)],
+      rows: [...L.lateness.customer.map((x) => ['customer', x.label, x.jobs, x.late, x.late_pct, x.avg_late]), ...L.lateness.shipper.map((x) => ['shipper', x.label, x.jobs, x.late, x.late_pct, x.avg_late])] },
+    { name: 'Matching speeds', columns: [c('Customer', 10), c('Name', 26), c('Runs', 8), c('Items', 11), c('Learned items/h', 14), c('Planned now', 12), c('Change %', 10), c('Confidence', 11)],
+      rows: L.matching.customers.map((x) => [x.customer, x.name, x.runs, x.items, x.speed, x.current ?? x.machine_avg, x.change, x.confidence]) },
+  ];
+  const file = `Planning learned ${new Date().toISOString().slice(0, 10)} (${L.days} days).xlsx`;
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${file}"; filename*=UTF-8''${encodeURIComponent(file)}`);
+  res.send(buildXlsx(sheets));
+}));
 router.get('/plan/history', h((req, res) => {
   res.json(planHistory.summary({ days: Math.min(60, Math.max(7, Number(req.query.days) || 14)) }));
 }));

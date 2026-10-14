@@ -119,9 +119,10 @@ async function renderPlanning() {
       <p class="small muted">Max cards a day: the machines able to run the type, for the working day, at the type's speed (the open cards' average). A machine running several types counts for each — the ceiling for that type on its own.</p></div>` : '';
   const cdb = p.cards_db;
   const withMachines = (p.machines || []).some((m) => m.active) && p.projected;
-  const viewList = [['list', '☰ List'], ...(withMachines ? [['gantt', '▤ Gantt'], ['load', '▦ Load']] : []), ['history', '📈 History']];
+  const viewList = [['list', '☰ List'], ...(withMachines ? [['gantt', '▤ Gantt'], ['load', '▦ Load']] : []), ['history', '📈 History'], ['learn', '🧠 Learned']];
   const view = viewList.some(([k]) => k === store.get('planView', 'list')) ? store.get('planView', 'list') : 'list';
   const hist = view === 'history' ? await api.get('/plan/history?days=14') : null;
+  const learnt = view === 'learn' ? await api.get(`/plan/learn?days=${store.get('planLearnDays', 90)}`) : null;
   const historyHtml = () => {
     const h = hist; const max = Math.max(1, ...h.daily.map((d) => d.cards));
     const dshort = (d) => { const dt = new Date(`${d}T12:00`); return `${dt.toLocaleDateString('en-GB', { weekday: 'short' })}<br>${dt.getDate()}/${dt.getMonth() + 1}`; };
@@ -398,6 +399,7 @@ ${half === 'otto' ? ottoSetup() : `
     ${view === 'gantt' ? '<div class="card pl-gantt-card"><div id="pl-gantt-info" class="small"></div><div id="pl-gantt"></div></div>' : ''}
     ${view === 'load' ? `${loadHtml()}${capCard}` : ''}
     ${view === 'history' ? historyHtml() : ''}
+    ${view === 'learn' ? planLearnHtml(learnt) : ''}
     ${view !== 'list' ? '' : `${backlogCard(p.backlog, 'cards', false)}${capCard}
     <div class="card"><h3 class="pl-h">Cards due by each cut-off</h3>
       <div class="kdb-scroll"><table class="log pl-slots"><thead><tr><th>Deadline</th><th class="num">Jobs</th><th class="num">Cards</th><th class="num">Running total</th><th>Shippers</th>${p.projected ? '<th>Projected</th>' : ''}</tr></thead><tbody>
@@ -505,6 +507,7 @@ ${half === 'otto' ? ottoSetup() : `
     try { await api.patch(`/plan/machines/${id}`, { [el.name]: el.type === 'checkbox' ? el.checked : el.value }); toast('Saved'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
   }));
   main().onclick = async (e) => {
+    if (learnt && await planLearnClick(e, learnt, renderPlanning)) return;
     const delM = e.target.closest('[data-pl-del-machine]');
     if (delM) { if (!confirm('Remove this machine?')) return; try { await api.del(`/plan/machines/${delM.dataset.plDelMachine}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
     const addMod = e.target.closest('[data-pl-add-mod]');

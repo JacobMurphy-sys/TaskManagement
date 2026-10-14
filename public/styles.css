@@ -1128,3 +1128,17 @@ table.kfd td { padding: 3px 6px; } .kfd-bar { width: 40%; } .kfd-bar span { disp
 .pl-bl-v span { font-size: 13px; font-weight: 500; color: var(--muted); }
 .pl-bl-s { font-size: 12.5px; line-height: 1.45; }
 .xc .xface { height: 0.9em; width: 0.9em; flex: none; display: block; }
+
+/* 🧠 Planning › Learned */
+.pll-find { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.pll-find li { display: flex; gap: 8px; align-items: baseline; padding: 6px 10px; border-radius: 6px; background: var(--bg); border-left: 3px solid var(--border); }
+.pll-find li.pll-deploy { border-left-color: #2f6fd6; }
+.pll-find li.pll-pattern, .pll-find li.pll-trend { border-left-color: #c98a16; }
+.pll-find li.pll-quality { border-left-color: #c93636; }
+.pll-conf { letter-spacing: 1px; font-size: 12px; cursor: help; }
+.pll-conf.pll-high { color: #2e8b57; } .pll-conf.pll-medium { color: #c98a16; } .pll-conf.pll-low { color: var(--muted); }
+.pll-pace { position: relative; min-width: 110px; height: 18px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.pll-pace-bar { height: 100%; } .pll-pace-bar.ok { background: #8fd0a6; } .pll-pace-bar.mid { background: #f0cf7a; } .pll-pace-bar.low { background: #ef9a9a; }
+.pll-pace span { position: absolute; left: 6px; top: 0; font-size: 12px; line-height: 18px; color: #222; }
+.pll-t td { vertical-align: middle; }
+.pll-grid { align-items: start; }

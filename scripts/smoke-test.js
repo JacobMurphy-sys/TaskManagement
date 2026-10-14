@@ -1642,6 +1642,16 @@ async function waitForServer() {
       // older reports loaded by hand fill in the history
       const up = await fetch(`${BASE}/prod/upload?source=perso`, { method: 'POST', body: xlsx, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': 'old.xlsx' } }).then((x) => x.json());
       assert.equal(up.rows, 34); assert.equal(up.added, 0); assert.equal(up.days, 2);
+      // 🧠 learned: speeds, OEE, accuracy and patterns from the runs, and the same as a workbook
+      const learnt = await call('GET', '/plan/learn?days=30&to=2026-10-10');
+      assert.ok(learnt.runs.used > 0 && learnt.runs.used <= learnt.runs.total, 'the runs kept, anomalies out');
+      assert.ok(Array.isArray(learnt.speeds) && Array.isArray(learnt.oee) && Array.isArray(learnt.findings) && learnt.patterns.shift.length && learnt.patterns.size.length);
+      assert.equal(learnt.patterns.size.reduce((t, x) => t + x.runs, 0), learnt.runs.used, 'every run in one size band');
+      const lx = await fetch(`${BASE}/plan/learn.xlsx?days=30&to=2026-10-10`);
+      assert.equal(lx.status, 200); assert.ok((await lx.arrayBuffer()).byteLength > 1000);
+      const PL = require('../src/planlearn');
+      assert.equal(PL.wmedian([100, 200, 900], [1, 1, 10]), 900, 'the median weighted by cards');
+      assert.deepEqual(PL.closeness([[100, 110], [100, 200], [100, 90]]).within, 66.7, 'within 25% either way');
       await call('PATCH', '/settings', { kpi_time_perso: '' });
     }
 
