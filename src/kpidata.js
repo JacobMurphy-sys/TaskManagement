@@ -337,23 +337,35 @@ function weeklyVolumes(year) {
   const otd = new Map(db.all(`SELECT week, SUM(CASE WHEN lower(type) = 'internal' THEN qty ELSE 0 END) AS internal,
       SUM(CASE WHEN lower(type) = 'external' THEN qty ELSE 0 END) AS external FROM kpi_rows WHERE source = 'otd' GROUP BY week`).map((r) => [r.week, r]));
   const manual = new Map(db.all('SELECT * FROM kpi_manual').map((r) => [r.week.toUpperCase(), r]));
-  const ratio = (a, b) => (b ? a / b : null);
+  const adjust = new Map();
+  for (const r of db.all('SELECT * FROM kpi_overrides WHERE week LIKE ?', [`W${String(year).slice(2)}%`])) {
+    const wk = r.week.toUpperCase(); if (!adjust.has(wk)) adjust.set(wk, new Map()); adjust.get(wk).set(r.col, r);
+  }
   for (const w of weeks) {
     const o = otd.get(w.week);
     w.otd_internal = k(o?.internal); w.otd_external = k(o?.external);
-    w.otd_sc = w.shipped_total ? 1 - w.otd_internal / w.shipped_total : null;
-    w.otd_global = w.shipped_total ? 1 - (w.otd_internal + w.otd_external) / w.shipped_total : null;
     const m = manual.get(w.week) || {};
     // hours from the Protime counts when typed (worked out again, so a change of rule applies to every week)
     w.hours = m.protime ? hoursFromProtime(JSON.parse(m.protime)) ?? m.hours ?? null : m.hours ?? null; w.contract = m.contract ?? null; w.temps = m.temps ?? null;
     w.cc_critical = m.cc_critical ?? null; w.cc_major = m.cc_major ?? null; w.cc_minor = m.cc_minor ?? null;
-    // complaints not typed in count as none (0)
-    w.complaints = (w.cc_critical || 0) + (w.cc_major || 0) + (w.cc_minor || 0);
-    w.cpms = w.shipped_total ? (w.complaints / (w.shipped_total * 1000)) * 1e6 : null;
-    w.scrap_rate = ratio(w.scrap / 1000, w.perso_total);
-    w.productivity = w.hours ? (w.perso_total * 1000) / w.hours : null;
-    w.hc = w.contract !== null || w.temps !== null ? (w.contract || 0) + (w.temps || 0) : null;
     w.protime = m.protime ? JSON.parse(m.protime) : null;
+    derive(w);
+    // ✎ figures adjusted by hand: the inputs first, then everything worked out from them again,
+    // then any worked-out figure adjusted itself. w.adjusted: col → { value, computed, reason, by, at };
+    // w.affected: col → its value before the adjustments, for the figures they changed.
+    const adj = adjust.get(w.week);
+    if (adj) {
+      const computed = { ...w };
+      w.adjusted = {};
+      const apply = (cols) => { for (const c of cols) if (adj.has(c)) { const a = adj.get(c); w[c] = a.value; w.adjusted[c] = { value: a.value, computed: computed[c] ?? null, reason: a.reason, by: a.by_name, at: a.updated_at }; } };
+      apply(ADJUSTABLE_INPUTS);
+      derive(w);
+      apply(ADJUSTABLE_TOTALS);
+      derive(w, { totals: false });
+      apply(ADJUSTABLE_DERIVED.filter((c) => !ADJUSTABLE_TOTALS.includes(c)));
+      w.affected = {};
+      for (const c of ADJUSTABLE_DERIVED) if (!w.adjusted[c] && (w[c] ?? null) !== (computed[c] ?? null)) w.affected[c] = computed[c] ?? null;
+    }
   }
   // activity filed under a week code the report doesn't list (weekends in split weeks)
   const listed = new Set(weeks.map((w) => w.week));
@@ -371,6 +383,31 @@ function weeklyVolumes(year) {
       swapped: (() => { const [y, mo, d] = r.day.split('-'); return Number(d) <= 12 && weekCode(`${y}-${d}-${mo}`) === r.typed_week; })() }));
   return { weeks, unlisted, otd_checks: otdChecks, otd_uncounted: otdUncounted };
 }
+
+// The figures worked out from others (totals and KPIs), from a week's inputs.
+// totals: false keeps the totals as they are (adjusted), working out only the KPIs from them.
+function derive(w, { totals = true } = {}) {
+  const ratio = (a, b) => (b ? a / b : null);
+  if (totals) {
+    w.perso_total = (w.perso_ps || 0) + (w.perso_isi || 0);
+    w.shipped_total = (w.shipped_ps || 0) + (w.shipped_isi || 0);
+    // complaints not typed in count as none (0)
+    w.complaints = (w.cc_critical || 0) + (w.cc_major || 0) + (w.cc_minor || 0);
+  }
+  w.otd_sc = w.shipped_total ? 1 - w.otd_internal / w.shipped_total : null;
+  w.otd_global = w.shipped_total ? 1 - (w.otd_internal + w.otd_external) / w.shipped_total : null;
+  w.cpms = w.shipped_total ? (w.complaints / (w.shipped_total * 1000)) * 1e6 : null;
+  w.scrap_rate = ratio(w.scrap / 1000, w.perso_total);
+  w.productivity = w.hours ? (w.perso_total * 1000) / w.hours : null;
+  w.hc = w.contract !== null || w.temps !== null ? (w.contract || 0) + (w.temps || 0) : null;
+  return w;
+}
+// What can be adjusted by hand: the figures read from the sources, and the ones worked out from
+// them (the typed-in figures are simply typed in again).
+const ADJUSTABLE_INPUTS = ['perso_ps', 'perso_isi', 'perso_pin', 'scrap', 'shipped_ps', 'shipped_isi', 'shipped_pin', 'otd_internal', 'otd_external'];
+const ADJUSTABLE_TOTALS = ['perso_total', 'shipped_total', 'complaints'];
+const ADJUSTABLE_DERIVED = [...ADJUSTABLE_TOTALS, 'otd_sc', 'otd_global', 'cpms', 'scrap_rate', 'productivity', 'hc'];
+const ADJUSTABLE = [...ADJUSTABLE_INPUTS, ...ADJUSTABLE_DERIVED];
 
 // The week's top five scrap by customer (the three letters after the first in the
 // work order) and by work order — as the Database sheet's top-5 tables, which take the
@@ -482,4 +519,4 @@ const hoursFromProtime = (days) => {
   return Math.round((all.reduce((a, b) => a + b, 0) * 7.5 + weekdays * 7.5) * 100) / 100;
 };
 
-module.exports = { figureDetail, SOURCES, FORECASTS, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, typedWeekCode, monthIndex, otdRows, topScrap, shippedFor, weekEnd, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };
+module.exports = { ADJUSTABLE, derive, figureDetail, SOURCES, FORECASTS, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, typedWeekCode, monthIndex, otdRows, topScrap, shippedFor, weekEnd, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };

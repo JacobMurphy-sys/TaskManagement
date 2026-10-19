@@ -1702,6 +1702,27 @@ async function waitForServer() {
       await assert.rejects(call('GET', '/history/nothing/1'), /404/);
     }
 
+    // ✎ KPI figures adjusted by hand: used instead of the worked-out figure, which is kept alongside;
+    // the totals and KPIs follow; typed-in figures and weeks that don't exist are refused
+    {
+      const wk = (c) => c.weeks.find((w) => w.week === 'W2639');
+      const before = wk(await call('GET', '/kpi/calc?year=2026'));
+      let w = await call('PUT', '/kpi/overrides/W2639/perso_ps', { value: before.perso_ps + 10, reason: 'Saturday run booked late' });
+      assert.equal(w.perso_ps, before.perso_ps + 10);
+      assert.deepEqual([w.adjusted.perso_ps.computed, w.adjusted.perso_ps.reason], [before.perso_ps, 'Saturday run booked late']);
+      assert.ok(Math.abs(w.perso_total - (before.perso_total + 10)) < 1e-9, 'the total follows');
+      assert.ok('perso_total' in w.affected, 'and is marked as using an adjusted figure');
+      w = await call('PUT', '/kpi/overrides/W2639/perso_total', { value: 200, reason: 'Floor count' });
+      w = await call('PUT', '/kpi/overrides/W2639/scrap', { value: 400, reason: 'Remakes of W2638 counted here' });
+      assert.ok(Math.abs(w.scrap_rate - 400 / 1000 / 200) < 1e-12, 'the KPIs use the adjusted total');
+      await assert.rejects(call('PUT', '/kpi/overrides/W2639/hours', { value: 1, reason: 'x' }), /400/, 'typed-in figures are typed in');
+      await assert.rejects(call('PUT', '/kpi/overrides/W2639/scrap', { value: 1, reason: '  ' }), /400/, 'a reason is needed');
+      await assert.rejects(call('PUT', '/kpi/overrides/W2640/scrap', { value: 1, reason: 'x' }), /split/, 'not a reporting week');
+      assert.match((await call('GET', '/audit?limit=1'))[0].summary, /W2639 scrap adjusted by hand: 400 — Remakes/);
+      for (const c of ['perso_ps', 'perso_total', 'scrap']) w = await call('DELETE', `/kpi/overrides/W2639/${c}`);
+      assert.deepEqual([w.perso_ps, w.perso_total, w.scrap, w.adjusted], [before.perso_ps, before.perso_total, before.scrap, undefined], 'put back: as worked out');
+    }
+
     // 📦 team pack: contacts lists and project lists for everyone, only ever added
     {
       const pack = await (await fetch(`${BASE}/team-pack`)).json();

@@ -649,28 +649,37 @@ function kpiOtdChecksHtml(calc) {
 function kpiTablesHtml(calc, tab) {
   const year = calc.year;
   const xl = calc.excel?.weeks || null;
-  let checked = 0; let differ = 0;
+  let checked = 0; let differ = 0; let adjusted = 0;
   const same = (a, b) => Math.abs((a || 0) - (b || 0)) < 1e-6 * Math.max(1, Math.abs(b || 0));
   const rowHtml = (w, cols, edit = false) => {
     const ex = xl?.[w.week];
     const empty = cols.every(([k]) => !w[k]);
     let rowDiff = false;
+    let rowAdj = false;
     const cells = cols.map(([k, , group, manual], i) => {
       let cls = ''; let title = '';
+      const adj = w.adjusted?.[k]; const aff = w.affected && k in w.affected;
       if (ex && ex[k] !== null && ex[k] !== undefined) {
         checked++;
         if (same(w[k], ex[k])) cls = 'kc-ok';
-        else { cls = 'kc-diff'; differ++; rowDiff = true; title = `Excel: ${kpiFmt(k, ex[k])}`; }
+        else if (!adj) { cls = 'kc-diff'; differ++; rowDiff = true; title = `Excel: ${kpiFmt(k, ex[k])}`; }
       }
+      if (adj) {
+        adjusted++; rowAdj = true;
+        cls = 'kc-adj';
+        title = `✎ Adjusted by hand — worked out from the sources: ${kpiFmt(k, adj.computed) || '—'}\nWhy: ${adj.reason}\n${adj.by ? `By ${adj.by}, ` : ''}${fmtDateTime(adj.at)}${ex && ex[k] !== null && ex[k] !== undefined ? `\nExcel: ${kpiFmt(k, ex[k])}` : ''}`;
+      } else if (aff) { cls += ' kc-affected'; title = [title, `Uses a figure adjusted by hand — without it: ${kpiFmt(k, w.affected[k]) || '—'}`].filter(Boolean).join('\n'); }
       // a click on a figure shows what's behind it (the delays: the OTD report rows)
-      const drill = (k === 'otd_internal' || k === 'otd_external') ? (w[k] ? ` data-kc-otd="${esc(w.week)}"` : '') : ` data-kc-detail="${esc(k)}|${esc(w.week)}"`;
-      return `<td class="num ${cls}${group && i ? ' kc-sep' : ''}${manual ? ' kc-manual' : ''}${drill ? ' kc-click' : ''}"${drill} title="${esc([title, drill ? (drill.includes('otd') ? 'Click: the OTD report rows' : 'Click for the details') : ''].filter(Boolean).join(' · '))}">${kpiFmt(k, w[k])}${cls === 'kc-diff' ? `<span class="kc-was">${esc(kpiFmt(k, ex[k]))}</span>` : ''}</td>`;
+      const drill = (k === 'otd_internal' || k === 'otd_external') ? ` data-kc-otd="${esc(w.week)}|${k}"` : ` data-kc-detail="${esc(k)}|${esc(w.week)}"`;
+      return `<td class="num ${cls}${group && i ? ' kc-sep' : ''}${manual ? ' kc-manual' : ''}${drill ? ' kc-click' : ''}"${drill} title="${esc([title, drill ? (drill.includes('otd') ? 'Click: the OTD report rows' : 'Click for the details') : ''].filter(Boolean).join('\n'))}">${adj ? '<span class="kc-adj-mark">✎</span>' : ''}${kpiFmt(k, w[k])}${adj ? `<span class="kc-was kc-computed">${esc(kpiFmt(k, adj.computed) || '—')}</span>` : cls === 'kc-diff' ? `<span class="kc-was">${esc(kpiFmt(k, ex[k]))}</span>` : ''}</td>`;
     }).join('');
-    return `<tr class="${empty ? 'kc-empty' : ''} ${rowDiff ? 'kc-rowdiff' : ''} ${w.week === calc.excel?.week ? 'kc-current' : ''}"><td>${esc(w.month)}</td><td><b>${esc(w.week)}</b></td>${cells}${edit ? `<td><button class="icon" data-kc-edit="${esc(w.week)}" title="Type in this week's figures">✎</button></td>` : ''}</tr>`;
+    return `<tr class="${empty ? 'kc-empty' : ''} ${rowDiff ? 'kc-rowdiff' : ''} ${rowAdj ? 'kc-rowadj' : ''} ${w.week === calc.excel?.week ? 'kc-current' : ''}"><td>${esc(w.month)}</td><td><b>${esc(w.week)}</b>${rowAdj ? ' <span class="kc-adj-mark" title="Has figures adjusted by hand">✎</span>' : ''}</td>${cells}${edit ? `<td><button class="icon" data-kc-edit="${esc(w.week)}" title="Type in this week's figures">✎</button></td>` : ''}</tr>`;
   };
   const sourceBody = calc.weeks.map((w) => rowHtml(w, KPI_SOURCE_COLS, true)).join('');
-  const sourceChecked = checked; const sourceDiffer = differ;
+  const sourceChecked = checked; const sourceDiffer = differ; const sourceAdjusted = adjusted;
   const kpiBody = calc.weeks.map((w) => rowHtml(w, KPI_KPI_COLS)).join('');
+  const adjShown = tab === 'kpi' ? adjusted - sourceAdjusted : sourceAdjusted;
+  const adjOther = tab === 'kpi' ? sourceAdjusted : adjusted - sourceAdjusted;
   const cols = tab === 'kpi' ? KPI_KPI_COLS : KPI_SOURCE_COLS;
   const shown = tab === 'kpi' ? { checked: checked - sourceChecked, differ: differ - sourceDiffer } : { checked: sourceChecked, differ: sourceDiffer };
   const groups = []; cols.forEach(([, , g]) => { if (g) groups.push({ g, n: 1 }); else groups[groups.length - 1].n++; });
@@ -682,14 +691,16 @@ function kpiTablesHtml(calc, tab) {
           ${otherDiffer ? `<span class="small muted">(${otherDiffer} on the ${tab === 'kpi' ? 'Source' : 'KPI'} tab)</span>` : ''}` : ''}
         <div class="spacer"></div>
         ${tab === 'source' && otdIssues ? `<a class="small" href="#/kpi/sources">⚠ ${otdIssues} OTD report row${otdIssues === 1 ? '' : 's'} to check</a>` : ''}
+        ${adjShown || adjOther ? `<span class="kc-adj-summary" title="Figures typed over by hand, with why and who: hover over one, or click it">✎ ${adjShown} figure${adjShown === 1 ? '' : 's'} adjusted by hand${adjOther ? ` <span class="muted">(${adjOther} on the ${tab === 'kpi' ? 'Source' : 'KPI'} tab)</span>` : ''}</span>
+          <label class="small row"><input type="checkbox" id="kc-only-adj" ${store.get('kcOnlyAdj', false) ? 'checked' : ''}> Only weeks with adjustments</label>` : ''}
         <label class="small row"><input type="checkbox" id="kc-only" ${store.get('kcOnly', false) ? 'checked' : ''}> Only weeks that differ</label>
         ${tab === 'source' ? '<button data-kc-copy title="Fill weeks with nothing typed in yet from Excel\'s Database sheet (the loaded week)">⇩ Copy typed-in figures from Excel</button>' : ''}</div>
       <details class="kc-about" ${store.get('kcAbout', false) ? 'open' : ''}><summary class="small muted">ⓘ About this table</summary><p class="small muted">${tab === 'source'
-        ? `Volumes in kU (thousands), scrap in units. Delays come from the OTD report (click one to see its rows). <span class="kc-manual-key">Shaded</span> columns are typed in each week with ✎ — HR (hours from Protime) and complaints (until the Salesforce export is ready).`
+        ? `Volumes in kU (thousands), scrap in units. Delays come from the OTD report (click one to see its rows). <span class="kc-manual-key">Shaded</span> columns are typed in each week with ✎ — HR (hours from Protime) and complaints (until the Salesforce export is ready). <span class="kc-adj-key">✎ Outlined</span> figures were adjusted by hand (click one to adjust it, or to put the worked-out figure back): the worked-out figure is underneath, and the totals and KPIs follow; <span class="kc-affected-key">dotted</span> ones use an adjusted figure.`
         : 'OTD SC = 1 − internal delays ÷ cards shipped (OTD Global includes external delays) · CPMS = complaints per million cards shipped · Scrap % = scrap ÷ cards persoed · Productivity = cards persoed per working hour · Headcount = contract + temps.'}
         ${calc.excel ? (xl ? ` Checked against Excel's Database sheet (${esc(calc.excel.week)}, loaded ${esc(fmtDateTime(calc.excel.loaded_at))}): green = same, red = different, with Excel's figure underneath.` : ' Load the week again on the A3 tab to check these against Excel.') : ' Load a week on the A3 tab to check these against Excel.'}
 </p></details>
-      <div class="kc-wrap"><table class="log kc-table kc-compact ${tab === 'kpi' ? 'kc-kpi' : ''} ${store.get('kcOnly', false) ? 'kc-only' : ''}" id="kc-table"><thead>
+      <div class="kc-wrap"><table class="log kc-table kc-compact ${tab === 'kpi' ? 'kc-kpi' : ''} ${store.get('kcOnly', false) ? 'kc-only' : ''} ${store.get('kcOnlyAdj', false) && (adjShown || adjOther) ? 'kc-only-adj' : ''}" id="kc-table"><thead>
         <tr><th></th><th></th>${groups.map((g, i) => `<th colspan="${g.n}" class="kc-group${i ? ' kc-sep' : ''}">${esc(g.g)}</th>`).join('')}${tab === 'source' ? '<th></th>' : ''}</tr>
         <tr><th>Month</th><th>Week</th>${cols.map(([, l, g, manual], i) => `<th class="num${g && i ? ' kc-sep' : ''}${manual ? ' kc-manual' : ''}">${esc(l)}</th>`).join('')}${tab === 'source' ? '<th></th>' : ''}</tr></thead>
         <tbody>${tab === 'kpi' ? kpiBody : sourceBody}</tbody></table></div>`;
@@ -698,11 +709,12 @@ function wireKpiTables() {
   $('#kc-year')?.addEventListener('change', (e) => { store.set('kpiYear', Number(e.target.value)); route(); });
   $('.kc-about')?.addEventListener('toggle', (e) => store.set('kcAbout', e.target.open));
   $('#kc-only')?.addEventListener('change', (e) => { store.set('kcOnly', e.target.checked); $('#kc-table').classList.toggle('kc-only', e.target.checked); });
+  $('#kc-only-adj')?.addEventListener('change', (e) => { store.set('kcOnlyAdj', e.target.checked); $('#kc-table').classList.toggle('kc-only-adj', e.target.checked); });
 }
 // Clicks in the tables; true when handled.
 async function kpiTablesClick(e, calc) {
   const od = e.target.closest('[data-kc-otd]');
-  if (od) { kpiOtdRows(od.dataset.kcOtd); return true; }
+  if (od) { const [week, col] = od.dataset.kcOtd.split('|'); kpiOtdRows(week, col, calc.weeks.find((w) => w.week === week)); return true; }
   const fd = e.target.closest('[data-kc-detail]');
   if (fd) { const [col, week] = fd.dataset.kcDetail.split('|'); kpiFigureDetail(col, week, calc); return true; }
   const ed = e.target.closest('[data-kc-edit]');
@@ -946,7 +958,57 @@ async function kpiFigureDetail(col, week, calc) {
     }
   }
   openModal(`<div class="modal-head"><h2 style="margin:0">${esc(label)} <span class="muted">· ${esc(week)}</span></h2><button class="icon" data-action="close-modal">✕</button></div>
-    ${body}<div class="row" style="margin-top:12px"><div class="spacer"></div><button onclick="closeModal()">Close</button></div>`, { wide: true });
+    ${kpiAdjustHtml(col, w)}${body}<div class="row" style="margin-top:12px"><div class="spacer"></div><button onclick="closeModal()">Close</button></div>`, { wide: true });
+  wireKpiAdjust(col, week, w);
+}
+
+// ✎ Adjusting a worked-out figure by hand: the value used instead, and why (required). Shown in
+// the figure's details; the Database marks it, keeps the worked-out figure alongside, and the
+// totals and KPIs (and the A3s built afterwards) use it. Typed-in figures are typed in with ✎.
+const KPI_ADJUSTABLE = ['perso_ps', 'perso_isi', 'perso_pin', 'scrap', 'shipped_ps', 'shipped_isi', 'shipped_pin', 'otd_internal', 'otd_external',
+  'perso_total', 'shipped_total', 'complaints', 'otd_sc', 'otd_global', 'cpms', 'scrap_rate', 'productivity', 'hc'];
+// the unit it's typed in: shown as, and to the stored value
+const kpiAdjUnit = (col) => (KPI_PCT[col] !== undefined ? { unit: '%', to: (v) => v / 100, from: (v) => v * 100 }
+  : /^(perso|shipped)_|^otd_(internal|external)$/.test(col) ? { unit: 'kU', to: (v) => v, from: (v) => v }
+    : { unit: { scrap: 'cards', cpms: 'per million', productivity: 'cards/h', hc: 'people', complaints: 'complaints' }[col] || '', to: (v) => v, from: (v) => v });
+function kpiAdjustHtml(col, w) {
+  if (!KPI_ADJUSTABLE.includes(col)) return '';
+  const a = w.adjusted?.[col]; const u = kpiAdjUnit(col);
+  const val = a ? a.value : w[col];
+  const shown = val === null || val === undefined ? '' : Math.round(u.from(val) * 10000) / 10000;
+  const form = `<div class="kfa-form" ${a ? 'hidden' : ''} id="kfa-form">
+      <div class="row" style="align-items:flex-end;gap:8px;flex-wrap:wrap"><label class="f" style="max-width:200px"><span>Use this figure, in ${esc(u.unit)}</span><input type="number" step="any" id="kfa-value" value="${esc(shown)}"></label>
+        <label class="f" style="flex:1;min-width:240px"><span>Why (shown with the figure)</span><input type="text" id="kfa-reason" maxlength="500" value="${esc(a?.reason || '')}" placeholder="e.g. 2,400 cards booked in W2641 were run in this week"></label>
+        <button class="primary" data-kfa="save">Save</button>${a ? '<button data-kfa="cancel">Cancel</button>' : ''}</div></div>`;
+  if (a) {
+    return `<div class="kfa kfa-on" id="kfa"><div><b>✎ Adjusted by hand:</b> ${esc(kpiFmt(col, a.value))} is used instead of the worked-out ${esc(kpiFmt(col, a.computed) || '—')}.
+        <div class="small">Why: ${esc(a.reason)}</div><div class="small muted">${a.by ? `By ${esc(a.by)}, ` : ''}${esc(fmtDateTime(a.at))} · the totals and KPIs follow it</div></div>
+      <div class="row" style="margin-top:6px"><button class="small" data-kfa="edit">Change</button><button class="small" data-kfa="remove">Put the worked-out figure back</button></div>${form}</div>`;
+  }
+  return `<div class="kfa" id="kfa"><button class="small" data-kfa="open" ${a ? 'hidden' : ''}>✎ Adjust this figure by hand…</button>${form.replace('id="kfa-form"', 'id="kfa-form" hidden')}</div>`;
+}
+function wireKpiAdjust(col, week, w) {
+  const box = $('#kfa'); if (!box) return;
+  const u = kpiAdjUnit(col);
+  box.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-kfa]'); if (!b) return;
+    const what = b.dataset.kfa;
+    if (what === 'open' || what === 'edit') { $('#kfa-form').hidden = false; b.hidden = true; $('#kfa-value').focus(); return; }
+    if (what === 'cancel') { $('#kfa-form').hidden = true; return; }
+    try {
+      if (what === 'save') {
+        const raw = $('#kfa-value').value.trim(); const reason = $('#kfa-reason').value.trim();
+        if (raw === '' || !Number.isFinite(Number(raw))) { toast('Type the figure to use', 'error'); return; }
+        if (!reason) { toast('Say why it\'s adjusted — it shows with the figure', 'error'); $('#kfa-reason').focus(); return; }
+        await api.put(`/kpi/overrides/${encodeURIComponent(week)}/${col}`, { value: u.to(Number(raw)), reason });
+        toast(`${week}: adjusted — the totals and KPIs follow`);
+      } else if (what === 'remove') {
+        await api.del(`/kpi/overrides/${encodeURIComponent(week)}/${col}`);
+        toast(`${week}: the worked-out figure is back`);
+      }
+      closeModal(); route();
+    } catch (err) { toast(err.message, 'error'); }
+  });
 }
 
 // The Salesforce cases opened in the week (of the severity clicked), each with what Salesforce holds.
@@ -973,10 +1035,10 @@ function kpiCasesHtml(d, col, w) {
 }
 
 // The OTD report rows behind a week's delays.
-async function kpiOtdRows(week) {
+async function kpiOtdRows(week, col = null, w = null) {
   const rows = await api.get(`/kpi/calc/otd?week=${encodeURIComponent(week)}`);
   const sum = (t) => rows.filter((r) => String(r.type || '').toLowerCase() === t).reduce((a, r) => a + (r.qty || 0), 0);
-  openModal(`<h2>OTD report — ${esc(week)}</h2>
+  openModal(`<h2>OTD report — ${esc(week)}${col ? ` <span class="muted small">· ${col === 'otd_internal' ? 'internal' : 'external'} delays</span>` : ''}</h2>${col && w ? kpiAdjustHtml(col, w) : ''}
     <p class="small muted">Rows counted in ${esc(week)}: the week typed in the report's Week column. Internal ${sum('internal').toLocaleString('en-GB')} · External ${sum('external').toLocaleString('en-GB')}.
       Rows whose Type is neither Internal nor External aren't added up.</p>
     <table class="log small"><thead><tr><th>Customer</th><th class="num">Volume</th><th>Type</th><th>Date</th><th>Week typed</th><th>Month</th><th>Reason</th></tr></thead><tbody>
@@ -984,6 +1046,7 @@ async function kpiOtdRows(week) {
         <td>${esc(r.date || '')}${r.date && r.date_week && r.date_week !== week ? ` <span class="chip overdue" title="This date is in ${esc(r.date_week)}">≠ week</span>` : ''}</td>
         <td>${esc(r.week_typed ?? '')}</td><td>${esc(r.month ?? '')}</td><td>${esc(r.reason || '')}</td></tr>`).join('')}</tbody></table>
     <div class="row" style="margin-top:12px"><div class="spacer"></div><button onclick="closeModal()">Close</button></div>`, { wide: true });
+  if (col && w) wireKpiAdjust(col, week, w);
 }
 
 // Builds (or rebuilds) a week's A3 from the source figures and shows it.

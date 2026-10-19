@@ -14,6 +14,7 @@ const { RECURRENCES } = require('./schema');
 const charter = require('./charter');
 const prod = require('./prodactual');
 const planLearn = require('./planlearn');
+const collab = require('./collab');
 
 const router = express.Router();
 
@@ -1507,6 +1508,36 @@ router.put('/kpi/manual/:week', h((req, res) => {
   res.json(row);
 }));
 
+// ✎ Adjusting a figure worked out from the sources, for one week: { value, reason } (value in the
+// Database table's own units: kU for volumes, units for scrap, a fraction for the % KPIs). The
+// figures worked out from it follow; the computed value is kept alongside. DELETE puts it back.
+const overrideTarget = (req) => {
+  const week = String(req.params.week || '').trim().toUpperCase();
+  if (!kpiData.WEEK_RE.test(week)) throw new HttpError(400, 'Not a week code');
+  const col = String(req.params.col || '');
+  if (!kpiData.ADJUSTABLE.includes(col)) throw new HttpError(400, `${col} can't be adjusted here${kpiData.MANUAL_FIELDS.includes(col) ? ' — it\'s typed in with ✎ on the week' : ''}`);
+  const year = 2000 + Number(week.slice(1, 3));
+  if (!kpiData.weeksOf(year).some((w) => w.week === week)) throw new HttpError(400, `${week} isn't a reporting week${kpiData.weeksOf(year).some((w) => w.week === `${week}_1`) ? ` — it's split: ${week}_1 / ${week}_2` : ''}`);
+  return { week, col, year };
+};
+router.put('/kpi/overrides/:week/:col', h((req, res) => {
+  const { week, col, year } = overrideTarget(req);
+  const value = Number(String(req.body.value ?? '').replace(',', '.').trim());
+  if (String(req.body.value ?? '').trim() === '' || !Number.isFinite(value)) throw new HttpError(400, 'The adjusted figure must be a number');
+  const reason = String(req.body.reason || '').trim();
+  if (!reason) throw new HttpError(400, 'Say why it\'s adjusted — it shows with the figure');
+  if (reason.length > 500) throw new HttpError(400, 'The reason is limited to 500 characters');
+  const f = { value, reason, by_name: collab.whoOf(req) };
+  const old = db.get('SELECT id FROM kpi_overrides WHERE week = ? AND col = ?', [week, col]);
+  if (old) updateRow('kpi_overrides', old.id, f); else insertRow('kpi_overrides', { week, col, ...f });
+  res.json(kpiData.weeklyVolumes(year).weeks.find((w) => w.week === week) || null);
+}));
+router.delete('/kpi/overrides/:week/:col', h((req, res) => {
+  const { week, col, year } = overrideTarget(req);
+  if (!db.run('DELETE FROM kpi_overrides WHERE week = ? AND col = ?', [week, col]).changes) throw notFound('Adjustment');
+  res.json(kpiData.weeklyVolumes(year).weeks.find((w) => w.week === week) || null);
+}));
+
 // Fills weeks' typed-in figures from Excel's Database sheet (the loaded week), where
 // nothing's been entered here yet — for carrying the year so far over.
 router.post('/kpi/manual/from-excel', h((req, res) => {
@@ -1579,7 +1610,7 @@ router.get('/kpi/prepare', h((req, res) => {
     snap = {
       ...kpiMeta(r), flags: model.flags || [], errors: model.errors || [], template_week: model.template_week || null,
       // built before the latest figures were read or typed in
-      stale: r.origin === 'ci' && [lastRead, manual?.updated_at].some((t) => t && t > r.updated_at),
+      stale: r.origin === 'ci' && [lastRead, manual?.updated_at, db.get("SELECT MAX(changed_at) AS t FROM audit_log WHERE table_name = 'kpi_overrides' AND upper(json_extract(coalesce(new_data, old_data), '$.week')) = ?", [week])?.t].some((t) => t && t > r.updated_at),
       text_edited: textEdited, edits: Object.keys(edits).length,
       text_from: textEdited ? null : db.get('SELECT week FROM kpi_edits WHERE text IS NOT NULL AND week < ? ORDER BY week DESC LIMIT 1', [week])?.week || null,
       saved_current: !!r.exported_at && r.exported_at >= changed,
@@ -3465,6 +3496,11 @@ function describeAudit(e) {
     lookups: 'List item', project_phases: 'Phase', meetings: 'Meeting', attachments: 'Attachment' }[e.table_name] || e.table_name;
   if (e.table_name === 'project_phases' && e.action === 'UPDATE' && e.old_data?.status !== e.new_data?.status) {
     return `Phase "${d.name}" ${e.new_data.status === 'done' ? 'completed ✓' : 'reopened'}`;
+  }
+  if (e.table_name === 'kpi_overrides') {
+    const n = (v) => (v === null || v === undefined ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: 4 }));
+    if (e.action === 'DELETE') return `KPI ${d.week} ${d.col}: adjustment removed (was ${n(d.value)}) — the worked-out figure is back`;
+    return `KPI ${d.week} ${d.col} adjusted by hand: ${e.action === 'UPDATE' ? `${n(e.old_data?.value)} → ` : ''}${n(d.value)} — ${d.reason}`;
   }
   if (e.table_name === 'task_links') {
     const title = (id) => db.get('SELECT title FROM tasks WHERE id = ?', [id])?.title || `task #${id}`;
