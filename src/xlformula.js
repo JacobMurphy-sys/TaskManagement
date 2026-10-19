@@ -289,12 +289,51 @@ function callFn(n, ctx) {
 // The formats conditional formatting gives each cell of `sheet`:
 // Map(ref → { font: {color,b,i,u,strike}, fill: {color}, numFmt }) — what Excel would show.
 // book: from readBook(). Rules Excel can't be checked against cached values are skipped.
+// A number as its number format shows it: rounded to the decimals shown, with % (×100 per %) and
+// thousands scaling (a comma after the last digit: ÷1000 each) taken into account. Other values,
+// General, dates and scientific formats are left as they are. E.g. 0.98049 in 0.0% → 0.98.
+function splitSections(code) {
+  const out = []; let cur = ''; let q = false; let br = 0;
+  for (let i = 0; i < code.length; i++) {
+    const ch = code[i];
+    if (ch === '"' && !br) q = !q;
+    else if (!q && ch === '[') br++;
+    else if (!q && ch === ']') br = Math.max(0, br - 1);
+    else if (!q && !br && ch === '\\') { cur += ch + (code[i + 1] || ''); i++; continue; }
+    if (ch === ';' && !q && !br) { out.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+function displayRounded(v, code) {
+  if (typeof v !== 'number' || !Number.isFinite(v) || !code || /^\s*general\s*$/i.test(code)) return v;
+  const sections = splitSections(code);
+  if (v === 0 || (v < 0 && sections.length > 1 && !sections[1].trim())) return v;
+  const sec = (v < 0 && sections.length > 1 ? sections[1] : sections[0])
+    .replace(/"[^"]*"/g, '').replace(/\\./g, '').replace(/\[[^\]]*\]/g, '').replace(/[_*]./g, '');
+  if (/[eE][+-]/.test(sec) || !/[0#?]/.test(sec) || /[dmyhs]/i.test(sec.replace(/[0#?.,%\s]/g, ''))) return v;
+  const pct = (sec.match(/%/g) || []).length;
+  const decimals = (sec.match(/\.([0#?]+)/)?.[1] || '').length;
+  const scale = (sec.match(/[0#?](,+)(?![,]*[0#?])/)?.[1] || '').length;
+  const factor = 100 ** pct / 1000 ** scale;
+  const p = 10 ** decimals;
+  const shown = Math.round(Number((Math.abs(v) * factor * p).toPrecision(12))) / p;
+  return Math.sign(v) * Number((shown / factor).toPrecision(12));
+}
+
 function conditionalStyles(book, sheet, { now } = {}) {
   const out = new Map();
+  // Rules see the cell they colour as it's shown (rounded to its number format), so a figure that
+  // reads as on target is coloured as on target. Other cells (the targets) are used as they are.
+  let current = null;
+  const fmtOf = (c) => { const xf = c && c.s !== undefined && c.s !== null ? book.styles?.xfs?.[c.s] : null; return xf ? book.styles.numFmts?.[xf.numFmtId] || null : null; };
+  const shownOf = (c) => (c ? (c.t === 'e' ? ERR(c.v) : displayRounded(c.v, fmtOf(c))) : null);
   const cellVal = (name, row, col) => {
     const sh = !name || name === sheet.name ? sheet : book.sheet(name);
     if (!sh) throw ERR('#REF!');
     const c = sh.cells.get(`${colLetters(col)}${row}`);
+    if (sh === sheet && current && current.row === row && current.col === col) return shownOf(c);
     return c ? (c.t === 'e' ? ERR(c.v) : c.v) : null;
   };
   const ctx = { sheet: sheet.name, cell: cellVal, now, bounds: (name) => { const sh = !name || name === sheet.name ? sheet : book.sheet(name); return { rows: sh?.maxRow || 0, cols: sh?.maxCol || 0 }; } };
@@ -371,7 +410,9 @@ function conditionalStyles(book, sheet, { now } = {}) {
     cells.forEach((c, i) => {
       if (stopped.has(c.ref)) return;
       let ok = false;
-      try { ok = test(c, values[i]); } catch { ok = false; }
+      current = c;
+      try { ok = test(c, typeof values[i] === 'number' ? shownOf(sheet.cells.get(c.ref)) : values[i]); } catch { ok = false; }
+      current = null;
       if (!ok) return;
       apply(c.ref, dxf);
       if (rule.stopIfTrue) stopped.add(c.ref);
@@ -410,4 +451,4 @@ function colorScaleOf(xml, values, book) {
   };
 }
 
-module.exports = { evaluate, parse, conditionalStyles, XlError, isErr, compare, toStr, toNum, toBool, criteria };
+module.exports = { displayRounded, evaluate, parse, conditionalStyles, XlError, isErr, compare, toStr, toNum, toBool, criteria };

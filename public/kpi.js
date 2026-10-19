@@ -747,7 +747,9 @@ function kpiReportTablesHtml(snap) {
   const monthIdx = KPI_MONTHS.findIndex((m) => monthName.slice(0, 3).toLowerCase() === m.toLowerCase());
   const targets = { otd: raw('B9'), cpms: raw('B10'), scrap: raw('B11'), prod: raw('B12'), hc: raw('B13') };
   // good / bad against a target (higher or lower is better)
-  const vs = (v, t, higher) => (!isNum(v) || !isNum(t) ? '' : (higher ? v >= t : v <= t) ? 'kdb-ok' : 'kdb-bad');
+  // compared as shown (d decimals, of a % when kind is '%'), so a figure that reads as on target is on target
+  const shownAs = (x, d, kind) => { if (d === undefined || d === null) return x; const f = (kind === '%' ? 100 : 1) * 10 ** d; return Number((Math.round(Number((x * f).toPrecision(12))) / f).toPrecision(12)); };
+  const vs = (v, t, higher, d, kind) => { if (!isNum(v) || !isNum(t)) return ''; const a = shownAs(v, d, kind); return (higher ? a >= t : a <= t) ? 'kdb-ok' : 'kdb-bad'; };
   const sign = (v) => (!isNum(v) ? '' : v < 0 ? 'kdb-bad' : 'kdb-ok');
   const arrow = (v) => { const t = String(v ?? '').trim(); return t === '▲' ? '<span class="kdb-ok">▲</span>' : t === '▼' ? '<span class="kdb-bad">▼</span>' : t === '▬' ? '<span class="kdb-warn">▬</span>' : esc(t); };
   const tile = (label, value, cls = '', sub = '') => `<div class="kdb-tile"><div class="kdb-tile-l">${esc(label)}</div><div class="kdb-tile-v ${cls}">${value}</div>${sub ? `<div class="kdb-tile-s">${sub}</div>` : ''}</div>`;
@@ -760,15 +762,15 @@ function kpiReportTablesHtml(snap) {
   const ROWS = [
     ['Perso (kU)', [[2, 'PS', 1], [3, 'ISI', 1], [4, 'PIN', 1]]],
     ['Shipped (kU)', [[5, 'PS', 1], [6, 'ISI', 1], [7, 'PIN', 1]]],
-    ['OTD', [[8, 'Internal delays (kU)', 1], [9, 'External delays (kU)', 1], [10, 'OTD SC', 1, '%', (v) => vs(v, targets.otd, true)], [11, 'OTD Global', 1, '%', (v) => vs(v, targets.otd, true)]]],
-    ['Quality', [[12, 'Complaints', 0], [13, 'CPMS', 2, 'n', (v) => vs(v, targets.cpms, false)]]],
-    ['Scrap', [[14, 'Scrap (units)', 0], [15, 'Scrap rate', 2, '%', (v) => vs(v, targets.scrap, false)]]],
-    ['HR', [[16, 'Hours worked', 1], [17, 'Productivity', 1, 'n', (v) => vs(v, targets.prod, true)], [18, 'Headcount', 0]]],
+    ['OTD', [[8, 'Internal delays (kU)', 1], [9, 'External delays (kU)', 1], [10, 'OTD SC', 1, '%', (v, d, k) => vs(v, targets.otd, true, d, k)], [11, 'OTD Global', 1, '%', (v, d, k) => vs(v, targets.otd, true, d, k)]]],
+    ['Quality', [[12, 'Complaints', 0], [13, 'CPMS', 2, 'n', (v, d, k) => vs(v, targets.cpms, false, d, k)]]],
+    ['Scrap', [[14, 'Scrap (units)', 0], [15, 'Scrap rate', 2, '%', (v, d, k) => vs(v, targets.scrap, false, d, k)]]],
+    ['HR', [[16, 'Hours worked', 1], [17, 'Productivity', 1, 'n', (v, d, k) => vs(v, targets.prod, true, d, k)], [18, 'Headcount', 0]]],
   ];
   const wkBody = ROWS.map(([group, rows]) => `<tr class="kdb-group-row"><td colspan="${weekCols.length + 2}">${esc(group)}</td></tr>`
     + rows.map(([r, label, d, kind = 'n', cls]) => `<tr><td>${esc(label)}</td>${[...weekCols, 'J'].map((c) => {
       const v = raw(`${c}${r}`);
-      return `<td class="num${raw(`${c}1`) === week ? ' kdb-now' : ''} ${cls ? cls(v) : ''}">${fmt(v, c === 'J' && r === 18 ? 1 : d, kind)}</td>`;
+      return `<td class="num${raw(`${c}1`) === week ? ' kdb-now' : ''} ${cls ? cls(v, c === 'J' && r === 18 ? 1 : d, kind) : ''}">${fmt(v, c === 'J' && r === 18 ? 1 : d, kind)}</td>`;
     }).join('')}</tr>`).join('')).join('');
   const theWeek = `<div class="kdb-tiles">
       ${tile('Reporting week', esc(week || '–'), '', esc(`${monthName} ${raw('B4') || ''}`))}
@@ -776,9 +778,9 @@ function kpiReportTablesHtml(snap) {
       ${tile('OTD target', fmt(targets.otd, 1, '%'))}${tile('CPMS target', fmt(targets.cpms, 2))}${tile('Scrap rate target', fmt(targets.scrap, 2, '%'))}
       ${tile('Productivity target', fmt(targets.prod, 0))}${tile('Headcount target', fmt(targets.hc, 0))}</div>
     <div class="kdb-tiles">
-      ${tile('OTD SC — year to date', fmt(raw('U22'), 1, '%'), vs(raw('U22'), targets.otd, true))}${tile('OTD customer — year to date', fmt(raw('U23'), 1, '%'), vs(raw('U23'), targets.otd, true))}
-      ${tile('CPMS — year to date', fmt(raw('U24'), 2), vs(raw('U24'), targets.cpms, false))}${tile('Scrap rate — year to date', fmt(raw('U25'), 2, '%'), vs(raw('U25'), targets.scrap, false))}
-      ${tile('Productivity — year to date', fmt(raw('U26'), 1), vs(raw('U26'), targets.prod, true))}</div>
+      ${tile('OTD SC — year to date', fmt(raw('U22'), 1, '%'), vs(raw('U22'), targets.otd, true, 1, '%'))}${tile('OTD customer — year to date', fmt(raw('U23'), 1, '%'), vs(raw('U23'), targets.otd, true, 1, '%'))}
+      ${tile('CPMS — year to date', fmt(raw('U24'), 2), vs(raw('U24'), targets.cpms, false, 2, 'n'))}${tile('Scrap rate — year to date', fmt(raw('U25'), 2, '%'), vs(raw('U25'), targets.scrap, false, 2, '%'))}
+      ${tile('Productivity — year to date', fmt(raw('U26'), 1), vs(raw('U26'), targets.prod, true, 1, 'n'))}</div>
     ${card('This month, week by week', table(wkHead, wkBody, 'kdb-weeks'), 'green / red: against the targets')}`;
 
   // ---- customers
@@ -825,21 +827,21 @@ function kpiReportTablesHtml(snap) {
   const qCols = cols('Z', 12);
   const qRow = (label, r, d, kind, ytdRef, cls) => `<tr><td>${esc(label)}</td>${qCols.map((c, i) => {
     const v = raw(`${c}${r}`);
-    return `<td class="num${i === monthIdx ? ' kdb-now' : ''} ${i > monthIdx ? '' : cls ? cls(v) : ''}">${i > monthIdx && monthIdx >= 0 ? '<span class="muted">–</span>' : fmt(v, d, kind)}</td>`;
+    return `<td class="num${i === monthIdx ? ' kdb-now' : ''} ${i > monthIdx ? '' : cls ? cls(v, d, kind) : ''}">${i > monthIdx && monthIdx >= 0 ? '<span class="muted">–</span>' : fmt(v, d, kind)}</td>`;
   }).join('')}<td class="num"><b>${fmt(raw(ytdRef), d, kind)}</b></td></tr>`;
-  const qBody = `<tr class="kdb-group-row"><td colspan="14">Quality</td></tr>${qRow('CPMS', 22, 2, 'n', 'AL24', (v) => vs(v, targets.cpms, false))}${qRow('Complaints', 23, 0, 'n', 'AL23')}
-    <tr class="kdb-group-row"><td colspan="14">On-time delivery</td></tr>${qRow('OTD SC', 28, 1, '%', 'AL30', (v) => vs(v, targets.otd, true))}${qRow('OTD customer', 29, 1, '%', 'AL31', (v) => vs(v, targets.otd, true))}
+  const qBody = `<tr class="kdb-group-row"><td colspan="14">Quality</td></tr>${qRow('CPMS', 22, 2, 'n', 'AL24', (v, d, k) => vs(v, targets.cpms, false, d, k))}${qRow('Complaints', 23, 0, 'n', 'AL23')}
+    <tr class="kdb-group-row"><td colspan="14">On-time delivery</td></tr>${qRow('OTD SC', 28, 1, '%', 'AL30', (v, d, k) => vs(v, targets.otd, true, d, k))}${qRow('OTD customer', 29, 1, '%', 'AL31', (v, d, k) => vs(v, targets.otd, true, d, k))}
     ${qRow('Internal delays (kU)', 33, 1, 'n', 'AL33')}${qRow('External delays (kU)', 34, 1, 'n', 'AL34')}${qRow('Total delays (kU)', 35, 1, 'n', 'AL35')}`;
   const quality = card('Quality and delivery by month', table(monthHead.replace('>Year<', '>Year to date<'), qBody, 'kdb-months'));
   const oCols = cols('M', 12);
   const oRow = (label, r, d) => `<tr><td>${esc(label)}</td>${oCols.map((c, i) => `<td class="num${i === monthIdx ? ' kdb-now' : ''}">${monthIdx >= 0 && i > monthIdx ? '<span class="muted">–</span>' : fmt(raw(`${c}${r}`), d)}</td>`).join('')}<td class="num"><b>${fmt(raw(`Y${r}`), d)}</b></td></tr>`;
   const overview = card('Monthly overview', table(monthHead, `${oRow('Shipped (kU)', 51, 1)}${oRow('Persoed (kU)', 52, 1)}${oRow('Remakes (units)', 53, 0)}${oRow('Hours', 54, 1)}`, 'kdb-months'));
   const gCols = cols('E', 5).filter((c) => raw(`${c}42`));
-  const G = [['OTD SC', 43, 1, '%', (v) => vs(v, targets.otd, true)], ['OTD target', 44, 1, '%'], ['Complaints — minor', 45, 0], ['Complaints — major', 46, 0], ['Complaints — critical', 47, 0],
-    ['CPMS', 48, 2, 'n', (v) => vs(v, targets.cpms, false)], ['CPMS target', 49, 2], ['Scrap rate', 50, 2, '%', (v) => vs(v, targets.scrap, false)], ['Scrap target', 51, 2, '%'],
-    ['Productivity', 52, 1, 'n', (v) => vs(v, targets.prod, true)], ['Productivity target', 53, 0], ['Contract', 54, 0], ['Temps', 55, 0], ['HC target', 56, 0]];
+  const G = [['OTD SC', 43, 1, '%', (v, d, k) => vs(v, targets.otd, true, d, k)], ['OTD target', 44, 1, '%'], ['Complaints — minor', 45, 0], ['Complaints — major', 46, 0], ['Complaints — critical', 47, 0],
+    ['CPMS', 48, 2, 'n', (v, d, k) => vs(v, targets.cpms, false, d, k)], ['CPMS target', 49, 2], ['Scrap rate', 50, 2, '%', (v, d, k) => vs(v, targets.scrap, false, d, k)], ['Scrap target', 51, 2, '%'],
+    ['Productivity', 52, 1, 'n', (v, d, k) => vs(v, targets.prod, true, d, k)], ['Productivity target', 53, 0], ['Contract', 54, 0], ['Temps', 55, 0], ['HC target', 56, 0]];
   const graphs = card('KPI chart data — the last 5 weeks on the A3 charts', table(`<th></th>${gCols.map((c) => `<th class="num${raw(`${c}42`) === week ? ' kdb-now' : ''}">${esc(raw(`${c}42`))}</th>`).join('')}`,
-    G.map(([label, r, d, kind = 'n', cls]) => `<tr${/target/i.test(label) ? ' class="kdb-target-row"' : ''}><td>${esc(label)}</td>${gCols.map((c) => { const v = raw(`${c}${r}`); return `<td class="num${raw(`${c}42`) === week ? ' kdb-now' : ''} ${cls ? cls(v) : ''}">${fmt(v, d, kind)}</td>`; }).join('')}</tr>`).join('')));
+    G.map(([label, r, d, kind = 'n', cls]) => `<tr${/target/i.test(label) ? ' class="kdb-target-row"' : ''}><td>${esc(label)}</td>${gCols.map((c) => { const v = raw(`${c}${r}`); return `<td class="num${raw(`${c}42`) === week ? ' kdb-now' : ''} ${cls ? cls(v, d, kind) : ''}">${fmt(v, d, kind)}</td>`; }).join('')}</tr>`).join('')));
 
   const groups = [
     ['The week', theWeek], ['Customers', customers], ['Forecast & budget', forecast], ['Trend arrows', trends],

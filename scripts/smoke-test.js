@@ -1723,6 +1723,22 @@ async function waitForServer() {
       assert.deepEqual([w.perso_ps, w.perso_total, w.scrap, w.adjusted], [before.perso_ps, before.perso_total, before.scrap, undefined], 'put back: as worked out');
     }
 
+    // conditional formats see the figure as it's shown: 0.454% shows as 0.45% — on a 0.45% target
+    {
+      const X = require('../src/xlformula');
+      assert.equal(X.displayRounded(0.005465, '0.00%'), 0.0055);
+      assert.equal(X.displayRounded(-0.3989, '#,##0.0\\K;\\-#,##0.0\\K'), -0.4);
+      assert.equal(X.displayRounded(1234567, '#,##0,'), 1235000, 'thousands scaling');
+      assert.equal(X.displayRounded(162.69, 'General'), 162.69);
+      assert.equal(X.displayRounded(45000, 'dd/mm/yyyy'), 45000, 'dates as they are');
+      const cfAt = (v) => X.conditionalStyles({ styles: { xfs: [{ numFmtId: 10 }], numFmts: { 10: '0.00%' }, dxfs: [{ font: { color: 'FF00B050' } }, { font: { color: 'FFFF0000' } }] }, sheet: () => null },
+        { name: 'A3', maxRow: 2, maxCol: 1, cells: new Map([['A1', { v, s: 0, row: 1, col: 1 }], ['A2', { v: 0.0045, row: 2, col: 1 }]]), cf: [
+          { type: 'expression', formulas: ['A1<=A2'], ranges: [{ top: 1, bottom: 1, left: 1, right: 1 }], dxfId: 0 },
+          { type: 'cellIs', operator: 'greaterThan', formulas: ['$A$2'], ranges: [{ top: 1, bottom: 1, left: 1, right: 1 }], dxfId: 1 }] }).get('A1')?.font?.color;
+      assert.equal(cfAt(0.00454), 'FF00B050', 'reads 0.45%: on target');
+      assert.equal(cfAt(0.00455), 'FFFF0000', 'reads 0.46%: over');
+    }
+
     // 📦 team pack: contacts lists and project lists for everyone, only ever added
     {
       const pack = await (await fetch(`${BASE}/team-pack`)).json();
