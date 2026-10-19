@@ -1174,7 +1174,8 @@ async function waitForServer() {
       assert.equal(yr.weeks.find((w) => w.week === 'W2614_1').a3, null);
       const built = await call('POST', '/kpi/build', { week: 'W2614_1' });
       assert.deepEqual([built.week, built.origin, built.source_name], ['W2614_1', 'ci', 'CI Manager']);
-      assert.deepEqual(built.flags.map((f) => f.part), ['text'], 'flags what still comes from the workbook');
+      assert.deepEqual(built.flags.map((f) => f.part), ['text', 'complaints'], 'flags what still comes from the workbook');
+      assert.match(built.flags[1].text, /Customer complaints aren't written up: there's no "CC Week:"/, 'and that this template has nowhere for the complaints');
       const bsnap = await call('GET', `/kpi/snapshots/${built.id}`);
       assert.equal(cellAt(bsnap.views.a3, 1, 1)[2], 'W2614_1', 'the A3 recalculated for that week');
       assert.equal(bsnap.values.B2, 'W2614_1');
@@ -1737,6 +1738,16 @@ async function waitForServer() {
           { type: 'cellIs', operator: 'greaterThan', formulas: ['$A$2'], ranges: [{ top: 1, bottom: 1, left: 1, right: 1 }], dxfId: 1 }] }).get('A1')?.font?.color;
       assert.equal(cfAt(0.00454), 'FF00B050', 'reads 0.45%: on target');
       assert.equal(cfAt(0.00455), 'FFFF0000', 'reads 0.46%: over');
+    }
+
+    // 📝 the complaints write-up's cell and merge added to the template's sheet XML, in order
+    {
+      const K = require('../src/kpi');
+      const xml = '<worksheet><sheetData><row r="9"><c r="B9"/></row><row r="10" ht="46"><c r="B10" s="1"/><c r="AE10"/></row><row r="12"><c r="Y12"/></row></sheetData><mergeCells count="1"><mergeCell ref="A1:B1"/></mergeCells></worksheet>';
+      const out = K.withAdded(xml, { cells: [{ ref: 'Y10', s: 405 }, { ref: 'Y11', s: 3 }], merges: ['Y10:AC11'] });
+      assert.match(out, /<row r="10" ht="46"><c r="B10" s="1"\/><c r="Y10" s="405"\/><c r="AE10"\/><\/row>/, 'in its row, in column order');
+      assert.match(out, /<\/row><row r="11"><c r="Y11" s="3"\/><\/row><row r="12">/, 'a missing row is added in its place');
+      assert.match(out, /<mergeCells count="2"><mergeCell ref="A1:B1"\/><mergeCell ref="Y10:AC11"\/><\/mergeCells>/);
     }
 
     // 📦 team pack: contacts lists and project lists for everyone, only ever added

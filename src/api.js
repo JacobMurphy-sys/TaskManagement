@@ -1410,9 +1410,14 @@ router.post('/kpi/edits/:week/copy', h((req, res) => {
   const week = editWeek(req.params.week);
   const from = String(req.body.from || '').trim().toUpperCase();
   const mine = kpiEdits(week);
+  // boxes the week writes up for itself (the complaints) aren't carried over from another week
+  const snapRow = db.get('SELECT model FROM kpi_snapshots WHERE week = ?', [week]);
+  let own = [];
+  try { own = snapRow ? JSON.parse(zlibSync.gunzipSync(Buffer.from(snapRow.model, 'base64')).toString('utf8')).writeups || [] : []; } catch { own = []; }
   let n = 0;
   for (const e of db.all('SELECT ref, text FROM kpi_edits WHERE week = ? AND text IS NOT NULL', [from])) {
     const ref = e.ref.toUpperCase();
+    if (own.includes(ref)) continue;
     if (mine[ref]?.text !== null && mine[ref]?.text !== undefined) continue;
     setKpiEdit(week, ref, { text: e.text }); n++;
   }
@@ -1665,12 +1670,12 @@ router.post('/kpi/build', h((req, res) => {
   try {
     w = kpi.buildWeek(template, week, {
       weeks: kpiData.weeklyVolumes(year).weeks, topScrap: kpiData.topScrap, shippedFor: kpiData.shippedFor, weekEnd: kpiData.weekEnd, columns: kpiData.DATABASE_COLUMNS,
-      forecasts: forecastFiles(),
+      forecasts: forecastFiles(), complaints: kpiData.complaintsOf,
     }, { a3Sheet: set.kpi_a3_sheet, dbSheet: set.kpi_db_sheet, weekCell: set.kpi_week_cell });
   } catch (err) { throw new HttpError(400, err.message); }
   const row = {
     week, year: w.year, month: w.month, source_name: 'CI Manager', source_modified: null, origin: 'ci', updated_at: nowIso(), exported_at: null, exported_to: null,
-    model: zlibSync.gzipSync(JSON.stringify({ views: w.views, values: w.values, sheets: w.sheets, errors: w.errors, flags: w.flags, template_week: w.template_week })).toString('base64'),
+    model: zlibSync.gzipSync(JSON.stringify({ views: w.views, values: w.values, sheets: w.sheets, errors: w.errors, flags: w.flags, template_week: w.template_week, writeups: w.writeups })).toString('base64'),
     pkg: w.pkg.toString('base64'),
   };
   const saved = old ? fresh('kpi_snapshots', updateRow('kpi_snapshots', old.id, row)) : insertRow('kpi_snapshots', row);

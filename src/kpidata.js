@@ -494,6 +494,15 @@ function figureDetail(week, col) {
     contract: m.contract, temps: m.temps, cc_critical: m.cc_critical, cc_major: m.cc_major, cc_minor: m.cc_minor, created_at: m.created_at, updated_at: m.updated_at } : null };
 }
 
+// The Salesforce cases opened in a week, in the order opened: [{ customer, summary, severity, ref }],
+// or null when the Salesforce export hasn't been read.
+function complaintsOf(week) {
+  ensure();
+  if (!db.get("SELECT 1 FROM kpi_sources WHERE source = 'salesforce'")) return null;
+  return db.all("SELECT day, customer, type, extra FROM kpi_rows WHERE source = 'salesforce' AND week = ? ORDER BY day, rowid", [String(week).toUpperCase()])
+    .map((r) => { const e = JSON.parse(r.extra || '{}'); return { customer: r.customer, summary: e.summary ?? null, severity: r.type, ref: e.ref ?? null, opened: r.day }; });
+}
+
 function sourcesStatus() {
   ensure();
   const have = Object.fromEntries(db.all('SELECT * FROM kpi_sources').map((r) => [r.source, r]));
@@ -519,4 +528,4 @@ const hoursFromProtime = (days) => {
   return Math.round((all.reduce((a, b) => a + b, 0) * 7.5 + weekdays * 7.5) * 100) / 100;
 };
 
-module.exports = { ADJUSTABLE, derive, figureDetail, SOURCES, FORECASTS, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, typedWeekCode, monthIndex, otdRows, topScrap, shippedFor, weekEnd, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };
+module.exports = { complaintsOf, ADJUSTABLE, derive, figureDetail, SOURCES, FORECASTS, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, typedWeekCode, monthIndex, otdRows, topScrap, shippedFor, weekEnd, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };

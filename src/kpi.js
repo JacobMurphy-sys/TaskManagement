@@ -99,7 +99,7 @@ function sheetView(book, sheet, cf, { maxRows = 600, maxCols = 80 } = {}) {
     const decoration = [(over.font?.u || font.u) && 'underline', (over.font?.strike || font.strike) && 'line-through'].filter(Boolean).join(' ');
     const rule = [
       `font-family:${wingdings ? 'Wingdings, "Segoe UI Emoji", sans-serif' : `"${(font.name || 'Calibri').replace(/"/g, '')}", Calibri, Arial, sans-serif`}`,
-      `font-size:${font.sz || 11}pt`, (over.font?.b ?? font.b) ? 'font-weight:700' : '', (over.font?.i ?? font.i) ? 'font-style:italic' : '',
+      `font-size:${over.font?.sz || font.sz || 11}pt`, (over.font?.b ?? font.b) ? 'font-weight:700' : '', (over.font?.i ?? font.i) ? 'font-style:italic' : '',
       decoration ? `text-decoration:${decoration}` : '', color ? `color:#${color}` : '', fillColor ? `background:#${fillColor}` : '',
       `justify-content:${{ left: 'flex-start', right: 'flex-end', center: 'center', centerContinuous: 'center', fill: 'flex-start', justify: 'flex-start', distributed: 'center' }[h] || 'flex-start'}`,
       `text-align:${h === 'right' ? 'right' : h === 'center' || h === 'centerContinuous' ? 'center' : 'left'}`,
@@ -244,6 +244,7 @@ function makeStyleBaker(stylesXml, book) {
         let f = fonts[Number(attr(xf.match(/^<xf\b[^>]*>/)[0], 'fontId') || 0)] || '<font/>';
         if (f.endsWith('/>')) f = f.replace(/\/>$/, '></font>');
         if (over.font.color) f = /<color\b[^>]*\/>/.test(f) ? f.replace(/<color\b[^>]*\/>/, colorTag(over.font.color)) : f.replace(/(<name\b|<family\b|<charset\b|<scheme\b|<\/font>)/, `${colorTag(over.font.color)}$1`);
+        if (over.font.sz) f = /<sz\b[^>]*\/>/.test(f) ? f.replace(/<sz\b[^>]*\/>/, `<sz val="${over.font.sz}"/>`) : f.replace(/(<color\b|<name\b|<family\b|<charset\b|<scheme\b|<\/font>)/, `<sz val="${over.font.sz}"/>$1`);
         if (over.font.b && !/<b\s*\/>|<b val="1"\/>/.test(f)) f = f.replace(/^<font\b[^>]*>/, (m) => `${m}<b/>`);
         if (over.font.i && !/<i\s*\/>/.test(f)) f = f.replace(/(<\/?(?:strike|condense|extend|outline|shadow|u|vertAlign|sz|color|name|family|charset|scheme)\b)/, '<i/>$1');
         if (over.font.strike && !/<strike\b/.test(f)) f = f.replace(/(<(?:condense|extend|outline|shadow|u|vertAlign|sz|color|name|family|charset|scheme)\b)/, '<strike/>$1');
@@ -346,10 +347,83 @@ function applyEdits(pkg, edits, kinds = {}) {
 // A workbook with only the A3: values instead of formulas, conditional format colours
 // written in as plain formats, pictures kept and each chart a placeholder that
 // exportA3() swaps for a picture of it.
+// Cells and merges a built A3 adds to the template's sheet XML ({ cells: [{ ref, s }], merges: ['Y10:AC11'] }):
+// an empty <c> for each (filled in with the rest), in its row in column order, and the merges.
+function withAdded(xml, { cells = [], merges = [] }) {
+  const colNo = (ref) => [...ref.match(/^[A-Z]+/)[0]].reduce((t, ch) => t * 26 + ch.charCodeAt(0) - 64, 0);
+  for (const { ref, s } of cells) {
+    const row = Number(ref.match(/\d+$/)[0]);
+    const cell = `<c r="${ref}"${s ? ` s="${s}"` : ''}/>`;
+    xml = xml.replace(new RegExp(`<c\\b(?=[^>]*\\sr="${ref}")[^>]*?(?:/>|>[\\s\\S]*?</c>)`), '');
+    const rowRe = new RegExp(`(<row\\b(?=[^>]*\\sr="${row}")[^>]*?)(/>|>([\\s\\S]*?)</row>)`);
+    if (rowRe.test(xml)) {
+      xml = xml.replace(rowRe, (whole, open, end, body = '') => {
+        if (end === '/>') return `${open}>${cell}</row>`;
+        const parts = body.match(/<c\b[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g) || [];
+        const at = parts.findIndex((p) => colNo(p.match(/\sr="([A-Z]+)\d+"/)[1]) > colNo(ref));
+        if (at < 0) parts.push(cell); else parts.splice(at, 0, cell);
+        return `${open}>${parts.join('')}</row>`;
+      });
+    } else {
+      const next = [...xml.matchAll(/<row\b[^>]*\sr="(\d+)"/g)].find((m) => Number(m[1]) > row);
+      const rowXml = `<row r="${row}">${cell}</row>`;
+      xml = next ? xml.slice(0, next.index) + rowXml + xml.slice(next.index) : xml.replace(/<\/sheetData>/, `${rowXml}</sheetData>`).replace(/<sheetData\s*\/>/, `<sheetData>${rowXml}</sheetData>`);
+    }
+  }
+  if (merges.length) {
+    const tags = merges.map((m) => `<mergeCell ref="${m}"/>`).join('');
+    xml = /<mergeCells\b/.test(xml)
+      ? xml.replace(/<mergeCells\b([^>]*)>([\s\S]*?)<\/mergeCells>/, (w, a, body) => `<mergeCells count="${(body.match(/<mergeCell\b/g) || []).length + merges.length}">${body}${tags}</mergeCells>`)
+      : xml.replace(/(<\/sheetData>|<sheetData\s*\/>)/, `$1<mergeCells count="${merges.length}">${tags}</mergeCells>`);
+  }
+  return xml;
+}
+
+// 📝 The week's customer complaints written up on the A3, under the complaint counts: one line
+// each, "Account Name - Summary of the issue", straight from the Salesforce export (the cases
+// opened in the week). The space is found on the sheet: the empty rows under "CC Month:" (or
+// "CC Week:"), from that column to the right edge of the box's heading, until the next label.
+// It becomes one merged cell, top-left, wrapping, in the style of the box's other comments, in
+// the largest size (up to theirs) that fits. Returns { ref, lines, size, fits } or { error }.
+function complaintsWriteUp(book, sheet, cases) {
+  const L = (n) => colLetters(n);
+  let label = null;
+  for (const c of sheet.cells.values()) if (typeof c.v === 'string' && /^\s*CC\s*(Month|Week)\s*:?\s*$/i.test(c.v) && (!label || c.row > label.row)) label = c;
+  if (!label) return { error: 'there\'s no "CC Week:" / "CC Month:" label on the A3 to put it under' };
+  const inMerge = (row, col) => sheet.merges.some((m) => row >= m.top && row <= m.bottom && col >= m.left && col <= m.right);
+  // the right edge: the box's own headings, the merges just above starting in the label's column
+  // (e.g. "Customer Complaints:" and "Compliance" over it), the wider of them
+  const heads = sheet.merges.filter((m) => m.bottom < label.row && m.left === label.col).sort((a, b) => b.top - a.top);
+  const head = heads.filter((m) => heads[0] && m.top >= heads[0].top - 1).sort((a, b) => b.right - a.right)[0];
+  const right = head ? head.right : label.col + 4;
+  const empty = (row) => { for (let col = label.col; col <= right; col++) { const c = sheet.cells.get(`${L(col)}${row}`); if ((c && c.v !== null && c.v !== '') || inMerge(row, col)) return false; } return true; };
+  let bottom = label.row;
+  while (bottom + 1 <= sheet.maxRow && empty(bottom + 1)) bottom++;
+  if (bottom === label.row) return { error: `there's no empty row under ${label.r} to put it in` };
+  const top = label.row + 1;
+  // the style of the box's comments (the first wrapped text below), else the label's
+  let style = label.s;
+  for (let row = bottom + 1; row <= Math.min(sheet.maxRow, bottom + 30) && style === label.s; row++) {
+    const c = sheet.cells.get(`${L(label.col + 1)}${row}`);
+    if (c && typeof c.v === 'string' && !c.f && book.styles.xfs[c.s]?.align?.wrap) style = c.s;
+  }
+  const lines = cases.map((x) => `${String(x.customer || '').trim() || '(no account)'} - ${String(x.summary || '').replace(/\s+/g, ' ').trim() || '(no summary)'}`);
+  // how much fits: the box's width and height against the text, at each size
+  const colW = (col) => { const d = sheet.cols.find((x) => col >= x.min && col <= x.max); return d?.hidden ? 0 : colPx(d?.width || sheet.defaultColWidth || 9.14); };
+  let width = 0; for (let col = label.col; col <= right; col++) width += colW(col);
+  let height = 0; for (let row = top; row <= bottom; row++) height += ptToPx(sheet.rows.get(row)?.ht ?? sheet.defaultRowHeight);
+  const own = book.styles.fonts[book.styles.xfs[style]?.fontId]?.sz || 11;
+  const linesAt = (sz) => lines.reduce((t, l) => t + Math.max(1, Math.ceil((l.length * sz * 0.55 * 96) / 72 / Math.max(40, width - 6))), 0);
+  const sizes = [own, 14, 12, 11, 10, 9, 8].filter((x, i, a) => x <= own && a.indexOf(x) === i);
+  const size = sizes.find((sz) => linesAt(sz) * ((sz * 1.3 * 96) / 72) <= height) || sizes[sizes.length - 1];
+  return { ref: `${L(label.col)}${top}`, range: `${L(label.col)}${top}:${L(right)}${bottom}`, top, bottom, left: label.col, right, style, size, lines,
+    fits: linesAt(size) * ((size * 1.3 * 96) / 72) <= height };
+}
+
 function buildA3Package(book, sheet, cf, { title = 'A3', sheetName = 'Snapshot' } = {}) {
   const z = book.zip;
   const baker = makeStyleBaker(z.text('xl/styles.xml'), book);
-  let xml = sheet.xml;
+  let xml = sheet.added ? withAdded(sheet.xml, sheet.added) : sheet.xml;
   const root = xml.match(/<worksheet\b[^>]*>/)[0];
   const sheetData = xml.match(/<sheetData\s*\/>|<sheetData>[\s\S]*?<\/sheetData>/)[0];
   const newData = sheetData.replace(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g, (whole, attrs) => {
@@ -690,12 +764,30 @@ function buildWeek(buf, week, data, { a3Sheet = 'A3 Weekly Report', dbSheet = 'D
     return spec;
   };
   const a3cf = symbolColours(a3New, conditionalStyles(book2, a3New));
+  // 📝 the complaints written up under their counts (data.complaints: the week's Salesforce cases)
+  const writeups = [];
+  if (data.complaints) {
+    const cases = data.complaints(week);
+    if (cases === null) flags.push({ part: 'complaints', text: 'Customer complaints aren\'t written up: link the Salesforce export on the Sources tab.' });
+    else {
+      const wu = complaintsWriteUp(book2, a3New, cases);
+      if (wu.error) flags.push({ part: 'complaints', text: `Customer complaints aren't written up: ${wu.error}.` });
+      else {
+        a3New.merges = [...a3New.merges, { top: wu.top, bottom: wu.bottom, left: wu.left, right: wu.right }];
+        a3New.cells.set(wu.ref, { r: wu.ref, row: wu.top, col: wu.left, v: wu.lines.join('\n'), t: 's', s: wu.style, f: null });
+        a3New.added = { cells: [{ ref: wu.ref, s: wu.style }], merges: [wu.range] };
+        if (wu.size !== book2.styles.fonts[book2.styles.xfs[wu.style]?.fontId]?.sz) a3cf.set(wu.ref, { ...(a3cf.get(wu.ref) || {}), font: { ...(a3cf.get(wu.ref)?.font || {}), sz: wu.size } });
+        writeups.push(wu.ref);
+        if (cases.length) flags.push({ part: 'complaints', text: `${cases.length} customer complaint${cases.length === 1 ? '' : 's'} written up in ${wu.range} from the Salesforce export${wu.fits ? '' : ' — they don\'t all fit: shorten them with ✎ Edit A3'}.` });
+      }
+    }
+  }
   const views = { a3: sheetView(book2, a3New, a3cf), database: sheetView(book2, dbNew, conditionalStyles(book2, dbNew)) };
   views.a3.edit = editKinds(book2, a3New, views.a3);
   const values = Object.fromEntries([...dbNew.cells.values()].filter((c) => c.v !== null && c.v !== '' && c.t !== 'e').map((c) => [c.r, c.v]));
   const pkg = buildA3Package(book2, a3New, a3cf, { title: `A3 Weekly Report ${week}` });
   return {
-    week, year: parts?.year ?? null, month: weekRow.month, views, values, pkg, sheets: { a3: a3Info.name, database: dbInfo.name },
+    week, year: parts?.year ?? null, month: weekRow.month, views, values, pkg, sheets: { a3: a3Info.name, database: dbInfo.name }, writeups,
     errors: errorsInA3, flags, template_week: templateWeek,
   };
 }
@@ -720,4 +812,4 @@ function exportTarget(set, week) {
   return { dir, name, path: path.join(dir, name) };
 }
 
-module.exports = { loadWeek, buildWeek, applyEdits, editKinds, forecastSheet, symbolColours, SYMBOL_COLOURS, sheetView, prepareChart, buildA3Package, exportA3, weekParts, fillPattern, exportTarget, colPx, isErr, decode, parseRef, section, resolvePart, relsPathOf };
+module.exports = { complaintsWriteUp, withAdded, loadWeek, buildWeek, applyEdits, editKinds, forecastSheet, symbolColours, SYMBOL_COLOURS, sheetView, prepareChart, buildA3Package, exportA3, weekParts, fillPattern, exportTarget, colPx, isErr, decode, parseRef, section, resolvePart, relsPathOf };
