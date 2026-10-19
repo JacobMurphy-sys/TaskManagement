@@ -158,6 +158,8 @@ Past weeks stay in the list, so any earlier A3 can be viewed or saved again.
 
 **Editing the A3.** **✎ Edit A3** (on the A3 tab; its row stays at the top while you scroll, so **Done editing** is always in reach) lets you change a week's A3 by hand:
 
+**📐 Text fits its box.** A typed box on the A3 has a fixed size: its rows and columns, font, colour and wrapping. When what you type is more than fits, the text gets smaller instead, in half points, until it fits the box. The box's size, place and style stay as they were. It happens as you type, in place on the A3, and under the text box the editor says *✓ Fits at the box's own 16pt*, *📐 Made smaller to fit: 13.5pt*, or *⚠ Too long for the box even at 6pt* (shorten it, or it's cut off). The size is saved with the text, shown on the A3 and written into the saved A3, so Excel shows the same. Putting back the workbook's text puts back its size too. It's measured with the fonts on your PC; Excel's narrower Aptos Narrow usually leaves a little room to spare.
+
 **Faces** (e.g. *GM Confidence*, Excel's Wingdings ☺ 😐 ☹) are drawn as Excel draws them — a line face in the cell's colour, not an emoji. In ✎ Edit A3, click the face to pick **Happy** (green), **Neutral** (yellow) or **Unhappy** (red); it changes at once, and the saved A3 gets Excel's own face in that colour.
 - Click a **text box** (executive summary, comments, headcount notes, …) to change its text — **Ctrl+Enter** saves, **Esc** cancels; *Put back the original text* undoes it.
 - Click a **coloured figure** (a KPI or % with conditional colours) to set it **green**, **yellow** or **red** — or *Automatic* to let the formula decide again.

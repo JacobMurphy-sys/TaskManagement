@@ -1180,3 +1180,8 @@ dialog.cdialog input[type=text] { width: 100%; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .kc-table td.kc-adj, :root:not([data-theme="light"]) .kc-adj-key, :root:not([data-theme="light"]) .kc-adj-summary, :root:not([data-theme="light"]) .kfa-on { background: #2c2347; color: #d9cbff; border-color: #6a52a8; } :root:not([data-theme="light"]) .kc-table td.kc-adj .kc-computed { color: #a996d6; } }
 :root[data-theme="dark"] .kc-table td.kc-adj, :root[data-theme="dark"] .kc-adj-key, :root[data-theme="dark"] .kc-adj-summary, :root[data-theme="dark"] .kfa-on { background: #2c2347; color: #d9cbff; border-color: #6a52a8; }
 :root[data-theme="dark"] .kc-table td.kc-adj .kc-computed { color: #a996d6; }
+
+/* 📐 typed A3 text fitted to its box */
+.kpi-fit { margin: 4px 0; color: var(--muted); }
+.kpi-fit.shrunk { color: #3b6fb6; }
+.kpi-fit.over { color: var(--danger); font-weight: 600; }

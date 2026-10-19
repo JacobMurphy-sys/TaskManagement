@@ -330,6 +330,8 @@ function applyEdits(pkg, edits, kinds = {}) {
     xml = xml.replace(re, (whole, attrs, body) => {
       let s = Number(attr(`<c${attrs}>`, 's') || 0);
       if (e.color) s = baker.bake(s, (kinds[ref] || '').includes('b') ? { fill: { color: e.color } } : { font: { color: e.color } });
+      // typed text shrunk to fit its box
+      if (e.size && e.text !== null && e.text !== undefined) s = baker.bake(s, { font: { sz: e.size } });
       const sAttr = s ? ` s="${s}"` : '';
       if (e.text === null || e.text === undefined) return whole.replace(/\ss="\d+"/, '').replace(/^(<c\b[^>]*?\sr="[^"]*")/, `$1${sAttr}`);
       const wasNumber = body !== undefined && !/\bt="/.test(attrs) && /<v>/.test(body);

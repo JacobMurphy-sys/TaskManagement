@@ -295,6 +295,7 @@ const TABLES = {
     ref         TEXT    NOT NULL COLLATE NOCASE,
     text        TEXT,
     color       TEXT,
+    size        REAL,                  -- font size (pt) the typed text is shrunk to, to fit its box
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
     UNIQUE (week, ref)`,

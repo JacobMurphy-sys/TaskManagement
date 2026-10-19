@@ -1087,8 +1087,8 @@ const xlRef = (row, col) => { let s = ''; for (let n = col; n > 0; n = Math.floo
 function withKpiEdits(m, edits) {
   if (!edits || !Object.keys(edits).length) return m;
   const styles = [...m.styles];
-  const restyle = (s, prop, hex) => {
-    const css = `${styles[s].split(';').filter((d) => !d.startsWith(`${prop}:`)).join(';')};${prop}:#${hex}`;
+  const restyle = (s, prop, value) => {
+    const css = `${styles[s].split(';').filter((d) => !d.startsWith(`${prop}:`)).join(';')};${prop}:${prop === 'font-size' ? value : `#${value}`}`;
     const at = styles.indexOf(css);
     if (at >= 0) return at;
     styles.push(css);
@@ -1100,9 +1100,32 @@ function withKpiEdits(m, edits) {
     const n = [...c];
     if (e.text !== null && e.text !== undefined) n[2] = e.text;
     if (e.color) n[3] = restyle(n[3], (m.edit?.[ref] || '').includes('b') ? 'background' : 'color', e.color);
+    if (e.size && e.text !== null && e.text !== undefined) n[3] = restyle(n[3], 'font-size', `${e.size}pt`);
     return n;
   });
   return { ...m, cells, styles };
+}
+
+// 📐 Fitting typed text in its box: the box keeps its size, font, colour and wrapping, and the text
+// gets smaller (in half points) until it fits — measured by laying it out as the A3 shows it.
+// → { size, base, fits } (size: the font size to use, base: the box's own).
+function kpiFitText(m, cell, text) {
+  const [row, col, , s, rs, cs] = cell;
+  const w = m.x[Math.min(col - 1 + cs, m.x.length - 1)] - m.x[col - 1];
+  const h = m.y[Math.min(row - 1 + rs, m.y.length - 1)] - m.y[row - 1];
+  const css = m.styles[s] || '';
+  const base = Number(css.match(/font-size:([\d.]+)pt/)?.[1]) || 11;
+  if (!text || w <= 0 || h <= 0) return { size: base, base, fits: true };
+  const wrap = css.includes('pre-wrap');
+  const probe = document.createElement('div');
+  probe.style.cssText = `${css};position:absolute;visibility:hidden;left:-10000px;top:0;display:block;box-sizing:border-box;padding:0 2px;line-height:1.15;width:${w}px;${wrap ? 'white-space:pre-wrap;overflow-wrap:anywhere;' : 'white-space:pre;'}`;
+  probe.textContent = text;
+  document.body.append(probe);
+  const fitsAt = (sz) => { probe.style.fontSize = `${sz}pt`; return probe.scrollHeight <= h + 1 && probe.scrollWidth <= w + 1; };
+  let size = base; let fits = fitsAt(base);
+  for (let sz = base - 0.5; !fits && sz >= 6; sz -= 0.5) { size = sz; fits = fitsAt(sz); }
+  probe.remove();
+  return { size, base, fits };
 }
 
 // The little editor over a cell: its text (a typed box) and/or its colour (a KPI).
@@ -1120,6 +1143,7 @@ function kpiEditCell(snap, model, el, done) {
   pop.className = 'kpi-pop card';
   pop.innerHTML = `<div class="row small muted"><b>${esc(ref)}</b><span class="spacer"></span>${cur.text !== undefined && cur.text !== null || cur.color ? '<span class="kpi-ed-key">changed by hand</span>' : ''}</div>
     ${kind.includes('t') && !face ? `<textarea rows="${Math.min(12, Math.max(3, text.split('\n').length + 1))}">${esc(text)}</textarea>
+      <div class="small kpi-fit" id="kpi-fit"></div>
       ${cur.text !== null && cur.text !== undefined ? `<div class="small muted">Was: ${original ? esc(original.length > 120 ? `${original.slice(0, 120)}…` : original) : '<i>empty</i>'}</div>` : ''}` : ''}
     ${face ? `<div class="kpi-swatches">${KPI_FACES.map(([ch, hex, label]) => `<button type="button" data-face="${ch}" class="${FACE_OF[cur.text] === ch ? 'on' : ''}" title="${label}"><b style="color:#${hex};display:inline-flex;width:22px;height:22px">${faceSvg(ch)}</b>${label}</button>`).join('')}
       <button type="button" data-face="" class="${cur.text ? '' : 'on'}" title="As the workbook gives it">Automatic</button></div>`
@@ -1139,12 +1163,32 @@ function kpiEditCell(snap, model, el, done) {
   pop.style.top = `${r.bottom + 6 + ph < window.innerHeight ? r.bottom + 6 : Math.max(8, r.top - ph - 6)}px`;
   const ta = $('textarea', pop);
   if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
-  const close = () => { pop.remove(); document.removeEventListener('mousedown', outside, true); document.removeEventListener('keydown', keys, true); };
+  // as you type: the text in its box on the A3, shrunk to fit, and what that took
+  const span = el.querySelector('span'); const before = { html: el.innerHTML, size: el.style.fontSize };
+  let fit = null;
+  const refit = () => {
+    if (!ta || face || !cell) return;
+    fit = kpiFitText(model, cell, ta.value);
+    if (span) span.textContent = ta.value; else if (ta.value) el.innerHTML = `<span>${esc(ta.value)}</span>`;
+    el.style.fontSize = fit.size !== fit.base ? `${fit.size}pt` : '';
+    const info = $('#kpi-fit', pop);
+    if (info) {
+      info.className = `small kpi-fit ${fit.fits ? (fit.size < fit.base ? 'shrunk' : '') : 'over'}`;
+      info.textContent = !ta.value ? '' : !fit.fits ? `⚠ Too long for the box even at ${fit.size}pt — shorten it, or it's cut off` : fit.size < fit.base ? `📐 Made smaller to fit: ${fit.size}pt (the box's own is ${fit.base}pt)` : `✓ Fits at the box's own ${fit.base}pt`;
+    }
+  };
+  ta?.addEventListener('input', refit);
+  refit();
+  const restore = () => { el.innerHTML = before.html; el.style.fontSize = before.size; };
+  let saved = false;
+  const close = () => { if (!saved) restore(); pop.remove(); document.removeEventListener('mousedown', outside, true); document.removeEventListener('keydown', keys, true); };
   const outside = (e) => { if (!pop.contains(e.target)) close(); };
   const save = async (body) => {
-    try { const edits = await api.put(`/kpi/edits/${snap.week}`, { ref, ...body }); close(); await done(edits); } catch (err) { toast(err.message, 'error'); }
+    try { const edits = await api.put(`/kpi/edits/${snap.week}`, { ref, ...body }); saved = true; close(); await done(edits); } catch (err) { toast(err.message, 'error'); }
   };
-  const saveText = () => save({ text: ta.value === original ? null : ta.value });
+  // the size it fits at goes with the text (none when it fits as it is, or it's the workbook's text)
+  const sizeFor = (t) => (t === null || !fit || fit.size >= fit.base ? null : fit.size);
+  const saveText = () => { const t = ta.value === original ? null : ta.value; return save({ text: t, size: sizeFor(t) }); };
   const keys = (e) => {
     if (e.key === 'Escape') { e.preventDefault(); close(); }
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && ta) { e.preventDefault(); saveText(); }
@@ -1164,13 +1208,14 @@ function kpiEditCell(snap, model, el, done) {
     const sw = e.target.closest('[data-colour]');
     if (sw) {
       const colour = sw.dataset.colour || null;
-      return save(ta && ta.value !== text ? { color: colour, text: ta.value === original ? null : ta.value } : { color: colour });
+      if (ta && ta.value !== text) { const t = ta.value === original ? null : ta.value; return save({ color: colour, text: t, size: sizeFor(t) }); }
+      return save({ color: colour });
     }
     const b = e.target.closest('[data-pop]');
     if (!b) return;
     if (b.dataset.pop === 'close') close();
     if (b.dataset.pop === 'save') saveText();
-    if (b.dataset.pop === 'revert') save({ text: null });
+    if (b.dataset.pop === 'revert') save({ text: null, size: null });
   });
 }
 

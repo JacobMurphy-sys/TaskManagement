@@ -1176,6 +1176,14 @@ async function waitForServer() {
       assert.deepEqual([built.week, built.origin, built.source_name], ['W2614_1', 'ci', 'CI Manager']);
       assert.deepEqual(built.flags.map((f) => f.part), ['text', 'complaints'], 'flags what still comes from the workbook');
       assert.match(built.flags[1].text, /Customer complaints aren't written up: there's no "CC Week:"/, 'and that this template has nowhere for the complaints');
+      // 📐 typed text shrunk to fit its box: the size goes with the text, and back to the workbook's text clears it
+      {
+        let ed = await call('PUT', `/kpi/edits/${built.week}`, { ref: 'B2', text: 'A long comment', size: 13.3 });
+        assert.deepEqual([ed.B2.text, ed.B2.size], ['A long comment', 13.5], 'to the half point');
+        await assert.rejects(call('PUT', `/kpi/edits/${built.week}`, { ref: 'B2', size: 2 }), /400/);
+        ed = await call('PUT', `/kpi/edits/${built.week}`, { ref: 'B2', text: null });
+        assert.equal(ed.B2, undefined, 'the workbook\'s text back: no size either');
+      }
       const bsnap = await call('GET', `/kpi/snapshots/${built.id}`);
       assert.equal(cellAt(bsnap.views.a3, 1, 1)[2], 'W2614_1', 'the A3 recalculated for that week');
       assert.equal(bsnap.values.B2, 'W2614_1');

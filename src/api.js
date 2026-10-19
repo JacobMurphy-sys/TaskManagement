@@ -1353,11 +1353,13 @@ router.get('/kpi/snapshots/:id', h((req, res) => {
 
 // ---- changes made by hand on a week's A3 (typed text, KPI colours) ----
 const KPI_COLORS = { green: '00B050', yellow: 'FFC000', orange: 'FFC000', red: 'FF0000' };
-const kpiEdits = (week) => Object.fromEntries(db.all('SELECT ref, text, color FROM kpi_edits WHERE week = ? ORDER BY ref', [week]).map((e) => [e.ref.toUpperCase(), { text: e.text, color: e.color }]));
+const kpiEdits = (week) => Object.fromEntries(db.all('SELECT ref, text, color, size FROM kpi_edits WHERE week = ? ORDER BY ref', [week]).map((e) => [e.ref.toUpperCase(), { text: e.text, color: e.color, ...(e.size ? { size: e.size } : {}) }]));
 function setKpiEdit(week, ref, f) {
   const old = db.get('SELECT * FROM kpi_edits WHERE week = ? AND ref = ?', [week, ref]);
-  const next = { text: old?.text ?? null, color: old?.color ?? null, ...f };
-  if (next.text === null && next.color === null) { if (old) db.run('DELETE FROM kpi_edits WHERE id = ?', [old.id]); return; }
+  // the workbook's text back: no size of its own either
+  if ('text' in f && f.text === null && !('size' in f)) f = { ...f, size: null };
+  const next = { text: old?.text ?? null, color: old?.color ?? null, size: old?.size ?? null, ...f };
+  if (next.text === null && next.color === null && next.size === null) { if (old) db.run('DELETE FROM kpi_edits WHERE id = ?', [old.id]); return; }
   if (old) updateRow('kpi_edits', old.id, f); else insertRow('kpi_edits', { week, ref, ...next });
 }
 const editWeek = (raw) => {
@@ -1382,6 +1384,12 @@ router.put('/kpi/edits/:week', h((req, res) => {
     const c = req.body.color === null ? null : KPI_COLORS[String(req.body.color).toLowerCase()] || (Object.values(KPI_COLORS).includes(String(req.body.color).toUpperCase()) ? String(req.body.color).toUpperCase() : undefined);
     if (c === undefined) throw new HttpError(400, 'Colour must be green, yellow or red');
     f.color = c;
+  }
+  // the size the text is shrunk to so it fits its box (worked out by the page, which measures it)
+  if ('size' in req.body) {
+    const sz = req.body.size === null || req.body.size === '' ? null : Number(req.body.size);
+    if (sz !== null && !(sz >= 4 && sz <= 100)) throw new HttpError(400, 'Font size must be between 4 and 100 pt');
+    f.size = sz === null ? null : Math.round(sz * 2) / 2;
   }
   if (!Object.keys(f).length) throw new HttpError(400, 'Nothing to change');
   setKpiEdit(week, ref, f);
@@ -1415,11 +1423,11 @@ router.post('/kpi/edits/:week/copy', h((req, res) => {
   let own = [];
   try { own = snapRow ? JSON.parse(zlibSync.gunzipSync(Buffer.from(snapRow.model, 'base64')).toString('utf8')).writeups || [] : []; } catch { own = []; }
   let n = 0;
-  for (const e of db.all('SELECT ref, text FROM kpi_edits WHERE week = ? AND text IS NOT NULL', [from])) {
+  for (const e of db.all('SELECT ref, text, size FROM kpi_edits WHERE week = ? AND text IS NOT NULL', [from])) {
     const ref = e.ref.toUpperCase();
     if (own.includes(ref)) continue;
     if (mine[ref]?.text !== null && mine[ref]?.text !== undefined) continue;
-    setKpiEdit(week, ref, { text: e.text }); n++;
+    setKpiEdit(week, ref, { text: e.text, size: e.size ?? null }); n++;
   }
   res.json({ copied: n, edits: kpiEdits(week) });
 }));
