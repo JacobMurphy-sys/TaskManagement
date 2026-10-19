@@ -260,6 +260,36 @@ What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (
 
 ---
 
+## 1a. One shared copy on a server (everyone on the network)
+
+Instead of a copy on each PC, one computer runs the CI Manager and everyone opens it in the browser. Everyone then shares one database, one setup and one history.
+
+**Setting up the server** (an always-on Windows PC or VM with Node.js and Git):
+1. Run `CIManager-Setup.bat` on the server as usual. Run it from the server's own disk, not from the share, so it installs there.
+2. In the app folder, right-click **`server-install.bat`** › *Run as administrator*. It asks for:
+   - **port** and **data folder**: keep the data folder on the server's own disk (default `%ProgramData%\CIManager`);
+   - **whether to start from the database already on that PC**, if there is one, for example yours. The database is copied and the original is kept;
+   - **the Windows account to run it as**: it needs to read the network folders the app reads (the KPI workbook and sources, planning exports, card database and timing reports) and write to the A3 folder. In the app, use `\\server\share\…` paths, because the account has no mapped drives;
+   - **the address people will open**, e.g. `http://cimanager:3000`.
+
+   It then sets `HOST=0.0.0.0`, `PORT` and `DATA_DIR` in `.env`, opens the port in Windows Firewall (domain and private networks only) and makes a scheduled task, **CI Manager server**. That task runs `server-run.bat` at start-up, whether anyone is logged on or not, and starts it straight away.
+3. Copy the two files from the app's **`for-the-share`** folder (`cimanager-server.json` and `cimanager.ico`) next to `CIManager-Setup.bat` on the share.
+
+**Everyone else:** they double-click `CIManager-Setup.bat` on the share as before. With `cimanager-server.json` there, it installs nothing. It puts a **CI Manager** shortcut on the desktop that opens the server, in its own window in Edge. It also stops their own copy from starting at log-in. That copy's data stays in `%LOCALAPPDATA%\CIManager`, and they can stop it from its ⋯ menu.
+
+**Keeping it running and up to date:** `server-run.bat` starts the app again 15 s after it stops unexpectedly. It updates the app before starting it, backing up the data first. Each night at `UPDATE_HOUR` (default 3), the app checks for a newer version and, if nobody has it open, restarts to install it. `AUTO_UPDATE=0` in `.env` turns updates off. Starts, stops and updates are written to `logs\server-run.log` in the app folder; the app's own logs are in the data folder.
+
+**Working together:**
+- **Names:** each browser is asked for a name once; change it in ⋯ › *Your name*. It shows others who's here, and it's saved with every change in the activity log and history.
+- **👥 in the top bar:** who else has the CI Manager open and where. On a project, an idea, the KPIs or Planning, a line says who else is on the same page.
+- **Changes by others:** lists (Dashboard, Tasks, Board, Calendar, Ideas, Contacts) refresh by themselves when someone else changes something, unless you're typing or have a dialog open. Other pages show a yellow note saying who changed what, with **🔄 Refresh**. A task you have open says so inside its dialog.
+- **No silent overwrites:** a text box remembers what it said when you started editing. If someone else saved a change to it before you, your save is held, and both versions are shown side by side. Keep theirs, or save yours, after editing it to take in theirs if you like. The version not kept stays in the history. Fields like status, dates and owner just save; the last change counts.
+- **🕘 History** (on a project, idea, task or meeting): every change, newest first, with who and when, and each field before and after. **↩ Put back** sets a field back; that is itself a change, so it can be undone too.
+
+**Only on the server itself:** **Stop server** (the button doesn't show elsewhere) and **restoring a backup**, because it replaces everyone's data. **📁 links to files and folders** open File Explorer on the server, so on everyone else's PC the path is copied instead, ready to paste into File Explorer.
+
+**There's no sign-in:** anyone who can reach the address can use it, so keep it on the company network.
+
 ## 2a. The planner on its own (on a server)
 
 Planning can run as a separate app, **CI Planner**, on one computer (a server) that everyone opens in their browser. Nobody else needs to install anything.

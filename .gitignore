@@ -10,3 +10,4 @@ READ ME - where things are.md
 cimanager-defaults.json
 # shortcuts CIManager-Setup.bat makes when run inside a clone
 *.lnk
+for-the-share/

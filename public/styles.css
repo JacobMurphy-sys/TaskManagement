@@ -1142,3 +1142,24 @@ table.kfd td { padding: 3px 6px; } .kfd-bar { width: 40%; } .kfd-bar span { disp
 .pll-pace span { position: absolute; left: 6px; top: 0; font-size: 12px; line-height: 18px; color: #222; }
 .pll-t td { vertical-align: middle; }
 .pll-grid { align-items: start; }
+
+/* 👥 the shared server: who's here, what changed, two edits of one text, history */
+.collab-chip { padding: 4px 8px; }
+.collab-chip .collab-n { font-weight: 600; font-size: 12.5px; }
+.collab-here { margin: 8px 16px 0; font-size: 12.5px; color: var(--muted); }
+.collab-banner { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin: 8px 16px 0; padding: 8px 12px; border-radius: 8px;
+  background: #fff6db; border: 1px solid #f0cf7a; color: #3d3100; font-size: 13.5px; }
+#modal-body .collab-banner { margin: 6px 0 10px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .collab-banner { background: #3a3218; border-color: #7a6420; color: #f4e6b5; } }
+:root[data-theme="dark"] .collab-banner { background: #3a3218; border-color: #7a6420; color: #f4e6b5; }
+dialog.cdialog { border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; max-width: min(560px, calc(100vw - 32px)); width: 100%;
+  background: var(--panel); color: var(--text); box-shadow: 0 10px 40px rgba(0, 0, 0, .3); }
+dialog.cdialog.wide { max-width: min(980px, calc(100vw - 32px)); }
+dialog.cdialog::backdrop { background: rgba(0, 0, 0, .35); }
+dialog.cdialog input[type=text] { width: 100%; }
+.cd-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cd-two textarea { width: 100%; font: inherit; }
+@media (max-width: 700px) { .cd-two { grid-template-columns: 1fr; } }
+.hist-list { max-height: 65vh; overflow: auto; display: grid; gap: 10px; }
+.hist-row { border-top: 1px solid var(--border); padding-top: 8px; }
+.hist-row table td { vertical-align: top; }

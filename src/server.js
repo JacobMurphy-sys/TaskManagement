@@ -48,7 +48,9 @@ app.use('/api', (req, res, next) => {
 });
 
 // Lets the launcher check that the app is already up.
-app.get('/api/health', (req, res) => res.json({ app: 'taskmanager', ok: true, mode: config.mode, lock: require('./instancelock').info() }));
+const collab = require('./collab');
+// shared: one copy several people use over the network; local: this browser is on the server itself
+app.get('/api/health', (req, res) => res.json({ app: 'taskmanager', ok: true, mode: config.mode, shared: config.shared, local: collab.isLocal(req), lock: require('./instancelock').info() }));
 
 app.use('/api', (req, res, next) => {
   if (req.method === 'GET') return next();
@@ -70,23 +72,28 @@ app.use('/api', (req, res, next) => {
   });
   next();
 });
+// who made each change, the feed of changes for open pages, and no silent overwrites (collab.js)
+app.use('/api', collab.changes);
+
+// On the shared server some things are done on the server itself only: switching it off, showing
+// a folder in File Explorer (it would open on the server, not on your PC: the path is copied
+// instead) and restoring a backup (it replaces everyone's data).
+app.use('/api', (req, res, next) => {
+  if (!config.shared || collab.isLocal(req) || req.method === 'GET') return next();
+  if (req.path === '/open-path') return res.json({ opened: false, remote: true });
+  if (/^\/backups\/(restore|[^/]+\/[^/]+\/restore)$/.test(req.path)) return res.status(403).json({ error: 'Restoring replaces everyone\'s data, so on the shared server it\'s done on the server itself (open the app there)' });
+  next();
+});
 
 // 👥 Who has the app open (each browser says so every 20 s; gone after a minute), and the last
 // change to the planning setup — so people sharing the planner don't overwrite each other unawares.
-const presence = new Map();
 let lastChange = null;
-app.post('/api/presence', (req, res) => {
-  const id = String(req.body?.id || '').slice(0, 60);
-  const now = Date.now();
-  for (const [k, v] of presence) if (now - v.at > 60000) presence.delete(k);
-  if (id) presence.set(id, { name: String(req.body.name || '').slice(0, 60) || 'Someone', view: String(req.body.view || '').slice(0, 30), at: now, since: presence.get(id)?.since || now, ip: req.ip });
-  res.json({ others: [...presence.entries()].filter(([k]) => k !== id).map(([, v]) => ({ name: v.name, view: v.view, since: new Date(v.since).toISOString() })), last_change: lastChange });
-});
+app.post('/api/presence', (req, res) => res.json({ ...collab.here(req.body, req), last_change: lastChange }));
 
 // Used by the "Stop server" button and stop-server.vbs (the app may have no console window).
 app.post('/api/shutdown', (req, res, next) => {
   // on a server several people use, nobody can switch it off from a browser
-  if (config.mode === 'planner' && config.host !== '127.0.0.1' && config.host !== 'localhost') return res.status(403).json({ error: 'The shared planner can only be stopped on the server itself' });
+  if (config.shared && !collab.isLocal(req)) return res.status(403).json({ error: `The shared ${config.mode === 'planner' ? 'planner' : 'CI Manager'} can only be stopped on the server itself` });
   next();
 }, (req, res) => {
   log.info('Shutdown requested');
@@ -129,5 +136,23 @@ server.on('error', (err) => {
 });
 
 backup.schedule();
+
+// Run by server-run.bat (the shared server): each night at UPDATE_HOUR (default 3) it checks for a
+// newer version and, when nobody has the app open, stops with code 75 for server-run.bat to update
+// it and start it again (it waits for an hour nobody is on, up to 6 in the morning, then tries
+// the next night). AUTO_UPDATE=0 in .env turns it off (check-update.js says no).
+if (process.env.CIM_SERVER === '1') {
+  const hour = Number.isInteger(Number(process.env.UPDATE_HOUR)) ? Number(process.env.UPDATE_HOUR) : 3;
+  setInterval(() => {
+    const h = new Date().getHours();
+    if (h < hour || h > Math.max(hour, 6) || collab.peopleHere()) return;
+    require('child_process').execFile(process.execPath, [path.join(config.ROOT, 'scripts', 'check-update.js')], { timeout: 60000 }, (err) => {
+      if (err?.code !== 10) return;
+      log.info('A newer version is available and nobody is on: stopping to install it');
+      server.close(() => process.exit(75));
+      setTimeout(() => process.exit(75), 5000).unref();
+    });
+  }, 20 * 60 * 1000).unref();
+}
 
 process.on('unhandledRejection', (err) => log.error('Unhandled error', err && (err.stack || err.message)));

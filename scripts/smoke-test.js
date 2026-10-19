@@ -1666,6 +1666,42 @@ async function waitForServer() {
       await call('PATCH', '/settings', { kpi_time_perso: '' });
     }
 
+    // 👥 several people on one copy: who made each change, the feed of changes, no silent overwrites, history
+    {
+      const as = (name, client) => async (method, url, body) => {
+        const res = await fetch(BASE + url, { method, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager', 'X-User-Name': encodeURIComponent(name), 'X-Client-Id': client }, body: body ? JSON.stringify(body) : undefined });
+        return { status: res.status, data: res.status === 204 ? null : await res.json() };
+      };
+      const sam = as('Sam', 'c-sam'); const jo = as('Jo', 'c-jo');
+      const start = (await jo('POST', '/presence', { id: 'c-jo', name: 'Jo', view: '#/ideas', seq: -1 })).data.seq;
+      const idea = (await sam('POST', '/ideas', { title: 'Two editors', description: 'First' })).data;
+      let r = await jo('PATCH', `/ideas/${idea.id}`, { description: 'First, then Jo', _base: { description: 'First' } });
+      assert.equal(r.status, 200, 'unchanged since Jo began: saved');
+      r = await sam('PATCH', `/ideas/${idea.id}`, { description: 'First, then Sam', _base: { description: 'First' } });
+      assert.equal(r.status, 409, 'Sam began from the old text: refused');
+      assert.deepEqual([r.data.conflict.field, r.data.conflict.theirs, r.data.conflict.by], ['description', 'First, then Jo', 'Jo']);
+      r = await sam('PATCH', `/ideas/${idea.id}`, { description: 'First, then Jo\nand Sam', _base: { description: 'First, then Jo' } });
+      assert.equal(r.status, 200, 'from the current text: saved');
+      r = await jo('PATCH', `/ideas/${idea.id}`, { description: 'Jo again', _base: { description: 'First, then Jo' } });
+      assert.equal(r.status, 409, 'and now Jo is behind');
+      r = await sam('PATCH', `/ideas/${idea.id}`, { description: 'Sam again', _base: { description: 'not what it said, but Sam changed it last' } });
+      assert.equal(r.status, 200, 'your own last change is never a conflict');
+      assert.equal((await sam('PATCH', `/ideas/${idea.id}`, { title: 'Renamed' })).status, 200, 'no _base: saved as before');
+      // history: who changed what
+      const hist = await call('GET', `/history/ideas/${idea.id}`);
+      assert.deepEqual(hist.map((h) => h.by), ['Sam', 'Sam', 'Sam', 'Jo', 'Sam'], 'newest first, with who');
+      assert.deepEqual(hist[3].fields, [{ field: 'description', old: 'First', new: 'First, then Jo' }]);
+      assert.equal(hist[4].action, 'INSERT');
+      // the feed: Jo is told about Sam's changes (not about Jo's own), with the topics they touch
+      const feed = (await jo('POST', '/presence', { id: 'c-jo', name: 'Jo', view: '#/ideas', seq: start })).data;
+      assert.ok(feed.changes.length >= 3 && feed.changes.every((c) => c.by === 'Sam'), 'others\' changes only');
+      assert.ok(feed.changes.every((c) => c.topics.includes(`idea:${idea.id}`) && c.topics.includes('idea')));
+      assert.match(feed.changes[0].text, /added idea “Two editors”/);
+      const seen = (await sam('POST', '/presence', { id: 'c-sam', name: 'Sam', view: `#/idea/${idea.id}`, seq: feed.seq })).data;
+      assert.deepEqual(seen.others.map((o) => [o.name, o.view]), [['Jo', '#/ideas']], 'who else is here, and where');
+      await assert.rejects(call('GET', '/history/nothing/1'), /404/);
+    }
+
     // 📦 team pack: contacts lists and project lists for everyone, only ever added
     {
       const pack = await (await fetch(`${BASE}/team-pack`)).json();
@@ -1821,7 +1857,16 @@ async function waitForServer() {
         await pc('PATCH', '/settings', { plan_buffer: '15' }, { 'X-User-Name': encodeURIComponent('Sam Ö'), 'X-Client-Id': 'a1' });
         const lc = (await pc('POST', '/presence', { id: 'b2', name: 'Jo' })).last_change;
         assert.deepEqual([lc.by, lc.client, lc.what], ['Sam Ö', 'a1', 'PATCH /settings'], 'the last setup change, and who made it');
-        await assert.rejects(pc('POST', '/shutdown'), /403/, 'a shared planner can\'t be switched off from a browser');
+        // switched off on the server itself only: from another computer (this one's network address) it's refused
+        const lan = Object.values(require('os').networkInterfaces()).flat().find((i) => i.family === 'IPv4' && !i.internal);
+        if (lan) {
+          const remote = (method, url, body) => fetch(`http://${lan.address}:3997/api${url}`, { method, headers: { 'X-Requested-With': 'TaskManager', 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+          assert.equal((await remote('POST', '/shutdown')).status, 403, 'a shared planner can\'t be switched off from another computer');
+          const h2 = await (await remote('GET', '/health')).json();
+          assert.deepEqual([h2.shared, h2.local], [true, false]);
+          assert.equal((await remote('POST', '/backups/restore')).status, 403, 'nor restored from another computer');
+        }
+        assert.equal((await (await fetch('http://127.0.0.1:3997/api/health')).json()).local, true, 'on the server itself');
       } finally {
         planner.kill();
         await new Promise((r) => planner.once('exit', r));

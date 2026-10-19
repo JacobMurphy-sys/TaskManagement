@@ -481,7 +481,9 @@ const TABLES = {
     action     TEXT NOT NULL,          -- INSERT / UPDATE / DELETE
     old_data   TEXT,                   -- JSON
     new_data   TEXT,                   -- JSON
-    changed_at TEXT NOT NULL DEFAULT (${NOW})`,
+    changed_at TEXT NOT NULL DEFAULT (${NOW}),
+    changed_by TEXT,                   -- the name the browser gave (shared server), when known
+    client_id  TEXT                    -- the browser that made the change`,
 };
 
 const INDEXES = `

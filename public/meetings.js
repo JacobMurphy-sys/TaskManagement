@@ -222,7 +222,7 @@ async function meetingEditor(id, opts = {}) {
   openModal(`
     <div class="modal-head">
       <div class="small muted">🗓 Meeting${where ? ` · ${where}` : ''}</div>
-      <div class="row"><span class="saved-flag" id="saved-flag">✓ Saved</span><button class="icon" data-action="close-modal">✕</button></div>
+      <div class="row"><span class="saved-flag" id="saved-flag">✓ Saved</span><button class="icon" data-action="history" data-kind="meetings" data-id="${m.id}" data-title="${esc(m.title)}" title="History: every change, with who made it">🕘</button><button class="icon" data-action="close-modal">✕</button></div>
     </div>
     <div class="form-grid" id="meeting-form">
       <label class="f full">Title<input type="text" name="title" value="${esc(m.title)}"></label>

@@ -2770,6 +2770,25 @@ router.delete('/costs/:id', h((req, res) => {
   res.status(204).end();
 }));
 
+// ------------------------------------------------------------------ 🕘 a record's history
+
+// Every change to one record, newest first: when, who, and each field's value before and after
+// (from the audit log), so anything overwritten can be seen and put back.
+const HISTORY_TABLES = { projects: 'projects', tasks: 'tasks', ideas: 'ideas', meetings: 'meetings', phases: 'project_phases', notes: 'notes', costs: 'project_costs' };
+const HISTORY_SKIP = new Set(['id', 'created_at', 'updated_at', 'completed_at', 'dismissed_at', 'sort_order', 'project_code', 'ref']);
+router.get('/history/:kind/:id', h((req, res) => {
+  const table = HISTORY_TABLES[req.params.kind];
+  if (!table) throw notFound('History');
+  const rows = db.all('SELECT * FROM audit_log WHERE table_name = ? AND record_id = ? ORDER BY id DESC LIMIT 300', [table, Number(req.params.id)]);
+  const parse = (x) => { try { return x ? JSON.parse(x) : {}; } catch { return {}; } };
+  res.json(rows.map((r) => {
+    const o = parse(r.old_data); const n = parse(r.new_data);
+    const fields = [...new Set([...Object.keys(o), ...Object.keys(n)])].filter((f) => !HISTORY_SKIP.has(f) && JSON.stringify(o[f] ?? null) !== JSON.stringify(n[f] ?? null))
+      .map((f) => ({ field: f, old: o[f] ?? null, new: n[f] ?? null }));
+    return { id: r.id, at: r.changed_at, by: r.changed_by, action: r.action, fields };
+  }).filter((r) => r.action !== 'UPDATE' || r.fields.length));
+}));
+
 // ------------------------------------------------------------------ open a file path
 
 // Shows a file or folder from a note in Windows File Explorer. Files are only ever

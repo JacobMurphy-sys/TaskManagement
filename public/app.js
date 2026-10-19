@@ -29,15 +29,43 @@ const me = (() => {
   if (!id) { id = Math.random().toString(36).slice(2, 12); try { localStorage.setItem('clientId', id); } catch { /* fine */ } }
   return { id, name, setName(n) { this.name = n; try { localStorage.setItem('myName', n); } catch { /* fine */ } } };
 })();
+// No silent overwrites: a text box remembers what it held when you started editing it, and a save
+// of it sends that along (_base). If someone else has changed it since, the server refuses (409)
+// and both versions are shown to choose from (collabConflict in collab.js).
+const editBase = (() => {
+  let pending = null;
+  const textish = (el) => el?.matches?.('textarea, input:not([type]), input[type=text], input[type=search]');
+  document.addEventListener('focusin', (e) => { if (textish(e.target) && !('base' in e.target.dataset)) e.target.dataset.base = e.target.value; }, true);
+  document.addEventListener('change', (e) => { if (textish(e.target) && 'base' in e.target.dataset) pending = { el: e.target, base: e.target.dataset.base, at: Date.now() }; }, true);
+  return {
+    // the field of this save that's the box just edited, with its starting value (or null)
+    take(body) {
+      const p = pending; pending = null;
+      if (!p || Date.now() - p.at > 3000 || !body || typeof body !== 'object') return null;
+      const field = p.el.name && p.el.name in body ? p.el.name : 'text' in body ? 'text' : null;
+      if (!field || typeof body[field] !== 'string' || body[field].trim() !== p.el.value.trim() || body[field] === p.base) return null;
+      return { el: p.el, field, base: p.base, saved(v) { p.el.dataset.base = v; } };
+    },
+  };
+})();
 async function request(method, url, body) {
+  const edit = (method === 'PATCH' || method === 'PUT') ? editBase.take(body) : null;
+  const sent = edit ? { ...body, _base: { [edit.field]: edit.base } } : body;
   const res = await fetch(`/api${url}`, {
     method,
-    headers: { 'X-Requested-With': 'TaskManager', 'X-Client-Id': me.id, ...(me.name ? { 'X-User-Name': encodeURIComponent(me.name) } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
+    headers: { 'X-Requested-With': 'TaskManager', 'X-Client-Id': me.id, ...(me.name ? { 'X-User-Name': encodeURIComponent(me.name) } : {}), ...(sent ? { 'Content-Type': 'application/json' } : {}) },
+    body: sent ? JSON.stringify(sent) : undefined,
   });
-  if (res.status === 204) return null;
+  if (res.status === 204) { edit?.saved(body[edit.field]); return null; }
   const data = await res.json().catch(() => ({}));
+  if (res.status === 409 && data.conflict && edit) {
+    // both versions: the one chosen (theirs, or yours as you leave it) is saved without the check
+    const chosen = await collabConflict(data.conflict, body[edit.field]);
+    edit.el.value = chosen; edit.el.dataset.base = chosen;
+    return request(method, url, { ...body, [edit.field]: chosen });
+  }
   if (!res.ok) throw new Error(data.error || `${res.status} ${res.statusText}`);
+  edit?.saved(body[edit.field]);
   return data;
 }
 const api = {
@@ -744,6 +772,7 @@ async function renderProject(id, tab) {
         <select data-action="project-field" data-field="priority" title="Priority">${options(PRIORITY, p.priority)}</select>
         ${p.due_at ? dueChip({ ...p, status: p.status === 'completed' ? 'done' : '' }) : ''}
         <button data-action="edit-project">✎ Edit</button>
+        <button data-action="history" data-kind="projects" data-id="${p.id}" data-title="${esc(p.name)}" title="Every change to this project, with who made it — and ↩ Put back">🕘</button>
         <button data-action="remind-project" title="Project reminder">🔔</button>
         <a class="button" href="#/report/${p.id}" title="Status report for this project">📰 Report</a>
         <a class="button" href="/api/export.xlsx?scope=project&id=${p.id}" title="Download this project as an Excel workbook">⬇ Excel</a>
@@ -1189,6 +1218,7 @@ async function renderIdea(id) {
       <div class="meta">
         ${ideaStatusPill(i.status)}
         ${locked ? '' : '<button class="primary" data-action="escalate-idea">🚀 Escalate to project</button>'}
+        <button data-action="history" data-kind="ideas" data-id="${i.id}" data-title="${esc(i.ref)}" title="Every change to this idea, with who made it — and ↩ Put back">🕘 History</button>
         <button class="danger" data-action="delete-idea">Delete</button>
       </div>
     </div>
@@ -1387,9 +1417,9 @@ async function renderLog() {
         ${state.projects.map((p) => `<option value="${p.id}" ${String(p.id) === String(pid) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
     <p class="muted small">Every insert, change and delete is recorded by the database itself — including edits made directly in DBeaver. Showing the latest 500.</p>
     <div class="card" style="overflow-x:auto"><table class="log">
-      <thead><tr><th>When</th><th>Project</th><th>What</th></tr></thead>
-      <tbody>${rows.map((r) => `<tr>
-        <td class="nowrap">${esc(fmtDateTime(r.changed_at))}</td>
+      <thead><tr><th>When</th>${rows.some((r) => r.changed_by) ? '<th>Who</th>' : ''}<th>Project</th><th>What</th></tr></thead>
+      <tbody>${rows.map((r, _, all) => `<tr>
+        <td class="nowrap">${esc(fmtDateTime(r.changed_at))}</td>${all.some((x) => x.changed_by) ? `<td class="nowrap">${esc(r.changed_by || '')}</td>` : ''}
         <td>${r.project_id ? (names[r.project_id] ? `<a href="#/project/${r.project_id}">${esc(names[r.project_id])}</a>` : `#${r.project_id}`) : ''}</td>
         <td>${esc(r.summary)}</td></tr>`).join('')}</tbody>
     </table>${rows.length ? '' : '<div class="empty">No activity yet.</div>'}</div>`;
@@ -1602,7 +1632,7 @@ async function taskModal(id) {
     <div class="modal-head">
       <div class="small muted">${t.project_id ? esc(t.project_name) : '✅ Tasks (no project)'}${t.parent_id ? ' · subtask' : ''} ${baselineText}
         ${t.meeting ? ` · <a href="#" data-action="open-meeting" data-id="${t.meeting.id}" data-return-task="${t.id}" title="Agreed at this meeting">🗓 from ${esc(t.meeting.title)}, ${esc(fmtDate(t.meeting.held_at))}</a>` : ''}</div>
-      <div class="row"><span class="saved-flag" id="saved-flag">✓ Saved</span><button class="icon" data-action="close-modal">✕</button></div>
+      <div class="row"><span class="saved-flag" id="saved-flag">✓ Saved</span><button class="icon" data-action="history" data-kind="tasks" data-id="${t.id}" data-title="${esc(t.title)}" title="History: every change, with who made it">🕘</button><button class="icon" data-action="close-modal">✕</button></div>
     </div>
     <div class="form-grid" id="task-form" data-id="${t.id}">
       <label class="f full">Title<input type="text" name="title" value="${esc(t.title)}"></label>
@@ -1963,7 +1993,9 @@ const actions = {
       const r = await api.post('/open-path', { path: p });
       if (r.opened) { toast('Opened in File Explorer'); return; }
     } catch (err) { toast(err.message, 'error'); }
-    try { await navigator.clipboard.writeText(p); toast('Path copied — paste it into File Explorer'); } catch { /* clipboard unavailable */ }
+    // on the shared server File Explorer would open on the server: the path is copied for your own PC
+    if (await copyText(p)) toast('Path copied — paste it into File Explorer\'s address bar');
+    else prompt('Copy this path and paste it into File Explorer\'s address bar:', p);
   },
   'dash-jump': (el) => {
     if (el.dataset.target === 'ideas') { location.hash = '#/ideas'; return; }
@@ -2079,6 +2111,8 @@ const actions = {
     await api.del(`/areas/${el.dataset.id}`);
     await renderSettings();
   },
+  history: (el) => collabHistory(el.dataset.kind, el.dataset.id, el.dataset.title || ''),
+  'set-name': () => collabAskName(true),
   'stop-server': async () => {
     if (!confirm('Stop the CI Manager? Reminders won\'t pop up until you start it again.')) return;
     await api.post('/shutdown');
@@ -2399,7 +2433,9 @@ window.addEventListener('hashchange', route);
   tickClock();
   setInterval(tickClock, 15000);
   updateNotifyButton();
-  try { state.mode = (await api.get('/health')).mode || 'full'; } catch { state.mode = 'full'; }
+  try { const hl = await api.get('/health'); state.mode = hl.mode || 'full'; state.shared = !!hl.shared; state.local = hl.local !== false; } catch { state.mode = 'full'; }
+  // the shared server: switched off on the server itself only
+  if (state.shared && !state.local) $$('.stop-server').forEach((b) => { b.previousElementSibling?.tagName === 'HR' && b.previousElementSibling.remove(); b.remove(); });
   if (state.mode === 'planner') {
     // 🏭 CI Planner: Planning on its own, shared by several people
     document.body.classList.add('planner-mode');
@@ -2414,6 +2450,7 @@ window.addEventListener('hashchange', route);
     [state.settings] = await Promise.all([api.get('/settings'), loadProjects()]);
   } catch (err) { toast(err.message, 'error'); }
   plannerLink();
+  if (state.shared) await collabStart();
   await route();
   pollAlerts();
   setInterval(pollAlerts, 30000);

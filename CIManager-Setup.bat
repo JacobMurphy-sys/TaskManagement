@@ -65,6 +65,10 @@ set "SHAREDDIR="
 if exist "%SRCDIR%\planning-setup*.json" set "SHAREDDIR=%SRCUNC%"
 if exist "%SRCDIR%\cimanager-team*.json" set "SHAREDDIR=%SRCUNC%"
 if defined SHAREDDEF set "SHAREDDIR=%SRCUNC%"
+REM The shared server: a cimanager-server.json next to this file ({"url": "http://server:3000"},
+REM written by server-install.bat) means everyone uses the one copy on the server - this then just
+REM gives a CI Manager shortcut to it instead of installing a copy here.
+if defined REMOTE if exist "%SRCDIR%\cimanager-server.json" goto :client
 if not defined REMOTE if exist "%BASEDIR%\package.json" if exist "%BASEDIR%\.git\" set "INPLACE=1"
 if defined INPLACE (set "APP=%BASEDIR%") else (set "APP=%BASEDIR%\app")
 
@@ -205,6 +209,38 @@ if defined FRESH (
 exit /b 0
 
 REM ---- problems ------------------------------------------------------------
+
+:client
+set "SERVERURL="
+for /f "usebackq delims=" %%u in (`powershell -NoProfile -Command "(Get-Content -Raw '%SRCDIR%\cimanager-server.json' | ConvertFrom-Json).url"`) do set "SERVERURL=%%u"
+if not defined SERVERURL (
+  echo cimanager-server.json next to this file has no "url" in it.
+  pause
+  exit /b 1
+)
+echo.
+echo CI Manager - the shared copy
+echo   Everyone uses the one CI Manager at %SERVERURL%
+echo   Nothing is installed on this computer: you get a CI Manager shortcut that opens it.
+if exist "%SRCDIR%\cimanager.ico" copy /y "%SRCDIR%\cimanager.ico" "%BASEDIR%\cimanager.ico" >nul
+REM Opened in its own window (Edge's app mode) when Edge is there, else in the usual browser.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$w=New-Object -ComObject WScript.Shell; $u='%SERVERURL%'; $ico='%BASEDIR%\cimanager.ico'; $e=@(${env:ProgramFiles(x86)}+'\Microsoft\Edge\Application\msedge.exe', $env:ProgramFiles+'\Microsoft\Edge\Application\msedge.exe') | Where-Object { Test-Path $_ } | Select-Object -First 1; function L($p){ $s=$w.CreateShortcut($p); if ($e) { $s.TargetPath=$e; $s.Arguments='--app='+$u } else { $s.TargetPath=$env:SystemRoot+'\explorer.exe'; $s.Arguments=$u }; if (Test-Path $ico) { $s.IconLocation=$ico+',0' }; $s.Description='Open the CI Manager'; $s.Save() }; L ([Environment]::GetFolderPath('Desktop')+'\CI Manager.lnk'); L ('%BASEDIR%'+'\CI Manager.lnk')" >nul 2>&1
+if errorlevel 1 (
+  echo   Couldn't make the shortcut - open %SERVERURL% in your browser and add it to your favourites.
+) else (
+  echo   Shortcut: CI Manager, on the desktop. To pin it: right-click it ^> Pin to taskbar.
+)
+REM A copy of its own from before: no longer started at log-in. Its data stays where it is.
+set "OLDSTART=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\CI Manager.lnk"
+if exist "%OLDSTART%" (
+  del "%OLDSTART%" >nul 2>&1
+  echo   Your own copy no longer starts when you log in. Its data is kept in %LOCALAPPDATA%\CIManager.
+)
+if exist "%BASEDIR%\app\" echo   Your own copy is still in %BASEDIR%\app - stop it from its ... menu ^> Stop server; it isn't needed any more.
+start "" "%SERVERURL%"
+echo.
+pause
+exit /b 0
 
 :no_node
 echo Node.js was not found. Install it from https://nodejs.org (the LTS version) and run this again.

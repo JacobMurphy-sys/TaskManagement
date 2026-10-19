@@ -23,6 +23,12 @@ try {
   process.exit(1);
 }
 
+// The person and browser behind the current request (set per request by the server).
+const { AsyncLocalStorage } = require('async_hooks');
+const actorStore = new AsyncLocalStorage();
+const actor = () => actorStore.getStore() || null;
+const asActor = (who, fn) => actorStore.run(who, fn);
+
 function open(file) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const conn = new sqlite.DatabaseSync(file);
@@ -68,9 +74,22 @@ function stmt(sql) {
   return s;
 }
 
-const all = (sql, params = []) => stmt(sql).all(...params.map(param)).map((r) => ({ ...r }));
-const get = (sql, params = []) => { const r = stmt(sql).get(...params.map(param)); return r ? { ...r } : undefined; };
-const run = (sql, params = []) => stmt(sql).run(...params.map(param));
+// Who made a change: the audit log's triggers record what changed; a write made for a request
+// then stamps the rows it added with the request's person and browser (db.asActor). It happens
+// in the same step as the write (node:sqlite is synchronous), so no other request's rows can get
+// in between — and the triggers stay plain SQL, so edits made in DBeaver still work.
+const WRITE = /^\s*(INSERT|UPDATE|DELETE|REPLACE)\b/i;
+function stamped(sql, fn) {
+  const a = actor();
+  if (!a || !(a.who || a.client) || !WRITE.test(sql)) return fn();
+  const before = stmt('SELECT coalesce(max(id), 0) AS m FROM audit_log').get().m;
+  const out = fn();
+  stmt('UPDATE audit_log SET changed_by = ?, client_id = ? WHERE id > ? AND client_id IS NULL AND changed_by IS NULL').run(a.who ?? null, a.client ?? null, before);
+  return out;
+}
+const all = (sql, params = []) => stamped(sql, () => stmt(sql).all(...params.map(param)).map((r) => ({ ...r })));
+const get = (sql, params = []) => stamped(sql, () => { const r = stmt(sql).get(...params.map(param)); return r ? { ...r } : undefined; });
+const run = (sql, params = []) => stamped(sql, () => stmt(sql).run(...params.map(param)));
 
 // Runs fn() inside a transaction.
 function tx(fn) {
@@ -171,4 +190,4 @@ function migrate() {
   });
 }
 
-module.exports = { conn, all, get, run, tx, migrate, open };
+module.exports = { conn, all, get, run, tx, migrate, open, asActor, actor };

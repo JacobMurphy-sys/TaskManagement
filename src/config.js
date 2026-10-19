@@ -62,6 +62,9 @@ module.exports = {
   mode,
   port: mode === 'planner' ? num(env.PLANNER_PORT ?? env.PORT, 3100) : num(env.PORT, 3000),
   host: (mode === 'planner' ? env.PLANNER_HOST : null) || env.HOST || '127.0.0.1',
+  // Reachable from other computers (HOST=0.0.0.0 or the server's address): one copy shared by
+  // several people — the Stop button, Open folder and restores then work only on the server itself.
+  get shared() { return !['127.0.0.1', 'localhost', '::1'].includes(this.host); },
   dataDir,
   dataDirNote,
   dbFile: inData(mode === 'planner' ? env.PLANNER_DB_FILE : env.DB_FILE, mode === 'planner' ? 'planner.db' : 'taskmgr.db'),
