@@ -70,7 +70,7 @@ button.danger { color: var(--danger); }
 button.link { border: 0; background: none; color: var(--accent); padding: 2px 4px; }
 button.icon { border: 0; background: none; padding: 2px 5px; color: var(--muted); }
 button.icon:hover { color: var(--accent); }
-input[type=text], input[type=search], input[type=number], input[type=datetime-local], input[type=date], select, textarea {
+input[type=text], input[type=password], input[type=search], input[type=number], input[type=datetime-local], input[type=date], select, textarea {
   background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; width: 100%;
 }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
@@ -1189,3 +1189,17 @@ dialog.cdialog input[type=text] { width: 100%; }
 /* ➕ rows added to a list on the A3 (in edit mode) */
 .kpi-editing .xc.ed-added { outline: 2px dashed #3b6fb6; outline-offset: -2px; }
 .kpi-rows { margin: 4px 0 6px; gap: 8px; align-items: center; }
+
+/* 👤 sign-in and 📥 My work */
+.signin { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--bg); }
+.signin-card { width: min(380px, 100%); display: grid; gap: 10px; }
+.signin-card h1 { margin: 0; }
+.signin-card input { width: 100%; }
+.signin-msg { color: var(--danger); min-height: 1.2em; font-size: 13px; }
+.mine-new { border-left: 4px solid #3b6fb6; }
+.mine-list { margin: 0; padding-left: 4px; list-style: none; display: grid; gap: 6px; }
+.acct-form { gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.acct-form .f { min-width: 160px; }
+.acct-table input[type=text] { width: 100%; min-width: 140px; }
+body.signin-page > *:not(.signin):not(#toasts) { visibility: hidden; }
+.acct-card { grid-column: 1 / -1; }

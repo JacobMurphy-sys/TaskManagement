@@ -17,6 +17,31 @@ const moneyCheck = (c) => `CHECK (${c} IS NULL OR (typeof(${c}) IN ('integer', '
 const RECURRENCES = ['daily', 'weekdays', 'weekly', 'fortnightly', 'monthly', 'quarterly', 'yearly'];
 
 const TABLES = {
+  // 👤 Accounts (off until the first is made): each linked to a person — the name used as task owner,
+  // project leader, sponsor or team member. Not audited (the activity log would hold the password
+  // hashes); changes are written to the app's log instead.
+  accounts: `
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    person        TEXT    NOT NULL,
+    role          TEXT    NOT NULL DEFAULT 'user',
+    password_hash TEXT    NOT NULL,
+    must_change   INTEGER NOT NULL DEFAULT 1,
+    active        INTEGER NOT NULL DEFAULT 1,
+    inbox_seen_at TEXT,
+    last_login    TEXT,
+    created_at    TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at    TEXT    NOT NULL DEFAULT (${NOW})`,
+
+  // Signed-in browsers: a random token in a cookie, kept here only as its SHA-256.
+  sessions: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_hash  TEXT    NOT NULL UNIQUE,
+    account_id  INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    last_seen   TEXT    NOT NULL DEFAULT (${NOW}),
+    expires_at  TEXT    NOT NULL`,
+
   projects: `
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     name              TEXT    NOT NULL,

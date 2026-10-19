@@ -1948,6 +1948,50 @@ async function waitForServer() {
       for (const m of (await call('GET', '/plan')).machines) await call('DELETE', `/plan/machines/${m.id}`);
     }
 
+    // 👤 accounts: off until the first is made; then every request signs in, and 📥 My work gathers
+    // what each person is named on (last: from here on, unsigned requests are refused)
+    {
+      const jar = {};
+      const as = (who) => async (method, url, body) => {
+        const res = await fetch(BASE + url, { method, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager', ...(jar[who] ? { Cookie: jar[who] } : {}) }, body: body ? JSON.stringify(body) : undefined });
+        const set = res.headers.get('set-cookie'); if (set) jar[who] = set.split(';')[0];
+        return { status: res.status, data: res.status === 204 ? null : await res.json().catch(() => null) };
+      };
+      const admin = as('admin'); const sam = as('sam'); const anon = as('anon');
+      assert.deepEqual((await anon('GET', '/auth/me')).data, { enabled: false, account: null }, 'off');
+      assert.equal((await anon('GET', '/projects')).status, 200, 'off: as before');
+      let r = await admin('POST', '/accounts', { username: 'boss', person: 'Pat Boss', password: 'short' });
+      assert.equal(r.status, 400, 'passwords of 8 characters or more');
+      r = await admin('POST', '/accounts', { username: 'boss', person: 'Pat Boss', password: 'boss-pass-1', role: 'user' });
+      assert.deepEqual([r.status, r.data.role, r.data.must_change], [201, 'admin', false], 'the first account is an admin, signed in');
+      assert.equal((await anon('GET', '/projects')).status, 401, 'on: sign in first');
+      assert.equal((await anon('GET', '/health')).status, 200);
+      r = await admin('POST', '/accounts', { username: 'sam', person: 'Sam Smoke', password: 'first-pass' });
+      assert.deepEqual([r.status, r.data.role, r.data.must_change], [201, 'user', true]);
+      assert.equal((await sam('POST', '/auth/login', { username: 'sam', password: 'nope-nope' })).status, 401);
+      r = await sam('POST', '/auth/login', { username: 'SAM', password: 'first-pass' });
+      assert.equal(r.data.account.person, 'Sam Smoke', 'usernames ignore case');
+      assert.equal((await sam('GET', '/accounts')).status, 403, 'accounts are for admins');
+      assert.equal((await sam('POST', '/auth/password', { current: 'first-pass', next: 'sams-own-1' })).status, 200);
+      // the boss gives Sam a task and makes Sam a project's sponsor
+      const proj = (await admin('GET', '/projects')).data[0];
+      const t = (await admin('POST', '/tasks', { title: 'For Sam', owner: 'Someone Else, Sam Smoke' })).data;
+      await admin('PATCH', `/projects/${proj.id}`, { sponsor: 'Sam Smoke' });
+      await sam('POST', '/tasks', { title: 'Sam to self', owner: 'Sam Smoke' });
+      const w = (await sam('GET', '/me/work')).data;
+      assert.ok(w.tasks.some((x) => x.id === t.id) && w.tasks.some((x) => x.title === 'Sam to self'), 'tasks with Sam among the owners');
+      assert.ok(w.projects.find((p) => p.id === proj.id).roles.includes('Sponsor'));
+      assert.deepEqual(w.new.map((n) => [n.kind, n.title, n.by]).sort(), [['project', proj.name, 'Pat Boss'], ['task', 'For Sam', 'Pat Boss']], 'new: what others gave Sam, not what Sam gave Sam');
+      await sam('POST', '/me/work/seen', {});
+      assert.equal((await sam('GET', '/me/work')).data.new.length, 0);
+      assert.equal((await admin('GET', `/history/tasks/${t.id}`)).data[0].by, 'Pat Boss', 'changes are by the signed-in person');
+      // the last admin stays
+      const boss = (await admin('GET', '/accounts')).data.find((a) => a.username === 'boss');
+      assert.equal((await admin('PATCH', `/accounts/${boss.id}`, { role: 'user' })).status, 400, 'at least one admin');
+      await sam('POST', '/auth/logout', {});
+      assert.equal((await sam('GET', '/projects')).status, 401, 'signed out');
+    }
+
     await call('POST', '/shutdown');
     const code = await new Promise((r) => server.once('exit', r));
     assert.equal(code, 0, 'server exits cleanly on shutdown');

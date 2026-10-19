@@ -299,6 +299,18 @@ Instead of a copy on each PC, one computer runs the CI Manager and everyone open
 - **No silent overwrites:** a text box remembers what it said when you started editing. If someone else saved a change to it before you, your save is held, and both versions are shown side by side. Keep theirs, or save yours, after editing it to take in theirs if you like. The version not kept stays in the history. Fields like status, dates and owner just save; the last change counts.
 - **🕘 History** (on a project, idea, task or meeting): every change, newest first, with who and when, and each field before and after. **↩ Put back** sets a field back; that is itself a change, so it can be undone too.
 
+**👤 Accounts and 📥 My work.** Accounts are off until someone makes the first one, so until then nothing changes. In ⚙ Settings › 👤 Accounts, make your own account first; it's the admin, and from then on everyone signs in.
+- **Adding accounts:** the admin adds one per person, picking the person from the contacts (the name used as task owner, project leader, sponsor or team member). They also give a username and a first password; the person must change it at their first sign-in.
+- **Managing accounts:** the admin can set a new password (again changed at the next sign-in), make someone an admin, turn an account off, or remove it. There's always at least one active admin.
+- **Signed in:** your name is your account's person, so who's here and who changed what come from it, and you're never asked for a name. The ⋯ menu has 🔑 Change password and ↪ Sign out. A sign-in lasts 30 days from when it was last used. After a few wrong passwords from one PC, it waits a minute.
+- **📥 My work** (top left, with a count of what's new) shows:
+  - **New for you:** tasks someone else gave you and projects you were made leader, sponsor or a team member of since you last looked, with who and when. **✓ Mark the new ones as seen** clears them.
+  - **My tasks:** open tasks with your name among the owners, by due date.
+  - **My projects:** active projects where you're the leader, the sponsor or on the team.
+- **Permissions:** everyone can see and change everything, as before. Only managing accounts and restoring a backup are for admins.
+- **Forgotten password:** an admin who's forgotten theirs runs `node scripts/reset-password.js <username> <new password>` in the app folder on the server (without arguments it lists the accounts).
+- **Storage:** passwords are kept only as scrypt hashes, and sign-ins as hashed tokens.
+
 **Only on the server itself:** **Stop server** (the button doesn't show elsewhere) and **restoring a backup**, because it replaces everyone's data. **📁 links to files and folders** open File Explorer on the server, so on everyone else's PC the path is copied instead, ready to paste into File Explorer.
 
 **There's no sign-in:** anyone who can reach the address can use it, so keep it on the company network.

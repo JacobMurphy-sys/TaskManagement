@@ -14,7 +14,8 @@ const config = require('./config');
 
 const isLocal = (req) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket?.remoteAddress);
 const header = (req, name, max) => { let v = String(req.get(name) || ''); try { v = decodeURIComponent(v); } catch { /* as sent */ } return v.trim().slice(0, max) || null; };
-const whoOf = (req) => header(req, 'X-User-Name', 60);
+// the signed-in account's person, else the name the browser gave
+const whoOf = (req) => req.account?.person || header(req, 'X-User-Name', 60);
 const clientOf = (req) => header(req, 'X-Client-Id', 60);
 
 // ---- what a change touches, and how to say it ---------------------------------------------------

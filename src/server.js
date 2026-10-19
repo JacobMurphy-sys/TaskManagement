@@ -72,6 +72,13 @@ app.use('/api', (req, res, next) => {
   });
   next();
 });
+// 👤 accounts (off until the first is made): who's signed in, and the sign-in gate (accounts.js)
+const accounts = require('./accounts');
+app.use('/api', accounts.gate);
+app.use('/api', accounts.router);
+// with accounts on, restoring a backup (it replaces everyone's data) is for admins
+app.use('/api', (req, res, next) => (req.method !== 'GET' && /^\/backups\/(restore|[^/]+\/[^/]+\/restore)$/.test(req.path) && accounts.enabled() && req.account?.role !== 'admin'
+  ? res.status(403).json({ error: 'Only an admin can restore a backup' }) : next()));
 // who made each change, the feed of changes for open pages, and no silent overwrites (collab.js)
 app.use('/api', collab.changes);
 

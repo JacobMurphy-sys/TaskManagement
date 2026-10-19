@@ -2850,6 +2850,53 @@ router.delete('/costs/:id', h((req, res) => {
   res.status(204).end();
 }));
 
+// ------------------------------------------------------------------ 📥 My work
+
+// What the signed-in person is named on: open tasks they own (one of the names in Owner), active
+// projects they lead, sponsor or are on the team of, and what's newly theirs since they last looked
+// (from the activity log: a task given to them, a project they were made leader, sponsor or a team
+// member of — by someone else).
+const named = (owners, person) => splitOwners(owners).some((n) => n.toLowerCase() === String(person).toLowerCase());
+router.get('/me/work', h((req, res) => {
+  const a = req.account;
+  if (!a) return res.json({ account: null });
+  const person = a.person;
+  const tasks = db.all(`SELECT t.id, t.title, t.status, t.priority, t.due_at, t.owner, t.project_id, p.name AS project_name FROM tasks t
+      LEFT JOIN projects p ON p.id = t.project_id WHERE t.owner IS NOT NULL AND t.status <> 'done' AND (p.id IS NULL OR p.status IN ('active', 'on_hold'))`)
+    .filter((t) => named(t.owner, person))
+    .sort((x, y) => (x.due_at || '9999').localeCompare(y.due_at || '9999') || y.priority - x.priority);
+  const team = new Map(db.all('SELECT project_id, role FROM project_team WHERE name = ? COLLATE NOCASE', [person]).map((r) => [r.project_id, r.role]));
+  const projects = db.all("SELECT id, name, status, priority, due_at, leader, sponsor FROM projects WHERE status IN ('active', 'on_hold') ORDER BY due_at IS NULL, due_at")
+    .map((p) => ({ ...p, roles: [named(p.leader, person) && 'Leader', named(p.sponsor, person) && 'Sponsor', team.has(p.id) && (team.get(p.id) || 'Team member')].filter(Boolean) }))
+    .filter((p) => p.roles.length);
+  // newly theirs
+  const since = a.inbox_seen_at || a.created_at;
+  const parse = (x) => { try { return x ? JSON.parse(x) : {}; } catch { return {}; } };
+  const fresh = new Map();
+  for (const r of db.all("SELECT * FROM audit_log WHERE table_name IN ('tasks', 'projects', 'project_team') AND changed_at > ? ORDER BY id", [since])) {
+    if (r.changed_by && r.changed_by.toLowerCase() === person.toLowerCase()) continue;
+    const o = parse(r.old_data); const n = parse(r.new_data);
+    if (r.action === 'DELETE') continue;
+    if (r.table_name === 'tasks' && named(n.owner, person) && !named(o.owner, person)) fresh.set(`task:${n.id}`, { kind: 'task', id: n.id, title: n.title, by: r.changed_by, at: r.changed_at });
+    if (r.table_name === 'projects') {
+      for (const [f, role] of [['leader', 'leader'], ['sponsor', 'sponsor']]) if (named(n[f], person) && !named(o[f], person)) fresh.set(`project:${n.id}`, { kind: 'project', id: n.id, title: n.name, role, by: r.changed_by, at: r.changed_at });
+    }
+    if (r.table_name === 'project_team' && String(n.name || '').toLowerCase() === person.toLowerCase() && String(o.name || '').toLowerCase() !== person.toLowerCase()) {
+      const p = db.get('SELECT name FROM projects WHERE id = ?', [n.project_id]);
+      if (p) fresh.set(`project:${n.project_id}`, { kind: 'project', id: n.project_id, title: p.name, role: n.role || 'team member', by: r.changed_by, at: r.changed_at });
+    }
+  }
+  // only what's still open
+  const openTasks = new Set(tasks.map((t) => t.id)); const openProjects = new Set(projects.map((p) => p.id));
+  const news = [...fresh.values()].filter((x) => (x.kind === 'task' ? openTasks.has(x.id) : openProjects.has(x.id))).sort((x, y) => y.at.localeCompare(x.at));
+  res.json({ account: { person, username: a.username }, tasks, projects, new: news, seen_at: since });
+}));
+router.post('/me/work/seen', h((req, res) => {
+  if (!req.account) throw new HttpError(401, 'Sign in first');
+  db.run('UPDATE accounts SET inbox_seen_at = ? WHERE id = ?', [nowIso(), req.account.id]);
+  res.json({ ok: true });
+}));
+
 // ------------------------------------------------------------------ 🕘 a record's history
 
 // Every change to one record, newest first: when, who, and each field's value before and after

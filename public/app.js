@@ -64,6 +64,8 @@ async function request(method, url, body) {
     edit.el.value = chosen; edit.el.dataset.base = chosen;
     return request(method, url, { ...body, [edit.field]: chosen });
   }
+  // signed out (the sign-in ended, or the account was turned off): back to the sign-in page
+  if (res.status === 401 && data.signin && typeof renderSignIn === 'function') { renderSignIn('Please sign in again.'); throw new Error(data.error); }
   if (!res.ok) throw new Error(data.error || `${res.status} ${res.statusText}`);
   edit?.saved(body[edit.field]);
   return data;
@@ -301,6 +303,7 @@ async function route() {
     else if (view === 'log') await renderLog();
     else if (view === 'backups') await renderBackups();
     else if (view === 'contacts') await renderContacts();
+    else if (view === 'mine') await renderMine();
     else if (view === 'calendar') await renderCalendar();
     else if (view === 'library') await renderLibrary(rest[0], rest.slice(1).join('/'));
     else if (view === 'search') await renderSearch(decodeURIComponent(rest.join('/')));
@@ -1365,6 +1368,7 @@ async function renderSettings() {
         <label class="f">Currency symbol for idea costs
           <input type="text" id="currency" value="${esc(settings.currency)}" maxlength="5" style="max-width:120px"></label>
       </div>
+      ${await acctSettingsHtml()}
       <div class="card">
         <h2>📦 Team pack</h2>
         <p class="small muted">What everyone on the team shares: the <b>contacts lists</b> (People with their roles, Departments and any lists added)
@@ -1377,6 +1381,7 @@ async function renderSettings() {
         ${ta ? `<p class="small muted" style="margin:8px 0 0">From the network: <span title="${esc(ta.file)}">${esc(ta.file.split(/[\\/]/).pop())}</span>, ${esc(fmtDateTime(ta.at))} — added ${ta.added.lists} list${ta.added.lists === 1 ? '' : 's'}, ${ta.added.names} name${ta.added.names === 1 ? '' : 's'}${ta.added.filled ? ` (${ta.added.filled} filled in)` : ''}, ${ta.added.lookups} project list entr${ta.added.lookups === 1 ? 'y' : 'ies'}.</p>` : ''}
       </div>
     </div>`;
+  acctSettingsWire(renderSettings);
   $('#team-file').addEventListener('change', async (e) => {
     const f = e.target.files[0]; e.target.value = ''; if (!f) return;
     let body; try { body = JSON.parse(await f.text()); } catch { toast('That isn\'t a team pack', 'error'); return; }
@@ -2113,6 +2118,8 @@ const actions = {
   },
   history: (el) => collabHistory(el.dataset.kind, el.dataset.id, el.dataset.title || ''),
   'set-name': () => collabAskName(true),
+  'change-password': () => acctPasswordDialog(false),
+  'sign-out': async () => { await api.post('/auth/logout', {}); location.reload(); },
   'stop-server': async () => {
     if (!confirm('Stop the CI Manager? Reminders won\'t pop up until you start it again.')) return;
     await api.post('/shutdown');
@@ -2436,12 +2443,14 @@ window.addEventListener('hashchange', route);
   try { const hl = await api.get('/health'); state.mode = hl.mode || 'full'; state.shared = !!hl.shared; state.local = hl.local !== false; } catch { state.mode = 'full'; }
   // the shared server: switched off on the server itself only
   if (state.shared && !state.local) $$('.stop-server').forEach((b) => { b.previousElementSibling?.tagName === 'HR' && b.previousElementSibling.remove(); b.remove(); });
+  // 👤 with accounts on: signed in, or the sign-in page instead of the app
+  if (!(await acctInit())) return;
   if (state.mode === 'planner') {
     // 🏭 CI Planner: Planning on its own, shared by several people
     document.body.classList.add('planner-mode');
     document.title = 'CI Planner';
     $('#sidebar .brand').textContent = '🏭 CI Planner';
-    if (!me.name) { const n = (prompt('Your name — so others using the planner can see who\'s here:') || '').trim(); if (n) me.setName(n); }
+    if (!me.name && !ACCT.account) { const n = (prompt('Your name — so others using the planner can see who\'s here:') || '').trim(); if (n) me.setName(n); }
     try { state.settings = await api.get('/settings'); } catch (err) { toast(err.message, 'error'); }
     await route();
     return;
