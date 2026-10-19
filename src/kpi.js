@@ -381,6 +381,67 @@ function withAdded(xml, { cells = [], merges = [] }) {
   return xml;
 }
 
+// ➕ Adding a row to a list on the A3 (Visitors, Investment Requests, …) — into the free row under
+// it, laid out as the list's last row, so the A3 keeps its look and nothing moves.
+const refOf = (row, col) => `${colLetters(col)}${row}`;
+// The view with the added rows ([{ src_row, row, col_left, col_right }]): the last row's boxes copied,
+// empty and editable as theirs are.
+function withAddedRows(view, added) {
+  if (!view || !added?.length) return view;
+  let cells = [...view.cells]; const edit = { ...(view.edit || {}) };
+  for (const a of added) {
+    const src = cells.filter((c) => c[0] === a.src_row && c[4] === 1 && c[1] >= a.col_left && c[1] + c[5] - 1 <= a.col_right);
+    cells = cells.filter((c) => !(c[0] === a.row && c[1] >= a.col_left && c[1] <= a.col_right));
+    for (const c of src) { cells.push([a.row, c[1], '', c[3], 1, c[5], c[6]]); if (edit[refOf(c[0], c[1])]) edit[refOf(a.row, c[1])] = edit[refOf(c[0], c[1])]; }
+  }
+  return { ...view, cells, edit, added: added.map((a) => ({ row: a.row, left: a.col_left, right: a.col_right })) };
+}
+// Where a row can go under the list a box belongs to: → { src_row, row, col_left, col_right } or { error }.
+// The list: the run of typed one-row boxes side by side in the clicked row, and the rows under it
+// laid out the same; the new row is the next one down, which must be empty in those columns.
+function addRowTarget(view, ref) {
+  const m = String(ref || '').toUpperCase().match(/^([A-Z]+)(\d+)$/);
+  if (!m) return { error: 'Not a cell' };
+  const row = Number(m[2]); const col = [...m[1]].reduce((t, ch) => t * 26 + ch.charCodeAt(0) - 64, 0);
+  const cells = view.cells;
+  const at = (r, c) => cells.find((x) => x[0] === r && x[1] === c);
+  const typed = (x) => x && x[4] === 1 && (view.edit?.[refOf(x[0], x[1])] || '').includes('t');
+  const clicked = at(row, col);
+  if (!typed(clicked)) return { error: 'Rows can be added under a list of one-row text boxes' };
+  const band = [clicked];
+  for (let x = cells.find((c) => c[0] === row && c[1] + c[5] === band[0][1]); typed(x); x = cells.find((c) => c[0] === row && c[1] + c[5] === band[0][1])) band.unshift(x);
+  for (let x = at(row, band[band.length - 1][1] + band[band.length - 1][5]); typed(x); x = at(row, band[band.length - 1][1] + band[band.length - 1][5])) band.push(x);
+  const left = band[0][1]; const right = band[band.length - 1][1] + band[band.length - 1][5] - 1;
+  const shape = (r) => cells.filter((c) => c[0] === r && c[1] >= left && c[1] <= right).map((c) => `${c[1]}:${c[5]}:${c[4]}`).sort().join(',');
+  const want = shape(row);
+  let last = row;
+  while (shape(last + 1) === want) last++;
+  const target = last + 1;
+  if (target > view.rows.length || !view.rows[target - 1]) return { error: `There's no room under this list: the A3 ends at row ${last}. Put two entries in one box instead (on separate lines).` };
+  const busy = cells.some((c) => c[0] <= target && c[0] + c[4] - 1 >= target && c[1] <= right && c[1] + c[5] - 1 >= left);
+  if (busy) return { error: `There's no free row under this list: row ${target} is in use. Put two entries in one box instead (on separate lines).` };
+  return { src_row: last, row: target, col_left: left, col_right: right };
+}
+// The saved A3 with the added rows: each source cell (borders and all) copied with its style, and its merges.
+function addRowsToPackage(pkg, added) {
+  if (!added?.length) return pkg;
+  const files = readZip(pkg);
+  const sPath = 'xl/worksheets/sheet1.xml';
+  let xml = files[sPath].toString('utf8');
+  for (const a of added) {
+    const src = [...xml.matchAll(new RegExp(`<c\\b[^>]*\\sr="([A-Z]+)${a.src_row}"[^>]*?(?:/>|>[\\s\\S]*?</c>)`, 'g'))]
+      .map((mm) => ({ col: [...mm[1]].reduce((t, ch) => t * 26 + ch.charCodeAt(0) - 64, 0), s: attr(mm[0].match(/^<c\b[^>]*>/)[0].replace(/\/>$/, '>'), 's') }))
+      .filter((c) => c.col >= a.col_left && c.col <= a.col_right);
+    const merges = [...xml.matchAll(/<mergeCell ref="([A-Z]+)(\d+):([A-Z]+)(\d+)"\/>/g)]
+      .filter((mm) => Number(mm[2]) === a.src_row && Number(mm[4]) === a.src_row)
+      .map((mm) => ({ l: [...mm[1]].reduce((t, ch) => t * 26 + ch.charCodeAt(0) - 64, 0), r: [...mm[3]].reduce((t, ch) => t * 26 + ch.charCodeAt(0) - 64, 0), a: mm[1], b: mm[3] }))
+      .filter((mm) => mm.l >= a.col_left && mm.r <= a.col_right).map((mm) => `${mm.a}${a.row}:${mm.b}${a.row}`);
+    xml = withAdded(xml, { cells: src.map((c) => ({ ref: refOf(a.row, c.col), s: c.s ? Number(c.s) : 0 })), merges });
+  }
+  files[sPath] = Buffer.from(xml, 'utf8');
+  return zip(files);
+}
+
 // 📝 The week's customer complaints written up on the A3, under the complaint counts: one line
 // each, "Account Name - Summary of the issue", straight from the Salesforce export (the cases
 // opened in the week). The space is found on the sheet: the empty rows under "CC Month:" (or
@@ -814,4 +875,4 @@ function exportTarget(set, week) {
   return { dir, name, path: path.join(dir, name) };
 }
 
-module.exports = { complaintsWriteUp, withAdded, loadWeek, buildWeek, applyEdits, editKinds, forecastSheet, symbolColours, SYMBOL_COLOURS, sheetView, prepareChart, buildA3Package, exportA3, weekParts, fillPattern, exportTarget, colPx, isErr, decode, parseRef, section, resolvePart, relsPathOf };
+module.exports = { colLettersOf: (n) => colLetters(n), withAddedRows, addRowTarget, addRowsToPackage, complaintsWriteUp, withAdded, loadWeek, buildWeek, applyEdits, editKinds, forecastSheet, symbolColours, SYMBOL_COLOURS, sheetView, prepareChart, buildA3Package, exportA3, weekParts, fillPattern, exportTarget, colPx, isErr, decode, parseRef, section, resolvePart, relsPathOf };

@@ -289,6 +289,19 @@ const TABLES = {
 
   // Changes made by hand on a week's A3: a typed text box (text) or a KPI's colour (color,
   // a hex RGB) in place of what its conditional format gives.
+  // ➕ Rows added to a list on a week's A3 (e.g. a 4th visitor): the free row under the list
+  // gets the layout of the list's last row (src_row), in its columns (col_left–col_right).
+  kpi_rows_added: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    week        TEXT    NOT NULL COLLATE NOCASE,
+    src_row     INTEGER NOT NULL,
+    row         INTEGER NOT NULL,
+    col_left    INTEGER NOT NULL,
+    col_right   INTEGER NOT NULL,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    UNIQUE (week, row, col_left)`,
+
   kpi_edits: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     week        TEXT    NOT NULL COLLATE NOCASE,
@@ -614,7 +627,7 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_overrides', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_overrides', 'kpi_rows_added', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');

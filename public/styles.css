@@ -1185,3 +1185,7 @@ dialog.cdialog input[type=text] { width: 100%; }
 .kpi-fit { margin: 4px 0; color: var(--muted); }
 .kpi-fit.shrunk { color: #3b6fb6; }
 .kpi-fit.over { color: var(--danger); font-weight: 600; }
+
+/* ➕ rows added to a list on the A3 (in edit mode) */
+.kpi-editing .xc.ed-added { outline: 2px dashed #3b6fb6; outline-offset: -2px; }
+.kpi-rows { margin: 4px 0 6px; gap: 8px; align-items: center; }

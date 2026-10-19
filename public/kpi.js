@@ -148,10 +148,13 @@ async function renderKpi(arg, tab) {
         el.dataset.ref = ref;
         el.classList.add(k.includes('t') ? 'ed-t' : 'ed-c');
         if (snap.edits?.[ref]) el.classList.add('ed-done');
+        if ((model.added || []).some((a) => a.row === r && c >= a.left && c <= a.right)) el.classList.add('ed-added');
       });
     } else sheetEl.classList.remove('kpi-editing');
   };
   paint();
+  // a row just added: its first box opens to type in
+  if (kpiState.openRef && view === 'a3') { const ref = kpiState.openRef; kpiState.openRef = null; setTimeout(() => { const t = $(`[data-ref="${ref}"]`, sheetEl); if (!t) return; t.scrollIntoView({ block: 'center' }); setTimeout(() => t.click(), 80); }, 50); }
   sheetEl.onclick = (e) => {
     const el = kpiState.editing && view === 'a3' && e.target.closest('[data-ref]');
     if (!el) return;
@@ -1151,6 +1154,12 @@ function kpiEditCell(snap, model, el, done) {
       <button type="button" data-symbol="" class="${cur.text ? '' : 'on'}" title="As the workbook's formula gives it">Automatic</button></div>`
     : /[fb]/.test(kind) ? `<div class="kpi-swatches">${KPI_COLOURS.map(([name, hex, label]) => `<button type="button" data-colour="${name}" class="${cur.color === hex ? 'on' : ''}" title="${label}"><i style="background:#${hex}"></i>${label}</button>`).join('')}
       <button type="button" data-colour="" class="${cur.color ? '' : 'on'}" title="As the conditional format colours it">Automatic</button></div>` : ''}
+    ${kind.includes('t') && !face ? (() => {
+      const [r, c] = el.dataset.cell.split(':').map(Number);
+      const added = (model.added || []).find((a) => a.row === r && c >= a.left && c <= a.right);
+      return `<div class="row small kpi-rows">${added ? `<span class="muted">➕ A row added to this list</span><button class="small link" data-pop="row-remove" data-row="${added.row}" data-left="${added.left}">🗑 Remove this row</button>`
+        : '<button class="small" data-pop="row-add" title="A new row under this list, laid out like its last row, in the free row below it">➕ Add a row to this list</button>'}</div>`;
+    })() : ''}
     <div class="row">${kind.includes('t') ? '<button class="primary small" data-pop="save">Save</button>' : ''}
       ${cur.text !== null && cur.text !== undefined ? '<button class="small link" data-pop="revert" title="Put back the workbook\'s text">Put back the original text</button>' : ''}
       <span class="spacer"></span><button class="small" data-pop="close">${kind.includes('t') ? 'Cancel' : 'Close'}</button></div>`;
@@ -1160,7 +1169,7 @@ function kpiEditCell(snap, model, el, done) {
   pop.style.width = `${w}px`;
   pop.style.left = `${Math.max(8, Math.min(r.left - 8, window.innerWidth - w - 8))}px`;
   const ph = pop.offsetHeight;
-  pop.style.top = `${r.bottom + 6 + ph < window.innerHeight ? r.bottom + 6 : Math.max(8, r.top - ph - 6)}px`;
+  pop.style.top = `${Math.max(8, Math.min(window.innerHeight - ph - 8, r.bottom + 6 + ph < window.innerHeight ? r.bottom + 6 : r.top - ph - 6))}px`;
   const ta = $('textarea', pop);
   if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
   // as you type: the text in its box on the A3, shrunk to fit, and what that took
@@ -1216,6 +1225,24 @@ function kpiEditCell(snap, model, el, done) {
     if (b.dataset.pop === 'close') close();
     if (b.dataset.pop === 'save') saveText();
     if (b.dataset.pop === 'revert') save({ text: null, size: null });
+    if (b.dataset.pop === 'row-add' || b.dataset.pop === 'row-remove') {
+      (async () => {
+        try {
+          // what's been typed in this box so far is kept first
+          if (ta && ta.value !== text) await api.put(`/kpi/edits/${snap.week}`, { ref, text: ta.value === original ? null : ta.value, size: sizeFor(ta.value === original ? null : ta.value) });
+          if (b.dataset.pop === 'row-add') {
+            const r = await api.post(`/kpi/rows/${snap.week}`, { ref });
+            kpiState.openRef = r.ref;
+            toast(`Row ${r.row} added to the list`);
+          } else {
+            if (!confirm('Remove this added row, and what\'s typed in it?')) return;
+            await api.del(`/kpi/rows/${snap.week}/${b.dataset.row}/${b.dataset.left}`);
+            toast('Row removed');
+          }
+          saved = true; close(); await route();
+        } catch (err) { toast(err.message, 'error'); }
+      })();
+    }
   });
 }
 

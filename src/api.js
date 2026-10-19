@@ -1347,12 +1347,21 @@ router.get('/kpi/snapshots/:id', h((req, res) => {
   const textFrom = Object.values(edits).some((e) => e.text !== null) ? null
     : db.get("SELECT week FROM kpi_edits WHERE text IS NOT NULL AND week < ? ORDER BY week DESC LIMIT 1", [r.week])?.week || null;
   const notes = db.get('SELECT text, updated_at FROM kpi_notes WHERE week = ?', [r.week]);
-  res.json({ ...kpiMeta(r), ...JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8')), edits, text_from: textFrom,
+  const model = JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8'));
+  if (model.views?.a3) model.views.a3 = kpi.withAddedRows(model.views.a3, addedRows(r.week));
+  res.json({ ...kpiMeta(r), ...model, edits, text_from: textFrom,
     notes: notes ? { text: notes.text, updated_at: notes.updated_at } : null });
 }));
 
 // ---- changes made by hand on a week's A3 (typed text, KPI colours) ----
 const KPI_COLORS = { green: '00B050', yellow: 'FFC000', orange: 'FFC000', red: 'FF0000' };
+// ➕ Rows added to lists on a week's A3, in the order added.
+const addedRows = (week) => db.all('SELECT src_row, row, col_left, col_right FROM kpi_rows_added WHERE week = ? ORDER BY id', [week]);
+const snapshotA3 = (week) => {
+  const r = db.get('SELECT model FROM kpi_snapshots WHERE week = ?', [week]);
+  const a3 = r ? JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8')).views?.a3 : null;
+  return a3 ? kpi.withAddedRows(a3, addedRows(week)) : null;
+};
 const kpiEdits = (week) => Object.fromEntries(db.all('SELECT ref, text, color, size FROM kpi_edits WHERE week = ? ORDER BY ref', [week]).map((e) => [e.ref.toUpperCase(), { text: e.text, color: e.color, ...(e.size ? { size: e.size } : {}) }]));
 function setKpiEdit(week, ref, f) {
   const old = db.get('SELECT * FROM kpi_edits WHERE week = ? AND ref = ?', [week, ref]);
@@ -1413,6 +1422,26 @@ router.delete('/kpi/edits/:week', h((req, res) => {
   for (const e of db.all('SELECT id FROM kpi_edits WHERE week = ?', [week])) db.run('DELETE FROM kpi_edits WHERE id = ?', [e.id]);
   res.json({});
 }));
+// ➕ Adds a row under the list the box (ref) is in, laid out as its last row — when the row under it is free.
+router.post('/kpi/rows/:week', h((req, res) => {
+  const week = editWeek(req.params.week);
+  const a3 = snapshotA3(week);
+  if (!a3?.edit) throw new HttpError(400, 'Load this week again to edit it');
+  const t = kpi.addRowTarget(a3, req.body.ref);
+  if (t.error) throw new HttpError(400, t.error);
+  insertRow('kpi_rows_added', { week, ...t });
+  res.status(201).json({ ...t, ref: `${kpi.colLettersOf(t.col_left)}${t.row}` });
+}));
+// Removes an added row (the row and its first column), and anything typed in it.
+router.delete('/kpi/rows/:week/:row/:left', h((req, res) => {
+  const week = editWeek(req.params.week);
+  const a = db.get('SELECT * FROM kpi_rows_added WHERE week = ? AND row = ? AND col_left = ?', [week, Number(req.params.row), Number(req.params.left)]);
+  if (!a) throw notFound('Added row');
+  for (let c = a.col_left; c <= a.col_right; c++) db.run('DELETE FROM kpi_edits WHERE week = ? AND ref = ?', [week, `${kpi.colLettersOf(c)}${a.row}`]);
+  db.run('DELETE FROM kpi_rows_added WHERE id = ?', [a.id]);
+  res.json({ edits: kpiEdits(week) });
+}));
+
 // Starts a week's typed text from another week's (boxes this week hasn't changed yet).
 router.post('/kpi/edits/:week/copy', h((req, res) => {
   const week = editWeek(req.params.week);
@@ -1422,6 +1451,13 @@ router.post('/kpi/edits/:week/copy', h((req, res) => {
   const snapRow = db.get('SELECT model FROM kpi_snapshots WHERE week = ?', [week]);
   let own = [];
   try { own = snapRow ? JSON.parse(zlibSync.gunzipSync(Buffer.from(snapRow.model, 'base64')).toString('utf8')).writeups || [] : []; } catch { own = []; }
+  // the rows added to lists that week come along (where this week has room for them)
+  for (const a of addedRows(from)) {
+    if (db.get('SELECT id FROM kpi_rows_added WHERE week = ? AND row = ? AND col_left = ?', [week, a.row, a.col_left])) continue;
+    const view = snapshotA3(week);
+    const t = view ? kpi.addRowTarget(view, `${kpi.colLettersOf(a.col_left)}${a.src_row}`) : { error: true };
+    if (!t.error && t.row === a.row) insertRow('kpi_rows_added', { week, ...t });
+  }
   let n = 0;
   for (const e of db.all('SELECT ref, text, size FROM kpi_edits WHERE week = ? AND text IS NOT NULL', [from])) {
     const ref = e.ref.toUpperCase();
@@ -1732,7 +1768,7 @@ router.post('/kpi/snapshots/:id/export', h((req, res) => {
     if (m) images[index] = Buffer.from(m[1], 'base64');
   }
   const edits = kpiEdits(r.week);
-  let pkg = Buffer.from(r.pkg, 'base64');
+  let pkg = kpi.addRowsToPackage(Buffer.from(r.pkg, 'base64'), addedRows(r.week));
   if (Object.keys(edits).length) {
     const model = JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8'));
     pkg = kpi.applyEdits(pkg, edits, model.views?.a3?.edit || {});

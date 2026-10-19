@@ -1748,6 +1748,22 @@ async function waitForServer() {
       assert.equal(cfAt(0.00455), 'FFFF0000', 'reads 0.46%: over');
     }
 
+    // ➕ a row added to a list on the A3: the list found from a box, the free row under it, its layout copied
+    {
+      const K = require('../src/kpi');
+      // rows 2–4: a list (week box + a 3-wide names box); row 5 free there; row 6 has something in the way
+      const cell = (r, c, cs = 1, t = '') => [r, c, t, c === 1 ? 7 : 8, 1, cs, 0];
+      const view = { rows: [20, 20, 20, 20, 20, 20], cols: [10, 10, 10, 10, 10], cells: [cell(1, 1, 4, 'Visitors'), cell(2, 1, 1, 'CW40'), cell(2, 2, 3, 'Dani'), cell(3, 1, 1, 'CW40'), cell(3, 2, 3, 'Ann'), cell(4, 1), cell(4, 2, 3), cell(6, 3, 1, 'Other')],
+        edit: { A1: 't', A2: 't', B2: 't', A3: 't', B3: 't', A4: 't', B4: 't', C6: 't' } };
+      const t = K.addRowTarget(view, 'B2');
+      assert.deepEqual(t, { src_row: 4, row: 5, col_left: 1, col_right: 4 }, 'under the list, as wide as its row');
+      const v2 = K.withAddedRows(view, [t]);
+      assert.deepEqual(v2.cells.filter((c) => c[0] === 5), [[5, 1, '', 7, 1, 1, 0], [5, 2, '', 8, 1, 3, 0]], 'the last row\'s boxes, empty');
+      assert.deepEqual([v2.edit.A5, v2.edit.B5], ['t', 't'], 'and editable');
+      assert.match(K.addRowTarget(v2, 'A5').error, /row 6 is in use/, 'no room for another');
+      assert.match(K.addRowTarget(view, 'A1').error, /no free row|in use|room/, 'a heading is its own one-row list: row 2 is in use');
+    }
+
     // 📝 the complaints write-up's cell and merge added to the template's sheet XML, in order
     {
       const K = require('../src/kpi');
