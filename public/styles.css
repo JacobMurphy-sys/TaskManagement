@@ -1140,11 +1140,16 @@ table.kfd td { padding: 3px 6px; } .kfd-bar { width: 40%; } .kfd-bar span { disp
 .pll-find li.pll-quality { border-left-color: #c93636; }
 .pll-conf { letter-spacing: 1px; font-size: 12px; cursor: help; }
 .pll-conf.pll-high { color: #2e8b57; } .pll-conf.pll-medium { color: #c98a16; } .pll-conf.pll-low { color: var(--muted); }
-.pll-pace { position: relative; min-width: 110px; height: 18px; background: var(--bg); border-radius: 4px; overflow: hidden; }
-.pll-pace-bar { height: 100%; } .pll-pace-bar.ok { background: #8fd0a6; } .pll-pace-bar.mid { background: #f0cf7a; } .pll-pace-bar.low { background: #ef9a9a; }
-.pll-pace span { position: absolute; left: 6px; top: 0; font-size: 12px; line-height: 18px; color: #222; }
+/* a bar with its figure beside it (not on it, so it reads on any bar length and in either theme) */
+.pll-pace, .pllx-share { display: flex; align-items: center; gap: 8px; min-width: 130px; }
+.pll-track { flex: 1; height: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.pll-pace-bar { height: 100%; } .pll-pace-bar.ok { background: #3c9a5f; } .pll-pace-bar.mid { background: #d9a520; } .pll-pace-bar.low { background: #d65454; }
+.pll-pace > span, .pllx-share > span { flex: 0 0 44px; text-align: right; font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; }
 .pll-t td { vertical-align: middle; }
-.pll-grid { align-items: start; }
+.grid.pll-grid { align-items: stretch; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); }
+/* the Learned view: one even gap between every block, side by side or one under another */
+.pll-view { display: flex; flex-direction: column; gap: 16px; }
+.pll-view > *, .pll-view .pll-grid > .card { margin: 0 !important; }
 .pll-x { float: right; font-size: 15px; line-height: 1; padding: 2px 6px; }
 .pllx-bar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; margin: 10px 0; }
 .pllx-crumbs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
@@ -1156,9 +1161,7 @@ table.kfd td { padding: 3px 6px; } .kfd-bar { width: 40%; } .kfd-bar span { disp
 .pllx-t tbody tr:hover td { background: var(--accent-soft); }
 .pllx-t td.num { white-space: nowrap; }
 .pllx-t tfoot td { border-top: 2px solid var(--border); }
-.pllx-share { position: relative; min-width: 120px; height: 18px; background: var(--bg); border-radius: 4px; overflow: hidden; }
-.pllx-share div { height: 100%; background: #9cc3ef; }
-.pllx-share span { position: absolute; left: 6px; top: 0; font-size: 12px; line-height: 18px; color: #222; }
+.pllx-share .pll-track > div { height: 100%; background: #5b9be0; }
 .pllx-hist { height: 170px; }
 
 /* 👥 the shared server: who's here, what changed, two edits of one text, history */

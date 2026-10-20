@@ -14,7 +14,7 @@ const pllChange = (x) => (x === null || x === undefined ? '' : `<span class="${M
 // a pace as a bar around 100% (the usual for the cards)
 function pllPace(p, scale = 130) {
   if (p === null || p === undefined) return '—';
-  return `<div class="pll-pace" title="${pllN(p, 1)}% of the usual pace for these cards"><div class="pll-pace-bar ${p >= 95 ? 'ok' : p >= 80 ? 'mid' : 'low'}" style="width:${Math.min(100, (p / scale) * 100)}%"></div><span>${pllN(p)}%</span></div>`;
+  return `<div class="pll-pace" title="${pllN(p, 1)}% of the usual pace for these cards"><div class="pll-track"><div class="pll-pace-bar ${p >= 95 ? 'ok' : p >= 80 ? 'mid' : 'low'}" style="width:${Math.min(100, (p / scale) * 100)}%"></div></div><span>${pllN(p)}%</span></div>`;
 }
 function pllPatternTable(title, rows, { label = '', names = false, note = '', by = null } = {}) {
   if (!rows?.length) return '';
@@ -255,7 +255,7 @@ function plxDraw() {
     ${D.rows.length ? `<div class="kdb-scroll pllx-scroll"><table class="log pll-t pllx-t"><thead><tr><th data-plx-sort="label">${esc(dim.label)}${arrow('label')}</th><th>Share of ${esc((otto && q.share === 'cards' ? 'Items' : PLX.share[q.share]).toLowerCase())}</th>
         ${cols.map(([k, l]) => `<th class="num" data-plx-sort="${k}">${l}${arrow(k)}</th>`).join('')}</tr></thead><tbody>
       ${plxRowsSorted().map((r) => `<tr data-plx-row="${esc(r.key)}" class="${r.gone ? 'pllx-gone' : ''}" title="Look inside: filter to ${esc(r.label)}"><td><b>${esc(r.label)}</b>${r.gone ? ' <span class="small muted">none now</span>' : ''}${r.name ? ` <span class="small muted">${esc(r.name)}</span>` : ''}</td>
-        <td><div class="pllx-share"><div style="width:${((r[shareKey] || 0) / maxShare) * 100}%"></div><span>${r[shareKey] === null || r[shareKey] === undefined ? '—' : `${pllN(r[shareKey], 1)}%`}</span></div></td>
+        <td><div class="pllx-share"><div class="pll-track"><div style="width:${((r[shareKey] || 0) / maxShare) * 100}%"></div></div><span>${r[shareKey] === null || r[shareKey] === undefined ? '—' : `${pllN(r[shareKey], 1)}%`}</span></div></td>
         ${cols.map(([k]) => `<td class="num">${cell(r, k)}</td>`).join('')}</tr>`).join('')}
       </tbody><tfoot><tr><td><b>Total</b> <span class="small muted">${pllN(D.rows.length)} rows</span></td><td></td>${cols.map(([k]) => `<td class="num"><b>${k.endsWith('_pct') && !k.startsWith('chg.') ? (k === 'remade_pct' ? cell(T, k) : '100%') : cell(T, k)}</b></td>`).join('')}</tr></tfoot></table></div>`
       : `<p class="muted">No runs ${D.window.runs ? 'match these filters' : 'in these dates'}.</p>`}

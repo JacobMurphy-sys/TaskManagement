@@ -403,7 +403,7 @@ ${half === 'otto' ? ottoSetup() : `
     ${view === 'gantt' ? '<div class="card pl-gantt-card"><div id="pl-gantt-info" class="small"></div><div id="pl-gantt"></div></div>' : ''}
     ${view === 'load' ? `${loadHtml()}${capCard}` : ''}
     ${view === 'history' ? historyHtml() : ''}
-    ${view === 'learn' ? planLearnHtml(learnt) : ''}
+    ${view === 'learn' ? `<div class="pll-view">${planLearnHtml(learnt)}</div>` : ''}
     ${view !== 'list' ? '' : `${backlogCard(p.backlog, 'cards', false)}${capCard}
     <div class="card"><h3 class="pl-h">Cards due by each cut-off</h3>
       <div class="kdb-scroll"><table class="log pl-slots"><thead><tr><th>Deadline</th><th class="num">Jobs</th><th class="num">Cards</th><th class="num">Running total</th><th>Shippers</th>${p.projected ? '<th>Projected</th>' : ''}</tr></thead><tbody>
