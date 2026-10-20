@@ -1277,3 +1277,8 @@ body.not-admin .admin-only, body.not-admin a[href="#/kpi/sources"], body.not-adm
 body.not-admin [data-pll-speed], body.not-admin [data-pll-oee], body.not-admin [data-pll-otto], body.not-admin [data-pll="speeds"], body.not-admin [data-pll="oees"], body.not-admin [data-pll="ottos"],
 body.not-admin .pll-switch button { display: none !important; }
 .grid > .card + .card { margin-top: 0; } /* in a grid the gap spaces cards evenly */
+
+.acct-host { font-weight: 600; }
+.acct-rights { margin-top: 4px; }
+.srv-log { max-height: 60vh; overflow: auto; font-size: 12px; line-height: 1.45; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; }
+.srv-err { color: var(--danger); font-weight: 600; } .srv-warn { color: var(--warn); }

@@ -2067,6 +2067,25 @@ async function waitForServer() {
       assert.equal((await sam('PATCH', '/auth/prefs', { theme: 'dark' })).data.theme, 'dark');
       assert.equal((await sam('GET', '/auth/me')).data.account.theme, 'dark', 'kept with the account');
       assert.equal((await admin('GET', '/auth/me')).data.account.theme, null, 'each their own');
+      // 🔑 admin rights: the host (the first account) gives some of them to other accounts
+      assert.equal((await admin('GET', '/auth/me')).data.account.owner, true, 'the first account is the host');
+      r = await admin('PATCH', `/accounts/${samId}`, { rights: ['setup', 'accounts', 'server', 'bogus'] });
+      assert.deepEqual(r.data.rights, ['setup', 'accounts', 'server']);
+      assert.equal((await sam('PATCH', '/settings', { currency: '€' })).status, 200, 'the setup right');
+      assert.equal((await sam('POST', '/backups', {})).status, 403, 'not the backups right');
+      const mgrId = (await sam('GET', '/accounts')).data.find((a) => a.username === 'mgr').id;
+      assert.equal((await sam('PATCH', `/accounts/${mgrId}`, { modules: ['kpi'] })).status, 200, 'the accounts right: modules');
+      assert.equal((await sam('PATCH', `/accounts/${mgrId}`, { rights: ['setup'] })).status, 403, 'only the host gives rights');
+      assert.equal((await sam('PATCH', `/accounts/${mgrId}`, { role: 'admin' })).status, 403, 'or makes admins');
+      assert.equal((await sam('PATCH', `/accounts/${boss.id}`, { password: 'taken-over-1' })).status, 403, 'the host account is the host\'s');
+      assert.equal((await sam('DELETE', `/accounts/${boss.id}`)).status, 400);
+      const lg = await sam('GET', '/server/log');
+      assert.ok(lg.status === 200 && lg.data.lines.length, 'the server right: the log');
+      assert.equal((await sam('POST', '/server/restart', {})).status, 400, 'restart only under server-run.bat');
+      assert.equal((await as('mgr')('POST', '/auth/login', { username: 'mgr', password: 'mgr-pass-1' })).status, 200);
+      assert.equal((await as('mgr')('GET', '/server/log')).status, 403, 'no rights, no log');
+      await admin('PATCH', `/accounts/${samId}`, { rights: [] });
+      assert.equal((await sam('PATCH', '/settings', { currency: '£' })).status, 403, 'rights taken back');
       await sam('POST', '/auth/logout', {});
       assert.equal((await sam('GET', '/projects')).status, 401, 'signed out');
     }

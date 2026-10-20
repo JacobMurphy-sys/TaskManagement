@@ -1,16 +1,18 @@
 // 👤 Accounts (src/accounts.js): sign-in when they're on, your password, 📥 My work, and the
 // admin's list of accounts in Settings. Off until the first account is made: nothing changes until then.
-const ACCT = { enabled: false, account: null, newCount: 0, modules: [] };
+const ACCT = { enabled: false, account: null, newCount: 0, modules: [], rights: [] };
 
 // 🧩 Modules: the parts of the app an account can see (admins and no-accounts: all of them).
 const MOD_OF_VIEW = { kanban: 'projects', project: 'projects', ideas: 'ideas', idea: 'ideas', kpi: 'kpi', planning: 'planning', report: 'report', contacts: 'contacts' };
 const modOk = (key) => !ACCT.account || (ACCT.account.modules || []).includes(key);
-// 🔒 the setup (Settings, Planning's setup, KPI sources, importing the library, backups) is for admins;
-// with accounts off, whoever is here sets it up
-const acctAdmin = () => !ACCT.enabled || ACCT.account?.role === 'admin';
+// 🔒 admin rights (src/accounts.js RIGHTS): setup, accounts, backups, server. Admins and the host have
+// them all; the host gives some to other accounts. With accounts off, whoever is here has them.
+const acctRight = (key) => !ACCT.enabled || (ACCT.account?.rights || []).includes(key);
+const acctAdmin = () => acctRight('setup'); // the setup: Settings, Planning's setup, KPI sources, the library
+const acctOwner = () => !ACCT.enabled || !!ACCT.account?.owner;
 function modApply() {
   document.body.classList.toggle('not-admin', !acctAdmin());
-  $$('#top-menu a[data-nav="backups"]').forEach((a) => { a.hidden = !acctAdmin(); });
+  $$('#top-menu a[data-nav="backups"]').forEach((a) => { a.hidden = !acctRight('backups'); });
   $$('#topnav a[data-nav], #top-menu a[data-nav]').forEach((a) => { const m = MOD_OF_VIEW[a.dataset.nav]; if (m) a.hidden = !modOk(m); });
   for (const m of ACCT.modules) document.body.classList.toggle(`nomod-${m.key}`, !modOk(m.key));
 }
@@ -19,7 +21,7 @@ function modApply() {
 async function acctInit() {
   let me0;
   try { me0 = await api.get('/auth/me'); } catch { return true; }
-  ACCT.enabled = !!me0.enabled; ACCT.account = me0.account; ACCT.modules = me0.modules || [];
+  ACCT.enabled = !!me0.enabled; ACCT.account = me0.account; ACCT.modules = me0.modules || []; ACCT.rights = me0.rights || [];
   if (ACCT.enabled && !ACCT.account) { renderSignIn(); return false; }
   if (ACCT.account) {
     if (ACCT.account.theme) setTheme(ACCT.account.theme, { save: false }); // your appearance, from your account
@@ -80,7 +82,7 @@ function acctChrome() {
   if (nav && !$('[data-nav="mine"]', nav)) nav.insertAdjacentHTML('afterbegin', '<a href="#/mine" data-nav="mine" title="What\'s assigned to you">📥<span class="lbl"> My work</span> <span id="mine-count" class="count" hidden>0</span></a>');
   const menu = $('#top-menu');
   if (menu && !$('[data-action="sign-out"]', menu)) {
-    menu.insertAdjacentHTML('afterbegin', `<div class="small muted" style="padding:4px 10px">Signed in as <b>${esc(ACCT.account.person)}</b> (${esc(ACCT.account.username)}${ACCT.account.role === 'admin' ? ', admin' : ''})</div>
+    menu.insertAdjacentHTML('afterbegin', `<div class="small muted" style="padding:4px 10px">Signed in as <b>${esc(ACCT.account.person)}</b> (${esc(ACCT.account.username)}${ACCT.account.owner ? ', host' : ACCT.account.role === 'admin' ? ', admin' : ''})</div>
       <button data-action="change-password">🔑 Change password</button><button data-action="sign-out">↪ Sign out</button><hr>`);
   }
   // with an account, the name comes from it
@@ -122,8 +124,8 @@ async function renderMine() {
 
 // ---- ⚙ Settings › 👤 Accounts ------------------------------------------------------------------
 async function acctSettingsHtml() {
-  const admin = ACCT.account?.role === 'admin';
-  if (ACCT.enabled && !admin) return '';
+  if (!acctRight('accounts')) return '';
+  const owner = acctOwner();
   let list = [];
   if (ACCT.enabled) { try { list = await api.get('/accounts'); } catch { list = []; } }
   let people = [];
@@ -132,12 +134,20 @@ async function acctSettingsHtml() {
   const basic = ACCT.modules.find((m) => m.always);
   const ticks = (a) => (a.role === 'admin' ? '<span class="small muted">all — admins have every module</span>'
     : `<div class="mod-ticks">${extra.map((m) => `<label title="${esc(`${m.label}: ${m.what}`)}"><input type="checkbox" data-mod="${m.key}" ${a.modules.includes(m.key) ? 'checked' : ''}> ${m.icon} ${esc(m.label)}</label>`).join('')}</div>`);
+  // admin rights: the host chooses them; others see them
+  const rightsCell = (a) => {
+    if (a.owner) return '<span class="acct-host">🏠 Host</span> <span class="small muted">— everything; gives the rights</span>';
+    if (!owner) return a.role === 'admin' ? '<b>Admin</b> <span class="small muted">— every right</span>' : a.rights.length ? esc(ACCT.rights.filter((r) => a.rights.includes(r.key)).map((r) => `${r.icon} ${r.label}`).join(' · ')) : '<span class="muted">User</span>';
+    return `<select name="role">${options({ user: 'User', admin: 'Admin — every right' }, a.role)}</select>
+      ${a.role === 'admin' ? '' : `<div class="mod-ticks acct-rights">${ACCT.rights.map((r) => `<label title="${esc(`${r.label}: ${r.what}`)}"><input type="checkbox" data-right="${r.key}" ${a.rights.includes(r.key) ? 'checked' : ''}> ${r.icon} ${esc(r.label)}</label>`).join('')}</div>`}`;
+  };
+  const canEdit = (a) => !a.owner && (owner || a.role !== 'admin');
   const presets = [['Basic pack only', []], ['Production: Basic + Planning', ['planning']], ['Manager: everything', extra.map((m) => m.key)]];
   const form = (first) => `<form id="acct-form" class="row acct-form">
       <label class="f">Person <span class="muted small">(from the contacts)</span><input type="text" name="person" list="acct-people" required autocomplete="off" placeholder="e.g. Sam Taylor"></label>
       <label class="f">Username<input type="text" name="username" required pattern="[A-Za-z0-9._@\\-]{2,40}" placeholder="e.g. sam.taylor"></label>
       <label class="f">${first ? 'Your password' : 'First password'}<input type="text" name="password" required minlength="8" autocomplete="new-password" placeholder="at least 8 characters"></label>
-      ${first ? '' : '<label class="f">Role<select name="role"><option value="user">User</option><option value="admin">Admin</option></select></label>'}
+      ${first || !owner ? '' : '<label class="f">Role<select name="role"><option value="user">User</option><option value="admin">Admin — every right</option></select></label>'}
       ${first ? '' : `<div class="f acct-mods"><span>Modules <span class="muted small">— ${esc(basic?.label || 'Basic pack')} always: ${esc(basic?.what || '')}</span></span>
         <div class="mod-ticks">${extra.map((m) => `<label title="${esc(m.what)}"><input type="checkbox" name="modules" value="${m.key}" checked> ${m.icon} ${esc(m.label)}</label>`).join('')}</div>
         <div class="row small" style="gap:6px">${presets.map(([l, keys]) => `<button type="button" class="small" data-mod-preset="${esc(keys.join(','))}">${esc(l)}</button>`).join('')}</div></div>`}
@@ -152,12 +162,13 @@ async function acctSettingsHtml() {
   return `<div class="card acct-card"><h2>👤 Accounts <span class="muted small">${list.length}</span></h2>
     <p class="small muted">Each account is linked to a person: the name used as a task owner, project leader, sponsor or team member. A first password (and one an admin resets) must be changed at the next sign-in.
       A forgotten admin password can be reset on the server: <code>node scripts/reset-password.js &lt;username&gt; &lt;new password&gt;</code>.</p>
+    <p class="small muted">🔑 <b>Admin rights</b> are given by the host account${owner ? ' (you)' : ''}: an <b>Admin</b> has them all, or tick some for a user — ${ACCT.rights.map((r) => `<span title="${esc(r.what)}">${r.icon} ${esc(r.label)}</span>`).join(', ')} (hover for what each covers).</p>
     <p class="small muted">🧩 <b>Modules</b> choose what each account sees and can use; ${esc(basic?.label || 'the basic pack')} (${esc(basic?.what || '')}) is always there. Hover over a module for what it covers. A change applies the next time they open or refresh the page.</p>
-    <table class="log acct-table"><thead><tr><th>Person</th><th>Username</th><th>Role</th><th>Modules</th><th>Last signed in</th><th>Active</th><th></th></tr></thead><tbody>
-      ${list.map((a) => `<tr data-acct="${a.id}"><td><input type="text" name="person" list="acct-people" value="${esc(a.person)}"></td><td><b>${esc(a.username)}</b>${a.must_change ? ' <span class="small muted">(to change password)</span>' : ''}</td>
-        <td><select name="role">${options({ user: 'User', admin: 'Admin' }, a.role)}</select></td><td>${ticks(a)}</td><td class="small">${a.last_login ? esc(fmtDateTime(a.last_login)) : '<span class="muted">never</span>'}</td>
-        <td><input type="checkbox" name="active" ${a.active ? 'checked' : ''}></td>
-        <td class="nowrap"><button class="small" data-acct-reset="${a.id}">Set a new password</button> <button class="icon" data-acct-del="${a.id}" title="Remove the account">✕</button></td></tr>`).join('')}
+    <table class="log acct-table"><thead><tr><th>Person</th><th>Username</th><th>Role and rights</th><th>Modules</th><th>Last signed in</th><th>Active</th><th></th></tr></thead><tbody>
+      ${list.map((a) => `<tr data-acct="${a.id}"><td><input type="text" name="person" list="acct-people" value="${esc(a.person)}" ${canEdit(a) || a.id === ACCT.account?.id ? '' : 'disabled'}></td><td><b>${esc(a.username)}</b>${a.must_change ? ' <span class="small muted">(to change password)</span>' : ''}</td>
+        <td>${rightsCell(a)}</td><td>${ticks(a)}</td><td class="small">${a.last_login ? esc(fmtDateTime(a.last_login)) : '<span class="muted">never</span>'}</td>
+        <td><input type="checkbox" name="active" ${a.active ? 'checked' : ''} ${canEdit(a) ? '' : 'disabled'}></td>
+        <td class="nowrap">${canEdit(a) ? `<button class="small" data-acct-reset="${a.id}">Set a new password</button> <button class="icon" data-acct-del="${a.id}" title="Remove the account">✕</button>` : ''}</td></tr>`).join('')}
     </tbody></table>
     <h3 class="kc-sub">Add an account</h3>${form(false)}</div>`;
 }
@@ -177,6 +188,11 @@ function acctSettingsWire(rerender) {
   $$('[data-mod-preset]').forEach((b) => b.addEventListener('click', () => {
     const keys = b.dataset.modPreset.split(',').filter(Boolean);
     $$('#acct-form [name=modules]').forEach((x) => { x.checked = keys.includes(x.value); });
+  }));
+  $$('[data-acct] [data-right]').forEach((el) => el.addEventListener('change', async () => {
+    const row = el.closest('[data-acct]');
+    const rights = $$('[data-right]', row).filter((x) => x.checked).map((x) => x.dataset.right);
+    try { await api.patch(`/accounts/${row.dataset.acct}`, { rights }); toast('Rights saved — they apply when that person next opens or refreshes the page'); } catch (err) { toast(err.message, 'error'); rerender(); }
   }));
   $$('[data-acct] [data-mod]').forEach((el) => el.addEventListener('change', async () => {
     const row = el.closest('[data-acct]');
@@ -202,3 +218,38 @@ function acctSettingsWire(rerender) {
     try { await api.del(`/accounts/${b.dataset.acctDel}`); toast('Account removed'); rerender(); } catch (err) { toast(err.message, 'error'); }
   }));
 }
+
+// ---- 🖥 the server, from any PC (the Server right) -------------------------------------------------
+function serverCardHtml() {
+  if (!ACCT.enabled || !acctRight('server')) return '';
+  return `<div class="card"><h2>🖥 Server</h2>
+    <p class="small muted">Look after the shared CI Manager from your own PC: read its log, or restart it. Restarting checks for an update and installs it first; everyone's pages reconnect by themselves after a few seconds.</p>
+    <div class="row" style="gap:8px;flex-wrap:wrap"><button data-srv="log">📜 Server log</button><button data-srv="restart">🔄 Restart (and update)</button></div></div>`;
+}
+async function serverLog(onlyProblems = false) {
+  let d; try { d = await api.get('/server/log?lines=600'); } catch (err) { toast(err.message, 'error'); return; }
+  const lines = d.lines.filter((l) => !onlyProblems || /\[(WARN|ERROR)\]/.test(l)).reverse();
+  openModal(`<div class="modal-head"><h2 style="margin:0">📜 Server log <span class="muted small">${esc(d.file || 'none yet')}</span></h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="row" style="gap:8px;margin:6px 0"><label class="row small" style="gap:4px"><input type="checkbox" id="srv-problems" ${onlyProblems ? 'checked' : ''}> Warnings and errors only</label>
+      <span class="spacer"></span><button class="small" id="srv-again">↻ Refresh</button></div>
+    <pre class="srv-log">${lines.length ? lines.map((l) => `<span class="${/\[ERROR\]/.test(l) ? 'srv-err' : /\[WARN\]/.test(l) ? 'srv-warn' : ''}">${esc(l)}</span>`).join('\n') : 'Nothing logged today.'}</pre>
+    <p class="small muted">Today's log, newest first (the last 600 lines). Older days are in the logs folder on the server.</p>`, { wide: true });
+  $('#srv-problems').addEventListener('change', (e) => serverLog(e.target.checked));
+  $('#srv-again').addEventListener('click', () => serverLog($('#srv-problems').checked));
+}
+async function serverRestart() {
+  if (!confirm('Restart the CI Manager for everyone?\n\nIt checks for an update and installs it, then starts again — usually within a minute. Anything being typed on other PCs and not yet saved may be lost.')) return;
+  try { await api.post('/server/restart', {}); } catch (err) { toast(err.message, 'error'); return; }
+  toast('Restarting — this page reloads when it\'s back');
+  const started = Date.now();
+  await new Promise((r) => setTimeout(r, 4000));
+  for (;;) {
+    try { const r = await fetch('/api/health', { cache: 'no-store' }); if (r.ok) { location.reload(); return; } } catch { /* not back yet */ }
+    if (Date.now() - started > 5 * 60000) { toast('It hasn\'t come back after 5 minutes — check the server', 'error'); return; }
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-srv]'); if (!b) return;
+  if (b.dataset.srv === 'log') serverLog(); else if (b.dataset.srv === 'restart') serverRestart();
+});

@@ -288,7 +288,7 @@ async function route() {
   // the planner on its own: Planning, the activity log and backups only
   if (state.mode === 'planner' && !['planning', 'log', 'backups'].includes(view)) { view = 'planning'; rest = []; }
   // 🧩 a page the account's modules don't include: the dashboard instead
-  if ((view === 'backups' || (view === 'kpi' && ['sources', 'calc'].includes(rest[0]))) && !acctAdmin()) {
+  if ((view === 'backups' ? !acctRight('backups') : view === 'kpi' && ['sources', 'calc'].includes(rest[0]) && !acctAdmin())) {
     toast('That\'s part of the setup — only an admin can open it', 'error'); location.replace(view === 'kpi' ? '#/kpi' : '#/dashboard'); view = view === 'kpi' ? 'kpi' : 'dashboard'; rest = [];
   }
   const mod = MOD_OF_VIEW[view];
@@ -1379,7 +1379,7 @@ async function escalateDialog(i) {
 // ======================================================================
 
 // Signed in without admin: only your own settings (appearance, password); the setup is for admins.
-function renderMySettings() {
+async function renderMySettings() {
   main().innerHTML = `<h1>⚙ Settings</h1>
     <div class="grid dash">
       <div class="card"><h2>Appearance</h2>
@@ -1389,13 +1389,16 @@ function renderMySettings() {
       <div class="card"><h2>👤 Your account</h2>
         <p>Signed in as <b>${esc(ACCT.account.person)}</b> (${esc(ACCT.account.username)}).</p>
         <button data-action="change-password">🔑 Change password</button>
-        <p class="small muted">The rest of the setup — areas, project lists, the charter template, Planning's setup, KPI sources and accounts — is changed by an admin.</p></div>
+        <p class="small muted">${acctRight('accounts') || acctRight('server') ? 'The rest of the setup' : 'The setup'} — areas, project lists, the charter template, Planning's setup, KPI sources — is changed by an admin.</p></div>
+      ${serverCardHtml()}
+      ${await acctSettingsHtml()}
     </div>`;
   $('#theme-choice').addEventListener('change', (e) => setTheme(e.target.value));
+  acctSettingsWire(renderSettings);
 }
 
 async function renderSettings() {
-  if (!acctAdmin()) { renderMySettings(); return; }
+  if (!acctAdmin()) { await renderMySettings(); return; }
   const [areas, settings, team] = await Promise.all([loadAreas(), api.get('/settings'), api.get('/team-pack/status').catch(() => null)]);
   state.settings = settings;
   const ta = team?.applied;
@@ -1429,6 +1432,7 @@ async function renderSettings() {
           <input type="text" id="currency" value="${esc(settings.currency)}" maxlength="5" style="max-width:120px"></label>
       </div>
       ${await acctSettingsHtml()}
+      ${serverCardHtml()}
       <div class="card">
         <h2>📦 Team pack</h2>
         <p class="small muted">What everyone on the team shares: the <b>contacts lists</b> (People with their roles, Departments and any lists added)

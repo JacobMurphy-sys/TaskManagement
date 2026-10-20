@@ -80,9 +80,6 @@ app.use('/api', accounts.router);
 app.use('/api', accounts.moduleGate);
 // 🔒 changing the setup is for admins
 app.use('/api', accounts.setupGate);
-// with accounts on, restoring a backup (it replaces everyone's data) is for admins
-app.use('/api', (req, res, next) => (req.method !== 'GET' && /^\/backups\/(restore|[^/]+\/[^/]+\/restore)$/.test(req.path) && accounts.enabled() && req.account?.role !== 'admin'
-  ? res.status(403).json({ error: 'Only an admin can restore a backup' }) : next()));
 // who made each change, the feed of changes for open pages, and no silent overwrites (collab.js)
 app.use('/api', collab.changes);
 // 📅 every move of a due date or a meeting's time, logged with the record (reschedule.js)
@@ -94,7 +91,8 @@ app.use('/api', require('./reschedule').middleware);
 app.use('/api', (req, res, next) => {
   if (!config.shared || collab.isLocal(req) || req.method === 'GET') return next();
   if (req.path === '/open-path') return res.json({ opened: false, remote: true });
-  if (/^\/backups\/(restore|[^/]+\/[^/]+\/restore)$/.test(req.path)) return res.status(403).json({ error: 'Restoring replaces everyone\'s data, so on the shared server it\'s done on the server itself (open the app there)' });
+  // restoring replaces everyone's data: on the server itself, or by an account with the Backups right
+  if (/^\/backups\/(restore|[^/]+\/[^/]+\/restore)$/.test(req.path) && !(req.account && accounts.hasRight(req, 'backups'))) return res.status(403).json({ error: 'Restoring replaces everyone\'s data, so on the shared server it\'s done on the server itself, or by an account with the Backups right' });
   next();
 });
 

@@ -354,8 +354,17 @@ Instead of a copy on each PC, one computer runs the CI Manager and everyone open
   - **What's hidden:** a module an account doesn't have drops out of the top bar, the dashboard and search. Its pages send them to the dashboard, and the server refuses its data to that account.
   - **Who has everything:** admins always have every module. Accounts made before modules existed have them all until an admin changes them.
   - **When it applies:** a change takes effect the next time that person opens or refreshes the page.
-- **🔒 Setup is for admins:**
-  - **What only admins can change:**
+- **🔑 The host and admin rights:**
+  - **The host:** the first account made, or on an existing install the longest-standing admin. It has everything and can't be turned off, removed or changed by anyone else.
+  - **Giving rights:** only the host gives admin rights. In ⚙ Settings › 👤 Accounts, set someone to **Admin** (every right), or leave them a User and tick some of these:
+    - **⚙ Change the setup:** Settings, Planning setup and modifiers, applying learned speeds, KPI sources, the library, the team pack.
+    - **👤 Manage accounts:** add, turn off and remove accounts, set new passwords, choose modules. Not the host's account, admins' passwords, or anyone's rights.
+    - **💾 Backups:** make a backup and **restore one from any PC**, not only on the server.
+    - **🖥 Server:** a 🖥 Server card in Settings with the **📜 Server log** (today's, newest first, with a warnings-and-errors filter) and **🔄 Restart (and update)**. Under `server-run.bat` the restart checks for an update, installs it and starts again, and your page reloads when it's back.
+  - **What it's for:** your own account can fix and change things from your PC instead of remoting into the host. Rights apply when that person next opens or refreshes the page.
+  - **Still only on the server itself:** stopping the server for good, and resetting a forgotten host password (`scripts/reset-password.js`).
+- **🔒 Setup is for admins** (or accounts with that right):
+  - **What only they can change:**
     - ⚙ Settings (areas, currency, project lists, the charter template, the team pack, accounts);
     - Planning's ⚙ Setup and ⚖ Modifiers (machines, speeds, OEE, card tags, export/import setup);
     - the 🧠 Learned view's *Apply* and *Use it in the plan* buttons;
