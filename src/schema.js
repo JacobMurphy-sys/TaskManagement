@@ -327,6 +327,18 @@ const TABLES = {
     updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
     UNIQUE (week, row, col_left)`,
 
+  // 📅 Every move of a due date (or a meeting's time): from, to, why, who. Written whenever one
+  // changes, from any screen; kept with the task, project, phase, idea or meeting.
+  reschedules: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind        TEXT    NOT NULL,
+    record_id   INTEGER NOT NULL,
+    from_value  TEXT,
+    to_value    TEXT,
+    reason      TEXT,
+    by_name     TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
   kpi_edits: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     week        TEXT    NOT NULL COLLATE NOCASE,
@@ -542,6 +554,7 @@ const INDEXES = `
   CREATE INDEX IF NOT EXISTS tasks_project_idx ON tasks(project_id);
   CREATE INDEX IF NOT EXISTS tasks_parent_idx  ON tasks(parent_id);
   CREATE INDEX IF NOT EXISTS tasks_due_idx     ON tasks(due_at);
+  CREATE INDEX IF NOT EXISTS reschedules_idx ON reschedules(kind, record_id);
   CREATE INDEX IF NOT EXISTS notes_project_idx ON notes(project_id, created_at);
   CREATE INDEX IF NOT EXISTS notes_task_idx    ON notes(task_id);
   CREATE INDEX IF NOT EXISTS reminders_due_idx ON reminders(status, remind_at);

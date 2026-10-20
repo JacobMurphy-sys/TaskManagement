@@ -256,6 +256,14 @@ What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (
 - The **Category** and **Policy deployment** suggestions are managed on the Settings page too.
 - The dashboard's project table shows each charter's completeness.
 
+### 📅 Rescheduling
+
+Anything with a date can be moved while keeping its earlier dates: tasks, projects, phases, ideas (their due date) and meetings (their date and time).
+- **The dialog:** next to the date, **📅 Reschedule** opens a dialog with the new date, quick picks (**+1 day**, **+1 week**, **+2 weeks**, **Next Monday**) and **Why**, which is kept with the move. Below them is the list of earlier dates, each with when, who and why.
+- **Every move is logged:** changing the date any other way (in the form, or by dragging on the calendar or Gantt) is kept too, just without a reason. A first date isn't a move, and a task's due date only counts as moved when its day changes.
+- **Where it shows:** next to the date, *↻ moved 2× · was 22 Oct, 29 Oct* (hover for each move and its reason). In task lists, the due date carries ↻2.
+- **When a record is deleted,** its moves go with it.
+
 ### Standalone tasks
 - **✅ Tasks** in the top bar: type a task and press Enter (the usual shortcuts work). Tasks can have subtasks, notes (with `[ ]` checklists), reminders, repeats and *Waiting on*, and appear on the dashboard, in alerts and in the status report under *Other tasks*.
 - To file a task under a project, open it and pick the **Project**. It moves with its subtasks and notes, and counts as new scope against that project's baseline. Pick *✅ Tasks (no project)* to move it back.

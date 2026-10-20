@@ -81,6 +81,8 @@ app.use('/api', (req, res, next) => (req.method !== 'GET' && /^\/backups\/(resto
   ? res.status(403).json({ error: 'Only an admin can restore a backup' }) : next()));
 // who made each change, the feed of changes for open pages, and no silent overwrites (collab.js)
 app.use('/api', collab.changes);
+// 📅 every move of a due date or a meeting's time, logged with the record (reschedule.js)
+app.use('/api', require('./reschedule').middleware);
 
 // On the shared server some things are done on the server itself only: switching it off, showing
 // a folder in File Explorer (it would open on the server, not on your PC: the path is copied

@@ -15,6 +15,7 @@ const charter = require('./charter');
 const prod = require('./prodactual');
 const planLearn = require('./planlearn');
 const collab = require('./collab');
+const reschedule = require('./reschedule');
 
 const router = express.Router();
 
@@ -150,7 +151,13 @@ const TASK_SELECT = `
          (SELECT count(*) FROM attachments f WHERE f.task_id = t.id) AS attachment_count,
          (SELECT min(r.remind_at) FROM reminders r WHERE r.task_id = t.id AND r.status = 'pending') AS next_reminder
   FROM tasks t LEFT JOIN projects p ON p.id = t.project_id LEFT JOIN project_phases ph ON ph.id = t.phase_id`;
-const tasks = (where, params = []) => db.all(`${TASK_SELECT} ${where}`, params).map(normTask);
+// each with how many times its due date was moved (📅 reschedules)
+const tasks = (where, params = []) => {
+  const list = db.all(`${TASK_SELECT} ${where}`, params).map(normTask);
+  const moved = reschedule.counts('task', list.map((t) => t.id));
+  for (const t of list) t.moved = moved[t.id] || 0;
+  return list;
+};
 
 // ------------------------------------------------------------------ projects
 
@@ -2848,6 +2855,17 @@ router.delete('/costs/:id', h((req, res) => {
   const { changes } = db.run('DELETE FROM project_costs WHERE id = ?', [req.params.id]);
   if (!changes) throw notFound('Cost');
   res.status(204).end();
+}));
+
+// ------------------------------------------------------------------ 📅 Reschedules
+
+// A task's, project's, phase's, idea's or meeting's earlier dates: { kind, field, current, moves: [...] }.
+router.get('/reschedules/:kind/:id', h((req, res) => {
+  const k = reschedule.KINDS[req.params.kind];
+  if (!k) throw notFound('Kind');
+  const row = db.get(`SELECT ${k.field} AS v FROM ${k.table} WHERE id = ?`, [Number(req.params.id)]);
+  if (!row) throw notFound('Record');
+  res.json({ kind: req.params.kind, field: k.field, current: row.v, moves: reschedule.historyOf(req.params.kind, req.params.id) });
 }));
 
 // ------------------------------------------------------------------ 📥 My work

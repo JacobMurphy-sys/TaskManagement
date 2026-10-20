@@ -227,6 +227,7 @@ async function meetingEditor(id, opts = {}) {
     <div class="form-grid" id="meeting-form">
       <label class="f full">Title<input type="text" name="title" value="${esc(m.title)}"></label>
       ${whenFieldHtml(m.held_at)}
+      <div class="f resched-slot" data-resched="meeting:${m.id}"></div>
       <label class="f">Duration<select name="duration_min">${durationOptions(m.duration_min)}</select></label>
       <label class="f">Location<input type="text" name="location" value="${esc(m.location || '')}" placeholder="Room, Teams…"></label>
       <div class="f full"><span>Attendees</span><div id="mt-attendees"></div></div>

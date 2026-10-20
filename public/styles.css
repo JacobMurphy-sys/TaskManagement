@@ -1203,3 +1203,10 @@ dialog.cdialog input[type=text] { width: 100%; }
 .acct-table input[type=text] { width: 100%; min-width: 140px; }
 body.signin-page > *:not(.signin):not(#toasts) { visibility: hidden; }
 .acct-card { grid-column: 1 / -1; }
+
+/* 📅 reschedules */
+.resched-slot { align-self: end; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.resched-was { color: #9a5b00; cursor: help; }
+.chip .moved { font-size: 11px; color: #9a5b00; font-weight: 600; }
+.resched-list { margin: 0; padding-left: 20px; display: grid; gap: 6px; max-height: 40vh; overflow: auto; }
+.resched-from { text-decoration: line-through; color: var(--muted); }

@@ -1774,6 +1774,26 @@ async function waitForServer() {
       assert.match(out, /<mergeCells count="2"><mergeCell ref="A1:B1"\/><mergeCell ref="Y10:AC11"\/><\/mergeCells>/);
     }
 
+    // 📅 rescheduling: every move of a due date (or a meeting's time) is kept, with the reason given
+    {
+      const t = await call('POST', '/tasks', { title: 'Reschedule me', due_at: '2026-10-22' });
+      await call('PATCH', `/tasks/${t.id}`, { due_at: '2026-10-22', title: 'Same day: not a move' });
+      await call('PATCH', `/tasks/${t.id}`, { due_at: '2026-10-29', reschedule_reason: 'Parts late' });
+      await call('PATCH', `/tasks/${t.id}`, { due_at: '2026-11-05' });
+      let h = await call('GET', `/reschedules/task/${t.id}`);
+      assert.deepEqual(h.moves.map((m) => [m.from_value.slice(0, 10), m.to_value.slice(0, 10), m.reason]), [['2026-10-29', '2026-11-05', null], ['2026-10-22', '2026-10-29', 'Parts late']], 'newest first, with why');
+      assert.equal((await call('GET', `/tasks/${t.id}`)).moved, 2, 'and counted on the task');
+      const first = await call('POST', '/tasks', { title: 'No date yet' });
+      await call('PATCH', `/tasks/${first.id}`, { due_at: '2026-12-01' });
+      assert.equal((await call('GET', `/reschedules/task/${first.id}`)).moves.length, 0, 'a first date isn\'t a move');
+      const m = await call('POST', '/meetings', { title: 'Moved meeting', held_at: '2026-10-22T08:00:00.000Z', duration_min: 30 });
+      await call('PATCH', `/meetings/${m.id}`, { held_at: '2026-10-22T09:30:00.000Z', reschedule_reason: 'Clash' });
+      h = await call('GET', `/reschedules/meeting/${m.id}`);
+      assert.deepEqual([h.field, h.moves.length, h.moves[0].reason], ['held_at', 1, 'Clash'], 'a meeting\'s time counts to the minute');
+      await assert.rejects(call('GET', '/reschedules/nothing/1'), /404/);
+      await call('DELETE', `/tasks/${t.id}`); await call('DELETE', `/tasks/${first.id}`); await call('DELETE', `/meetings/${m.id}`);
+    }
+
     // 📦 team pack: contacts lists and project lists for everyone, only ever added
     {
       const pack = await (await fetch(`${BASE}/team-pack`)).json();

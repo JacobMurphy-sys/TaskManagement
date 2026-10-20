@@ -202,7 +202,7 @@ function dueChip(t) {
     if (n < 0) cls = 'overdue';
     else if (n <= 1) cls = 'soon';
   }
-  return `<span class="chip ${cls}" title="Due ${esc(fmtDate(t.due_at))}">📅 ${esc(fmtShortDate(t.due_at))}${cls ? ` (${dueLabel(t.due_at)})` : ''}</span>`;
+  return `<span class="chip ${cls}" title="Due ${esc(fmtDate(t.due_at))}${t.moved ? ` — moved ${t.moved}× (see the task)` : ''}">📅 ${esc(fmtShortDate(t.due_at))}${cls ? ` (${dueLabel(t.due_at)})` : ''}${t.moved ? ` <span class="moved">↻${t.moved}</span>` : ''}</span>`;
 }
 function statusChip(s) {
   return s === 'in_progress' || s === 'blocked' ? `<span class="pill status-${s}">${STATUS[s]}</span>` : '';
@@ -311,6 +311,7 @@ async function route() {
   } catch (err) {
     main().innerHTML = `<div class="card"><h2>Something went wrong</h2><p class="pre">${esc(err.message)}</p></div>`;
   }
+  reschedHydrate(main());
 }
 
 // Re-renders the current view (keeping scroll) and the sidebar.
@@ -670,6 +671,7 @@ function phaseDialog(p, phase) {
       <label class="f full">Name<input type="text" name="name" required value="${esc(phase?.name || '')}" placeholder="e.g. Phase ${phases.length + 1}: roll-out to site B"></label>
       <label class="f">Start<input type="date" name="start_date" value="${esc(phase?.start_date || '')}"></label>
       <label class="f">End / milestone date<input type="date" name="due_at" value="${phase?.due_at ? toDateInput(phase.due_at) : ''}"></label>
+      ${phase?.due_at ? `<div class="f full resched-slot" data-resched="phase:${phase.id}"></div>` : ''}
       <label class="f full">What this phase delivers — optional<textarea name="description" rows="2">${esc(phase?.description || '')}</textarea></label>
       ${!phase && free.length ? `<div class="f full"><span>Move these tasks into it <span class="muted small">(tasks without a phase; subtasks come along)</span></span>
         <div class="phase-pick">${free.map((t) => `<label class="row small"><input type="checkbox" name="task_ids" value="${t.id}"> ${esc(t.title)}
@@ -774,6 +776,7 @@ async function renderProject(id, tab) {
         <select data-action="project-field" data-field="status" title="Status">${options(PSTATUS, p.status)}</select>
         <select data-action="project-field" data-field="priority" title="Priority">${options(PRIORITY, p.priority)}</select>
         ${p.due_at ? dueChip({ ...p, status: p.status === 'completed' ? 'done' : '' }) : ''}
+        ${p.due_at ? `<span class="resched-slot" data-resched="project:${p.id}"></span>` : ''}
         <button data-action="edit-project">✎ Edit</button>
         <button data-action="history" data-kind="projects" data-id="${p.id}" data-title="${esc(p.name)}" title="Every change to this project, with who made it — and ↩ Put back">🕘</button>
         <button data-action="remind-project" title="Project reminder">🔔</button>
@@ -1242,6 +1245,7 @@ async function renderIdea(id) {
           <label class="f">Submitted by<input type="text" name="submitted_by" list="people" data-contact="Submitted by" autocomplete="off" value="${esc(i.submitted_by)}"></label>
           <label class="f">Submitted on<input type="date" name="submitted_at" value="${toDateInput(i.created_at)}" max="${toDateInput(new Date().toISOString())}"></label>
           <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(i.due_at)}"></label>
+          ${i.due_at ? `<div class="f resched-slot" data-resched="idea:${i.id}"></div>` : ''}
           <label class="f">Cost (${esc(state.settings.currency)})<input type="number" name="cost" min="0" step="0.01" inputmode="decimal" value="${i.cost ?? ''}"></label>
           <label class="f">Impact<select name="impact">${options(IMPACT, i.impact)}</select></label>
           <label class="f">Effort<select name="effort">${options(EFFORT, i.effort)}</select></label>
@@ -1558,6 +1562,7 @@ function openModal(html, opts = {}) {
   modal().classList.toggle('wide', !!opts.wide);
   $('#modal-body').innerHTML = html;
   if (!modal().open) modal().showModal();
+  reschedHydrate($('#modal-body'));
 }
 function closeModal() { modal().close(); }
 modal().addEventListener('close', () => { if (state.modalDirty) { state.modalDirty = false; refresh(); } });
@@ -1647,6 +1652,7 @@ async function taskModal(id) {
       <label class="f">Repeats<select name="recurrence">${options(REPEAT, t.recurrence)}</select></label>
       <label class="f">Start date<input type="date" name="start_date" value="${esc(t.start_date || '')}"></label>
       <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(t.due_at)}"></label>
+      ${t.due_at ? `<div class="f resched-slot" data-resched="task:${t.id}"></div>` : ''}
       <div class="f full"><span>Owners <span class="muted small">— one or more people or departments</span></span><div id="owner-pick"></div></div>
       <div class="f"><span>Waiting on <span class="muted small">— from the contacts, or type a name</span></span><div id="waiting-pick"></div></div>
       ${t.parent_id ? '' : `<label class="f">Project<select name="project_id" title="Move this task (and its subtasks) to another project">
