@@ -21,6 +21,7 @@ async function renderPlanning() {
   const [p, settings] = await Promise.all([api.get(`/plan?mode=${mode}`), api.get('/settings')]);
   const f = store.get('planFilter', {}) || {};
   const all = [...p.running, ...p.queue];
+  planNow = p; // for 🔍 search (planfind.js)
   const byKey = new Map(all.map((j) => [j.key, j]));
   const qIndex = new Map(p.queue.map((j, i) => [j.key, i]));
   const plDetail = {}; // perso / otto: key → the job's detail row, built when it's opened

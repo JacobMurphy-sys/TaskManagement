@@ -312,6 +312,7 @@ async function route() {
     main().innerHTML = `<div class="card"><h2>Something went wrong</h2><p class="pre">${esc(err.message)}</p></div>`;
   }
   reschedHydrate(main());
+  planFindBar(state.view === 'planning');
 }
 
 // Re-renders the current view (keeping scroll) and the sidebar.

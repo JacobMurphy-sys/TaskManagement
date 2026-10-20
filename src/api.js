@@ -14,6 +14,7 @@ const { RECURRENCES } = require('./schema');
 const charter = require('./charter');
 const prod = require('./prodactual');
 const planLearn = require('./planlearn');
+const planFind = require('./planfind');
 const collab = require('./collab');
 const reschedule = require('./reschedule');
 
@@ -2430,6 +2431,19 @@ function learnNow(daysQ, toQ) {
   }), learned_on: set.plan_learned_times === '1', cards_status: dbc.status, oee_default: oeeDefault ? Math.round(oeeDefault * 100) : null };
 }
 router.get('/plan/learn', h((req, res) => res.json(learnNow(req.query.days, req.query.to))));
+// 🔍 Planning search: a work order or card looked up in the exports, the plan history, the runs and the card database.
+function findCtx(withModel = false) {
+  const set = getSettings();
+  const src = planning.readSource({ file: cleanPath(set.plan_src) || null, uploaded: PLAN_UPLOAD });
+  const o = planning.readSource({ file: cleanPath(set.plan_otto_src) || null, uploaded: OTTO_UPLOAD, parser: planning.parseOtto });
+  const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+  const cards = dbc.status === 'ok' ? dbc.cards : null;
+  return { lines: src.status === 'ok' ? src.lines : [], otto: o.status === 'ok' ? o.jobs : [], cards,
+    ...(withModel ? { model: planLearn.modelFor({ cards, cardsKey: `${dbc.file}|${dbc.modified}|${dbc.count}` }), predict: planLearn.predict } : {}) };
+}
+router.get('/plan/find', h((req, res) => res.json(planFind.suggest(String(req.query.q || '').slice(0, 60), findCtx()))));
+router.get('/plan/find/wo/:wo', h((req, res) => res.json(planFind.workorder(req.params.wo, findCtx()))));
+router.get('/plan/find/item/:ax', h((req, res) => res.json(planFind.item(req.params.ax, findCtx(true)))));
 // 🔎 Explode: one of its tables opened up over any dates, grouped by anything, with each row's share.
 router.get('/plan/learn/explode', h((req, res) => {
   const set = getSettings();

@@ -1239,3 +1239,25 @@ dialog#modal.wide:has(.pllx) { width: min(1240px, calc(100vw - 32px)); }
 .pllx-cmp { display: flex; gap: 6px; align-items: center; font-size: 13px; padding-bottom: 8px; }
 .pllx-gone td { opacity: .6; }
 .pllx-new { color: var(--accent); font-weight: 600; }
+
+/* 🔍 Planning search: a bar floating over the page, suggestions opening above it */
+.pf-bar { position: fixed; right: 24px; bottom: 20px; z-index: 40; width: min(440px, calc(100vw - 32px)); }
+.pf-box { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+.pf-box:focus-within { border-color: var(--accent); }
+.pf-box input { flex: 1; border: 0; background: transparent; outline: none; padding: 4px 0; font-size: 14px; color: var(--text); }
+.pf-box kbd { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+.pf-list { position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; max-height: 50vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 4px; }
+.pf-item { padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.pf-item.on, .pf-item:hover { background: var(--accent-soft); }
+.pf-kind { display: inline-block; min-width: 62px; font-size: 12px; color: var(--muted); }
+.pf-open { font-size: 11px; color: var(--accent); font-weight: 600; }
+.pf-none { padding: 8px 10px; }
+.pfx .pl-h { margin: 16px 0 6px; }
+.pfx .kdb-tiles { margin: 8px 0; }
+.pf-scroll { max-height: 40vh; }
+.pf-chip { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); vertical-align: middle; }
+.pf-chip.open { color: var(--accent); border-color: var(--accent); } .pf-chip.run { color: #2e8b57; border-color: #2e8b57; } .pf-chip.done { color: var(--muted); }
+.pf-fields { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 8px 0; }
+.pf-fields > div { display: flex; flex-direction: column; }
+@media print { .pf-bar { display: none; } }
+body:has(#pf-bar:not([hidden])) #main { padding-bottom: 76px; } /* room to scroll past the search bar */

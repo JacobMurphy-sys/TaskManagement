@@ -1665,6 +1665,21 @@ async function waitForServer() {
       const ex2 = await call('GET', `/plan/learn/explode?from=2026-09-10&to=2026-10-10&by=customer&filter=${encodeURIComponent(JSON.stringify({ machine: one.key }))}`);
       assert.equal(ex2.total.runs, one.runs, 'filtered to the one machine'); assert.equal(ex2.filter_labels[0].dim, 'machine');
       const ex3 = await call('GET', '/plan/learn/explode?from=2026-10-09&to=2026-10-09&by=day');
+      // 🔍 search: a card and a work order found from the runs, and what's known about each
+      const anyRun = ex.rows.length ? await call('GET', `/plan/learn/explode?from=2026-09-10&to=2026-10-10&by=job`) : null;
+      const job1 = anyRun.rows[0].key;
+      const sug = await call('GET', `/plan/find?q=${encodeURIComponent(job1.slice(0, 6))}`);
+      assert.ok(sug.some((x) => x.kind === 'wo'), 'work orders suggested from the runs');
+      const woInfo = await call('GET', `/plan/find/wo/${encodeURIComponent(job1)}`);
+      assert.ok(woInfo.found && woInfo.perso.runs >= 1 && woInfo.runs.length >= 1, 'the work order\'s runs');
+      const itemRun = woInfo.runs.find((r) => r.item);
+      if (itemRun) {
+        const itInfo = await call('GET', `/plan/find/item/${encodeURIComponent(itemRun.item)}`);
+        assert.ok(itInfo.found && itInfo.total.runs >= 1 && itInfo.by_machine.length, 'the card\'s runs');
+        assert.ok((await call('GET', `/plan/find?q=${encodeURIComponent(itemRun.item)}`)).some((x) => x.kind === 'item'));
+      }
+      assert.equal((await call('GET', '/plan/find/wo/NOSUCHWO123')).found, false);
+      assert.deepEqual(await call('GET', '/plan/find?q=x'), [], 'two characters at least');
       // against the period before: as many days, ending where this one starts
       const exc = await call('GET', '/plan/learn/explode?from=2026-10-10&to=2026-10-10&by=machine&compare=1');
       const exp9 = await call('GET', '/plan/learn/explode?from=2026-10-09&to=2026-10-09&by=machine');

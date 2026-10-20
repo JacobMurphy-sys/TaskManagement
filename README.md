@@ -254,6 +254,23 @@ What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (
       - grouped by day, week or month the two periods share no rows, so only the totals compare.
     - Click a column heading to sort. **Over time** shows the selection by day (up to two months) or by week. **Runs from** switches to the Matching runs. **⬇ CSV** saves the table as shown.
   - **⬇ Excel** saves all of it as a workbook. Nothing in ⚙ Setup changes until you apply it, and each change is in the audit log.
+- **🔍 Find a work order or card:** the search bar floats at the bottom right of every Planning page. Press **F** to jump to it.
+  - **Suggestions as you type** (two characters or more): work orders and cards from the open work orders, the Matching export, the plan history, the ⏱ production runs and the card database, open ones first. A card can also be found by its name. Use ↑/↓ and Enter, or click.
+  - **A work order** shows:
+    - its customer, due date and cut-off, shipper and priority;
+    - **where it is in the plan now**: running, or its place in the queue, with the projected machines, start, finish and on time / late when the plan has speeds;
+    - its lines (each card, with its kind from the card database);
+    - its Matching jobs;
+    - its **plan history** (first seen, started, done, against the deadline);
+    - every **production run**, perso and Matching, with totals.
+  - **A card (AX)** shows:
+    - its card database details;
+    - its runs, cards run and usual cards an hour;
+    - the **🧠 learned speed** and the time for 1,000 cards;
+    - the open work orders it's in;
+    - its runs by machine and by customer, and its latest runs.
+    - **⤢ Explode its runs** opens them in the Explode window.
+  - Work orders and cards are links between each other; **←** goes back.
 - **Hide anything due more than … days ago** (Setup, default 30; 0 shows everything): older jobs in either export are likely errors, so they're left out of the list, the plan and the backlog. The Backlog card says how many were left out.
 - **📈 History**: each new version of the linked export is recorded (checked every 10 minutes, so hourly exports are caught with Planning closed). A job that was open and is gone from the next export is **done** at that export's time — to within the export interval — and **on time** if that's not after its cut-off; a job that comes back is open again. An empty export is ignored, and linking a different file doesn't count the old file's jobs as done. The view shows the last 7 days (jobs and cards done, % on time, average lead time from first seen to done), cards done per day (on time / late) and the latest jobs done. The history is kept in the database and backed up.
 - **Long lists** show the first 150 jobs, with **Show more** / **Show all** below them; the search box and filters still search every job, and **Generate plan** always uses the whole list. A job's card articles are drawn when you open it. Large answers from the app are sent compressed, which helps most with the shared planner over the network.
