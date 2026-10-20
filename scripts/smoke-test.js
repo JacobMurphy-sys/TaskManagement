@@ -1366,6 +1366,7 @@ async function waitForServer() {
         await call('PATCH', '/settings', { plan_otto_src: ottoFile });
         const po = await call('GET', '/plan');
         assert.deepEqual([po.otto.source.status, po.otto.done, po.otto.tests], ['ok', 3, 1], 'finished and test jobs are counted, not listed');
+        assert.ok((await call('GET', '/plan/dplus?source=otto')).since, 'the Matching export is recorded (📆 D+ due out)');
         assert.deepEqual([po.otto.backlog.hidden_jobs, po.otto.backlog.hidden_qty, po.otto.backlog.max_age], [1, 77, 30], 'due more than 30 days ago: not shown');
         assert.ok(po.otto.backlog.catch_up.basis_days > 0 && po.otto.backlog.catch_up.rate > 0, 'the pace from the finished jobs\' End Date');
         assert.ok(po.backlog && 'overdue_qty' in po.backlog && po.backlog.catch_up, 'perso backlog too');
@@ -1694,9 +1695,11 @@ async function waitForServer() {
       const DP = require('../src/dplus'); const W5 = new Set([1, 2, 3, 4, 5]);
       assert.deepEqual([DP.workingDaysBetween('2026-10-16', '2026-10-16', W5), DP.workingDaysBetween('2026-10-16', '2026-10-19', W5), DP.workingDaysBetween('2026-10-14', '2026-10-16', W5), DP.workingDaysBetween('2026-10-16', '2026-10-15', W5)],
         [0, 1, 2, -1], 'same day, Friday → Monday is D+1, two days, already past');
-      const dp = await call('GET', '/prod/dplus?from=2026-09-01&to=2026-10-20&bucket=all');
-      assert.ok(Array.isArray(dp.buckets) && dp.total && dp.detail && Array.isArray(dp.detail.customers), 'the D+ profile');
-      assert.equal(dp.buckets.reduce((t, b) => t + b.wos, 0), dp.total.wos);
+      for (const src of ['perso', 'otto', 'both']) {
+        const dp = await call('GET', `/plan/dplus?source=${src}&from=2026-09-01&to=2026-10-20&bucket=all`);
+        assert.ok(dp.source === src && Array.isArray(dp.buckets) && dp.total && dp.detail && Array.isArray(dp.detail.customers) && Array.isArray(dp.detail.via), `the D+ profile (${src})`);
+        assert.equal(dp.buckets.reduce((t, b) => t + b.wos, 0), dp.total.wos);
+      }
       const PL = require('../src/planlearn');
       assert.equal(PL.wmedian([100, 200, 900], [1, 1, 10]), 900, 'the median weighted by cards');
       assert.deepEqual(PL.closeness([[100, 110], [100, 200], [100, 90]]).within, 66.7, 'within 25% either way');

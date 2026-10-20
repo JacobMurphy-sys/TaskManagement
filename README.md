@@ -272,6 +272,19 @@ What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (
     - its runs by machine and by customer, and its latest runs.
     - **⤢ Explode its runs** opens them in the Explode window.
   - Work orders and cards are links between each other. **← Back** returns to the previous one, scrolled to where you were.
+- **📆 D+ due out** (next to Perso / Matching) shows how much notice work orders come with, for **Perso**, **Matching** or **Both**:
+  - **How it's counted:**
+    - A work order *comes in* on the day it first appears in its export. Perso uses the open work orders, recorded in the plan history. Matching uses its jobs, grouped by work order; the Matching export is now recorded the same way, from when this was added.
+    - Its notice is the working days from then to its due-out day (Matching: its plan date), using Planning's working days. **D+0** is due the same day, **D+1** the next working day (Friday → Monday is D+1), up to **D+5 or more**. **Past due** means it was already late when it came in.
+    - Work orders are counted with all their jobs together.
+    - What was already in an export when recording began is left out, because when it came in isn't known.
+  - **Time frame:** From / To, or a quick pick (last 4 weeks, 7 or 90 days, this month, last month, all history).
+  - **By notice:** for each bucket, the work orders and their share, the **average a working day** in the frame and over **all history**, and the cards or items (share, a day, average a work order). Tiles show the totals, the short-notice share (D+0 and D+1) and D+0 a day.
+  - **Click a row** (or *All*) for:
+    - its **customers**, **job sizes**, **shippers** (Matching: **machines**), **priorities** and the **day it came in**, and with Both, the split between Perso and Matching;
+    - how it went: done or still open, the share **late** and by how much, and the middle **turnaround** from coming in to done;
+    - its **largest work orders**, which open in 🔍 search.
+  - **Day by day:** a stacked bar for each day showing what came in, by notice.
 - **Hide anything due more than … days ago** (Setup, default 30; 0 shows everything): older jobs in either export are likely errors, so they're left out of the list, the plan and the backlog. The Backlog card says how many were left out.
 - **📈 History**: each new version of the linked export is recorded (checked every 10 minutes, so hourly exports are caught with Planning closed). A job that was open and is gone from the next export is **done** at that export's time — to within the export interval — and **on time** if that's not after its cut-off; a job that comes back is open again. An empty export is ignored, and linking a different file doesn't count the old file's jobs as done. The view shows the last 7 days (jobs and cards done, % on time, average lead time from first seen to done), cards done per day (on time / late) and the latest jobs done. The history is kept in the database and backed up.
 - **Long lists** show the first 150 jobs, with **Show more** / **Show all** below them; the search box and filters still search every job, and **Generate plan** always uses the whole list. A job's card articles are drawn when you open it. Large answers from the app are sent compressed, which helps most with the shared planner over the network.
@@ -286,23 +299,6 @@ What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (
 - **Your Excel template:** on **⚙ Settings → Project charter Excel template**, upload your standard template (.xlsx) once. The app finds each label (*Problem definition*, *Management Sponsor*, *Project ID*, …) and shows which cell each value will go into: the box below or beside the label, or *under the label* when the label is at the top of a box. Correct any cell that's wrong (use the top-left cell of a merged box) and **Save cell mapping**. The downloaded charter contains **only the sheet the charter is written to** (e.g. *Project Template*); the workbook's other sheets (A3 copies, checklists, risk sheets, final report, …) are left out, along with the external links and named ranges that belonged to them. The Settings page lists which sheets are kept and which are left out. On the kept sheet, formatting, dropdowns, formulas, comments and print areas stay as they are. If the template has a dropdown for Category, its choices are added to the app's Category list. Until a template is uploaded, a plain one-sheet charter is produced.
 - The **Category** and **Policy deployment** suggestions are managed on the Settings page too.
 - The dashboard's project table shows each charter's completeness.
-
-### 📆 D+ due out (KPIs › ⏱ Production)
-
-How much notice perso work orders come with. Open it with the **📆 D+ due out** button next to Perso / Matching.
-
-- **How it's counted:**
-  - A work order *comes in* on the day it first appears in the linked open work orders export (🏭 Planning's plan history records each new version of the export).
-  - Its notice is the number of working days from then to its due-out day, using Planning's working days. **D+0** is due out the same day, **D+1** the next working day (Friday → Monday is D+1), up to **D+5 or more**. **Past due** means it was already late when it came in.
-  - Work orders are counted with all their jobs together.
-  - Work orders already in the export when recording began are left out, because when they came in isn't known.
-- **Time frame:** From / To, or a quick pick (last 4 weeks, 7 or 90 days, this month, last month, all history).
-- **By notice:** for each D+ bucket, the work orders and their share, the **average a working day** in the frame and over **all history**, the cards (share, a day, average a work order). Tiles show the totals, the short-notice share (D+0 and D+1) and D+0 a day.
-- **Click a row** (or *All*) for:
-  - its **customers**, **job sizes** (cards in the work order), **shippers**, **priorities** and the **day it came in**, each with work orders, cards and shares;
-  - how it went: done or still open, the share **late** and by how much, and the middle **turnaround** from coming in to done;
-  - its **largest work orders**, which open in 🔍 search for accounts with Planning.
-- **Day by day:** a stacked bar for each day showing the work orders that came in, by notice.
 
 ### 📅 Rescheduling
 

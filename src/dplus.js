@@ -1,10 +1,11 @@
 'use strict';
 // 📆 D+ (due out): how much notice work orders come with. Each work order's arrival — the day it first
-// appeared in the open work orders export (the plan history) — against its due-out day, in working
-// days (Planning's working days): D+0 due out the day it came in, D+1 the next working day, and so on.
-// Counted by work order (its jobs together), over a time frame of arrival days, as totals and as an
-// average a working day; one bucket opened up: its customers, job sizes, shippers, priorities,
-// weekdays and how they went (done on time or late, how long they took).
+// appeared in its export (the plan history: perso's open work orders, Matching's jobs) — against its
+// due-out day (Matching: its plan date), in working days (Planning's working days): D+0 due the day it
+// came in, D+1 the next working day, and so on. Counted by work order (its jobs together; perso and
+// Matching apart), over a time frame of arrival days, as totals and as an average a working day; one
+// bucket opened up: its customers, job sizes, shippers (Matching: machines), priorities, weekdays and
+// how they went (done on time or late, how long they took).
 const db = require('./db');
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -15,7 +16,7 @@ const r1 = (x) => (x === null || !Number.isFinite(x) ? null : Math.round(x * 10)
 const pct = (n, all) => (all ? r1((n / all) * 100) : null);
 const median = (xs) => { const a = xs.filter(Number.isFinite).sort((x, y) => x - y); if (!a.length) return null; const m = Math.floor(a.length / 2); return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const SIZES = [[1, 1, '1 card'], [2, 10, '2–10'], [11, 100, '11–100'], [101, 500, '101–500'], [501, 2000, '501–2,000'], [2001, Infinity, 'Over 2,000']];
+const SIZES = [[1, 1, '1'], [2, 10, '2–10'], [11, 100, '11–100'], [101, 500, '101–500'], [501, 2000, '501–2,000'], [2001, Infinity, 'Over 2,000']];
 const MAX_D = 5; // D+5 and more together
 
 // Working days from `from` to `to` (days): 0 the same day, 1 the next working day, -1 already past.
@@ -30,15 +31,25 @@ const BUCKETS = [{ key: 'past', label: 'Past due', what: 'already past its due-o
   ...Array.from({ length: MAX_D + 1 }, (_, i) => ({ key: `d${i}`, label: i === MAX_D ? `D+${i} or more` : `D+${i}`, what: i === 0 ? 'due out the day it came in' : i === 1 ? 'due out the next working day' : i === MAX_D ? `due out ${i} or more working days on` : `due out ${i} working days on` }))];
 
 // The work orders that arrived while the export was being read (those already there at the first read
-// have no known arrival): { wo, customer, shipper, prio, arrived (day), at, due, qty, jobs, done_at, late_minutes, n, bucket }
-function workorders(workDays) {
-  const first = db.get('SELECT MIN(file_modified) AS f FROM plan_history_reads').f;
+// have no known arrival): { source, wo, customer, via (shipper / machine), prio, arrived (day), at, due, qty, jobs, done_at, late_minutes, n, bucket }
+const SOURCES = {
+  perso: { reads: 'plan_history_reads', jobs: 'SELECT wo, customer, shipper AS via, prio, qty, due, first_seen, done_at, late_minutes FROM plan_history_jobs' },
+  otto: { reads: 'plan_otto_reads', jobs: "SELECT coalesce(wo, key) AS wo, customer, machine AS via, prio, qty, due, first_seen, done_at, late_minutes FROM plan_otto_jobs" },
+};
+function workorders(workDays, source = 'perso') {
+  if (source === 'both') {
+    const a = workorders(workDays, 'perso'); const b = workorders(workDays, 'otto');
+    const since = [a.since, b.since].filter(Boolean).sort()[0] || null;
+    return { list: [...a.list, ...b.list].sort((x, y) => (x.at < y.at ? -1 : 1)), since };
+  }
+  const S = SOURCES[source] || SOURCES.perso;
+  const first = db.get(`SELECT MIN(file_modified) AS f FROM ${S.reads}`).f;
   if (!first) return { list: [], since: null };
-  const rows = db.all('SELECT wo, customer, shipper, prio, qty, due, first_seen, done_at, late_minutes FROM plan_history_jobs WHERE first_seen > ? AND due IS NOT NULL ORDER BY first_seen', [first]);
+  const rows = db.all(`${S.jobs} WHERE first_seen > ? AND due IS NOT NULL ORDER BY first_seen`, [first]);
   const byWo = new Map();
   for (const r of rows) {
     const w = byWo.get(r.wo);
-    if (!w) { byWo.set(r.wo, { wo: r.wo, customer: r.customer || '—', shipper: r.shipper || '—', prio: r.prio || '—', at: r.first_seen, due: r.due, qty: r.qty || 0, jobs: 1, done: r.done_at ? [r.done_at] : [], open: r.done_at ? 0 : 1, late: r.late_minutes > 0 ? [r.late_minutes] : [] }); continue; }
+    if (!w) { byWo.set(r.wo, { source, wo: r.wo, customer: r.customer || '—', via: r.via || '—', prio: r.prio || '—', at: r.first_seen, due: r.due, qty: r.qty || 0, jobs: 1, done: r.done_at ? [r.done_at] : [], open: r.done_at ? 0 : 1, late: r.late_minutes > 0 ? [r.late_minutes] : [] }); continue; }
     w.qty += r.qty || 0; w.jobs++; if (r.first_seen < w.at) w.at = r.first_seen; if (r.due < w.due) w.due = r.due;
     if (r.done_at) w.done.push(r.done_at); else w.open++;
     if (r.late_minutes > 0) w.late.push(r.late_minutes);
@@ -64,8 +75,9 @@ function breakdown(l, keyOf, order) {
 /**
  * opts: { from, to (arrival days, YYYY-MM-DD), bucket (one opened up, or 'all'), workDays (Set of 0–6), custNames (Map) }
  */
-function profile({ from, to, bucket = null, workDays = new Set([1, 2, 3, 4, 5]), custNames = new Map() } = {}) {
-  const { list: everything, since } = workorders(workDays);
+function profile({ from, to, bucket = null, source = 'perso', workDays = new Set([1, 2, 3, 4, 5]), custNames = new Map() } = {}) {
+  source = ['perso', 'otto', 'both'].includes(source) ? source : 'perso';
+  const { list: everything, since } = workorders(workDays, source);
   const okDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
   const today = ymd(new Date());
   const toDay = okDay(to) ? to : today;
@@ -99,13 +111,14 @@ function profile({ from, to, bucket = null, workDays = new Set([1, 2, 3, 4, 5]),
     detail = { bucket, label: bucket === 'all' ? 'All work orders' : BUCKETS.find((b) => b.key === bucket)?.label, ...sum(l),
       customers: breakdown(l, (w) => w.customer).map((x) => ({ ...x, name: name(x.label) })),
       sizes: breakdown(l, (w) => SIZES.find(([lo, hi]) => w.qty >= lo && w.qty <= hi)?.[2] || '0', (k) => SIZES.findIndex((s) => s[2] === k)),
-      shippers: breakdown(l, (w) => w.shipper), prios: breakdown(l, (w) => w.prio),
+      via: breakdown(l, (w) => (source === 'both' ? `${w.source === 'otto' ? 'Matching' : 'Perso'} · ${w.via}` : w.via)), via_label: source === 'otto' ? 'Machines' : source === 'both' ? 'Shippers (perso) and machines (Matching)' : 'Shippers',
+      sources: source === 'both' ? breakdown(l, (w) => (w.source === 'otto' ? 'Matching' : 'Perso')) : null, prios: breakdown(l, (w) => w.prio),
       weekdays: breakdown(l, (w) => WEEKDAYS[new Date(`${w.arrived}T12:00:00`).getDay()], (k) => (WEEKDAYS.indexOf(k) + 6) % 7),
       outcome: { done: done.length, open: l.length - done.length, late: late.length, late_pct: pct(late.length, done.length), avg_late: late.length ? Math.round(late.reduce((t, w) => t + w.late_minutes, 0) / late.length) : null,
         median_hours: r1(median(hours)) },
-      largest: [...l].sort((a, b) => b.qty - a.qty).slice(0, 10).map((w) => ({ wo: w.wo, customer: w.customer, qty: w.qty, jobs: w.jobs, arrived: w.at, due: w.due, done_at: w.done_at, late_minutes: w.late_minutes })) };
+      largest: [...l].sort((a, b) => b.qty - a.qty).slice(0, 10).map((w) => ({ source: w.source, wo: w.wo, customer: w.customer, qty: w.qty, jobs: w.jobs, arrived: w.at, due: w.due, done_at: w.done_at, late_minutes: w.late_minutes })) };
   }
-  return { from: fromDay, to: toDay, since, working_days: workingDays, all_working_days: allDays, total: { ...total, per_day: workingDays ? r1(total.wos / workingDays) : null, all_per_day: allDays ? r1(everything.length / allDays) : null },
+  return { source, from: fromDay, to: toDay, since, working_days: workingDays, all_working_days: allDays, total: { ...total, per_day: workingDays ? r1(total.wos / workingDays) : null, all_per_day: allDays ? r1(everything.length / allDays) : null },
     buckets, daily, detail };
 }
 

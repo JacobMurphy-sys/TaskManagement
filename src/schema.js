@@ -394,6 +394,30 @@ const TABLES = {
     done_at      TEXT,
     late_minutes INTEGER`,
 
+  // 🏭 Matching's history, as the perso one: each new version of the Matching export read once, and each
+  // job's first and last time in it — when it came in (📆 D+ due out) and when it was done.
+  plan_otto_reads: `
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_modified TEXT    NOT NULL UNIQUE,
+    file          TEXT,
+    read_at       TEXT    NOT NULL,
+    jobs          INTEGER NOT NULL DEFAULT 0`,
+
+  plan_otto_jobs: `
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    key          TEXT    NOT NULL UNIQUE,
+    wo           TEXT,
+    customer     TEXT,
+    qty          INTEGER NOT NULL DEFAULT 0,
+    due          TEXT,
+    deadline     TEXT,
+    prio         TEXT,
+    machine      TEXT,
+    first_seen   TEXT    NOT NULL,
+    last_seen    TEXT    NOT NULL,
+    done_at      TEXT,
+    late_minutes INTEGER`,
+
   // ⏱ Production actuals: each run in the daily timing reports (perso, Matching) — a job on a
   // machine from start to end — kept as the reports roll over (not audited: written by the reader).
   prod_runs: `

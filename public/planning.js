@@ -16,6 +16,7 @@ const PLF = {
 const PL_PAGE = 150;
 
 async function renderPlanning() {
+  if (store.get('planHalf', 'perso') === 'dplus') return renderPlanDplus(); // 📆 D+ due out (dplus.js)
   const mode = ['bau', 'score', 'mitigation'].includes(store.get('planMode', 'fifo')) ? store.get('planMode') : 'fifo';
   const half = store.get('planHalf', 'perso') === 'otto' ? 'otto' : 'perso';
   const [p, settings] = await Promise.all([api.get(`/plan?mode=${mode}`), api.get('/settings')]);
@@ -313,7 +314,7 @@ async function renderPlanning() {
 
   main().innerHTML = `
     <div class="kanban-tools"><h1 style="margin:0">🏭 Planning</h1>
-      <div class="seg"><button type="button" data-pl-half="perso" class="${half === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-pl-half="otto" class="${half === 'otto' ? 'on' : ''}">Matching</button></div>
+      <div class="seg"><button type="button" data-pl-half="perso" class="${half === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-pl-half="otto" class="${half === 'otto' ? 'on' : ''}">Matching</button><button type="button" data-pl-half="dplus" title="How much notice work orders come with: D+0, D+1, D+2… — perso and Matching">📆 D+ due out</button></div>
 ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. BAU: by due day, then High / Normal / Low, then cut-off">
         <button type="button" data-pl-mode="fifo" class="${mode === 'fifo' ? 'on' : ''}">FIFO</button><button type="button" data-pl-mode="bau" class="${mode === 'bau' ? 'on' : ''}">BAU</button><button type="button" data-pl-mode="score" class="${mode === 'score' ? 'on' : ''}" title="Highest score first: the deadline plus the ⚖ modifiers">⚖ Score</button><button type="button" data-pl-mode="mitigation" class="${mode === 'mitigation' ? 'on' : ''}" title="Save as many as possible: work orders due in the next few working days that can still make it first, then those already overdue or that would be late anyway, then those due later">🛟 Mitigation</button></div>`}
       <div class="spacer"></div>

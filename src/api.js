@@ -1830,6 +1830,7 @@ function backlogOf(jobs, hidden, record, capacity, maxAge) {
 }
 function ottoOf(set, persoJobs, capacity) {
   const o = planning.readSource({ file: cleanPath(set.plan_otto_src) || null, uploaded: OTTO_UPLOAD, parser: planning.parseOtto });
+  recordOtto(o);
   const source = { status: o.status, file: o.file || null, name: o.name || null, uploaded: !!o.uploaded, modified: o.modified || null, error: o.error || null, skipped: o.skipped || [] };
   const machines = db.all('SELECT * FROM plan_otto_machines ORDER BY sort_order, id');
   const speeds = db.all('SELECT * FROM plan_otto_speeds ORDER BY customer');
@@ -1870,6 +1871,11 @@ function recordPlan(src) {
   if (src.status !== 'ok' || src.uploaded) return;
   try { const r = planHistory.ingest(src.lines, src.modified, src.file); if (r) log.info('Planning: export recorded', r); } catch (err) { log.warn('Planning: history not recorded', err.message); }
 }
+// …and each new version of the Matching export into its own (📆 D+ due out, when Matching jobs were done).
+function recordOtto(o) {
+  if (o.status !== 'ok' || o.uploaded) return;
+  try { const r = planHistory.ingestOtto(o.jobs, o.modified, o.file); if (r) log.info('Planning: Matching export recorded', r); } catch (err) { log.warn('Planning: Matching history not recorded', err.message); }
+}
 // Hourly exports are caught even with Planning closed, and the files Planning reads are read in
 // the background (at start-up and whenever one is saved again), so opening the tab finds them
 // ready instead of reading them from the network then. Checking is cheap: a file is only read
@@ -1880,7 +1886,7 @@ function checkPlanExport() {
   try {
     if (file) recordPlan(planning.readSource({ file }));
     if (cleanPath(set.plan_db)) planning.readCards({ file: cleanPath(set.plan_db), table: set.plan_db_table || 'Cards' });
-    if (cleanPath(set.plan_otto_src)) planning.readSource({ file: cleanPath(set.plan_otto_src), parser: planning.parseOtto });
+    if (cleanPath(set.plan_otto_src)) recordOtto(planning.readSource({ file: cleanPath(set.plan_otto_src), parser: planning.parseOtto }));
   } catch (err) { log.warn('Planning: reading ahead', err.message); }
 }
 setTimeout(checkPlanExport, 3000).unref();
@@ -2557,14 +2563,14 @@ setTimeout(() => { try { prod.purgeUncounted(); } catch (err) { log.warn('Produc
 setInterval(readProdReports, 10 * 60 * 1000).unref();
 
 // The runs from a day (from=YYYY-MM-DD, days=1..31): Gantt, load, totals and anomalies.
-// 📆 D+ (due out): how much notice work orders come with, from the plan history (dplus.js).
-router.get('/prod/dplus', h((req, res) => {
+// 📆 D+ (due out): how much notice work orders come with, from the plan histories (dplus.js).
+router.get('/plan/dplus', h((req, res) => {
   const set = getSettings();
   const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
   const custNames = new Map();
   if (dbc.status === 'ok') for (const c of dbc.cards.values()) if (c.trigram && c.customer && !custNames.has(c.trigram.toUpperCase())) custNames.set(c.trigram.toUpperCase(), c.customer);
   const workDays = new Set(String(set.plan_days || '1,2,3,4,5').split(',').map(Number).filter((d) => d >= 0 && d <= 6));
-  res.json(require('./dplus').profile({ from: req.query.from, to: req.query.to, bucket: req.query.bucket || null, workDays, custNames }));
+  res.json(require('./dplus').profile({ from: req.query.from, to: req.query.to, bucket: req.query.bucket || null, source: req.query.source, workDays, custNames }));
 }));
 router.get('/prod', h((req, res) => {
   const source = prodSource(req.query.source);

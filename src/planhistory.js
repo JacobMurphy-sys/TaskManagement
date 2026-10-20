@@ -51,6 +51,46 @@ function ingest(lines, modifiedIso, file = null) {
   return { jobs: jobs.length, done, reopened };
 }
 
+// Matching: each new version of its export (parsed jobs, saved time), recorded once. A job is done when the
+// export says so (Is Done / a finished status) or it's gone from it; late against its plan date and time.
+function ingestOtto(jobs, modifiedIso, file = null) {
+  const list = (jobs || []).filter((j) => !j.test);
+  if (!list.length) return null;
+  if (db.get('SELECT id FROM plan_otto_reads WHERE file_modified = ?', [modifiedIso])) return null;
+  const last = db.get('SELECT file_modified, file FROM plan_otto_reads ORDER BY id DESC LIMIT 1');
+  const switched = !!(last && file && last.file && last.file.toLowerCase() !== file.toLowerCase());
+  if (last && !switched && modifiedIso < last.file_modified) return null;
+  const at = new Date(modifiedIso);
+  const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  let added = 0; let done = 0;
+  db.tx(() => {
+    const seen = new Set();
+    const finish = (row) => { const late = row.deadline ? Math.round((at - localDate(row.deadline)) / 60000) : null; db.run('UPDATE plan_otto_jobs SET done_at = ?, late_minutes = ? WHERE id = ?', [modifiedIso, late, row.id]); done++; };
+    for (const j of list) {
+      seen.add(j.key);
+      const deadline = j.due ? `${j.due}T${hm(j.time ?? 23 * 60 + 59)}` : null;
+      let row = db.get('SELECT * FROM plan_otto_jobs WHERE key = ?', [j.key]);
+      if (!row) {
+        db.run('INSERT INTO plan_otto_jobs (key, wo, customer, qty, due, deadline, prio, machine, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [j.key, j.wo, j.customer, j.qty, j.due, deadline, j.prio, j.machine, modifiedIso, modifiedIso]);
+        added++; row = db.get('SELECT * FROM plan_otto_jobs WHERE key = ?', [j.key]);
+      } else {
+        db.run('UPDATE plan_otto_jobs SET qty = ?, due = ?, deadline = ?, prio = ?, machine = COALESCE(?, machine), last_seen = ? WHERE id = ?', [j.qty, j.due, deadline, j.prio, j.machine, modifiedIso, row.id]);
+        row = { ...row, deadline };
+        if (!j.done && row.done_at) db.run('UPDATE plan_otto_jobs SET done_at = NULL, late_minutes = NULL WHERE id = ?', [row.id]); // open again
+      }
+      if (j.done && !row.done_at) finish(row);
+    }
+    for (const o of db.all('SELECT * FROM plan_otto_jobs WHERE done_at IS NULL')) {
+      if (seen.has(o.key)) continue;
+      if (switched) { db.run('DELETE FROM plan_otto_jobs WHERE id = ?', [o.id]); continue; }
+      finish(o);
+    }
+    db.run('INSERT INTO plan_otto_reads (file_modified, file, read_at, jobs) VALUES (?, ?, ?, ?)', [modifiedIso, file, new Date().toISOString(), list.length]);
+  });
+  return { jobs: list.length, added, done };
+}
+
 // Completions per day, on time or late, and the latest ones.
 function summary({ days = 14 } = {}) {
   const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -76,4 +116,4 @@ function summary({ days = 14 } = {}) {
   };
 }
 
-module.exports = { ingest, summary };
+module.exports = { ingest, ingestOtto, summary };
