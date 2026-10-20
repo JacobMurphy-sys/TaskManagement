@@ -1665,6 +1665,13 @@ async function waitForServer() {
       const ex2 = await call('GET', `/plan/learn/explode?from=2026-09-10&to=2026-10-10&by=customer&filter=${encodeURIComponent(JSON.stringify({ machine: one.key }))}`);
       assert.equal(ex2.total.runs, one.runs, 'filtered to the one machine'); assert.equal(ex2.filter_labels[0].dim, 'machine');
       const ex3 = await call('GET', '/plan/learn/explode?from=2026-10-09&to=2026-10-09&by=day');
+      // against the period before: as many days, ending where this one starts
+      const exc = await call('GET', '/plan/learn/explode?from=2026-10-10&to=2026-10-10&by=machine&compare=1');
+      const exp9 = await call('GET', '/plan/learn/explode?from=2026-10-09&to=2026-10-09&by=machine');
+      assert.deepEqual([exc.prev.from, exc.prev.to], ['2026-10-09', '2026-10-09']);
+      assert.equal(exc.total.prev.runs, exp9.total.runs, 'the day before, the same runs');
+      if (exc.total.runs && exp9.total.runs) assert.equal(exc.total.chg.cards, Math.round(((exc.total.cards - exp9.total.cards) / exp9.total.cards) * 1000) / 10);
+      assert.equal(exc.rows.reduce((t, r) => t + (r.prev?.runs || 0), 0), exp9.total.runs, 'every earlier run in a row, gone ones too');
       assert.ok(ex3.rows.every((r) => r.key === '2026-10-09'), 'one day');
       const lx = await fetch(`${BASE}/plan/learn.xlsx?days=30&to=2026-10-10`);
       assert.equal(lx.status, 200); assert.ok((await lx.arrayBuffer()).byteLength > 1000);

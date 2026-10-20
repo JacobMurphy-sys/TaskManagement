@@ -178,7 +178,7 @@ function plxRange(q) {
 }
 async function pllExplode({ by = 'customer', source = 'perso', share = 'cards', days = 90, filter = {} } = {}) {
   const [from, to] = plxRange(String(days));
-  plx = { q: { source, from, to, by, filter, share }, sort: null, data: null };
+  plx = { q: { source, from, to, by, filter, share, compare: !!store.get('plxCompare', false) }, sort: null, data: null };
   openModal('<div id="pllx" class="pllx"><p class="muted">Loading…</p></div>', { wide: true });
   $('#pllx').addEventListener('click', plxClick);
   $('#pllx').addEventListener('change', plxChange);
@@ -187,19 +187,40 @@ async function pllExplode({ by = 'customer', source = 'perso', share = 'cards', 
 async function plxLoad() {
   const q = plx.q;
   try {
-    plx.data = await api.get(`/plan/learn/explode?source=${q.source}&from=${q.from}&to=${q.to}&by=${q.by}&filter=${encodeURIComponent(JSON.stringify(q.filter))}`);
+    plx.data = await api.get(`/plan/learn/explode?source=${q.source}&from=${q.from}&to=${q.to}&by=${q.by}${q.compare ? '&compare=1' : ''}&filter=${encodeURIComponent(JSON.stringify(q.filter))}`);
   } catch (err) { toast(err.message, 'error'); return; }
   q.from = plx.data.from; q.to = plx.data.to;
   plxDraw();
 }
-const plxCols = (otto) => [
+// the columns; comparing, the table shows the change in cards, cards/h and pace in place of the
+// averages (all of them go in the CSV)
+const plxCols = (otto, D, all = false) => {
+  const cmp = D?.prev && D.rows.some((r) => r.chg);
+  const chg = cmp ? Object.keys(PLX_CHG).filter((k) => (all || ['cards', 'per_hour', 'pace'].includes(k)) && (!otto || !['pace', 'remade_pct'].includes(k)))
+    .map((k) => [`chg.${k}`, `${otto ? PLX_CHG[k][0].replace('Cards', 'Items') : PLX_CHG[k][0]} ±`]) : [];
+  return [...plxBase(otto).filter(([k]) => all || !cmp || !['avg_cards', 'avg_run'].includes(k)), ...chg];
+};
+const plxBase = (otto) => [
   ['runs', 'Runs'], ['runs_pct', '% runs', 1], [otto ? 'cards' : 'cards', otto ? 'Items' : 'Cards'], ['cards_pct', otto ? '% items' : '% cards', 1], ['hours', 'Hours', 1], ['hours_pct', '% hours', 1],
   ['per_hour', otto ? 'Items/h' : 'Cards/h'], ['avg_cards', otto ? 'Avg items' : 'Avg cards'], ['avg_run', 'Avg run'], ...(otto ? [] : [['pace', 'Pace'], ['remade_pct', 'Remade', 1]]),
 ];
+// against the period before: % change (runs, cards, hours, a speed) or points (pace, remakes); `good` is the
+// direction that's better (1 up, -1 down, 0 neither)
+const PLX_CHG = { runs: ['Runs', '%', 0], cards: ['Cards', '%', 0], hours: ['Hours', '%', 0], per_hour: ['Cards/h', '%', 1], pace: ['Pace', 'pts', 1], remade_pct: ['Remade', 'pts', -1] };
+const plxVal = (r, k) => (k.startsWith('chg.') ? r.chg?.[k.slice(4)] : r[k]);
+function plxChg(r, k) {
+  const c = r.chg; if (!c) return '';
+  if (c.new) return '<span class="small pllx-new">new</span>';
+  const [, unit, good] = PLX_CHG[k]; const v = c[k];
+  if (v === null || v === undefined) return '<span class="muted">—</span>';
+  const tone = !good || Math.abs(v) < (unit === 'pts' ? 1 : 3) ? 'muted' : v * good > 0 ? 'pl-ok' : 'pl-late';
+  const was = r.prev ? `before: ${pllN(r.prev[k], k === 'remade_pct' ? 1 : 0)}${unit === 'pts' ? '%' : ''}` : '';
+  return `<span class="${tone}" title="${esc(was)}">${v > 0 ? '▲' : v < 0 ? '▼' : ''}${pllN(Math.abs(v), 1)}${unit === 'pts' ? ' pts' : '%'}</span>`;
+}
 function plxRowsSorted() {
   const rows = [...plx.data.rows];
   const s = plx.sort; if (!s) return rows;
-  const v = (r) => (s.col === 'label' ? r.label : r[s.col] ?? -Infinity);
+  const v = (r) => (s.col === 'label' ? r.label : plxVal(r, s.col) ?? -Infinity);
   return rows.sort((a, b) => { const x = v(a); const y = v(b); return (x < y ? -1 : x > y ? 1 : 0) * s.dir; });
 }
 function plxDraw() {
@@ -207,11 +228,11 @@ function plxDraw() {
   const dim = D.dims.find((d) => d.key === D.by);
   const shareKey = { cards: 'cards_pct', runs: 'runs_pct', hours: 'hours_pct', remade: 'remade_share' }[q.share] || 'cards_pct';
   const maxShare = Math.max(1, ...D.rows.map((r) => r[shareKey] || 0));
-  const cols = plxCols(otto);
-  const cell = (r, k) => (k === 'pace' ? pllPace(r.pace) : k === 'avg_run' ? (r.avg_run === null ? '—' : fmtSpan(r.avg_run)) : k.endsWith('_pct') ? (r[k] === null || r[k] === undefined ? '—' : `${pllN(r[k], 1)}%`) : pllN(r[k], k === 'hours' ? 1 : 0));
+  const cols = plxCols(otto, D);
+  const cell = (r, k) => (k.startsWith('chg.') ? plxChg(r, k.slice(4)) : k === 'pace' ? pllPace(r.pace) : k === 'avg_run' ? (r.avg_run === null ? '—' : fmtSpan(r.avg_run)) : k.endsWith('_pct') ? (r[k] === null || r[k] === undefined ? '—' : `${pllN(r[k], 1)}%`) : pllN(r[k], k === 'hours' ? 1 : 0));
   const arrow = (k) => (plx.sort?.col === k ? (plx.sort.dir > 0 ? ' ▲' : ' ▼') : '');
   const T = D.total;
-  const tile = (l, v, sub = '') => `<div class="kdb-tile"><div class="kdb-tile-l">${l}</div><div class="kdb-tile-v">${v}</div>${sub ? `<div class="kdb-tile-s">${sub}</div>` : ''}</div>`;
+  const tile = (l, v, sub = '', k = null) => `<div class="kdb-tile"><div class="kdb-tile-l">${l}</div><div class="kdb-tile-v">${v}</div>${sub ? `<div class="kdb-tile-s">${sub}</div>` : ''}${k && T.chg ? `<div class="kdb-tile-s">${plxChg(T, k)} <span class="muted">vs before</span></div>` : ''}</div>`;
   const tr = D.trend; const trMax = Math.max(1, ...tr.map((t) => t.per_hour || 0));
   const trLabel = (l) => (D.trend_step === 'day' ? `${Number(l.slice(8))}/${Number(l.slice(5, 7))}` : `w/c ${Number(l.slice(8))}/${Number(l.slice(5, 7))}`);
   $('#pllx').innerHTML = `
@@ -221,20 +242,22 @@ function plxDraw() {
       <label class="f"><span>To</span><input type="date" name="to" value="${esc(q.to)}"></label>
       <label class="f"><span>Quick</span><select name="quick"><option value="">—</option>${PLX.quick.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
       <label class="f"><span>Group by</span><select name="by">${D.dims.filter((d) => !(d.key in q.filter)).filter((d) => !otto || !['kind', 'card', 'size'].includes(d.key)).map((d) => `<option value="${d.key}" ${d.key === D.by ? 'selected' : ''}>${esc(d.label)}</option>`).join('')}</select></label>
+      <label class="pllx-cmp"><input type="checkbox" name="compare" ${q.compare ? 'checked' : ''}> Compare with the period before</label>
       <label class="f"><span>Runs from</span><select name="source"><option value="perso" ${otto ? '' : 'selected'}>Perso (cards)</option><option value="otto" ${otto ? 'selected' : ''}>Matching (items)</option></select></label>
       <div class="f"><span>% bar shows</span><div class="seg">${Object.entries(PLX.share).filter(([k]) => !otto || k !== 'remade').map(([k, l]) => `<button type="button" data-plx-share="${k}" class="${q.share === k ? 'on' : ''}">${otto && k === 'cards' ? 'Items' : l}</button>`).join('')}</div></div>
     </div>
     <div class="pllx-crumbs"><button type="button" class="pllx-chip ${D.filter_labels.length ? '' : 'on'}" data-plx-clear>All runs</button>
       ${D.filter_labels.map((f) => `<span class="pllx-chip on">${esc(f.dim_label)}: <b>${esc(f.label)}</b>${f.name ? ` <span class="muted">${esc(f.name)}</span>` : ''} <button type="button" class="link" data-plx-unfilter="${esc(f.dim)}" title="Take this filter off">✕</button></span>`).join(' › ')}
       <span class="small muted">${D.days} day${D.days === 1 ? '' : 's'} · click a row to look inside it</span></div>
-    <div class="kdb-tiles">${tile('Runs', pllN(T.runs), `${pllN(T.days)} days with runs`)}${tile(otto ? 'Items' : 'Cards', pllN(T.cards), `${pllN(T.avg_cards)} a run`)}${tile('Hours', pllN(T.hours, 1), T.avg_run ? `${fmtSpan(T.avg_run)} a run` : '')}
-      ${tile(otto ? 'Items/h' : 'Cards/h', pllN(T.per_hour))}${otto ? '' : tile('Pace', T.pace === null ? '—' : `${pllN(T.pace)}%`, 'against the kinds\' learned speeds') + tile('Remakes', T.remade_pct === null ? '—' : `${pllN(T.remade_pct, 1)}%`, `${pllN(T.remade)} cards`)}</div>
+    <div class="kdb-tiles">${tile('Runs', pllN(T.runs), `${pllN(T.days)} days with runs`, 'runs')}${tile(otto ? 'Items' : 'Cards', pllN(T.cards), `${pllN(T.avg_cards)} a run`, 'cards')}${tile('Hours', pllN(T.hours, 1), T.avg_run ? `${fmtSpan(T.avg_run)} a run` : '', 'hours')}
+      ${tile(otto ? 'Items/h' : 'Cards/h', pllN(T.per_hour), '', 'per_hour')}${otto ? '' : tile('Pace', T.pace === null ? '—' : `${pllN(T.pace)}%`, 'against the kinds\' learned speeds', 'pace') + tile('Remakes', T.remade_pct === null ? '—' : `${pllN(T.remade_pct, 1)}%`, `${pllN(T.remade)} cards`, 'remade_pct')}</div>
+    ${D.prev ? `<p class="small muted" style="margin:4px 0 8px">± against the ${D.days} day${D.days === 1 ? '' : 's'} before: ${esc(fmtDate(`${D.prev.from}T12:00`))} to ${esc(fmtDate(`${D.prev.to}T12:00`))}${['day', 'week', 'month'].includes(D.by) ? ' (totals only: by day, week or month the two periods share no rows)' : ''}. Pace and remakes in points.</p>` : ''}
     ${D.rows.length ? `<div class="kdb-scroll pllx-scroll"><table class="log pll-t pllx-t"><thead><tr><th data-plx-sort="label">${esc(dim.label)}${arrow('label')}</th><th>Share of ${esc((otto && q.share === 'cards' ? 'Items' : PLX.share[q.share]).toLowerCase())}</th>
         ${cols.map(([k, l]) => `<th class="num" data-plx-sort="${k}">${l}${arrow(k)}</th>`).join('')}</tr></thead><tbody>
-      ${plxRowsSorted().map((r) => `<tr data-plx-row="${esc(r.key)}" title="Look inside: filter to ${esc(r.label)}"><td><b>${esc(r.label)}</b>${r.name ? ` <span class="small muted">${esc(r.name)}</span>` : ''}</td>
+      ${plxRowsSorted().map((r) => `<tr data-plx-row="${esc(r.key)}" class="${r.gone ? 'pllx-gone' : ''}" title="Look inside: filter to ${esc(r.label)}"><td><b>${esc(r.label)}</b>${r.gone ? ' <span class="small muted">none now</span>' : ''}${r.name ? ` <span class="small muted">${esc(r.name)}</span>` : ''}</td>
         <td><div class="pllx-share"><div style="width:${((r[shareKey] || 0) / maxShare) * 100}%"></div><span>${r[shareKey] === null || r[shareKey] === undefined ? '—' : `${pllN(r[shareKey], 1)}%`}</span></div></td>
         ${cols.map(([k]) => `<td class="num">${cell(r, k)}</td>`).join('')}</tr>`).join('')}
-      </tbody><tfoot><tr><td><b>Total</b> <span class="small muted">${pllN(D.rows.length)} rows</span></td><td></td>${cols.map(([k]) => `<td class="num"><b>${k.endsWith('_pct') ? (k === 'remade_pct' ? cell(T, k) : '100%') : cell(T, k)}</b></td>`).join('')}</tr></tfoot></table></div>`
+      </tbody><tfoot><tr><td><b>Total</b> <span class="small muted">${pllN(D.rows.length)} rows</span></td><td></td>${cols.map(([k]) => `<td class="num"><b>${k.endsWith('_pct') && !k.startsWith('chg.') ? (k === 'remade_pct' ? cell(T, k) : '100%') : cell(T, k)}</b></td>`).join('')}</tr></tfoot></table></div>`
       : `<p class="muted">No runs ${D.window.runs ? 'match these filters' : 'in these dates'}.</p>`}
     ${tr.length > 1 ? `<h4 style="margin:14px 0 4px">Over time <span class="muted small">— ${otto ? 'items' : 'cards'} an hour by ${D.trend_step}${otto ? '' : ', pace above'}</span></h4>
       <div class="pl-hist pllx-hist">${tr.map((t) => `<div class="pl-hist-col" title="${esc(trLabel(t.label))}: ${pllN(t.runs)} runs, ${pllN(t.cards)} ${otto ? 'items' : 'cards'}, ${pllN(t.hours, 1)} h, ${pllN(t.per_hour)}/h${t.pace === null ? '' : `, pace ${pllN(t.pace)}%`}">
@@ -262,10 +285,10 @@ function plxClick(e) {
     q.by = next; plx.sort = null; plxLoad(); return;
   }
   if (e.target.closest('[data-plx-csv]')) {
-    const D = plx.data; const cols = plxCols(D.source === 'otto');
+    const D = plx.data; const cols = plxCols(D.source === 'otto', D, true);
     const cell = (v) => (v === null || v === undefined ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
     const lines = [[D.dims.find((d) => d.key === D.by).label, 'Name', ...cols.map(([, l]) => l)].map(cell).join(','),
-      ...plxRowsSorted().map((r) => [r.label, r.name, ...cols.map(([k]) => r[k])].map(cell).join(','))];
+      ...plxRowsSorted().map((r) => [r.label, r.name, ...cols.map(([k]) => (r.chg?.new && k.startsWith('chg.') ? 'new' : plxVal(r, k)))].map(cell).join(','))];
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([`${lines.join('\r\n')}\r\n`], { type: 'text/csv' }));
     a.download = `explode-${D.by}-${D.from}-to-${D.to}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -276,6 +299,7 @@ function plxChange(e) {
   if (t.name === 'quick' && t.value) [q.from, q.to] = plxRange(t.value);
   else if (t.name === 'from' || t.name === 'to') { if (!t.value) return; q[t.name] = t.value; }
   else if (t.name === 'by') { q.by = t.value; plx.sort = null; }
+  else if (t.name === 'compare') { q.compare = t.checked; store.set('plxCompare', t.checked); }
   else if (t.name === 'source') { q.source = t.value; q.filter = {}; if (t.value === 'otto' && ['kind', 'card', 'size'].includes(q.by)) q.by = 'customer'; if (t.value === 'otto' && q.share === 'remade') q.share = 'cards'; }
   else return;
   plxLoad();

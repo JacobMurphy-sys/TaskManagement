@@ -1233,3 +1233,6 @@ body.signin-page > *:not(.signin):not(#toasts) { visibility: hidden; }
 [data-more][hidden] { display: none !important; }
 .show-more { margin-top: 6px; }
 dialog#modal.wide:has(.pllx) { width: min(1240px, calc(100vw - 32px)); }
+.pllx-cmp { display: flex; gap: 6px; align-items: center; font-size: 13px; padding-bottom: 8px; }
+.pllx-gone td { opacity: .6; }
+.pllx-new { color: var(--accent); font-weight: 600; }

@@ -246,6 +246,12 @@ What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (
     - **Group by** machine, shift, weekday, hour started, job size, customer, kind of card, card, job, day, week or month.
     - **% of total** for runs, cards and hours on every row, plus a bar for the share you choose (cards, runs, hours or remakes). Also shown: cards an hour, average cards and time a run, pace and remakes.
     - **Click a row to look inside it:** it becomes a filter (e.g. *Shift: Afternoon › Machine: P2*), and the grouping moves to the next useful one. Chips step back out.
+    - **Compare with the period before** (remembered) measures the same number of days just before, with the same filters:
+      - the tiles show the change in each total (▲/▼, green where it's better);
+      - the table gains **Cards ±**, **Cards/h ±** and **Pace ±** columns in place of the averages;
+      - groups that had runs only before stay listed, greyed out as *none now*; ones with runs only now are marked *new*;
+      - pace and remakes change in points, the rest in %; hover over a change to see the earlier figure;
+      - grouped by day, week or month the two periods share no rows, so only the totals compare.
     - Click a column heading to sort. **Over time** shows the selection by day (up to two months) or by week. **Runs from** switches to the Matching runs. **⬇ CSV** saves the table as shown.
   - **⬇ Excel** saves all of it as a workbook. Nothing in ⚙ Setup changes until you apply it, and each change is in the audit log.
 - **Hide anything due more than … days ago** (Setup, default 30; 0 shows everything): older jobs in either export are likely errors, so they're left out of the list, the plan and the backlog. The Backlog card says how many were left out.

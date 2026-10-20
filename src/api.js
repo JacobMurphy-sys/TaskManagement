@@ -2439,7 +2439,7 @@ router.get('/plan/learn/explode', h((req, res) => {
   if (cards) for (const c of cards.values()) if (c.trigram && c.customer && !custNames.has(c.trigram.toUpperCase())) custNames.set(c.trigram.toUpperCase(), c.customer);
   let filter = {};
   try { const f = JSON.parse(String(req.query.filter || '{}')); if (f && typeof f === 'object' && !Array.isArray(f)) filter = f; } catch { /* none */ }
-  res.json(planLearn.explode({ from: req.query.from, to: req.query.to, by: req.query.by, source: req.query.source, filter, cards, custNames,
+  res.json(planLearn.explode({ from: req.query.from, to: req.query.to, by: req.query.by, source: req.query.source, compare: req.query.compare === '1', filter, cards, custNames,
     shiftStarts: { night: planTime(set.plan_shift_night, 21 * 60 + 45), morning: planTime(set.plan_shift_morning, 5 * 60 + 45), afternoon: planTime(set.plan_shift_afternoon, 13 * 60 + 45) } }));
 }));
 // The same as a workbook, to share or work on further.

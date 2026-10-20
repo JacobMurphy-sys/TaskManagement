@@ -352,8 +352,10 @@ const TIME_DIMS = new Set(['day', 'week', 'month', 'hour']);
 const pctOf = (n, all) => (all ? r1((n / all) * 100) : null);
 
 /**
- * opts: { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD', by, filter, source: 'perso' | 'otto', cards, custNames, shiftStarts }
- * → { from, to, by, filter, dims, total, rows, trend, filter_labels }
+ * opts: { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD', by, filter, source: 'perso' | 'otto', compare, cards, custNames, shiftStarts }
+ * → { from, to, by, filter, dims, total, rows, trend, filter_labels, prev }
+ * compare: the same number of days just before, the same filters and grouping — each row (and the total)
+ * gets `chg`: % change in runs, cards, hours and cards/h, points of change in pace and remakes.
  */
 function explode(opts) {
   const { cards = null, custNames = new Map(), shiftStarts = { night: 1305, morning: 345, afternoon: 825 } } = opts;
@@ -372,11 +374,15 @@ function explode(opts) {
   // the pace reference: kind speeds over the window, at least 180 days of it
   const ref = source === 'perso' ? (span >= 180 ? all : runsFor('perso', 180, to, cards).runs) : all;
   const refSpeeds = speedsOf(ref); const refFleet = overallRate(ref);
-  for (const r of all) { const s = source === 'perso' ? refSpeeds.get(r.kindKey)?.speed || refFleet : refFleet; r.expected = s ? (r.qty / s) * 60 : null; }
+  const expect = (list) => { for (const r of list) { const s = source === 'perso' ? refSpeeds.get(r.kindKey)?.speed || refFleet : refFleet; r.expected = s ? (r.qty / s) * 60 : null; } return list; };
+  expect(all);
+  // the period before: as many days, ending where this one starts (paced against the same speeds)
+  const before = opts.compare ? expect(runsFor(source, span, from, source === 'perso' ? cards : null).runs) : null;
 
   const filter = {}; const filterLabels = [];
   for (const [d, v] of Object.entries(opts.filter || {})) if (DIMS[d] && v !== null && v !== undefined && v !== '') filter[d] = String(v);
-  const runs = all.filter((r) => Object.entries(filter).every(([d, v]) => String(DIMS[d].of(r, x)) === v));
+  const pick = (list) => list.filter((r) => Object.entries(filter).every(([d, v]) => String(DIMS[d].of(r, x)) === v));
+  const runs = pick(all);
   for (const [d, v] of Object.entries(filter)) {
     const l = all.filter((r) => String(DIMS[d].of(r, x)) === v);
     const text = DIMS[d].text && l.length ? DIMS[d].text(v, l) : v;
@@ -400,6 +406,28 @@ function explode(opts) {
     return { key: String(k), label: D.text ? D.text(k, l) : String(k), name: D.name ? D.name(k, x, l) : null, ...st,
       runs_pct: pctOf(st.runs, total.runs), cards_pct: pctOf(st.cards, total.cards), hours_pct: pctOf(st.minutes, total.minutes), remade_share: pctOf(st.remade, total.remade) };
   });
+  let prev = null;
+  if (before) {
+    const pruns = pick(before); const pt = stats(pruns);
+    const pctChg = (a, b) => (b ? r1(((a - b) / b) * 100) : null);
+    const ptsChg = (a, b) => (a === null || b === null || a === undefined || b === undefined ? null : r1(a - b));
+    const chgOf = (c, p) => ({ runs: pctChg(c.runs, p.runs), cards: pctChg(c.cards, p.cards), hours: pctChg(c.minutes, p.minutes), per_hour: pctChg(c.per_hour, p.per_hour),
+      pace: ptsChg(c.pace, p.pace), remade_pct: ptsChg(c.remade_pct, p.remade_pct) });
+    const keep = (p) => ({ runs: p.runs, cards: p.cards, hours: p.hours, per_hour: p.per_hour, pace: p.pace, remade_pct: p.remade_pct });
+    prev = { from: ymd(new Date(from.getTime() - span * DAY)), to: ymd(new Date(from.getTime() - DAY)), total: keep(pt) };
+    total.prev = prev.total; total.chg = chgOf(total, pt);
+    // by day / week / month the periods have no rows in common: only the totals compare
+    if (!['day', 'week', 'month'].includes(by)) {
+      const pg = new Map([...groupBy(pruns, (r) => D.of(r, x))].map(([k, l]) => [String(k), { l, st: stats(l) }]));
+      for (const r of rows) { const p = pg.get(r.key); if (p) { r.prev = keep(p.st); r.chg = chgOf(r, p.st); } else r.chg = { new: true }; }
+      const zero = stats([]);
+      for (const [k, p] of pg) {
+        if (rows.some((r) => r.key === k)) continue;
+        rows.push({ key: k, label: D.text ? D.text(k, p.l) : k, name: D.name ? D.name(k, x, p.l) : null, ...zero, runs_pct: 0, cards_pct: 0, hours_pct: 0, remade_share: 0, gone: true,
+          prev: keep(p.st), chg: chgOf(zero, p.st) });
+      }
+    }
+  }
   if (D.order) rows.sort((a, b) => { const p = D.order(a.key); const q = D.order(b.key); return p < q ? -1 : p > q ? 1 : 0; });
   else rows.sort((a, b) => b.cards - a.cards);
 
@@ -407,7 +435,7 @@ function explode(opts) {
   const step = span <= 62 ? 'day' : 'week';
   const trend = by === step ? [] : [...groupBy(runs, (r) => DIMS[step].of(r, x))].map(([k, l]) => ({ label: k, ...stats(l) })).sort((a, b) => a.label.localeCompare(b.label));
 
-  return { source, from: ymd(from), to: ymd(new Date(to.getTime() - DAY)), days: span, by, filter, filter_labels: filterLabels,
+  return { source, from: ymd(from), to: ymd(new Date(to.getTime() - DAY)), days: span, by, filter, filter_labels: filterLabels, prev,
     dims: Object.entries(DIMS).map(([k, d]) => ({ key: k, label: d.label, time: TIME_DIMS.has(k) })), total, rows, trend, trend_step: step,
     window: { first: all[0]?.start_at || null, last: all[all.length - 1]?.start_at || null, runs: all.length } };
 }
