@@ -5,7 +5,12 @@ const ACCT = { enabled: false, account: null, newCount: 0, modules: [] };
 // 🧩 Modules: the parts of the app an account can see (admins and no-accounts: all of them).
 const MOD_OF_VIEW = { kanban: 'projects', project: 'projects', ideas: 'ideas', idea: 'ideas', kpi: 'kpi', planning: 'planning', report: 'report', contacts: 'contacts' };
 const modOk = (key) => !ACCT.account || (ACCT.account.modules || []).includes(key);
+// 🔒 the setup (Settings, Planning's setup, KPI sources, importing the library, backups) is for admins;
+// with accounts off, whoever is here sets it up
+const acctAdmin = () => !ACCT.enabled || ACCT.account?.role === 'admin';
 function modApply() {
+  document.body.classList.toggle('not-admin', !acctAdmin());
+  $$('#top-menu a[data-nav="backups"]').forEach((a) => { a.hidden = !acctAdmin(); });
   $$('#topnav a[data-nav], #top-menu a[data-nav]').forEach((a) => { const m = MOD_OF_VIEW[a.dataset.nav]; if (m) a.hidden = !modOk(m); });
   for (const m of ACCT.modules) document.body.classList.toggle(`nomod-${m.key}`, !modOk(m.key));
 }
@@ -17,6 +22,7 @@ async function acctInit() {
   ACCT.enabled = !!me0.enabled; ACCT.account = me0.account; ACCT.modules = me0.modules || [];
   if (ACCT.enabled && !ACCT.account) { renderSignIn(); return false; }
   if (ACCT.account) {
+    if (ACCT.account.theme) setTheme(ACCT.account.theme, { save: false }); // your appearance, from your account
     me.setName(ACCT.account.person); // who's here and who changed what: the account's person
     acctChrome(); modApply();
     if (ACCT.account.must_change) await acctPasswordDialog(true);

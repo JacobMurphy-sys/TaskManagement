@@ -44,7 +44,7 @@ async function renderKpiProduction() {
   const anomalies = p.runs.filter((r) => r.anomaly && r.anomaly.kind !== 'open');
   const shift = (d, by) => { const x = new Date(`${d}T12:00`); x.setDate(x.getDate() + by); return prodYmd(x); };
 
-  const fileHtml = (s) => `<div class="row small" style="gap:8px;flex-wrap:wrap">
+  const fileHtml = (s) => `<div class="row small admin-only" style="gap:8px;flex-wrap:wrap">
       <label class="f" style="flex:1;min-width:320px">${s === 'otto' ? 'Matching' : 'Perso'} timing report (where it's saved)
         <input type="text" data-prod-path="${s}" value="${esc(settings[`kpi_time_${s}`] || '')}" placeholder="e.g. S:\\…\\Daily${s === 'otto' ? 'Matching' : 'Perso'}Timing.xlsx"></label></div>`;
   const tiles = `<div class="kdb-tiles pl-tiles">

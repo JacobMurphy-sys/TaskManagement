@@ -354,7 +354,18 @@ Instead of a copy on each PC, one computer runs the CI Manager and everyone open
   - **What's hidden:** a module an account doesn't have drops out of the top bar, the dashboard and search. Its pages send them to the dashboard, and the server refuses its data to that account.
   - **Who has everything:** admins always have every module. Accounts made before modules existed have them all until an admin changes them.
   - **When it applies:** a change takes effect the next time that person opens or refreshes the page.
-- **Permissions:** within their modules, everyone can see and change everything, as before. Only managing accounts and restoring a backup are for admins.
+- **🔒 Setup is for admins:**
+  - **What only admins can change:**
+    - ⚙ Settings (areas, currency, project lists, the charter template, the team pack, accounts);
+    - Planning's ⚙ Setup and ⚖ Modifiers (machines, speeds, OEE, card tags, export/import setup);
+    - the 🧠 Learned view's *Apply* and *Use it in the plan* buttons;
+    - KPI Sources and the ⏱ Production report paths;
+    - importing or removing Library notes;
+    - Backups.
+  - **For other accounts** these are hidden, and the server refuses them too. Their ⚙ Settings shows only their appearance and their account (🔑 Change password).
+  - **Using the app stays open to everyone:** tasks, the A3, loading and reading files, pins, marking the report sent, and so on.
+- **🌗 Appearance per account:** light, dark or automatic is kept with each account, so it's the same on any PC they sign in on. Set it in ⚙ Settings or with the ⋯ menu's Dark mode switch.
+- **Permissions:** within their modules, everyone can see and use everything, as before.
 - **Forgotten password:** an admin who's forgotten theirs runs `node scripts/reset-password.js <username> <new password>` in the app folder on the server (without arguments it lists the accounts).
 - **Storage:** passwords are kept only as scrypt hashes, and sign-ins as hashed tokens.
 

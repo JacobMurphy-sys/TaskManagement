@@ -78,6 +78,8 @@ app.use('/api', accounts.gate);
 app.use('/api', accounts.router);
 // 🧩 modules: an account without one can't use its part of the API
 app.use('/api', accounts.moduleGate);
+// 🔒 changing the setup is for admins
+app.use('/api', accounts.setupGate);
 // with accounts on, restoring a backup (it replaces everyone's data) is for admins
 app.use('/api', (req, res, next) => (req.method !== 'GET' && /^\/backups\/(restore|[^/]+\/[^/]+\/restore)$/.test(req.path) && accounts.enabled() && req.account?.role !== 'admin'
   ? res.status(403).json({ error: 'Only an admin can restore a backup' }) : next()));

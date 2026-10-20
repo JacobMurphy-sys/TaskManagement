@@ -288,6 +288,9 @@ async function route() {
   // the planner on its own: Planning, the activity log and backups only
   if (state.mode === 'planner' && !['planning', 'log', 'backups'].includes(view)) { view = 'planning'; rest = []; }
   // 🧩 a page the account's modules don't include: the dashboard instead
+  if ((view === 'backups' || (view === 'kpi' && ['sources', 'calc'].includes(rest[0]))) && !acctAdmin()) {
+    toast('That\'s part of the setup — only an admin can open it', 'error'); location.replace(view === 'kpi' ? '#/kpi' : '#/dashboard'); view = view === 'kpi' ? 'kpi' : 'dashboard'; rest = [];
+  }
   const mod = MOD_OF_VIEW[view];
   if (mod && !modOk(mod)) { toast(`Your account doesn't include ${ACCT.modules.find((m) => m.key === mod)?.label || mod} — ask an admin`, 'error'); location.replace('#/dashboard'); view = 'dashboard'; rest = []; }
   state.view = view;
@@ -1375,7 +1378,24 @@ async function escalateDialog(i) {
 // Settings
 // ======================================================================
 
+// Signed in without admin: only your own settings (appearance, password); the setup is for admins.
+function renderMySettings() {
+  main().innerHTML = `<h1>⚙ Settings</h1>
+    <div class="grid dash">
+      <div class="card"><h2>Appearance</h2>
+        <label class="f">Light or dark
+          <select id="theme-choice" style="max-width:220px">${options({ auto: 'Automatic (follow Windows)', light: '☀ Light', dark: '🌙 Dark' }, store.get('theme', 'auto'))}</select></label>
+        <p class="small muted">Kept with your account, so it's the same on any PC you sign in on. The ⋯ menu's Dark mode switch changes it too.</p></div>
+      <div class="card"><h2>👤 Your account</h2>
+        <p>Signed in as <b>${esc(ACCT.account.person)}</b> (${esc(ACCT.account.username)}).</p>
+        <button data-action="change-password">🔑 Change password</button>
+        <p class="small muted">The rest of the setup — areas, project lists, the charter template, Planning's setup, KPI sources and accounts — is changed by an admin.</p></div>
+    </div>`;
+  $('#theme-choice').addEventListener('change', (e) => setTheme(e.target.value));
+}
+
 async function renderSettings() {
+  if (!acctAdmin()) { renderMySettings(); return; }
   const [areas, settings, team] = await Promise.all([loadAreas(), api.get('/settings'), api.get('/team-pack/status').catch(() => null)]);
   state.settings = settings;
   const ta = team?.applied;
@@ -1402,7 +1422,7 @@ async function renderSettings() {
       </div>
       <div class="card">
         <h2>General</h2>
-        <label class="f">Appearance
+        <label class="f">Appearance <span class="muted small">${ACCT.account ? '— yours, kept with your account' : ''}</span>
           <select id="theme-choice" style="max-width:220px">${options({ auto: 'Automatic (follow Windows)', light: '☀ Light', dark: '🌙 Dark' }, store.get('theme', 'auto'))}</select></label>
         <p class="small muted">People and departments for owners and attendees are on the <a href="#/contacts">📇 Contacts</a> page.</p>
         <label class="f">Currency symbol for idea costs
@@ -2186,9 +2206,11 @@ function drawThemeSwitch() {
   $('.knob', sw).textContent = dark ? '🌙' : '☀';
   sw.title = `${dark ? 'Dark' : 'Light'} mode${store.get('theme', 'auto') === 'auto' ? ' (following Windows)' : ''} — click to switch`;
 }
-// 'auto' follows Windows; 'light' / 'dark' are fixed choices.
-function setTheme(choice) {
+// 'auto' follows Windows; 'light' / 'dark' are fixed choices. Signed in, it's kept with your account
+// (so it follows you to another PC) as well as in this browser.
+function setTheme(choice, { save = true } = {}) {
   store.set('theme', choice);
+  if (save && ACCT.account) api.patch('/auth/prefs', { theme: choice }).then((a) => { ACCT.account.theme = a.theme; }).catch(() => { /* this browser keeps it */ });
   if (choice === 'auto') delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = choice;
   drawThemeSwitch();

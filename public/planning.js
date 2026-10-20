@@ -216,7 +216,7 @@ async function renderPlanning() {
           <td><button class="small" data-pl-add-mod="${esc(list)}">Add</button></td></tr></tbody></table></div>`;
     };
     const tagNames = [...new Set((md.tags || []).map((t) => t.tag))].sort();
-    return `<div class="card pl-setup" id="pl-mods" ${store.get('planModsOpen', false) ? '' : 'hidden'}>
+    return `<div class="card pl-setup admin-only" id="pl-mods" ${store.get('planModsOpen', false) ? '' : 'hidden'}>
       <div class="row"><h2 style="margin:0">⚖ Priority modifiers</h2><div class="spacer"></div>
         <label class="button small" title="Bring over ShiftLookup, ManualLookup, MatchingLookup, DispatchLookup and the Cards sheet's AX / Tag list">📥 Import from the Production Planning workbook…<input type="file" accept=".xlsx,.xlsm" hidden id="pl-mods-file"></label></div>
       <p class="small muted">In <b>⚖ Score</b> mode each job's score is the sum of the modules switched on, highest first (📌 pinned jobs still go first). Right now it's the <b>${esc(md.current_shift || '—')}</b> shift.</p>
@@ -323,12 +323,13 @@ ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. 
       <label class="button" title="Try it with a copy of the ${half === 'otto' ? 'Matching' : 'open work orders'} export">📂 Load file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
       ${half === 'perso' && src.status === 'ok' ? '<button data-pl="print" title="A plan per cell (DOD, Emboss, Laser) of the work orders still open, as a PDF to print and hand out">📄 Generate plan</button>' : ''}
       ${half === 'otto' && ot.source.status === 'ok' ? '<button data-pl="print" title="A plan of the Matching jobs — Incoming, In Progress and Ready — as a PDF to print and hand out">📄 Generate plan</button>' : ''}
-      ${half === 'perso' ? '<button data-pl="mods" title="Priority modifiers: customers and work order types that go first">⚖ Modifiers</button>' : ''}
-      <button data-pl="setup" title="Where the export is, and the capacity">⚙ Setup</button>
+      ${half === 'perso' ? '<button class="admin-only" data-pl="mods" title="Priority modifiers: customers and work order types that go first">⚖ Modifiers</button>' : ''}
+      <button class="admin-only" data-pl="setup" title="Where the export is, and the capacity">⚙ Setup</button>
     </div>
     <div id="pl-changed" class="pl-changed" hidden></div>
     ${half === 'perso' ? modsHtml() : ''}
-    <div class="card pl-setup" id="pl-setup" ${src.status === 'ok' && !store.get('planSetupOpen', false) ? 'hidden' : ''}>
+    ${src.status === 'ok' ? '' : '<div class="card only-not-admin"><p>🏭 Planning isn\'t set up yet: an admin links the open work orders export in ⚙ Setup.</p></div>'}
+    <div class="card pl-setup admin-only" id="pl-setup" ${src.status === 'ok' && !store.get('planSetupOpen', false) ? 'hidden' : ''}>
       <div class="row"><h2 style="margin:0">Setup</h2><div class="spacer"></div>
         <a class="button small" href="/api/plan/setup" download title="Machines, speeds, OEE, modifiers, card tags, pins and these settings — to move them to the shared planner (or back)">⬇ Export setup</a>
         <a class="button small" href="/api/plan/setup?history=1" download title="The setup plus the history built up from the exports (the pace, catch-up and on-time figures) and the ⏱ Production runs — so a new install starts where this one is">⬇ Export setup + history</a>

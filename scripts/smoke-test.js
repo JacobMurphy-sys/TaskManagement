@@ -2056,6 +2056,17 @@ async function waitForServer() {
       assert.equal((await admin('GET', '/kpi/snapshots')).status, 200, 'admins have them all');
       r = await admin('POST', '/accounts', { username: 'mgr', person: 'Max Manager', password: 'mgr-pass-1', modules: ['projects', 'kpi', 'report'] });
       assert.deepEqual(r.data.modules, ['basic', 'projects', 'kpi', 'report'], 'modules from the start');
+      // 🔒 the setup is for admins; your own appearance is yours
+      assert.equal((await sam('PATCH', '/settings', { currency: '$' })).status, 403, 'settings are for admins');
+      assert.equal((await sam('PATCH', '/settings', { report_last_sent: new Date().toISOString() })).status, 200, 'but the report can be marked sent');
+      assert.equal((await sam('POST', '/plan/machines', { name: 'X' })).status, 403, 'planning setup');
+      assert.equal((await sam('POST', '/areas', { name: 'Nope' })).status, 403);
+      assert.equal((await sam('POST', '/backups', {})).status, 403);
+      assert.equal((await sam('POST', '/plan/pins', { key: 'A/1' })).status, 201, 'using planning is fine');
+      assert.equal((await admin('PATCH', '/settings', { currency: '£' })).status, 200, 'admins set it up');
+      assert.equal((await sam('PATCH', '/auth/prefs', { theme: 'dark' })).data.theme, 'dark');
+      assert.equal((await sam('GET', '/auth/me')).data.account.theme, 'dark', 'kept with the account');
+      assert.equal((await admin('GET', '/auth/me')).data.account.theme, null, 'each their own');
       await sam('POST', '/auth/logout', {});
       assert.equal((await sam('GET', '/projects')).status, 401, 'signed out');
     }

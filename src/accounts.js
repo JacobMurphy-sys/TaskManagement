@@ -61,10 +61,28 @@ function moduleGate(req, res, next) {
   return next();
 }
 
+// ---- setup is for admins ---------------------------------------------------------------------------
+// With accounts on, changing how the app is set up — Settings, areas, project lists, the charter template,
+// the team pack, Planning's machines/speeds/OEE/modifiers/setup, the KPI weekend split, importing or removing
+// library notes, backups — is for admins. Using the app (tasks, the A3, loading and reading files, pins…) isn't.
+const SETUP_API = [
+  /^\/settings(\/|$)/, /^\/(areas|lookups|charter-template|team-pack|backups)(\/|$)/,
+  /^\/plan\/(machines|speeds|oee|otto\/speeds|otto\/machines|modifiers|mod-shifts|card-tags|setup)(\/|$)/,
+  /^\/kpi\/calc\/weekends$/, /^\/library(\/import|\/folder|\/excluded|\/docs\/\d+$|$)/,
+];
+// settings anyone may write: when the report was last sent
+const OPEN_SETTINGS = new Set(['report_last_sent']);
+function setupGate(req, res, next) {
+  if (req.method === 'GET' || req.method === 'HEAD' || !req.account || req.account.role === 'admin') return next();
+  if (!SETUP_API.some((re) => re.test(req.path))) return next();
+  if (req.path === '/settings' && req.body && typeof req.body === 'object' && Object.keys(req.body).length && Object.keys(req.body).every((k) => OPEN_SETTINGS.has(k))) return next();
+  return res.status(403).json({ error: 'Only an admin can change the setup', admin: true });
+}
+
 // ---- accounts and sessions ---------------------------------------------------------------------
 const enabled = () => !!db.get('SELECT 1 FROM accounts WHERE active = 1 LIMIT 1');
 const publicAccount = (a) => (a ? { id: a.id, username: a.username, person: a.person, role: a.role, must_change: !!a.must_change, active: !!a.active, last_login: a.last_login, created_at: a.created_at,
-  modules: modulesOf(a), modules_set: a.modules !== null && a.modules !== undefined } : null);
+  modules: modulesOf(a), modules_set: a.modules !== null && a.modules !== undefined, theme: a.theme || null } : null);
 const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
 function cookieToken(req) {
   const m = String(req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${COOKIE}=([A-Za-z0-9_-]+)`));
@@ -147,6 +165,17 @@ router.post('/auth/password', h((req, res) => {
   res.json({ ok: true });
 }));
 
+// your own preferences, kept with your account so they follow you to any PC: { theme: auto | light | dark }
+router.patch('/auth/prefs', h((req, res) => {
+  const a = req.account;
+  if (!a) throw bad('Sign in first', 401);
+  if ('theme' in (req.body || {})) {
+    const t = ['auto', 'light', 'dark'].includes(req.body.theme) ? req.body.theme : null;
+    db.run('UPDATE accounts SET theme = ? WHERE id = ?', [t, a.id]);
+  }
+  res.json(publicAccount(db.get('SELECT * FROM accounts WHERE id = ?', [a.id])));
+}));
+
 router.get('/accounts', h((req, res) => { needAdmin(req); res.json(db.all('SELECT * FROM accounts ORDER BY person COLLATE NOCASE').map(publicAccount)); }));
 // { username, person, role, password } — the very first account is made by whoever's there, as an
 // admin, and that browser is signed in with it
@@ -197,4 +226,4 @@ router.delete('/accounts/:id', h((req, res) => {
   res.status(204).end();
 }));
 
-module.exports = { gate, router, moduleGate, canUse, modulesOf, MODULES, hashPassword, checkPassword, enabled, accountOf, publicAccount };
+module.exports = { gate, router, moduleGate, setupGate, canUse, modulesOf, MODULES, hashPassword, checkPassword, enabled, accountOf, publicAccount };
