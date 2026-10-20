@@ -176,9 +176,12 @@ function plxRange(q) {
   if (q === 'year') return [plxDay(new Date(t.getFullYear(), 0, 1)), plxDay(t)];
   const f = new Date(t); f.setDate(f.getDate() - Number(q) + 1); return [plxDay(f), plxDay(t)];
 }
-async function pllExplode({ by = 'customer', source = 'perso', share = 'cards', days = 90, filter = {} } = {}) {
+// ← Back: each change of what's shown (a row looked inside, a filter taken off, the grouping, dates, source,
+// comparing) keeps how it was before — filters, grouping, dates, sort, bar and scroll — to step back to.
+// `back` ({ label, go }): where the window was opened from (the 🔍 search), once there's nothing left to undo.
+async function pllExplode({ by = 'customer', source = 'perso', share = 'cards', days = 90, filter = {} } = {}, { back = null } = {}) {
   const [from, to] = plxRange(String(days));
-  plx = { q: { source, from, to, by, filter, share, compare: !!store.get('plxCompare', false) }, sort: null, data: null };
+  plx = { q: { source, from, to, by, filter, share, compare: !!store.get('plxCompare', false) }, sort: null, data: null, hist: [], back };
   openModal('<div id="pllx" class="pllx"><p class="muted">Loading…</p></div>', { wide: true });
   $('#pllx').addEventListener('click', plxClick);
   $('#pllx').addEventListener('change', plxChange);
@@ -236,7 +239,7 @@ function plxDraw() {
   const tr = D.trend; const trMax = Math.max(1, ...tr.map((t) => t.per_hour || 0));
   const trLabel = (l) => (D.trend_step === 'day' ? `${Number(l.slice(8))}/${Number(l.slice(5, 7))}` : `w/c ${Number(l.slice(8))}/${Number(l.slice(5, 7))}`);
   $('#pllx').innerHTML = `
-    <div class="modal-head"><h2 style="margin:0">🔎 ${otto ? 'Matching' : 'Production'} runs by ${esc(dim.label.toLowerCase())}</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0">${plx.hist.length || plx.back ? `<button type="button" class="small" data-plx-back title="${esc(plx.hist.length ? 'Back to how it was before' : `Back to ${plx.back.label}`)}">← Back</button> ` : ''}🔎 ${otto ? 'Matching' : 'Production'} runs by ${esc(dim.label.toLowerCase())}</h2><button class="icon" data-action="close-modal">✕</button></div>
     <div class="pllx-bar">
       <label class="f"><span>From</span><input type="date" name="from" value="${esc(q.from)}"></label>
       <label class="f"><span>To</span><input type="date" name="to" value="${esc(q.to)}"></label>
@@ -266,18 +269,30 @@ function plxDraw() {
       <span class="spacer"></span><button type="button" data-plx-csv>⬇ CSV</button></div>`;
   const hist = $('#pllx .pllx-hist'); if (hist) hist.scrollLeft = hist.scrollWidth; // the latest at hand
 }
+const plxScroll = () => ({ table: $('#pllx .pllx-scroll')?.scrollTop || 0, modal: $('#modal')?.scrollTop || 0 });
+function plxPush() { plx.hist.push({ q: JSON.parse(JSON.stringify(plx.q)), sort: plx.sort ? { ...plx.sort } : null, scroll: plxScroll() }); if (plx.hist.length > 50) plx.hist.shift(); }
+async function plxBack() {
+  const prev = plx.hist.pop();
+  if (!prev) { if (plx.back) plx.back.go(); return; }
+  plx.q = prev.q; plx.sort = prev.sort;
+  await plxLoad();
+  const t = $('#pllx .pllx-scroll'); if (t) t.scrollTop = prev.scroll.table;
+  $('#modal').scrollTop = prev.scroll.modal;
+}
 function plxClick(e) {
   if (!plx?.data) return;
   const q = plx.q;
+  if (e.target.closest('[data-plx-back]')) { plxBack(); return; }
   const sh = e.target.closest('[data-plx-share]');
   if (sh) { q.share = sh.dataset.plxShare; plxDraw(); return; }
   const so = e.target.closest('[data-plx-sort]');
   if (so) { const col = so.dataset.plxSort; plx.sort = plx.sort?.col === col ? (plx.sort.dir < 0 ? { col, dir: 1 } : null) : { col, dir: col === 'label' ? 1 : -1 }; plxDraw(); return; }
-  if (e.target.closest('[data-plx-clear]')) { q.filter = {}; plx.sort = null; plxLoad(); return; }
+  if (e.target.closest('[data-plx-clear]')) { if (!Object.keys(q.filter).length) return; plxPush(); q.filter = {}; plx.sort = null; plxLoad(); return; }
   const un = e.target.closest('[data-plx-unfilter]');
-  if (un) { delete q.filter[un.dataset.plxUnfilter]; plxLoad(); return; }
+  if (un) { plxPush(); delete q.filter[un.dataset.plxUnfilter]; plxLoad(); return; }
   const row = e.target.closest('[data-plx-row]');
   if (row) {
+    plxPush();
     q.filter = { ...q.filter, [q.by]: row.dataset.plxRow };
     let next = PLX.next[q.by] || 'day';
     const taken = (k) => k in q.filter || (q.source === 'otto' && ['kind', 'card', 'size'].includes(k));
@@ -296,6 +311,8 @@ function plxClick(e) {
 }
 function plxChange(e) {
   const q = plx.q; const t = e.target;
+  if (!['quick', 'from', 'to', 'by', 'compare', 'source'].includes(t.name) || ((t.name === 'quick' || t.name === 'from' || t.name === 'to') && !t.value)) return;
+  plxPush();
   if (t.name === 'quick' && t.value) [q.from, q.to] = plxRange(t.value);
   else if (t.name === 'from' || t.name === 'to') { if (!t.value) return; q[t.name] = t.value; }
   else if (t.name === 'by') { q.by = t.value; plx.sort = null; }

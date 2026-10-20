@@ -68,22 +68,25 @@ function pfRunsTable(runs, { item = true, job = false } = {}) {
       <td class="num">${pfN(r.qty)}</td><td class="num">${r.minutes === null ? '—' : fmtSpan(r.minutes)}</td><td class="num">${pfN(r.per_hour)}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
-const pfHead = (title, sub = '') => `<div class="modal-head"><h2 style="margin:0">${pfBack.length ? '<button type="button" class="small" data-pf-back title="Back">←</button> ' : ''}${title}</h2><button class="icon" data-action="close-modal">✕</button></div>${sub ? `<p class="muted" style="margin-top:2px">${sub}</p>` : ''}`;
+const pfHead = (title, sub = '') => `<div class="modal-head"><h2 style="margin:0">${pfBack.length ? `<button type="button" class="small" data-pf-back title="Back to ${esc(pfBack[pfBack.length - 1].key)}">← Back</button> ` : ''}${title}</h2><button class="icon" data-action="close-modal">✕</button></div>${sub ? `<p class="muted" style="margin-top:2px">${sub}</p>` : ''}`;
 
-async function pfOpen(kind, key, { push = false } = {}) {
-  if (push && pfCurrent) pfBack.push(pfCurrent);
+async function pfOpen(kind, key, { push = false, scroll = 0 } = {}) {
+  if (push && pfCurrent) pfBack.push({ ...pfCurrent, scroll: $('#modal').scrollTop });
   pfCurrent = { kind, key };
   if (!$('#modal').open || !$('#pfx')) { openModal('<div id="pfx" class="pfx"><p class="muted">Looking it up…</p></div>', { wide: true }); $('#pfx').addEventListener('click', pfClick); }
   let d; try { d = await api.get(`/plan/find/${kind}/${encodeURIComponent(key)}`); } catch (err) { $('#pfx').innerHTML = `${pfHead('🔍 Not found')}<p>${esc(err.message)}</p>`; return; }
   $('#pfx').innerHTML = kind === 'wo' ? pfWoHtml(d) : pfItemHtml(d);
-  $('#modal').scrollTop = 0; $('#modal-body').scrollTop = 0;
+  $('#modal').scrollTop = scroll; // back: where you were
 }
 function pfClick(e) {
   const wo = e.target.closest('[data-pf-wo]'); const it = e.target.closest('[data-pf-item]');
   if (wo || it) { e.preventDefault(); pfOpen(wo ? 'wo' : 'item', wo ? wo.dataset.pfWo : it.dataset.pfItem, { push: true }); return; }
-  if (e.target.closest('[data-pf-back]')) { const prev = pfBack.pop(); if (prev) { pfCurrent = null; pfOpen(prev.kind, prev.key); } return; }
+  if (e.target.closest('[data-pf-back]')) { const prev = pfBack.pop(); if (prev) { pfCurrent = null; pfOpen(prev.kind, prev.key, { scroll: prev.scroll }); } return; }
   const x = e.target.closest('[data-pf-explode]');
-  if (x) { closeModal(); pllExplode({ ...JSON.parse(x.dataset.pfExplode), days: 365 }); }
+  if (x) {
+    const here = { ...pfCurrent, scroll: $('#modal').scrollTop };
+    pllExplode({ ...JSON.parse(x.dataset.pfExplode), days: 365 }, { back: { label: here.kind === 'wo' ? `work order ${here.key}` : `card ${here.key}`, go: () => pfOpen(here.kind, here.key, { scroll: here.scroll }) } });
+  }
 }
 
 function pfWoHtml(d) {
