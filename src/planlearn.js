@@ -331,4 +331,85 @@ function learn(opts) {
   };
 }
 
-module.exports = { learn, wmedian, closeness, buildModel, predict, modelFor };
+// ---- 🔎 Explode: one table of the Learned view opened up — any window of days, grouped by any of
+// these, each row's share of the whole, drilled into by filtering on rows (filter: { dim: key }).
+// Pace is against each kind's speed learned over the window, or the 180 days to its end if longer.
+const DIMS = {
+  machine: { label: 'Machine', of: (r) => r.machine || '—' },
+  shift: { label: 'Shift', of: (r, x) => ({ morning: 'Morning', afternoon: 'Afternoon', night: 'Night' })[shiftOf(new Date(r.start_at), x.shiftStarts)], order: (k) => ['Morning', 'Afternoon', 'Night'].indexOf(k) },
+  weekday: { label: 'Weekday', of: (r) => WEEKDAYS[new Date(r.start_at).getDay()], order: (k) => (WEEKDAYS.indexOf(k) + 6) % 7 },
+  hour: { label: 'Hour started', of: (r) => `${pad(new Date(r.start_at).getHours())}:00`, order: (k) => k },
+  size: { label: 'Cards in the run', of: (r) => SIZES.find(([lo, hi]) => r.qty >= lo && r.qty < hi)[2], order: (k) => SIZES.findIndex((z) => z[2] === k) },
+  customer: { label: 'Customer', of: (r) => r.customer || '—', name: (k, x) => x.nameOf(k) },
+  kind: { label: 'Kind of card', of: (r) => r.kindKey || '—', text: (k, l) => (l[0].kind ? [l[0].kind.type, l[0].kind.material, l[0].kind.sides].filter(Boolean).join(' · ') || 'any card' : 'not known') },
+  card: { label: 'Card (AX)', of: (r) => r.item || '—', name: (k, x, l) => l[0].card?.name || l[0].item_name || null },
+  job: { label: 'Job', of: (r) => r.job || '—', name: (k, x, l) => l[0].customer || null },
+  day: { label: 'Day', of: (r) => r.start_at.slice(0, 10), order: (k) => k },
+  week: { label: 'Week of', of: (r) => mondayOf(new Date(r.start_at)), order: (k) => k },
+  month: { label: 'Month', of: (r) => r.start_at.slice(0, 7), order: (k) => k },
+};
+const TIME_DIMS = new Set(['day', 'week', 'month', 'hour']);
+const pctOf = (n, all) => (all ? r1((n / all) * 100) : null);
+
+/**
+ * opts: { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD', by, filter, source: 'perso' | 'otto', cards, custNames, shiftStarts }
+ * → { from, to, by, filter, dims, total, rows, trend, filter_labels }
+ */
+function explode(opts) {
+  const { cards = null, custNames = new Map(), shiftStarts = { night: 1305, morning: 345, afternoon: 825 } } = opts;
+  const source = opts.source === 'otto' ? 'otto' : 'perso';
+  const by = DIMS[opts.by] ? opts.by : 'customer';
+  const ok = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
+  const to = ok(opts.to) ? new Date(`${opts.to}T00:00:00`) : new Date();
+  to.setHours(0, 0, 0, 0); to.setDate(to.getDate() + 1); // the window ends at the end of `to`
+  let from = ok(opts.from) ? new Date(`${opts.from}T00:00:00`) : new Date(to.getTime() - 90 * DAY);
+  if (from >= to) from = new Date(to.getTime() - DAY);
+  if (to - from > 800 * DAY) from = new Date(to.getTime() - 800 * DAY);
+  const span = Math.round((to - from) / DAY);
+  const x = { shiftStarts, nameOf: (c) => custNames.get(String(c || '').toUpperCase()) || null };
+
+  const all = runsFor(source, span, to, source === 'perso' ? cards : null).runs;
+  // the pace reference: kind speeds over the window, at least 180 days of it
+  const ref = source === 'perso' ? (span >= 180 ? all : runsFor('perso', 180, to, cards).runs) : all;
+  const refSpeeds = speedsOf(ref); const refFleet = overallRate(ref);
+  for (const r of all) { const s = source === 'perso' ? refSpeeds.get(r.kindKey)?.speed || refFleet : refFleet; r.expected = s ? (r.qty / s) * 60 : null; }
+
+  const filter = {}; const filterLabels = [];
+  for (const [d, v] of Object.entries(opts.filter || {})) if (DIMS[d] && v !== null && v !== undefined && v !== '') filter[d] = String(v);
+  const runs = all.filter((r) => Object.entries(filter).every(([d, v]) => String(DIMS[d].of(r, x)) === v));
+  for (const [d, v] of Object.entries(filter)) {
+    const l = all.filter((r) => String(DIMS[d].of(r, x)) === v);
+    const text = DIMS[d].text && l.length ? DIMS[d].text(v, l) : v;
+    filterLabels.push({ dim: d, key: v, dim_label: DIMS[d].label, label: text, name: DIMS[d].name && l.length ? DIMS[d].name(v, x, l) : null });
+  }
+
+  const sum = (l, f) => l.reduce((t, r) => t + (f(r) || 0), 0);
+  const stats = (l) => {
+    const cardsN = sum(l, (r) => r.qty); const mins = sum(l, (r) => r.minutes);
+    const used = l.filter((r) => r.expected > 0); const exp = sum(used, (r) => r.expected); const act = sum(used, (r) => r.minutes);
+    const remade = sum(l.filter((r) => r.remake), (r) => r.qty);
+    return { runs: l.length, cards: cardsN, minutes: Math.round(mins), hours: r1(mins / 60), per_hour: mins ? Math.round((cardsN / mins) * 60) : null,
+      pace: source === 'perso' && act ? r1((exp / act) * 100) : null, remade, remade_pct: pctOf(remade, cardsN),
+      avg_run: l.length ? Math.round(mins / l.length) : null, avg_cards: l.length ? Math.round(cardsN / l.length) : null,
+      days: new Set(l.map((r) => r.start_at.slice(0, 10))).size, first: l[0]?.start_at || null, last: l[l.length - 1]?.start_at || null };
+  };
+  const total = stats(runs);
+  const D = DIMS[by];
+  const rows = [...groupBy(runs, (r) => D.of(r, x))].map(([k, l]) => {
+    const st = stats(l);
+    return { key: String(k), label: D.text ? D.text(k, l) : String(k), name: D.name ? D.name(k, x, l) : null, ...st,
+      runs_pct: pctOf(st.runs, total.runs), cards_pct: pctOf(st.cards, total.cards), hours_pct: pctOf(st.minutes, total.minutes), remade_share: pctOf(st.remade, total.remade) };
+  });
+  if (D.order) rows.sort((a, b) => { const p = D.order(a.key); const q = D.order(b.key); return p < q ? -1 : p > q ? 1 : 0; });
+  else rows.sort((a, b) => b.cards - a.cards);
+
+  // how the selection went over time: by day for up to 2 months, else by week
+  const step = span <= 62 ? 'day' : 'week';
+  const trend = by === step ? [] : [...groupBy(runs, (r) => DIMS[step].of(r, x))].map(([k, l]) => ({ label: k, ...stats(l) })).sort((a, b) => a.label.localeCompare(b.label));
+
+  return { source, from: ymd(from), to: ymd(new Date(to.getTime() - DAY)), days: span, by, filter, filter_labels: filterLabels,
+    dims: Object.entries(DIMS).map(([k, d]) => ({ key: k, label: d.label, time: TIME_DIMS.has(k) })), total, rows, trend, trend_step: step,
+    window: { first: all[0]?.start_at || null, last: all[all.length - 1]?.start_at || null, runs: all.length } };
+}
+
+module.exports = { learn, explode, wmedian, closeness, buildModel, predict, modelFor };

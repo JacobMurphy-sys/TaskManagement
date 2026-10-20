@@ -1656,6 +1656,16 @@ async function waitForServer() {
       assert.ok(learnt.runs.used > 0 && learnt.runs.used <= learnt.runs.total, 'the runs kept, anomalies out');
       assert.ok(Array.isArray(learnt.speeds) && Array.isArray(learnt.oee) && Array.isArray(learnt.findings) && learnt.patterns.shift.length && learnt.patterns.size.length);
       assert.equal(learnt.patterns.size.reduce((t, x) => t + x.runs, 0), learnt.runs.used, 'every run in one size band');
+      // 🔎 explode: any dates, grouped by anything, each row's share; a row's filter narrows it down
+      const ex = await call('GET', '/plan/learn/explode?from=2026-09-10&to=2026-10-10&by=machine');
+      assert.equal(ex.total.runs, learnt.runs.used, 'the same runs as the learned view over the same days');
+      assert.equal(ex.rows.reduce((t, r) => t + r.runs, 0), ex.total.runs);
+      assert.ok(Math.abs(ex.rows.reduce((t, r) => t + r.cards_pct, 0) - 100) < 1, 'shares add up to 100%');
+      const one = ex.rows[0];
+      const ex2 = await call('GET', `/plan/learn/explode?from=2026-09-10&to=2026-10-10&by=customer&filter=${encodeURIComponent(JSON.stringify({ machine: one.key }))}`);
+      assert.equal(ex2.total.runs, one.runs, 'filtered to the one machine'); assert.equal(ex2.filter_labels[0].dim, 'machine');
+      const ex3 = await call('GET', '/plan/learn/explode?from=2026-10-09&to=2026-10-09&by=day');
+      assert.ok(ex3.rows.every((r) => r.key === '2026-10-09'), 'one day');
       const lx = await fetch(`${BASE}/plan/learn.xlsx?days=30&to=2026-10-10`);
       assert.equal(lx.status, 200); assert.ok((await lx.arrayBuffer()).byteLength > 1000);
       const PL = require('../src/planlearn');
