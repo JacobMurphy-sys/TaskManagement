@@ -1282,3 +1282,12 @@ body.not-admin .pll-switch button { display: none !important; }
 .acct-rights { margin-top: 4px; }
 .srv-log { max-height: 60vh; overflow: auto; font-size: 12px; line-height: 1.45; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; }
 .srv-err { color: var(--danger); font-weight: 600; } .srv-warn { color: var(--warn); }
+
+/* 📆 D+ due out */
+.dpl-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: baseline; }
+.dpl-t tbody tr, .dpl-t tfoot tr { cursor: pointer; }
+.dpl-t tbody tr:hover td, .dpl-t tr.on td { background: var(--accent-soft); }
+.dpl-stack { width: 70%; display: flex; flex-direction: column; border-radius: 3px 3px 0 0; overflow: hidden; min-height: 1px; }
+.dpl-hist { height: 200px; }
+.dpl-h { margin: 12px 0 4px; }
+.dpl-detail { border-left: 3px solid var(--accent); }

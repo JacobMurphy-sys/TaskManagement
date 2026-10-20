@@ -287,6 +287,23 @@ What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (
 - The **Category** and **Policy deployment** suggestions are managed on the Settings page too.
 - The dashboard's project table shows each charter's completeness.
 
+### 📆 D+ due out (KPIs › ⏱ Production)
+
+How much notice perso work orders come with. Open it with the **📆 D+ due out** button next to Perso / Matching.
+
+- **How it's counted:**
+  - A work order *comes in* on the day it first appears in the linked open work orders export (🏭 Planning's plan history records each new version of the export).
+  - Its notice is the number of working days from then to its due-out day, using Planning's working days. **D+0** is due out the same day, **D+1** the next working day (Friday → Monday is D+1), up to **D+5 or more**. **Past due** means it was already late when it came in.
+  - Work orders are counted with all their jobs together.
+  - Work orders already in the export when recording began are left out, because when they came in isn't known.
+- **Time frame:** From / To, or a quick pick (last 4 weeks, 7 or 90 days, this month, last month, all history).
+- **By notice:** for each D+ bucket, the work orders and their share, the **average a working day** in the frame and over **all history**, the cards (share, a day, average a work order). Tiles show the totals, the short-notice share (D+0 and D+1) and D+0 a day.
+- **Click a row** (or *All*) for:
+  - its **customers**, **job sizes** (cards in the work order), **shippers**, **priorities** and the **day it came in**, each with work orders, cards and shares;
+  - how it went: done or still open, the share **late** and by how much, and the middle **turnaround** from coming in to done;
+  - its **largest work orders**, which open in 🔍 search for accounts with Planning.
+- **Day by day:** a stacked bar for each day showing the work orders that came in, by notice.
+
 ### 📅 Rescheduling
 
 Anything with a date can be moved while keeping its earlier dates: tasks, projects, phases, ideas (their due date) and meetings (their date and time).

@@ -12,6 +12,7 @@ const prodEffHtml = (e, title = '') => (e === null || e === undefined ? '<span c
 const prodYmd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 async function renderKpiProduction() {
+  if (store.get('prodSource', 'perso') === 'dplus') return renderKpiDplus(); // 📆 D+ due out (dplus.js)
   const source = store.get('prodSource', 'perso') === 'otto' ? 'otto' : 'perso';
   const span = [1, 3, 7, 14, 31].includes(Number(store.get('prodSpan', 1))) ? Number(store.get('prodSpan', 1)) : 1;
   const view = ['gantt', 'load', 'runs'].includes(store.get('prodView', 'gantt')) ? store.get('prodView', 'gantt') : 'gantt';
@@ -113,7 +114,7 @@ async function renderKpiProduction() {
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 KPIs</h1>
       <div class="seg"><a href="#/kpi">A3 Weekly Report</a><a href="#/kpi/0/database">Database</a><a href="#/kpi/sources">Sources</a><a href="#/kpi/production" class="on">⏱ Production</a></div>
-      <div class="seg"><button type="button" data-prod-source="perso" class="${source === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-prod-source="otto" class="${source === 'otto' ? 'on' : ''}">Matching</button></div>
+      <div class="seg"><button type="button" data-prod-source="perso" class="${source === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-prod-source="otto" class="${source === 'otto' ? 'on' : ''}">Matching</button><button type="button" data-prod-source="dplus" title="How much notice work orders come with: D+0, D+1, D+2…">📆 D+ due out</button></div>
       <div class="spacer"></div>
       ${linked ? '<button data-prod="read" title="Read the report again now">📥 Read now</button>' : ''}
       <label class="button" title="Load older daily reports to fill in the history (several at once is fine)">📂 Load reports…<input type="file" accept=".xlsx,.xlsm" multiple hidden id="prod-files"></label>

@@ -1690,6 +1690,13 @@ async function waitForServer() {
       assert.ok(ex3.rows.every((r) => r.key === '2026-10-09'), 'one day');
       const lx = await fetch(`${BASE}/plan/learn.xlsx?days=30&to=2026-10-10`);
       assert.equal(lx.status, 200); assert.ok((await lx.arrayBuffer()).byteLength > 1000);
+      // 📆 D+ due out: working days from coming in to due out
+      const DP = require('../src/dplus'); const W5 = new Set([1, 2, 3, 4, 5]);
+      assert.deepEqual([DP.workingDaysBetween('2026-10-16', '2026-10-16', W5), DP.workingDaysBetween('2026-10-16', '2026-10-19', W5), DP.workingDaysBetween('2026-10-14', '2026-10-16', W5), DP.workingDaysBetween('2026-10-16', '2026-10-15', W5)],
+        [0, 1, 2, -1], 'same day, Friday → Monday is D+1, two days, already past');
+      const dp = await call('GET', '/prod/dplus?from=2026-09-01&to=2026-10-20&bucket=all');
+      assert.ok(Array.isArray(dp.buckets) && dp.total && dp.detail && Array.isArray(dp.detail.customers), 'the D+ profile');
+      assert.equal(dp.buckets.reduce((t, b) => t + b.wos, 0), dp.total.wos);
       const PL = require('../src/planlearn');
       assert.equal(PL.wmedian([100, 200, 900], [1, 1, 10]), 900, 'the median weighted by cards');
       assert.deepEqual(PL.closeness([[100, 110], [100, 200], [100, 90]]).within, 66.7, 'within 25% either way');

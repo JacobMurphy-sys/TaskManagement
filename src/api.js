@@ -2557,6 +2557,15 @@ setTimeout(() => { try { prod.purgeUncounted(); } catch (err) { log.warn('Produc
 setInterval(readProdReports, 10 * 60 * 1000).unref();
 
 // The runs from a day (from=YYYY-MM-DD, days=1..31): Gantt, load, totals and anomalies.
+// 📆 D+ (due out): how much notice work orders come with, from the plan history (dplus.js).
+router.get('/prod/dplus', h((req, res) => {
+  const set = getSettings();
+  const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+  const custNames = new Map();
+  if (dbc.status === 'ok') for (const c of dbc.cards.values()) if (c.trigram && c.customer && !custNames.has(c.trigram.toUpperCase())) custNames.set(c.trigram.toUpperCase(), c.customer);
+  const workDays = new Set(String(set.plan_days || '1,2,3,4,5').split(',').map(Number).filter((d) => d >= 0 && d <= 6));
+  res.json(require('./dplus').profile({ from: req.query.from, to: req.query.to, bucket: req.query.bucket || null, workDays, custNames }));
+}));
 router.get('/prod', h((req, res) => {
   const source = prodSource(req.query.source);
   prod.readLinked(source, prodFile(source));
