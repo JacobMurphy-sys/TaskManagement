@@ -15,6 +15,7 @@ const charter = require('./charter');
 const prod = require('./prodactual');
 const planLearn = require('./planlearn');
 const planFind = require('./planfind');
+const accounts = require('./accounts');
 const collab = require('./collab');
 const reschedule = require('./reschedule');
 
@@ -3572,12 +3573,12 @@ router.get('/search', h((req, res) => {
   const q = `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const like = (col) => `${col} LIKE ? ESCAPE '\\'`;
   res.json({
-    projects: db.all(`SELECT id, name, status FROM projects WHERE ${like('name')} OR ${like('description')} LIMIT 20`, [q, q]),
+    projects: !accounts.canUse(req, 'projects') ? [] : db.all(`SELECT id, name, status FROM projects WHERE ${like('name')} OR ${like('description')} LIMIT 20`, [q, q]),
     tasks: tasks(`WHERE ${like('t.title')} OR ${like('t.description')} LIMIT 30`, [q, q]),
     notes: db.all(`SELECT n.*, p.name AS project_name, t.title AS task_title FROM notes n
       LEFT JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id
       WHERE ${like('n.body')} ORDER BY n.created_at DESC LIMIT 30`, [q]),
-    ideas: db.all(`${IDEA_SELECT} WHERE ${like('i.title')} OR ${like('i.description')} OR ${like('i.ref')}
+    ideas: !accounts.canUse(req, 'ideas') ? [] : db.all(`${IDEA_SELECT} WHERE ${like('i.title')} OR ${like('i.description')} OR ${like('i.ref')}
       OR i.id IN (SELECT idea_id FROM idea_notes WHERE ${like('body')}) ORDER BY i.id DESC LIMIT 30`, [q, q, q, q]),
     library: librarySearch(term, 20),
     // Notes are HTML, so match on their text (a search for "b" shouldn't hit every <b>).

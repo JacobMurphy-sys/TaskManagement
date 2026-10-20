@@ -2010,7 +2010,9 @@ async function waitForServer() {
         return { status: res.status, data: res.status === 204 ? null : await res.json().catch(() => null) };
       };
       const admin = as('admin'); const sam = as('sam'); const anon = as('anon');
-      assert.deepEqual((await anon('GET', '/auth/me')).data, { enabled: false, account: null }, 'off');
+      const me0 = (await anon('GET', '/auth/me')).data;
+      assert.deepEqual([me0.enabled, me0.account], [false, null], 'off');
+      assert.ok(me0.modules.some((m) => m.key === 'planning') && me0.modules.find((m) => m.key === 'basic').always, 'the modules there are');
       assert.equal((await anon('GET', '/projects')).status, 200, 'off: as before');
       let r = await admin('POST', '/accounts', { username: 'boss', person: 'Pat Boss', password: 'short' });
       assert.equal(r.status, 400, 'passwords of 8 characters or more');
@@ -2040,6 +2042,20 @@ async function waitForServer() {
       // the last admin stays
       const boss = (await admin('GET', '/accounts')).data.find((a) => a.username === 'boss');
       assert.equal((await admin('PATCH', `/accounts/${boss.id}`, { role: 'user' })).status, 400, 'at least one admin');
+      // 🧩 modules: Sam (made before modules: all of them) becomes a production account — basic + planning
+      assert.ok((await sam('GET', '/auth/me')).data.account.modules.includes('kpi'), 'no modules set: all');
+      const samId = (await admin('GET', '/accounts')).data.find((a) => a.username === 'sam').id;
+      r = await admin('PATCH', `/accounts/${samId}`, { modules: ['planning', 'nonsense'] });
+      assert.deepEqual(r.data.modules, ['basic', 'planning'], 'the basic pack always, unknown ones dropped');
+      assert.equal((await sam('GET', '/kpi/snapshots')).status, 403, 'no KPIs');
+      assert.equal((await sam('GET', '/ideas')).status, 403, 'no ideas');
+      assert.equal((await sam('GET', '/plan/find?q=ab')).status, 200, 'planning');
+      assert.equal((await sam('GET', '/tasks')).status, 200, 'the basic pack');
+      assert.deepEqual((await sam('GET', '/search?q=Sam')).data.ideas, [], 'search leaves out what Sam can\'t use');
+      assert.equal((await sam('PATCH', `/accounts/${samId}`, { modules: ['kpi'] })).status, 403, 'only admins give modules');
+      assert.equal((await admin('GET', '/kpi/snapshots')).status, 200, 'admins have them all');
+      r = await admin('POST', '/accounts', { username: 'mgr', person: 'Max Manager', password: 'mgr-pass-1', modules: ['projects', 'kpi', 'report'] });
+      assert.deepEqual(r.data.modules, ['basic', 'projects', 'kpi', 'report'], 'modules from the start');
       await sam('POST', '/auth/logout', {});
       assert.equal((await sam('GET', '/projects')).status, 401, 'signed out');
     }

@@ -287,6 +287,9 @@ async function route() {
   let [view = 'dashboard', ...rest] = location.hash.replace(/^#\/?/, '').split('/');
   // the planner on its own: Planning, the activity log and backups only
   if (state.mode === 'planner' && !['planning', 'log', 'backups'].includes(view)) { view = 'planning'; rest = []; }
+  // 🧩 a page the account's modules don't include: the dashboard instead
+  const mod = MOD_OF_VIEW[view];
+  if (mod && !modOk(mod)) { toast(`Your account doesn't include ${ACCT.modules.find((m) => m.key === mod)?.label || mod} — ask an admin`, 'error'); location.replace('#/dashboard'); view = 'dashboard'; rest = []; }
   state.view = view;
   state.projectId = view === 'project' ? rest[0] : null;
   renderSidebar();
@@ -432,27 +435,27 @@ async function renderDashboard() {
   main().innerHTML = `
     <div class="row" style="margin-bottom:14px"><h1 style="margin:0">Dashboard</h1><div class="spacer"></div>
       <span class="muted">${esc(fmtDate(new Date()))}</span>
-      <a class="button" href="#/report">📰 Status report</a>
-      <a class="button" href="/api/export.xlsx" title="Download everything as an Excel workbook">⬇ Export to Excel</a></div>
+      ${modOk('report') ? '<a class="button" href="#/report">📰 Status report</a>' : ''}
+      ${modOk('projects') ? '<a class="button" href="/api/export.xlsx" title="Download everything as an Excel workbook">⬇ Export to Excel</a>' : ''}</div>
 
     <div class="kpis">
-      ${kpi('Active projects', active.length, [onHold && `${onHold} on hold`, recentlyDone && `${recentlyDone} completed this month`].filter(Boolean).join(' · '), 'dash-projects')}
-      ${kpi(`${atRisk ? '⚠ ' : ''}Projects at risk`, atRisk, atRisk ? 'overdue work or past due date' : 'none', 'dash-projects')}
+      ${!modOk('projects') ? '' : kpi('Active projects', active.length, [onHold && `${onHold} on hold`, recentlyDone && `${recentlyDone} completed this month`].filter(Boolean).join(' · '), 'dash-projects')}
+      ${!modOk('projects') ? '' : kpi(`${atRisk ? '⚠ ' : ''}Projects at risk`, atRisk, atRisk ? 'overdue work or past due date' : 'none', 'dash-projects')}
       ${kpi(`${d.overdue.length ? '⚠ ' : ''}Overdue tasks`, d.overdue.length, '', 'dash-overdue')}
       ${kpi('Due in the next 7 days', d.today.length + d.week.length, `${d.today.length} today`, 'dash-today')}
       ${kpi('Blocked tasks', d.blocked.length, '', 'dash-blocked')}
       ${kpi('Waiting on others', d.waiting.length, d.waiting.length ? `oldest ${Math.max(...d.waiting.map((t) => daysSince(t.waiting_since || t.updated_at)))}d` : '', 'dash-waiting')}
-      ${kpi('Open ideas', d.ideas.open, d.ideas.cost ? `${money(d.ideas.cost)} total cost` : '', 'ideas')}
+      ${!modOk('ideas') ? '' : kpi('Open ideas', d.ideas.open, d.ideas.cost ? `${money(d.ideas.cost)} total cost` : '', 'ideas')}
     </div>
 
-    <h2 class="dash-heading">Projects</h2>
+    ${!modOk('projects') ? '' : `<h2 class="dash-heading">Projects</h2>
     <div class="card" id="dash-projects" style="overflow-x:auto">
       ${ongoing.length ? `<table class="log dash-projects">
         <thead><tr><th>Project</th><th>Health</th><th>Priority</th><th>Progress</th><th>Open issues</th><th>Next task due</th><th>Project due</th><th title="How much of the project charter is filled in">Charter</th><th>Last activity</th></tr></thead>
         <tbody>${ongoing.map(projectRow).join('')}</tbody></table>
         <div class="small muted" style="margin-top:8px">⚠ At risk = overdue tasks or past its due date · ◐ Watch = blocked tasks or due within 7 days · ✓ On track = neither</div>`
         : '<div class="empty">No ongoing projects. <button class="link" data-action="new-project">Create one</button></div>'}
-    </div>
+    </div>`}
 
     <h2 class="dash-heading">Tasks &amp; notes</h2>
     <div class="grid dash">

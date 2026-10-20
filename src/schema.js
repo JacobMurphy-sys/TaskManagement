@@ -29,6 +29,7 @@ const TABLES = {
     must_change   INTEGER NOT NULL DEFAULT 1,
     active        INTEGER NOT NULL DEFAULT 1,
     inbox_seen_at TEXT,
+    modules       TEXT,
     last_login    TEXT,
     created_at    TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at    TEXT    NOT NULL DEFAULT (${NOW})`,

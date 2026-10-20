@@ -30,9 +30,41 @@ function checkPassword(pw, stored) {
 }
 const passwordProblem = (pw) => (String(pw || '').length < 8 ? 'Passwords need at least 8 characters' : null);
 
+// ---- modules: what each account can see and use ------------------------------------------------
+// The basic pack is always there; the rest an admin ticks for each account (admins have them all).
+// An account with none set (made before modules) has them all. Kept as a comma list in accounts.modules.
+const MODULES = [
+  { key: 'basic', label: 'Basic pack', icon: '📋', what: 'Dashboard, Tasks, Calendar, Library, 📥 My work, quick notes and search', always: true },
+  { key: 'projects', label: 'Projects', icon: '🗂', what: 'the projects board, project pages and charters, and the projects list in the sidebar' },
+  { key: 'ideas', label: 'Ideas', icon: '💡', what: 'Ideation: the ideas, their notes and the pipeline' },
+  { key: 'kpi', label: 'KPIs', icon: '📊', what: 'the weekly A3, KPI database and sources, and ⏱ production timing' },
+  { key: 'planning', label: 'Planning', icon: '🏭', what: 'production planning: the open work orders, plan, history, 🧠 Learned and 🔍 search' },
+  { key: 'report', label: 'Report', icon: '📰', what: 'the report page' },
+  { key: 'contacts', label: 'Contacts', icon: '📇', what: 'the Contacts page, to edit the lists (names can still be picked as owners without it)' },
+];
+const MODULE_KEYS = MODULES.map((m) => m.key);
+// the API paths each module owns (refused to an account without it)
+const MODULE_API = { ideas: /^\/(ideas|idea-notes)(\/|$)/, kpi: /^\/(kpi|prod)(\/|$)/, planning: /^\/plan(\/|$)/, report: /^\/report(\/|$)/, contacts: /^\/contacts(\/|$)/ };
+function modulesOf(a) {
+  if (!a || a.role === 'admin' || a.modules === null || a.modules === undefined) return [...MODULE_KEYS];
+  const set = new Set(String(a.modules).split(',').map((k) => k.trim()).filter((k) => MODULE_KEYS.includes(k)));
+  return MODULE_KEYS.filter((k) => set.has(k) || MODULES.find((m) => m.key === k).always);
+}
+const cleanModules = (list) => { const set = new Set((Array.isArray(list) ? list : String(list || '').split(',')).map((k) => String(k).trim())); return MODULE_KEYS.filter((k) => set.has(k) || MODULES.find((m) => m.key === k).always).join(','); };
+// with accounts on, can this request's account use the module? (accounts off: everyone can)
+const canUse = (req, key) => !req.account || modulesOf(req.account).includes(key);
+function moduleGate(req, res, next) {
+  if (!req.account) return next();
+  for (const [key, re] of Object.entries(MODULE_API)) {
+    if (re.test(req.path) && !canUse(req, key)) return res.status(403).json({ error: `Your account doesn't include ${MODULES.find((m) => m.key === key).label} — ask an admin`, module: key });
+  }
+  return next();
+}
+
 // ---- accounts and sessions ---------------------------------------------------------------------
 const enabled = () => !!db.get('SELECT 1 FROM accounts WHERE active = 1 LIMIT 1');
-const publicAccount = (a) => (a ? { id: a.id, username: a.username, person: a.person, role: a.role, must_change: !!a.must_change, active: !!a.active, last_login: a.last_login, created_at: a.created_at } : null);
+const publicAccount = (a) => (a ? { id: a.id, username: a.username, person: a.person, role: a.role, must_change: !!a.must_change, active: !!a.active, last_login: a.last_login, created_at: a.created_at,
+  modules: modulesOf(a), modules_set: a.modules !== null && a.modules !== undefined } : null);
 const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
 function cookieToken(req) {
   const m = String(req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${COOKIE}=([A-Za-z0-9_-]+)`));
@@ -75,7 +107,7 @@ const router = express.Router();
 const h = (fn) => (req, res) => { try { const out = fn(req, res); if (out && out.catch) out.catch((err) => res.status(err.status || 500).json({ error: err.message })); } catch (err) { res.status(err.status || 500).json({ error: err.message }); } };
 const bad = (msg, status = 400) => Object.assign(new Error(msg), { status });
 
-router.get('/auth/me', h((req, res) => res.json({ enabled: enabled(), account: publicAccount(req.account) })));
+router.get('/auth/me', h((req, res) => res.json({ enabled: enabled(), account: publicAccount(req.account), modules: MODULES })));
 
 // a few wrong passwords in a row from one address wait a minute
 const attempts = new Map();
@@ -128,7 +160,8 @@ router.post('/accounts', h((req, res) => {
   if (db.get('SELECT 1 FROM accounts WHERE username = ?', [username])) throw bad(`There's already an account called ${username}`);
   const p = passwordProblem(req.body?.password); if (p) throw bad(p);
   const role = first ? 'admin' : req.body?.role === 'admin' ? 'admin' : 'user';
-  db.run('INSERT INTO accounts (username, person, role, password_hash, must_change) VALUES (?, ?, ?, ?, ?)', [username, person, role, hashPassword(req.body.password), first ? 0 : 1]);
+  const modules = role === 'admin' || !('modules' in (req.body || {})) ? null : cleanModules(req.body.modules);
+  db.run('INSERT INTO accounts (username, person, role, password_hash, must_change, modules) VALUES (?, ?, ?, ?, ?, ?)', [username, person, role, hashPassword(req.body.password), first ? 0 : 1, modules]);
   const a = db.get('SELECT * FROM accounts WHERE username = ?', [username]);
   log.info(`Account ${username} (${person}, ${role}) made${req.account ? ` by ${req.account.username}` : ' — accounts are on'}`);
   if (first) startSession(res, a);
@@ -143,6 +176,7 @@ router.patch('/accounts/:id', h((req, res) => {
   if ('person' in req.body) { f.person = String(req.body.person || '').trim(); if (!f.person) throw bad('Pick the person this account is for'); }
   if ('role' in req.body) f.role = req.body.role === 'admin' ? 'admin' : 'user';
   if ('active' in req.body) f.active = req.body.active ? 1 : 0;
+  if ('modules' in req.body) f.modules = cleanModules(req.body.modules);
   if ('password' in req.body) { const p = passwordProblem(req.body.password); if (p) throw bad(p); f.password_hash = hashPassword(req.body.password); f.must_change = 1; }
   const after = { ...a, ...f };
   const admins = db.get("SELECT COUNT(*) AS n FROM accounts WHERE role = 'admin' AND active = 1 AND id <> ?", [a.id]).n;
@@ -163,4 +197,4 @@ router.delete('/accounts/:id', h((req, res) => {
   res.status(204).end();
 }));
 
-module.exports = { gate, router, hashPassword, checkPassword, enabled, accountOf, publicAccount };
+module.exports = { gate, router, moduleGate, canUse, modulesOf, MODULES, hashPassword, checkPassword, enabled, accountOf, publicAccount };

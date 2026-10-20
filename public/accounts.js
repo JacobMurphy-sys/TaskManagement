@@ -1,16 +1,24 @@
 // 👤 Accounts (src/accounts.js): sign-in when they're on, your password, 📥 My work, and the
 // admin's list of accounts in Settings. Off until the first account is made: nothing changes until then.
-const ACCT = { enabled: false, account: null, newCount: 0 };
+const ACCT = { enabled: false, account: null, newCount: 0, modules: [] };
+
+// 🧩 Modules: the parts of the app an account can see (admins and no-accounts: all of them).
+const MOD_OF_VIEW = { kanban: 'projects', project: 'projects', ideas: 'ideas', idea: 'ideas', kpi: 'kpi', planning: 'planning', report: 'report', contacts: 'contacts' };
+const modOk = (key) => !ACCT.account || (ACCT.account.modules || []).includes(key);
+function modApply() {
+  $$('#topnav a[data-nav], #top-menu a[data-nav]').forEach((a) => { const m = MOD_OF_VIEW[a.dataset.nav]; if (m) a.hidden = !modOk(m); });
+  for (const m of ACCT.modules) document.body.classList.toggle(`nomod-${m.key}`, !modOk(m.key));
+}
 
 // At start-up: who's signed in. → false when the sign-in page is showing instead of the app.
 async function acctInit() {
   let me0;
   try { me0 = await api.get('/auth/me'); } catch { return true; }
-  ACCT.enabled = !!me0.enabled; ACCT.account = me0.account;
+  ACCT.enabled = !!me0.enabled; ACCT.account = me0.account; ACCT.modules = me0.modules || [];
   if (ACCT.enabled && !ACCT.account) { renderSignIn(); return false; }
   if (ACCT.account) {
     me.setName(ACCT.account.person); // who's here and who changed what: the account's person
-    acctChrome();
+    acctChrome(); modApply();
     if (ACCT.account.must_change) await acctPasswordDialog(true);
     acctPoll(); setInterval(acctPoll, 60000);
   }
@@ -114,11 +122,19 @@ async function acctSettingsHtml() {
   if (ACCT.enabled) { try { list = await api.get('/accounts'); } catch { list = []; } }
   let people = [];
   try { const groups = await api.get('/owner-options'); const seen = new Set(); people = groups.flatMap((g) => g.names).filter((n) => !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase())); } catch { /* none */ }
+  const extra = ACCT.modules.filter((m) => !m.always);
+  const basic = ACCT.modules.find((m) => m.always);
+  const ticks = (a) => (a.role === 'admin' ? '<span class="small muted">all — admins have every module</span>'
+    : `<div class="mod-ticks">${extra.map((m) => `<label title="${esc(`${m.label}: ${m.what}`)}"><input type="checkbox" data-mod="${m.key}" ${a.modules.includes(m.key) ? 'checked' : ''}> ${m.icon} ${esc(m.label)}</label>`).join('')}</div>`);
+  const presets = [['Basic pack only', []], ['Production: Basic + Planning', ['planning']], ['Manager: everything', extra.map((m) => m.key)]];
   const form = (first) => `<form id="acct-form" class="row acct-form">
       <label class="f">Person <span class="muted small">(from the contacts)</span><input type="text" name="person" list="acct-people" required autocomplete="off" placeholder="e.g. Sam Taylor"></label>
       <label class="f">Username<input type="text" name="username" required pattern="[A-Za-z0-9._@\\-]{2,40}" placeholder="e.g. sam.taylor"></label>
       <label class="f">${first ? 'Your password' : 'First password'}<input type="text" name="password" required minlength="8" autocomplete="new-password" placeholder="at least 8 characters"></label>
       ${first ? '' : '<label class="f">Role<select name="role"><option value="user">User</option><option value="admin">Admin</option></select></label>'}
+      ${first ? '' : `<div class="f acct-mods"><span>Modules <span class="muted small">— ${esc(basic?.label || 'Basic pack')} always: ${esc(basic?.what || '')}</span></span>
+        <div class="mod-ticks">${extra.map((m) => `<label title="${esc(m.what)}"><input type="checkbox" name="modules" value="${m.key}" checked> ${m.icon} ${esc(m.label)}</label>`).join('')}</div>
+        <div class="row small" style="gap:6px">${presets.map(([l, keys]) => `<button type="button" class="small" data-mod-preset="${esc(keys.join(','))}">${esc(l)}</button>`).join('')}</div></div>`}
       <button class="primary" type="submit">${first ? 'Make my account and turn sign-in on' : 'Add account'}</button>
       <datalist id="acct-people">${people.map((n) => `<option value="${esc(n)}">`).join('')}</datalist></form>`;
   if (!ACCT.enabled) {
@@ -130,9 +146,10 @@ async function acctSettingsHtml() {
   return `<div class="card acct-card"><h2>👤 Accounts <span class="muted small">${list.length}</span></h2>
     <p class="small muted">Each account is linked to a person: the name used as a task owner, project leader, sponsor or team member. A first password (and one an admin resets) must be changed at the next sign-in.
       A forgotten admin password can be reset on the server: <code>node scripts/reset-password.js &lt;username&gt; &lt;new password&gt;</code>.</p>
-    <table class="log acct-table"><thead><tr><th>Person</th><th>Username</th><th>Role</th><th>Last signed in</th><th>Active</th><th></th></tr></thead><tbody>
+    <p class="small muted">🧩 <b>Modules</b> choose what each account sees and can use; ${esc(basic?.label || 'the basic pack')} (${esc(basic?.what || '')}) is always there. Hover over a module for what it covers. A change applies the next time they open or refresh the page.</p>
+    <table class="log acct-table"><thead><tr><th>Person</th><th>Username</th><th>Role</th><th>Modules</th><th>Last signed in</th><th>Active</th><th></th></tr></thead><tbody>
       ${list.map((a) => `<tr data-acct="${a.id}"><td><input type="text" name="person" list="acct-people" value="${esc(a.person)}"></td><td><b>${esc(a.username)}</b>${a.must_change ? ' <span class="small muted">(to change password)</span>' : ''}</td>
-        <td><select name="role">${options({ user: 'User', admin: 'Admin' }, a.role)}</select></td><td class="small">${a.last_login ? esc(fmtDateTime(a.last_login)) : '<span class="muted">never</span>'}</td>
+        <td><select name="role">${options({ user: 'User', admin: 'Admin' }, a.role)}</select></td><td>${ticks(a)}</td><td class="small">${a.last_login ? esc(fmtDateTime(a.last_login)) : '<span class="muted">never</span>'}</td>
         <td><input type="checkbox" name="active" ${a.active ? 'checked' : ''}></td>
         <td class="nowrap"><button class="small" data-acct-reset="${a.id}">Set a new password</button> <button class="icon" data-acct-del="${a.id}" title="Remove the account">✕</button></td></tr>`).join('')}
     </tbody></table>
@@ -143,12 +160,23 @@ function acctSettingsWire(rerender) {
     e.preventDefault();
     const fd = new FormData(e.target);
     try {
-      await api.post('/accounts', Object.fromEntries(fd));
+      const body = Object.fromEntries(fd);
+      if ($('#acct-form .acct-mods')) body.modules = fd.getAll('modules');
+      await api.post('/accounts', body);
       if (!ACCT.enabled) { toast('Your account is made — sign-in is on'); setTimeout(() => location.reload(), 600); return; }
       toast(`Account ${fd.get('username')} added — give them the username and first password`);
       rerender();
     } catch (err) { toast(err.message, 'error'); }
   });
+  $$('[data-mod-preset]').forEach((b) => b.addEventListener('click', () => {
+    const keys = b.dataset.modPreset.split(',').filter(Boolean);
+    $$('#acct-form [name=modules]').forEach((x) => { x.checked = keys.includes(x.value); });
+  }));
+  $$('[data-acct] [data-mod]').forEach((el) => el.addEventListener('change', async () => {
+    const row = el.closest('[data-acct]');
+    const modules = $$('[data-mod]', row).filter((x) => x.checked).map((x) => x.dataset.mod);
+    try { await api.patch(`/accounts/${row.dataset.acct}`, { modules }); toast('Modules saved — they apply when that person next opens or refreshes the page'); } catch (err) { toast(err.message, 'error'); rerender(); }
+  }));
   // a person's username, suggested from their name
   $('#acct-form [name=person]')?.addEventListener('change', (e) => {
     const u = $('#acct-form [name=username]');
@@ -156,7 +184,7 @@ function acctSettingsWire(rerender) {
   });
   $$('[data-acct] [name]').forEach((el) => el.addEventListener('change', async () => {
     const id = el.closest('[data-acct]').dataset.acct;
-    try { await api.patch(`/accounts/${id}`, { [el.name]: el.type === 'checkbox' ? el.checked : el.value }); toast('Saved'); } catch (err) { toast(err.message, 'error'); rerender(); }
+    try { await api.patch(`/accounts/${id}`, { [el.name]: el.type === 'checkbox' ? el.checked : el.value }); toast('Saved'); if (el.name === 'role') rerender(); } catch (err) { toast(err.message, 'error'); rerender(); }
   }));
   $$('[data-acct-reset]').forEach((b) => b.addEventListener('click', async () => {
     const pw = prompt('A new password for this account (at least 8 characters) — they choose their own at the next sign-in:');

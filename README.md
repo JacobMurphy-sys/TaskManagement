@@ -347,7 +347,14 @@ Instead of a copy on each PC, one computer runs the CI Manager and everyone open
   - **New for you:** tasks someone else gave you and projects you were made leader, sponsor or a team member of since you last looked, with who and when. **✓ Mark the new ones as seen** clears them.
   - **My tasks:** open tasks with your name among the owners, by due date.
   - **My projects:** active projects where you're the leader, the sponsor or on the team.
-- **Permissions:** everyone can see and change everything, as before. Only managing accounts and restoring a backup are for admins.
+- **🧩 Modules:** the admin ticks which parts of the app each account can see and use, in ⚙ Settings › 👤 Accounts (the Modules column, or when adding an account).
+  - **Basic pack**, always included: Dashboard, Tasks, Calendar, Library, 📥 My work, quick notes and search.
+  - **To tick:** 🗂 Projects (the board, project pages and charters, the projects list in the sidebar), 💡 Ideas, 📊 KPIs (A3, database, sources, ⏱ production timing), 🏭 Planning, 📰 Report, 📇 Contacts (editing the lists; names can still be picked as owners without it).
+  - **Presets** when adding an account: *Basic pack only*, *Production: Basic + Planning* and *Manager: everything*.
+  - **What's hidden:** a module an account doesn't have drops out of the top bar, the dashboard and search. Its pages send them to the dashboard, and the server refuses its data to that account.
+  - **Who has everything:** admins always have every module. Accounts made before modules existed have them all until an admin changes them.
+  - **When it applies:** a change takes effect the next time that person opens or refreshes the page.
+- **Permissions:** within their modules, everyone can see and change everything, as before. Only managing accounts and restoring a backup are for admins.
 - **Forgotten password:** an admin who's forgotten theirs runs `node scripts/reset-password.js <username> <new password>` in the app folder on the server (without arguments it lists the accounts).
 - **Storage:** passwords are kept only as scrypt hashes, and sign-ins as hashed tokens.
 
