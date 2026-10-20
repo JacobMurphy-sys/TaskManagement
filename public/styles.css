@@ -510,7 +510,7 @@ label.button { cursor: pointer; }
 .phase-group > summary::-webkit-details-marker { display: none; }
 .phase-group > summary::before { content: '▸'; color: var(--muted); }
 .phase-group[open] > summary::before { content: '▾'; }
-.phase-group > .tasks, .phase-group > .empty { margin-top: 6px; }
+.phase-group > .tasks, .phase-group > .more-scope, .phase-group > .empty { margin-top: 6px; }
 .phase-pick { max-height: 180px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin-top: 4px; }
 .g-bar.g-phase { background: var(--text); opacity: .75; color: var(--panel); border-radius: 3px; }
 .g-bar.g-phase.g-done { background: var(--ok); }
@@ -1213,3 +1213,7 @@ body.signin-page > *:not(.signin):not(#toasts) { visibility: hidden; }
 .chip .moved { font-size: 11px; color: #9a5b00; font-weight: 600; }
 .resched-list { margin: 0; padding-left: 20px; display: grid; gap: 6px; max-height: 40vh; overflow: auto; }
 .resched-from { text-decoration: line-through; color: var(--muted); }
+
+/* long lists: the rest behind "Show more" */
+[data-more][hidden] { display: none !important; }
+.show-more { margin-top: 6px; }

@@ -360,6 +360,34 @@ function projectHealth(p) {
 }
 const HEALTH_ORDER = { risk: 0, watch: 1, ok: 2, hold: 3 };
 
+// ---- long lists: the first few shown, the rest behind "Show more" -------------------------------
+// Items past the first n are drawn hidden (data-more); the button under them shows `step` more at a
+// time. A list's scope is the nearest .more-scope (or the button's parent).
+const DASH_SHOWN = 6; // dashboard boxes
+const DONE_SHOWN = 12; // completed tasks
+const hideItem = (html) => html.replace(/<(li|div|tr)\b/, '<$1 data-more hidden');
+const moreButton = (rest, step, word = '') => (rest > 0 ? `<button type="button" class="link small show-more" data-show-more="${step}" data-word="${esc(word)}">Show ${Math.min(step, rest)} more${word ? ` ${esc(word)}` : ''} <span class="muted">(${rest} hidden)</span></button>` : '');
+function cappedList(items, n, { cls = 'mini', word = '' } = {}) {
+  return `<div class="more-scope"><ul class="${cls}">${items.map((h, i) => (i < n ? h : hideItem(h))).join('')}</ul>${moreButton(items.length - n, n, word)}</div>`;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-show-more]');
+  if (!b) return;
+  const scope = b.closest('.more-scope') || b.parentElement;
+  const step = Number(b.dataset.showMore) || 6;
+  const hidden = $$('[data-more][hidden]', scope);
+  hidden.slice(0, step).forEach((el) => { el.hidden = false; });
+  const rest = hidden.length - step;
+  if (rest <= 0) b.remove();
+  else b.innerHTML = `Show ${Math.min(step, rest)} more${b.dataset.word ? ` ${esc(b.dataset.word)}` : ''} <span class="muted">(${rest} hidden)</span>`;
+});
+// A task list with only the latest completed tasks shown (the rest behind "Show more").
+function taskListHtml(list, p, hideDone) {
+  const done = list.filter((t) => t.status === 'done').sort((a, b) => String(b.completed_at || '').localeCompare(String(a.completed_at || '')));
+  const hide = new Set(done.slice(DONE_SHOWN).map((t) => t.id));
+  return `<div class="more-scope"><ul class="tasks">${list.map((t) => (hide.has(t.id) ? hideItem(taskRow(t, p, hideDone)) : taskRow(t, p, hideDone))).join('')}</ul>${moreButton(hide.size, DONE_SHOWN, 'completed')}</div>`;
+}
+
 async function renderDashboard() {
   const [d] = await Promise.all([api.get('/dashboard'), loadProjects()]);
   const ongoing = state.projects
@@ -377,7 +405,7 @@ async function renderDashboard() {
       <span class="kpi-label">${label}</span><span class="kpi-value">${value.toLocaleString()}</span>
       <span class="kpi-sub">${sub || '&nbsp;'}</span></button>`;
   const section = (id, title, items, render, empty) => `<div class="card" id="${id}"><h3>${title} <span class="muted small">${items.length}</span></h3>
-    ${items.length ? `<ul class="mini">${items.map(render).join('')}</ul>` : `<div class="empty">${empty}</div>`}</div>`;
+    ${items.length ? cappedList(items.map(render), DASH_SHOWN) : `<div class="empty">${empty}</div>`}</div>`;
 
   const projectRow = (p) => {
     const pct = p.task_count ? Math.round((p.done_count / p.task_count) * 100) : 0;
@@ -737,7 +765,7 @@ function phasedTaskList(p, shown, hideDone) {
   const known = new Set(phases.map((ph) => ph.id));
   const groups = phases.map((ph, i) => ({ ph, i, list: shown.filter((t) => t.phase_id === ph.id) }));
   const loose = shown.filter((t) => !known.has(t.phase_id));
-  const block = (list, empty) => (list.length ? `<ul class="tasks">${list.map((t) => taskRow(t, p, hideDone)).join('')}</ul>` : `<div class="empty small">${empty}</div>`);
+  const block = (list, empty) => (list.length ? taskListHtml(list, p, hideDone) : `<div class="empty small">${empty}</div>`);
   return groups.map(({ ph, i, list }) => `<details class="phase-group" ${ph.status === 'done' ? '' : 'open'}>
       <summary><span class="ph-num">${i + 1}</span><b>${esc(ph.name)}</b>
         <span class="small muted">${ph.done_count}/${ph.task_count} done${phaseDates(ph) ? ` · ${phaseDates(ph)}` : ''}</span>
@@ -813,7 +841,7 @@ async function renderProject(id, tab) {
         </div>
         ${gantt ? '<div id="gantt-root"></div>' : board ? taskBoardHtml(p.tasks.filter((t) => !t.parent_id)) : `
         ${p.charter.phases.length ? phasedTaskList(p, shown, hideDone)
-          : shown.length ? `<ul class="tasks">${shown.map((t) => taskRow(t, p, hideDone)).join('')}</ul>` : '<div class="empty">No tasks yet — add one below.</div>'}
+          : shown.length ? taskListHtml(shown, p, hideDone) : '<div class="empty">No tasks yet — add one below.</div>'}
         <div class="add-task row">
           <input type="text" id="add-task-input" placeholder="Add a task… (Enter)   e.g. Send report !high @fri" autocomplete="off" style="flex:1">
           ${phaseSelect(p)}
@@ -1010,7 +1038,7 @@ async function renderKanban() {
 // A project's own mini Kanban of its top-level tasks.
 function taskBoardHtml(tasks) {
   const cols = Object.keys(STATUS);
-  const doneLimit = 30;
+  const doneLimit = DONE_SHOWN;
   const byStatus = Object.fromEntries(cols.map((st) => [st, tasks.filter((t) => t.status === st)]));
   byStatus.done.sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)));
   const card = (t) => `<div class="kcard p${t.priority} ${t.status === 'done' ? 'done' : ''}" draggable="true" data-id="${t.id}">
@@ -1023,11 +1051,11 @@ function taskBoardHtml(tasks) {
       ${t.subtask_count ? `<div class="progress"><div style="width:${Math.round((t.subtask_done / t.subtask_count) * 100)}%"></div></div>` : ''}
     </div>`;
   return `<div class="kanban mini">${cols.map((st) => {
-    const list = st === 'done' ? byStatus.done.slice(0, doneLimit) : byStatus[st];
-    return `<div class="column" data-status="${st}">
+    const list = byStatus[st];
+    return `<div class="column more-scope" data-status="${st}">
       <h3>${STATUS[st]} <span class="muted small">${byStatus[st].length}</span></h3>
-      ${list.map(card).join('')}
-      ${st === 'done' && byStatus.done.length > doneLimit ? `<div class="small muted">Showing latest ${doneLimit}</div>` : ''}
+      ${list.map((t, i) => (st === 'done' && i >= doneLimit ? hideItem(card(t)) : card(t))).join('')}
+      ${st === 'done' ? moreButton(byStatus.done.length - doneLimit, doneLimit, 'completed') : ''}
       ${st === 'todo' ? '<input type="text" id="board-add" placeholder="+ Add task… (Enter)" autocomplete="off">' : ''}
     </div>`;
   }).join('')}</div>`;

@@ -259,7 +259,7 @@ async function renderTasks() {
       </div></div>
     <div class="card">
       ${board ? taskBoardHtml(list.filter((t) => !t.parent_id)) : `
-        ${shown.length ? `<ul class="tasks">${shown.map((t) => taskRow(t, pseudo, hideDone)).join('')}</ul>` : '<div class="empty">No tasks here yet. Add one below.</div>'}
+        ${shown.length ? taskListHtml(shown, pseudo, hideDone) : '<div class="empty">No tasks here yet. Add one below.</div>'}
         <div class="add-task"><input type="text" id="add-task-input" placeholder="Add a task… (Enter)   e.g. Renew parking permit @fri !high" autocomplete="off"></div>`}
       <div class="small muted" style="margin-top:6px">${SHORTCUTS_HELP} · Open a task to move it into a project, or to 🚀 promote it to a project of its own.</div>
     </div>`;
