@@ -256,6 +256,9 @@ dialog#modal::backdrop { background: rgba(10, 14, 22, .45); }
 .form-grid .full { grid-column: 1 / -1; }
 label.f { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
 label.f > * { color: var(--text); font-size: 14px; }
+/* fields that hold a picker (Owners, Submitted by, …) are labelled like the rest */
+div.f > span:first-child:not(:only-child) { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+div.f > span:first-child:not(:only-child) > .muted { font-size: inherit; }
 .section { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border); }
 .quick-times { display: flex; gap: 6px; flex-wrap: wrap; }
 .saved-flag { color: var(--ok); font-size: 12px; opacity: 0; transition: opacity .3s; }

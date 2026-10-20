@@ -118,7 +118,8 @@ function contactsBook({ groups = [], selected = [], title = 'Contacts', multiple
 // Enter or a comma adds what's typed; Backspace in an empty box removes the last one.
 // onChange(value) gets "Name, Name" (or null) after every change.
 // With wholeDepartments, typing a department also offers everyone in it.
-function ownerPicker(root, { value = '', groups = [], placeholder = 'Add ownerâ€¦', bookTitle = 'Choose owners', wholeDepartments = false, onChange = () => {} } = {}) {
+// single: one name only (e.g. who submitted an idea): picking another replaces it.
+function ownerPicker(root, { value = '', groups = [], placeholder = 'Add ownerâ€¦', bookTitle = 'Choose owners', wholeDepartments = false, single = false, onChange = () => {} } = {}) {
   let owners = splitOwners(value);
   let active = -1;
   root.classList.add('owner-picker');
@@ -132,7 +133,7 @@ function ownerPicker(root, { value = '', groups = [], placeholder = 'Add ownerâ€
   const emit = () => onChange(owners.length ? owners.join(', ') : null);
   const drawChips = () => {
     $('.op-chips', root).innerHTML = owners.map((o, i) => `<span class="op-chip">ðŸ‘¤ ${esc(o)}<button type="button" data-op-remove="${i}" title="Remove ${esc(o)}">âœ•</button></span>`).join('');
-    input.placeholder = owners.length ? '+ another' : placeholder;
+    input.placeholder = owners.length ? (single ? 'changeâ€¦' : '+ another') : placeholder;
   };
   // Each option: { add: names to add, label, info }.
   const matches = () => {
@@ -159,7 +160,8 @@ function ownerPicker(root, { value = '', groups = [], placeholder = 'Add ownerâ€
     return flat;
   };
   const add = (name) => {
-    for (const n of splitOwners(name)) if (!has(n)) owners.push(n);
+    if (single) owners = splitOwners(name).slice(0, 1);
+    else for (const n of splitOwners(name)) if (!has(n)) owners.push(n);
     input.value = '';
     active = -1;
     drawChips();
@@ -171,8 +173,8 @@ function ownerPicker(root, { value = '', groups = [], placeholder = 'Add ownerâ€
     const pick = e.target.closest('[data-op-add]');
     const rm = e.target.closest('[data-op-remove]');
     if (e.target.closest('.op-book')) {
-      const chosen = await contactsBook({ groups, selected: owners, title: bookTitle, wholeDepartments });
-      if (chosen) { owners = chosen; drawChips(); emit(); }
+      const chosen = await contactsBook({ groups, selected: owners, title: bookTitle, wholeDepartments, ...(single ? { multiple: false } : {}) });
+      if (chosen) { owners = single ? chosen.slice(0, 1) : chosen; drawChips(); emit(); }
       return;
     }
     if (pick) add(pick.dataset.opAdd);

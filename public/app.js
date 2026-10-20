@@ -1062,16 +1062,14 @@ function areaOptions(selected) {
   return '<option value="">— none —</option>' + list.map((a) =>
     `<option value="${a.id}" ${a.id === selected ? 'selected' : ''}>${esc(a.name)}${a.active ? '' : ' (inactive)'}</option>`).join('');
 }
-const submitterList = (names) => `<datalist id="people">${names.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>`;
-// "Submitted by" suggests the contacts lists (with a 📇 button for the contacts book), then
-// anyone who has submitted an idea before and isn't in them.
-async function submitterField(root, submitters) {
-  await enhanceContactFields(root, null);
-  const dl = $('datalist#people', root);
-  if (!dl) return;
-  const have = new Set([...dl.options].map((o) => o.value.toLowerCase()));
-  dl.insertAdjacentHTML('beforeend', submitters.filter((n) => !have.has(n.toLowerCase()))
-    .map((n) => `<option value="${esc(n)}" label="Submitted an idea before">`).join(''));
+// "Submitted by": the same picker as a task's owners (type to search the contacts, 📇 for the
+// contacts book), one person, with anyone who has submitted an idea before and isn't in the contacts.
+async function submitterPicker(el, value, submitters, onChange) {
+  const groups = await ownerOptions(null);
+  const known = new Set(groups.flatMap((g) => g.names.map((n) => n.toLowerCase())));
+  const earlier = submitters.filter((n) => !known.has(String(n).toLowerCase()));
+  ownerPicker(el, { value, groups: [...groups, ...(earlier.length ? [{ label: 'Submitted an idea before', names: earlier }] : [])],
+    placeholder: 'Who submitted it?', bookTitle: 'Who submitted it?', single: true, onChange });
 }
 
 // Reads an idea form's fields into API values.
@@ -1176,7 +1174,7 @@ async function ideaForm() {
       <label class="f full">Description<textarea name="description" rows="3"></textarea></label>
       <label class="f full">Proposed solution<textarea name="proposed_solution" rows="2"></textarea></label>
       <label class="f full">Benefit<textarea name="benefit" rows="2" placeholder="e.g. saves 2 h a week, fewer remakes"></textarea></label>
-      <label class="f">Submitted by<input type="text" name="submitted_by" list="people" data-contact="Submitted by" autocomplete="off" value="${esc(store.get('lastSubmitter', ''))}"></label>
+      <div class="f"><span>Submitted by</span><div id="idea-submitter"></div><input type="hidden" name="submitted_by" value="${esc(store.get('lastSubmitter', ''))}"></div>
       <label class="f">Submitted on<input type="date" name="submitted_at" value="${toDateInput(new Date().toISOString())}" max="${toDateInput(new Date().toISOString())}"></label>
       <label class="f">Area<select name="area_id">${areaOptions(null)}</select></label>
       <label class="f">Priority<select name="priority">${options(PRIORITY, 2)}</select></label>
@@ -1185,13 +1183,12 @@ async function ideaForm() {
       <label class="f">Impact<select name="impact">${options(IMPACT, '')}</select></label>
       <label class="f">Effort<select name="effort">${options(EFFORT, '')}</select></label>
       <div class="f" style="justify-content:flex-end"><button type="button" class="link small" data-action="goto-settings">Manage areas…</button></div>
-      ${submitterList(submitters)}
       <div class="full row"><div class="spacer"></div>
         <button type="button" data-action="close-modal">Cancel</button>
         <button class="primary" type="submit">Create idea</button></div>
     </form>`);
   $('#idea-form [name=title]').focus();
-  submitterField($('#idea-form'), submitters);
+  submitterPicker($('#idea-submitter'), store.get('lastSubmitter', ''), submitters, (v) => { $('#idea-form [name=submitted_by]').value = v || ''; });
   $('#idea-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const body = {};
@@ -1226,6 +1223,7 @@ async function renderIdea(id) {
         ${locked ? '' : '<button class="primary" data-action="escalate-idea">🚀 Escalate to project</button>'}
         <button data-action="history" data-kind="ideas" data-id="${i.id}" data-title="${esc(i.ref)}" title="Every change to this idea, with who made it — and ↩ Put back">🕘 History</button>
         <button class="danger" data-action="delete-idea">Delete</button>
+        <a class="button primary" href="#/ideas" title="Changes save as you go — back to the ideas">✓ Done</a>
       </div>
     </div>
     ${locked ? `<div class="baseline-box">🚀 Escalated to project
@@ -1242,7 +1240,7 @@ async function renderIdea(id) {
           <label class="f">Status<select name="status" ${locked ? 'disabled' : ''}>${options(statusOpts, i.status)}</select></label>
           <label class="f">Priority<select name="priority">${options(PRIORITY, i.priority)}</select></label>
           <label class="f">Area<select name="area_id">${areaOptions(i.area_id)}</select></label>
-          <label class="f">Submitted by<input type="text" name="submitted_by" list="people" data-contact="Submitted by" autocomplete="off" value="${esc(i.submitted_by)}"></label>
+          <div class="f"><span>Submitted by</span><div id="idea-submitter"></div></div>
           <label class="f">Submitted on<input type="date" name="submitted_at" value="${toDateInput(i.created_at)}" max="${toDateInput(new Date().toISOString())}"></label>
           <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(i.due_at)}"></label>
           ${i.due_at ? `<div class="f resched-slot" data-resched="idea:${i.id}"></div>` : ''}
@@ -1250,7 +1248,7 @@ async function renderIdea(id) {
           <label class="f">Impact<select name="impact">${options(IMPACT, i.impact)}</select></label>
           <label class="f">Effort<select name="effort">${options(EFFORT, i.effort)}</select></label>
           <div class="f"><span>Value score</span><b title="${esc(scoreTitle(i))}">${ideaScore(i) ?? '—'} <span class="small muted">/ 25</span></b></div>
-          ${submitterList(submitters)}
+          <div class="f full row" style="justify-content:flex-end"><span class="small muted">Changes save as you go.</span><a class="button primary" href="#/ideas">✓ Done</a></div>
         </div>
       </div>
       <div class="card">
@@ -1266,7 +1264,13 @@ async function renderIdea(id) {
       </div>
     </div>`;
 
-  submitterField($('#idea-edit'), submitters);
+  submitterPicker($('#idea-submitter'), i.submitted_by, submitters, async (submitted_by) => {
+    try {
+      await api.patch(`/ideas/${i.id}`, { submitted_by });
+      if (submitted_by) store.set('lastSubmitter', submitted_by);
+      renderIdea(i.id);
+    } catch (err) { toast(err.message, 'error'); }
+  });
   // Auto-save each field as it changes.
   $$('#idea-edit [name]').forEach((el) => el.addEventListener('change', async () => {
     if (el.name === 'title' && !el.value.trim()) { el.value = i.title; return; }
