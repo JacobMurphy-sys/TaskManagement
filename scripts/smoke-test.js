@@ -1700,6 +1700,11 @@ async function waitForServer() {
       assert.ok(ex3.rows.every((r) => r.key === '2026-10-09'), 'one day');
       const lx = await fetch(`${BASE}/plan/learn.xlsx?days=30&to=2026-10-10`);
       assert.equal(lx.status, 200); assert.ok((await lx.arrayBuffer()).byteLength > 1000);
+      // ⚠ everything set aside, in one workbook to investigate
+      const ax = await fetch(`${BASE}/prod/anomalies.xlsx?from=2026-09-01&to=2026-10-10&sensitivity=strict`);
+      assert.equal(ax.status, 200); assert.match(ax.headers.get('content-disposition'), /anomalies-2026-09-01-to-2026-10-10\.xlsx/);
+      const axBook = require('../src/xlsxread').readBook(Buffer.from(await ax.arrayBuffer()));
+      assert.deepEqual(axBook.sheets.map((x) => x.name), ['Read me', 'Anomalies by WO', 'Anomalous runs', 'Old perso (hidden)', 'Old Matching (hidden)']);
       // 📆 D+ due out: working days from coming in to due out
       const DP = require('../src/dplus'); const W5 = new Set([1, 2, 3, 4, 5]);
       assert.deepEqual([DP.workingDaysBetween('2026-10-16', '2026-10-16', W5), DP.workingDaysBetween('2026-10-16', '2026-10-19', W5), DP.workingDaysBetween('2026-10-14', '2026-10-16', W5), DP.workingDaysBetween('2026-10-16', '2026-10-15', W5)],

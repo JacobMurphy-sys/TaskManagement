@@ -87,7 +87,7 @@ async function renderKpiProduction() {
   const runHead = `<tr><th>Start</th><th>End</th><th>Machine</th><th>Job</th><th>Customer</th><th class="num">${unit[0].toUpperCase()}${unit.slice(1)}</th><th class="num">Took</th><th class="num">A ${unit === 'cards' ? 'card' : 'item'}</th><th></th><th class="num" title="What a job this size usually takes on its machine ÷ what it took: 100% = usual, more = quicker">Efficiency</th></tr>`;
   const runsHtml = () => `<div class="card"><h3 class="pl-h">☰ Runs <span class="muted small">${n(p.runs.length)} in this period</span></h3>
       <div class="kdb-scroll"><table class="log">${runHead}${p.runs.slice(0, 400).map(runRow).join('')}</table></div>${p.runs.length > 400 ? `<div class="small muted">The first 400 of ${n(p.runs.length)}.</div>` : ''}</div>`;
-  const anomHtml = anomalies.length ? `<div class="card" id="prod-anom"><h3 class="pl-h">⚠ Anomalies <span class="muted small">${n(anomalies.length)} run${anomalies.length === 1 ? '' : 's'} that can't be right for their machine and size — ${withAnom ? 'counted anyway (untick “count them anyway” to leave them out)' : 'left out of the figures above'}</span></h3>
+  const anomHtml = anomalies.length ? `<div class="card" id="prod-anom"><h3 class="pl-h"><button type="button" class="small" style="float:right" data-anom-export>⬇ Export all to Excel</button>⚠ Anomalies <span class="muted small">${n(anomalies.length)} run${anomalies.length === 1 ? '' : 's'} that can't be right for their machine and size — ${withAnom ? 'counted anyway (untick “count them anyway” to leave them out)' : 'left out of the figures above'}</span></h3>
       <div class="kdb-scroll"><table class="log">${runHead}${anomalies.map(runRow).join('')}</table></div>
       <p class="small muted">Each machine's usual set-up time and time a card are learned from its own runs over the last 120 days. Strictness: <b>${{ strict: 'Strict — 2× off', normal: 'Normal — 3× off', loose: 'Loose — 5× off' }[sens]}</b> what's usual, and well outside the machine's normal spread. Runs over 24 hours, ending before they start, or with nothing made are always set aside.</p></div>` : '';
 
@@ -114,6 +114,7 @@ async function renderKpiProduction() {
     ${plInsightsHead('timing', `<div class="seg"><button type="button" data-prod-source="perso" class="${source === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-prod-source="otto" class="${source === 'otto' ? 'on' : ''}">Matching</button></div>
       <div class="spacer"></div>
       ${linked ? '<button data-prod="read" title="Read the report again now">📥 Read now</button>' : ''}
+      <button data-anom-export title="Every anomalous run and every work order hidden for its age, in one workbook to investigate">⬇ Anomalies to Excel</button>
       <label class="button" title="Load older daily reports to fill in the history (several at once is fine)">📂 Load reports…<input type="file" accept=".xlsx,.xlsm" multiple hidden id="prod-files"></label>`)}
     ${linked ? `<div class="kpi-meta small muted">${esc(label)} timing report: <span title="${esc(p.file || '')}">${esc((p.file || '').split(/[\\/]/).pop())}</span>${p.history.last_read ? ` · read ${esc(fmtDateTime(p.history.last_read.at))}` : ''}
         · ${n(p.history.runs)} runs kept${p.history.first ? `, ${esc(p.history.first.slice(0, 10))} to ${esc(p.history.last.slice(0, 10))}` : ''} <details class="kpi-info"><summary>⚙</summary><div class="kpi-info-pop card">${fileHtml('perso')}${fileHtml('otto')}</div></details></div>`
@@ -219,3 +220,32 @@ function drawProdGantt(el, info, p, { from, span, withAnom, wStart, wEnd, unit }
   el.onclick = (e) => { const b = e.target.closest('[data-prod-run]'); prodState.sel = b ? Number(b.dataset.prodRun) : null; drawProdGantt(el, info, p, { from, span, withAnom, wStart, wEnd, unit }); };
   info.onclick = (e) => { if (e.target.closest('[data-prod-clear]')) { prodState.sel = null; drawProdGantt(el, info, p, { from, span, withAnom, wStart, wEnd, unit }); } };
 }
+
+// ⚠ Everything set aside, to investigate (GET /api/prod/anomalies.xlsx): the anomalous runs over a period,
+// by work order and run by run, and the work orders hidden for being due long ago.
+function anomExportDialog() {
+  const t = new Date(); const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const back = (n) => { const d = new Date(t); d.setDate(d.getDate() - n + 1); return ymd(d); };
+  const sens = store.get('prodSens', 'normal');
+  const d = collabDialog(`<form method="dialog" id="anom-form"><div class="row"><h3 style="margin:0">⬇ Anomalies to Excel</h3><span class="spacer"></span><button class="icon" value="cancel" formnovalidate>✕</button></div>
+    <p class="small muted">One workbook to start investigations from:</p>
+    <ul class="small" style="margin:0 0 8px 18px;padding:0">
+      <li><b>Anomalies by WO</b>: each work order with runs that can't be right for their machine and size (far too quick or slow, no end, impossible), with empty <i>Cause · Action · Owner · Closed</i> columns to fill in</li>
+      <li><b>Anomalous runs</b>: every one of those runs, with what it took against the usual</li>
+      <li><b>Old perso / Matching (hidden)</b>: open work orders hidden from Production for being due long ago</li></ul>
+    <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <label class="f"><span>Runs from</span><input type="date" name="from" value="${back(90)}"></label>
+      <label class="f"><span>To</span><input type="date" name="to" value="${ymd(t)}"></label>
+      <div class="row small" style="gap:4px">${[[30, '30 days'], [90, '90 days'], [180, '6 months'], [365, '1 year']].map(([n, l]) => `<button type="button" class="small" data-anom-days="${n}">${l}</button>`).join('')}</div>
+      <label class="f"><span>Strictness</span><select name="sensitivity">${[['strict', 'Strict (2× off)'], ['normal', 'Normal (3× off)'], ['loose', 'Loose (5× off)']].map(([k, l]) => `<option value="${k}" ${sens === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
+    <div class="row" style="margin-top:12px"><span class="spacer"></span><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">⬇ Download</button></div></form>`);
+  d.addEventListener('click', (e) => { const b = e.target.closest('[data-anom-days]'); if (b) { d.querySelector('[name=from]').value = back(Number(b.dataset.anomDays)); d.querySelector('[name=to]').value = ymd(t); } });
+  d.querySelector('form').addEventListener('submit', (e) => {
+    if (e.submitter?.value === 'cancel') return;
+    e.preventDefault();
+    const f = new FormData(e.target);
+    location.href = `/api/prod/anomalies.xlsx?from=${f.get('from')}&to=${f.get('to')}&sensitivity=${f.get('sensitivity')}`;
+    toast('Making the workbook — it downloads in a moment'); d.close();
+  });
+}
+document.addEventListener('click', (e) => { if (e.target.closest('[data-anom-export]')) { e.preventDefault(); anomExportDialog(); } });

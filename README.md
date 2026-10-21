@@ -221,6 +221,12 @@ What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (
 - **▦ Load**: machine time busy per machine per day (runs that overlap on a machine count once), as a share of the working day, with the cards made and each machine's average time a card. **☰ Runs** lists every run.
 - **Anomalies are set aside automatically.** Each machine's usual **set-up time** and **time a card** are learned from its own runs over the last 120 days (a robust line fit, which the odd bad run doesn't move), so a run is compared with what a job *that size* should take on *that machine*. A run is an anomaly when it's at least **3× quicker or slower** than that (*Normal*; *Strict* 2×, *Loose* 5×) and well outside the machine's usual spread. Runs over 24 hours, ending before they start, or with nothing made are always set aside, and a run without an end is shown as still open. Anomalies are left out of every figure and listed with the reason (e.g. *28× slower than usual on MX#1 (18.4 h for 928 cards, usually about 40 min)*); **count them anyway** puts them back (dashed on the Gantt).
 
+**⚠ Anomalies to Excel**, for investigations, puts everything that's set aside into one workbook. Open it from ⏱ Timing, the ⚠ Anomalies table, 🧠 Learned's "anomalies left out", or the hidden-jobs line in a backlog. Choose the period (30 days to a year, or any dates) and the strictness; the workbook has:
+- **Anomalies by WO:** each work order with runs that can't be right for their machine and size (far too slow or quick, no end time, impossible). Each row shows the runs, kinds, cards, minutes against the usual, the worst run, the machines, the dates and where the work order stands in the export now. Empty **Cause · Action · Owner · Closed** columns are there to fill in.
+- **Anomalous runs:** every one of those runs, with how far off it was.
+- **Old perso / Old Matching (hidden):** open work orders and Matching jobs hidden from Production for being due more than *N* days ago (likely errors), with how many days ago they were due.
+- **Read me:** what's in it and the period.
+
 ### 🏭 Production
 
 **🏭 Production** in the top bar (formerly Planning) has three tabs:

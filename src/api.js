@@ -2602,6 +2602,71 @@ router.get('/prod', h((req, res) => {
     days, linked: { perso: !!prodFile('perso'), otto: !!prodFile('otto') }, file: prodFile(source),
     work: { start: set.plan_day_start, end: set.plan_day_end, days: String(set.plan_days || '1,2,3,4,5').split(',').map(Number) } });
 }));
+// ⚠ Everything set aside, in one workbook to investigate: the timing runs judged anomalies (far too
+// quick or slow for their machine and size, no end, impossible) over a period — by work order and run by
+// run, with columns for the investigation — and the open work orders and Matching jobs hidden from
+// Production for being due more than N days ago.
+router.get('/prod/anomalies.xlsx', h((req, res) => {
+  const set = getSettings();
+  const ok = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
+  const now = new Date();
+  const to = ok(req.query.to) ? new Date(`${req.query.to}T00:00:00`) : new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  to.setDate(to.getDate() + 1);
+  const from = ok(req.query.from) ? new Date(`${req.query.from}T00:00:00`) : new Date(to.getTime() - 90 * 86400000);
+  const sens = ['strict', 'normal', 'loose'].includes(req.query.sensitivity) ? req.query.sensitivity : 'normal';
+  const ymdL = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const SIDE = { perso: 'Perso', otto: 'Matching' };
+  const KIND = { slow: 'Far too slow', quick: 'Far too quick', open: 'No end time', invalid: 'Impossible' };
+  // the runs set aside, both sides
+  const runs = [];
+  for (const source of ['perso', 'otto']) {
+    const v = prod.view(source, from, to, { sensitivity: sens });
+    for (const r of v.runs) if (r.anomaly) runs.push({ ...r, side: source, wo: planning.woOfName(r.job) });
+  }
+  runs.sort((a, b) => (a.wo < b.wo ? -1 : a.wo > b.wo ? 1 : a.start_at < b.start_at ? -1 : 1));
+  // where each work order stands now
+  const src = planning.readSource({ file: cleanPath(set.plan_src) || null, uploaded: PLAN_UPLOAD });
+  const openWos = new Set(src.status === 'ok' ? src.lines.map((l) => String(l.wo).toUpperCase()) : []);
+  const statusOf = (wo) => { if (openWos.has(wo)) return 'Open'; const h = db.get('SELECT max(done_at) AS d, count(*) AS n FROM plan_history_jobs WHERE upper(wo) = ?', [wo]); return h.n ? (h.d ? `Done ${String(h.d).slice(0, 10)}` : 'Open') : 'Not seen in the export'; };
+  const off = (r) => (r.usual?.minutes > 0 && r.minutes > 0 ? Math.round((Math.max(r.minutes, r.usual.minutes) / Math.min(r.minutes, r.usual.minutes)) * 10) / 10 : null);
+  const byWo = new Map();
+  for (const r of runs) { const k = `${r.side}|${r.wo}`; (byWo.get(k) || byWo.set(k, []).get(k)).push(r); }
+  const woRows = [...byWo.values()].map((l) => {
+    const worst = l.reduce((a, b) => ((off(b) || 0) > (off(a) || 0) ? b : a));
+    return [l[0].wo, SIDE[l[0].side], l[0].trigram || l[0].customer || '', l.length, [...new Set(l.map((r) => KIND[r.anomaly.kind] || r.anomaly.kind))].join(', '),
+      l.reduce((t, r) => t + (r.qty || 0), 0), Math.round(l.reduce((t, r) => t + (r.minutes > 0 ? r.minutes : 0), 0)), Math.round(l.reduce((t, r) => t + (r.usual?.minutes || 0), 0)),
+      worst.anomaly.text, [...new Set(l.map((r) => r.machine))].join(', '), l[0].start_at, l[l.length - 1].end_at || l[l.length - 1].start_at, statusOf(String(l[0].wo).toUpperCase()), '', '', '', ''];
+  }).sort((a, b) => b[3] - a[3] || String(a[0]).localeCompare(String(b[0])));
+  const runRows = runs.map((r) => [r.wo, SIDE[r.side], r.job, r.machine, r.station || '', r.start_at, r.end_at || '', r.minutes > 0 ? Math.round(r.minutes) : null, r.qty,
+    r.usual ? Math.round(r.usual.minutes) : null, off(r), KIND[r.anomaly.kind] || r.anomaly.kind, r.anomaly.text, r.item || '', r.item_name || '', r.trigram || r.customer || '', r.remake ? 'yes' : '']);
+  // the work orders hidden for being due long ago
+  const maxAge = planMaxAge(set);
+  const daysAgo = (due) => (due ? Math.floor((now - new Date(`${due}T12:00:00`)) / 86400000) : null);
+  const oldPerso = maxAge && src.status === 'ok' ? planning.jobsOf(src.lines.filter((l) => planning.tooOld(l.due, maxAge))) : [];
+  const o = planning.readSource({ file: cleanPath(set.plan_otto_src) || null, uploaded: OTTO_UPLOAD, parser: planning.parseOtto });
+  const oldOtto = maxAge && o.status === 'ok' ? o.jobs.filter((j) => !j.done && !j.test && planning.tooOld(j.due, maxAge)) : [];
+  const c = (header, width = 12, type) => ({ header, width, ...(type ? { type } : {}) });
+  const inv = [c('Cause', 30), c('Action', 30), c('Owner', 16), c('Closed', 11, 'date')];
+  const sheets = [
+    { name: 'Read me', columns: [c('', 26), c('', 100)], rows: [
+      ['What', 'Everything the CI Manager sets aside, to investigate'],
+      ['Timing anomalies', `Runs from the daily timing reports between ${ymdL(from)} and ${ymdL(new Date(to.getTime() - 86400000))} that can't be right for their machine and size (strictness: ${sens}). They are left out of Timing, Learned and the planning figures.`],
+      ['', `${runRows.length} run${runRows.length === 1 ? '' : 's'} in ${woRows.length} work order${woRows.length === 1 ? '' : 's'}: see "Anomalies by WO" (one row each, with columns for the investigation) and "Anomalous runs" (every run).`],
+      ['Old open work orders', maxAge ? `Open work orders due more than ${maxAge} days ago are hidden from Production as likely errors: ${oldPerso.length} perso job${oldPerso.length === 1 ? '' : 's'} and ${oldOtto.length} Matching job${oldOtto.length === 1 ? '' : 's'} (see their sheets).` : 'Nothing is hidden for its age (Hide anything due more than … days ago is 0).'],
+      ['Made', new Date().toISOString().replace('T', ' ').slice(0, 16)]] },
+    { name: 'Anomalies by WO', columns: [c('Work order', 16), c('Side', 9), c('Customer', 10), c('Runs', 6, 'number'), c('Kinds', 22), c('Cards', 9, 'number'), c('Minutes took', 11, 'number'), c('Usual minutes', 11, 'number'),
+      c('Worst', 60), c('Machines', 16), c('First run', 17, 'datetime'), c('Last run', 17, 'datetime'), c('In the export now', 18), ...inv], rows: woRows },
+    { name: 'Anomalous runs', columns: [c('Work order', 16), c('Side', 9), c('Job', 22), c('Machine', 10), c('Station', 10), c('Started', 17, 'datetime'), c('Ended', 17, 'datetime'), c('Minutes', 9, 'number'),
+      c('Cards', 9, 'number'), c('Usual minutes', 11, 'number'), c('× off', 7, 'number'), c('Kind', 14), c('Why', 60), c('Card (AX)', 12), c('Card name', 22), c('Customer', 10), c('Remake', 8)], rows: runRows },
+    { name: 'Old perso (hidden)', columns: [c('Work order', 16), c('Job', 8), c('Customer', 10), c('Cards', 9, 'number'), c('Due', 11, 'date'), c('Days ago', 9, 'number'), c('Status', 18), c('Priority', 9), c('Shipper', 22), c('Cards (AX)', 40), ...inv],
+      rows: oldPerso.sort((a, b) => String(a.due).localeCompare(String(b.due))).map((j) => [j.wo, j.per, j.customer || '', j.qty, j.due, daysAgo(j.due), j.status || '', j.prio || '', j.shipper || '', j.articles.map((x) => `${x.article} ×${x.qty}`).join(', '), '', '', '', '']) },
+    { name: 'Old Matching (hidden)', columns: [c('Name', 24), c('Work order', 16), c('Customer', 10), c('Items', 9, 'number'), c('Plan date', 11, 'date'), c('Days ago', 9, 'number'), c('Status', 18), c('Machine', 14), ...inv],
+      rows: oldOtto.sort((a, b) => String(a.due).localeCompare(String(b.due))).map((j) => [j.name, j.wo, j.customer || '', j.qty, j.due, daysAgo(j.due), j.status || '', j.machine || '', '', '', '', '']) },
+  ];
+  res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.set('Content-Disposition', `attachment; filename="anomalies-${ymdL(from)}-to-${ymdL(new Date(to.getTime() - 86400000))}.xlsx"`);
+  res.send(buildXlsx(sheets));
+}));
 // Read the linked report now (even if it looks unchanged).
 router.post('/prod/read', h((req, res) => {
   const source = prodSource(req.body?.source);

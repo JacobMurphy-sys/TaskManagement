@@ -41,7 +41,7 @@ function planLearnHtml(L) {
   const P = L.patterns;
   const maxWeek = Math.max(1, ...P.week.map((w) => w.per_hour || 0));
   const wk = (d) => { const dt = new Date(`${d}T12:00`); return `${dt.getDate()}/${dt.getMonth() + 1}`; };
-  return `<div class="row pl-views">${pick}<span class="small muted">${pllN(L.runs.used)} runs · ${pllN(L.runs.cards)} cards over ${pllN(L.runs.days)} days${L.runs.anomalies ? ` · ${pllN(L.runs.anomalies)} anomalies left out` : ''}${L.cards_status === 'ok' ? '' : ' · no card database: kinds come from the report\'s product type'}</span>
+  return `<div class="row pl-views">${pick}<span class="small muted">${pllN(L.runs.used)} runs · ${pllN(L.runs.cards)} cards over ${pllN(L.runs.days)} days${L.runs.anomalies ? ` · ${pllN(L.runs.anomalies)} anomalies left out <button type="button" class="link small" data-anom-export>⬇ Export</button>` : ''}${L.cards_status === 'ok' ? '' : ' · no card database: kinds come from the report\'s product type'}</span>
       <span class="spacer"></span><button type="button" data-pll-explode='{"by":"customer"}' title="Any dates, grouped by anything, % of total and drill-down">🔎 Explode</button><button type="button" data-pll="xlsx">⬇ Excel</button></div>
     <div class="kdb-tiles">
       ${accTile(A.now, 'Planned within 25% — now', 'the setup as it is')}

@@ -266,7 +266,7 @@ async function renderPlanning() {
     ].filter(Boolean).join('');
     return `<div class="card pl-backlog"><h3 class="pl-h">⏳ Backlog</h3>
       <div class="pl-bl-blocks">${blocks}</div>
-      ${b.hidden_jobs ? `<p class="small muted" style="margin:8px 0 0">${n(b.hidden_jobs)} job${b.hidden_jobs === 1 ? '' : 's'} (${n(b.hidden_qty)} ${unit}) due more than ${b.max_age} days ago ${b.hidden_jobs === 1 ? 'isn\'t' : 'aren\'t'} shown or counted — likely errors. <button class="link small" data-pl="setup">⚙ Change</button></p>` : ''}</div>`;
+      ${b.hidden_jobs ? `<p class="small muted" style="margin:8px 0 0">${n(b.hidden_jobs)} job${b.hidden_jobs === 1 ? '' : 's'} (${n(b.hidden_qty)} ${unit}) due more than ${b.max_age} days ago ${b.hidden_jobs === 1 ? 'isn\'t' : 'aren\'t'} shown or counted — likely errors. <button class="link small" data-anom-export>⬇ Export them to investigate</button> <button class="link small admin-only" data-pl="setup">⚙ Change</button></p>` : ''}</div>`;
   };
   // ⚖ Modifiers: each module on or off; the deadline numbers; rule lists; the shift table; card tags
   const md = p.modifiers || { rules: [], shifts: [], tags: [], lists: [], off: [], shift_starts: {}, deadline: {} };
