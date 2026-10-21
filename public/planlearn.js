@@ -239,7 +239,9 @@ function plxDraw() {
   const tr = D.trend; const trMax = Math.max(1, ...tr.map((t) => t.per_hour || 0));
   const trLabel = (l) => (D.trend_step === 'day' ? `${Number(l.slice(8))}/${Number(l.slice(5, 7))}` : `w/c ${Number(l.slice(8))}/${Number(l.slice(5, 7))}`);
   $('#pllx').innerHTML = `
-    <div class="modal-head"><h2 style="margin:0">${plx.hist.length || plx.back ? `<button type="button" class="small" data-plx-back title="${esc(plx.hist.length ? 'Back to how it was before' : `Back to ${plx.back.label}`)}">← Back</button> ` : ''}🔎 ${otto ? 'Matching' : 'Production'} runs by ${esc(dim.label.toLowerCase())}</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0">${plx.hist.length || plx.back ? `<button type="button" class="small" data-plx-back title="${esc(plx.hist.length ? 'Back to how it was before' : `Back to ${plx.back.label}`)}">← Back</button> ` : ''}🔎 ${otto ? 'Matching' : 'Production'} runs${D.filter_labels.map((f) => ` <span class="pllx-step">› ${esc(f.dim_label)}: <b>${esc(f.label)}</b></span>`).join('')}
+      <span class="pllx-step pllx-by">› by ${esc(dim.label.toLowerCase())}</span>
+      <div class="pllx-sub">${esc(fmtDate(`${D.from}T12:00`))} – ${esc(fmtDate(`${D.to}T12:00`))} · ${D.days} day${D.days === 1 ? '' : 's'}${D.prev ? ' · compared with the period before' : ''}</div></h2><button class="icon" data-action="close-modal">✕</button></div>
     <div class="pllx-bar">
       <label class="f"><span>From</span><input type="date" name="from" value="${esc(q.from)}"></label>
       <label class="f"><span>To</span><input type="date" name="to" value="${esc(q.to)}"></label>
@@ -306,7 +308,8 @@ function plxClick(e) {
       ...plxRowsSorted().map((r) => [r.label, r.name, ...cols.map(([k]) => (r.chg?.new && k.startsWith('chg.') ? 'new' : plxVal(r, k)))].map(cell).join(','))];
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([`${lines.join('\r\n')}\r\n`], { type: 'text/csv' }));
-    a.download = `explode-${D.by}-${D.from}-to-${D.to}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    const path = D.filter_labels.map((f) => `${f.dim}-${f.label}`.replace(/[^\w.-]+/g, '_')).join('_');
+    a.download = `explode-${path ? `${path}-` : ''}by-${D.by}-${D.from}-to-${D.to}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 }
 function plxChange(e) {

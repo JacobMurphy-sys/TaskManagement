@@ -271,6 +271,7 @@ The Perso tab turns the open perso work orders export (`OpenPersoWorkorders_PerA
     - **Any dates:** From and To, or a quick pick (last 7/30/90 days, 6 months, 1 year, this month, last month, this year).
     - **Group by** machine, shift, weekday, hour started, job size, customer, kind of card, card, job, day, week or month.
     - **% of total** for runs, cards and hours on every row, plus a bar for the share you choose (cards, runs, hours or remakes). Also shown: cards an hour, average cards and time a run, pace and remakes.
+    - **The title shows the path taken:** each step looked inside, then what it's grouped by, with the dates below. For example: *Production runs › Shift: Afternoon › Machine: P2 › by customer*. The ⬇ CSV file name carries the same path.
     - **Click a row to look inside it:** it becomes a filter (e.g. *Shift: Afternoon › Machine: P2*), and the grouping moves to the next useful one. Chips step back out.
     - **Compare with the period before** (remembered) measures the same number of days just before, with the same filters:
       - the tiles show the change in each total (▲/▼, green where it's better);

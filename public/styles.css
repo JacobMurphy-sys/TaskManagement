@@ -1304,3 +1304,10 @@ body.not-admin .pll-switch button { display: none !important; }
 .pl-tiles-row > .kdb-tiles { flex: 1; margin-bottom: 0; }
 .pl-generate { margin-left: auto; align-self: stretch; min-width: 200px; font-size: 18px; font-weight: 600; padding: 10px 24px; border-radius: 10px; }
 @media (max-width: 900px) { .pl-tiles-row { flex-direction: column; } .pl-generate { margin-left: 0; } }
+
+/* the path taken through an Explode window, in its title */
+.pllx .modal-head h2 { font-size: 20px; line-height: 1.35; }
+.pllx-step { font-weight: normal; font-size: 16px; white-space: nowrap; }
+.pllx-step b { color: var(--accent); }
+.pllx-by { color: var(--muted); }
+.pllx-sub { font-size: 12px; font-weight: normal; color: var(--muted); margin-top: 2px; }
