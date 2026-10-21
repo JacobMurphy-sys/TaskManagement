@@ -3591,7 +3591,7 @@ router.delete('/library', h((req, res) => {
 
 router.get('/search', h((req, res) => {
   const term = String(req.query.q || '').trim();
-  if (!term) return res.json({ projects: [], tasks: [], notes: [], ideas: [], meetings: [], library: [] });
+  if (!term) return res.json({ projects: [], tasks: [], notes: [], ideas: [], meetings: [], library: [], production: [], contacts: [], reporting: [] });
   const q = `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const like = (col) => `${col} LIKE ? ESCAPE '\\'`;
   res.json({
@@ -3603,6 +3603,15 @@ router.get('/search', h((req, res) => {
     ideas: !accounts.canUse(req, 'ideas') ? [] : db.all(`${IDEA_SELECT} WHERE ${like('i.title')} OR ${like('i.description')} OR ${like('i.ref')}
       OR i.id IN (SELECT idea_id FROM idea_notes WHERE ${like('body')}) ORDER BY i.id DESC LIMIT 30`, [q, q, q, q]),
     library: librarySearch(term, 20),
+    // 🏭 Production: work orders and cards (the open exports, the plan history, the runs, the card database)
+    production: !accounts.canUse(req, 'planning') || term.length < 2 ? [] : (() => { try { return planFind.suggest(term.slice(0, 60), findCtx()); } catch { return []; } })(),
+    // 📇 Contacts: the people and departments in the lists
+    contacts: !accounts.canUse(req, 'contacts') ? [] : db.all(`SELECT i.name, i.detail, i.department, l.name AS list FROM name_list_items i JOIN name_lists l ON l.id = i.list_id
+      WHERE ${like('i.name')} OR ${like('i.department')} OR ${like('i.detail')} ORDER BY i.name LIMIT 20`, [q, q, q]),
+    // 📊 Reporting: what was typed on the Weekly Ops Report (its boxes and the week's notes)
+    reporting: !accounts.canUse(req, 'kpi') ? [] : [
+      ...db.all(`SELECT week, ref, text, (SELECT max(s.id) FROM kpi_snapshots s WHERE s.week = e.week) AS snap FROM kpi_edits e WHERE ${like('text')} ORDER BY week DESC LIMIT 20`, [q]),
+      ...db.all(`SELECT week, NULL AS ref, text, (SELECT max(s.id) FROM kpi_snapshots s WHERE s.week = n.week) AS snap FROM kpi_notes n WHERE ${like('text')} ORDER BY week DESC LIMIT 10`, [q])],
     // Notes are HTML, so match on their text (a search for "b" shouldn't hit every <b>).
     meetings: meetingList(`${like('m.title')} OR ${like('m.attendees')} OR ${like('m.location')} OR m.notes IS NOT NULL`, [q, q, q], 'm.held_at DESC')
       .filter((m) => [m.title, m.attendees, m.location, htmlToText(m.notes)].some((v) => String(v || '').toLowerCase().includes(term.toLowerCase())))

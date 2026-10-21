@@ -1571,23 +1571,40 @@ async function restoreUpload(file) {
 async function renderSearch(q) {
   $('#search').value = q;
   const r = await api.get(`/search?q=${encodeURIComponent(q)}`);
+  const places = placesFor(q);
+  const card = (title, items, html, empty = 'None') => `<div class="card"><h2>${title} ${items.length ? `<span class="muted small">${items.length}</span>` : ''}</h2>${items.length ? html : `<div class="empty">${empty}</div>`}</div>`;
+  const kpiWeek = (x) => `<li style="display:block"><a href="#/kpi/${x.snap || ''}">📊 <b>${esc(x.week)}</b></a> <span class="small muted">${x.ref ? `A3 box ${esc(x.ref)}` : 'the week\'s notes'}</span>
+    <div class="small muted">${esc(String(x.text || '').replace(/\s+/g, ' ').slice(0, 200))}</div></li>`;
+  // every module the account has, and only those
   main().innerHTML = `<h1>Search: “${esc(q)}”</h1>
+    ${places.length ? `<div class="card search-places"><h2>🧭 Go to <span class="muted small">— places in the app</span></h2><div class="search-place-list">
+      ${places.map((pl) => `<button type="button" class="search-place" data-place="${PLACES.indexOf(pl)}"><b>${esc(pl.label)}</b><span class="small muted">${esc(pl.where)}</span></button>`).join('')}</div></div>` : ''}
     <div class="grid dash">
-      <div class="card"><h2>Projects</h2>${r.projects.length ? `<ul class="mini">${r.projects.map((p) => `<li><a href="#/project/${p.id}">${esc(p.name)}</a> <span class="small muted">${PSTATUS[p.status]}</span></li>`).join('')}</ul>` : '<div class="empty">None</div>'}</div>
-      <div class="card"><h2>Tasks</h2>${r.tasks.length ? `<ul class="mini">${r.tasks.map(miniTask).join('')}</ul>` : '<div class="empty">None</div>'}</div>
-      <div class="card"><h2>Ideas</h2>${r.ideas.length ? `<ul class="mini">${r.ideas.map((i) => `<li>
-        <span class="t" data-action="open-idea" data-id="${i.id}"><b>${esc(i.ref)}</b> ${esc(i.title)}</span> ${ideaStatusPill(i.status)}</li>`).join('')}</ul>` : '<div class="empty">None</div>'}</div>
-      <div class="card"><h2>Library</h2>${r.library.length ? `<ul class="mini">${r.library.map((d) => `<li style="display:block">
+      ${modOk('planning') ? card('🏭 Production <span class="muted small">— work orders and cards</span>', r.production, `<ul class="mini">${r.production.map((x) => `<li style="display:block">
+        <a href="#" data-search-find="${x.kind}:${esc(x.key)}">${x.kind === 'wo' ? '📦' : '💳'} <b>${esc(x.label)}</b></a>${x.open ? ' <span class="pf-open">open</span>' : ''} <div class="small muted">${esc(x.sub || '')}</div></li>`).join('')}</ul>`) : ''}
+      ${modOk('projects') ? card('🗂 Projects', r.projects, `<ul class="mini">${r.projects.map((p) => `<li><a href="#/project/${p.id}">${esc(p.name)}</a> <span class="small muted">${PSTATUS[p.status]}</span></li>`).join('')}</ul>`) : ''}
+      ${card('✅ Tasks', r.tasks, `<ul class="mini">${r.tasks.map(miniTask).join('')}</ul>`)}
+      ${modOk('ideas') ? card('💡 Ideas', r.ideas, `<ul class="mini">${r.ideas.map((i) => `<li>
+        <span class="t" data-action="open-idea" data-id="${i.id}"><b>${esc(i.ref)}</b> ${esc(i.title)}</span> ${ideaStatusPill(i.status)}</li>`).join('')}</ul>`) : ''}
+      ${modOk('kpi') ? card('📊 Reporting <span class="muted small">— typed on the Weekly Ops Report</span>', r.reporting, `<ul class="mini">${r.reporting.map(kpiWeek).join('')}</ul>`) : ''}
+      ${card('📚 Library', r.library, `<ul class="mini">${r.library.map((d) => `<li style="display:block">
         <a href="#/library/${d.id}">📄 <b>${esc(d.title)}</b></a> <span class="small muted">${esc(d.folder)}</span>
-        <div class="small muted">${esc(d.snippet)}</div></li>`).join('')}</ul>` : '<div class="empty">None</div>'}</div>
-      <div class="card"><h2>Meetings</h2>${r.meetings.length ? `<ul class="mini">${r.meetings.map((m) => `<li style="display:block">
+        <div class="small muted">${esc(d.snippet)}</div></li>`).join('')}</ul>`)}
+      ${card('🗓 Meetings', r.meetings, `<ul class="mini">${r.meetings.map((m) => `<li style="display:block">
         <span class="t" data-action="open-meeting" data-id="${m.id}">🗓 <b>${esc(m.title)}</b></span>
         <span class="small muted">${esc(fmtDateTime(m.held_at))}${m.project_name ? ` · ${esc(m.project_name)}` : ''}${m.task_title ? ` · ${esc(m.task_title)}` : ''}</span>
-        ${m.notes_text ? `<div class="pre small">${esc(m.notes_text.slice(0, 300))}${m.notes_text.length > 300 ? '…' : ''}</div>` : ''}</li>`).join('')}</ul>` : '<div class="empty">None</div>'}</div>
-      <div class="card"><h2>Notes</h2>${r.notes.length ? `<ul class="mini">${r.notes.map((n) => `<li style="display:block">
+        ${m.notes_text ? `<div class="pre small">${esc(m.notes_text.slice(0, 300))}${m.notes_text.length > 300 ? '…' : ''}</div>` : ''}</li>`).join('')}</ul>`)}
+      ${card('📝 Notes', r.notes, `<ul class="mini">${r.notes.map((n) => `<li style="display:block">
         <div class="small muted">${esc(fmtDateTime(n.created_at))} · <a href="#/project/${n.project_id}">${esc(n.project_name)}</a></div>
-        <div class="pre">${esc(n.body)}</div></li>`).join('')}</ul>` : '<div class="empty">None</div>'}</div>
+        <div class="pre">${esc(n.body)}</div></li>`).join('')}</ul>`)}
+      ${modOk('contacts') ? card('📇 Contacts', r.contacts, `<ul class="mini">${r.contacts.map((c) => `<li style="display:block"><a href="#/contacts"><b>${esc(c.name)}</b></a>
+        <span class="small muted">${esc([c.department, c.detail, c.list].filter(Boolean).join(' · '))}</span></li>`).join('')}</ul>`) : ''}
     </div>`;
+  main().onclick = (e) => {
+    const pl = e.target.closest('[data-place]'); if (pl) { goPlace(Number(pl.dataset.place)); return; }
+    const f = e.target.closest('[data-search-find]');
+    if (f) { e.preventDefault(); const [kind, ...key] = f.dataset.searchFind.split(':'); pfBack.length = 0; pfOpen(kind, key.join(':')); }
+  };
 }
 
 // ======================================================================
@@ -2469,7 +2486,7 @@ async function pollAlerts() {
     if (seenDue[key]) continue;
     liveKeys.add(key);
     const title = `${overdue ? '⚠ Overdue' : '⏳ Due today'}: ${t.title}`;
-    const body = `${t.project_name}\nDue ${fmtDate(t.due_at)} (${dueLabel(t.due_at)})`;
+    const body = `${t.project_name ? `${t.project_name}\n` : ''}Due ${fmtDate(t.due_at)} (${dueLabel(t.due_at)})`;
     const markSeen = () => { seenDue[key] = Date.now(); store.set('seenDue', seenDue); };
     const isNew = showPopup(key, {
       title, body, overdue,

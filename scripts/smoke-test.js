@@ -1687,6 +1687,8 @@ async function waitForServer() {
         assert.ok((await call('GET', `/plan/find?q=${encodeURIComponent(itemRun.item)}`)).some((x) => x.kind === 'item'));
       }
       assert.equal((await call('GET', '/plan/find/wo/NOSUCHWO123')).found, false);
+      const gs = await call('GET', `/search?q=${encodeURIComponent(job1.slice(0, 6))}`);
+      assert.ok(gs.production.some((x) => x.kind === 'wo'), 'the top search finds work orders too');
       assert.deepEqual(await call('GET', '/plan/find?q=x'), [], 'two characters at least');
       // against the period before: as many days, ending where this one starts
       const exc = await call('GET', '/plan/learn/explode?from=2026-10-10&to=2026-10-10&by=machine&compare=1');
@@ -2070,6 +2072,8 @@ async function waitForServer() {
       assert.equal((await sam('GET', '/prod?source=perso')).status, 200, '⏱ Timing is Production\'s (Insights)');
       assert.equal((await sam('GET', '/tasks')).status, 200, 'the basic pack');
       assert.deepEqual((await sam('GET', '/search?q=Sam')).data.ideas, [], 'search leaves out what Sam can\'t use');
+      const sq = (await sam('GET', '/search?q=Sam')).data;
+      assert.ok(sq.contacts.length === 0 && sq.reporting.length === 0 && Array.isArray(sq.production), 'only Sam\'s modules: production yes, contacts and reporting no');
       assert.equal((await sam('PATCH', `/accounts/${samId}`, { modules: ['management'] })).status, 403, 'only admins give modules');
       assert.equal((await admin('GET', '/kpi/snapshots')).status, 200, 'admins have them all');
       r = await admin('POST', '/accounts', { username: 'mgr', person: 'Max Manager', password: 'mgr-pass-1', modules: ['projects', 'kpi', 'report'] });
