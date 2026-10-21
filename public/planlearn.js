@@ -1,4 +1,4 @@
-// 🧠 Planning › Learned: what the production runs say about the planning setup (src/planlearn.js),
+// 🔬 Planning › Learned: what the production runs say about the planning setup (src/planlearn.js),
 // with the speeds and OEE ready to apply. Rendered by renderPlanning() when the view is 'learn'.
 const PLL = {
   days: [[30, '30 days'], [60, '60 days'], [90, '90 days'], [180, '6 months'], [365, '1 year']],
@@ -28,8 +28,8 @@ function planLearnHtml(L) {
   const days = L.days;
   const pick = `<div class="seg">${PLL.days.map(([d, l]) => `<button type="button" data-pll-days="${d}" class="${d === days ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   if (!L.runs.used) {
-    return `<div class="row pl-views">${pick}</div><div class="card lib-empty"><h2>🧠 Nothing to learn from yet</h2>
-      <p>This learns from the runs in the ⏱ Production timing reports (✨ Insights › ⏱ Timing): link the perso report there, and the planning setup is compared with what really ran.
+    return `<div class="row pl-views">${pick}</div><div class="card lib-empty"><h2>🔬 Nothing to learn from yet</h2>
+      <p>This learns from the runs in the ⏱ Production timing reports (🧠 Insights › ⏱ Timing): link the perso report there, and the planning setup is compared with what really ran.
       ${L.runs.total ? `There ${L.runs.total === 1 ? 'is 1 run' : `are ${pllN(L.runs.total)} runs`} in this window, all set aside as anomalies.` : 'There are no runs in this window — try a longer one.'}</p></div>`;
   }
   const A = L.accuracy;
@@ -46,13 +46,13 @@ function planLearnHtml(L) {
     <div class="kdb-tiles">
       ${accTile(A.now, 'Planned within 25% — now', 'the setup as it is')}
       ${accTile(A.learned, 'With learned speeds + OEE', A.tested_on === 'newest' ? `learned on older runs, tested on the newest ${pllN(A.runs)}` : 'all runs')}
-      ${accTile(A.items, `🧠 Card by card${L.learned_on ? ' — in use' : ''}`, 'each card\'s own time + set-up')}
+      ${accTile(A.items, `🔬 Card by card${L.learned_on ? ' — in use' : ''}`, 'each card\'s own time + set-up')}
       <div class="kdb-tile"><div class="kdb-tile-l">Runs vs plan</div><div class="kdb-tile-v ${A.now && Math.abs(A.now.bias) >= 15 ? 'kdb-bad' : ''}">${A.now?.bias === null || !A.now ? '—' : `${A.now.bias > 0 ? '+' : ''}${pllN(A.now.bias)}%`}</div><div class="kdb-tile-s">typical run, against its planned time</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Set-up a run</div><div class="kdb-tile-v">${L.setup.all === null ? '—' : `${pllN(L.setup.all)} min`}</div><div class="kdb-tile-s">before cards flow, usual</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Remakes</div><div class="kdb-tile-v">${L.runs.cards ? `${pllN((L.runs.remade / L.runs.cards) * 100, 1)}%` : '—'}</div><div class="kdb-tile-s">${pllN(L.runs.remade)} cards</div></div>
     </div>
-    <div class="kc-note pll-switch">${L.learned_on ? `🧠 Planning is timing each card line from its card's own runs. <button type="button" class="small" data-pll="learned-off">Go back to the speeds and OEE</button>`
-      : `🧠 <b>Card by card</b>: time each card line in a work order from that card's own runs (and its kind's, while it has few), plus the set-up — so a work order is timed by what's actually in it.${A.items && A.learned && A.items.within > A.learned.within ? ` It has been the closest of the three (${pllN(A.items.within)}% within 25%).` : ''} <button type="button" class="primary small" data-pll="learned-on">Use it in the plan</button>`}</div>
+    <div class="kc-note pll-switch">${L.learned_on ? `🔬 Planning is timing each card line from its card's own runs. <button type="button" class="small" data-pll="learned-off">Go back to the speeds and OEE</button>`
+      : `🔬 <b>Card by card</b>: time each card line in a work order from that card's own runs (and its kind's, while it has few), plus the set-up — so a work order is timed by what's actually in it.${A.items && A.learned && A.items.within > A.learned.within ? ` It has been the closest of the three (${pllN(A.items.within)}% within 25%).` : ''} <button type="button" class="primary small" data-pll="learned-on">Use it in the plan</button>`}</div>
     ${L.findings.length ? `<div class="card"><h3 class="pl-h">What stands out</h3><ul class="pll-find">${L.findings.map((f) => `<li class="pll-${f.kind}"><span>${PLL.icon[f.kind] || '•'}</span> ${esc(f.text)}</li>`).join('')}</ul></div>` : ''}
 
     <div class="card"><h3 class="pl-h">Speeds by kind of card <span class="muted small">— running speed once a run is going (its machine's usual set-up taken off), the middle of its runs weighted by cards</span>${pllX('kind')}</h3>

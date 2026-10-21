@@ -1679,7 +1679,7 @@ async function waitForServer() {
       // older reports loaded by hand fill in the history
       const up = await fetch(`${BASE}/prod/upload?source=perso`, { method: 'POST', body: xlsx, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': 'old.xlsx' } }).then((x) => x.json());
       assert.equal(up.rows, 34); assert.equal(up.added, 0); assert.equal(up.days, 2);
-      // 🧠 learned: speeds, OEE, accuracy and patterns from the runs, and the same as a workbook
+      // 🔬 learned: speeds, OEE, accuracy and patterns from the runs, and the same as a workbook
       const learnt = await call('GET', '/plan/learn?days=30&to=2026-10-10');
       assert.ok(learnt.runs.used > 0 && learnt.runs.used <= learnt.runs.total, 'the runs kept, anomalies out');
       assert.ok(Array.isArray(learnt.speeds) && Array.isArray(learnt.oee) && Array.isArray(learnt.findings) && learnt.patterns.shift.length && learnt.patterns.size.length);

@@ -1,5 +1,5 @@
 'use strict';
-// 🧠 Planning that learns from what really ran: the ⏱ Production runs (the daily timing reports)
+// 🔬 Planning that learns from what really ran: the ⏱ Production runs (the daily timing reports)
 // over a window, anomalies taken out, matched to the card database. From them:
 // - speeds: each kind of card's running speed (cards an hour once a run is going, its machine's
 //   usual set-up taken off), against the speed Planning uses now → suggested speed rules;

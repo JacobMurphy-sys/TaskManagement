@@ -58,7 +58,7 @@ The top bar's tabs were renamed for 1.0 (the addresses behind them are unchanged
 | Ideas | 💡 **Ideas** | | Continuous Improvement |
 | Library | 📚 **Library** | | Basic pack |
 | KPIs | 📊 **Reporting** | **Weekly Ops Report** (the A3), Database, Sources | Management |
-| Planning | 🏭 **Production** | 💳 Perso, 🧩 Matching, 🚚 Dispatch, ✨ Insights (🧠 Learned, 📆 D+ due out, ⏱ Timing) | Prod Management |
+| Planning | 🏭 **Production** | 💳 Perso, ✉️ Matching, 🚚 Dispatch, 🧠 Insights (🔬 Learned, 📆 D+ due out, ⏱ Timing) | Prod Management |
 | Report | 🗄 *Archive* | the status report | Archive |
 | Contacts | 📇 **Contacts** | | Admin |
 
@@ -210,7 +210,7 @@ Past weeks stay in the list, so any earlier A3 can be viewed or saved again.
 - Worked out from those: CPMS (complaints per million cards shipped), scrap rate (scrap ÷ cards persoed), productivity (cards persoed per working hour) and HC (contract + temps) — all checked against Excel the same way.
 - Week codes are worked out, not typed: weeks run Sunday–Saturday (W2639), and a week whose weekdays fall in two months is split into W…_1 and W…_2. Excel's calendar leaves the Saturday and Sunday of a split week out of both parts, so weekend work in those weeks never reaches the report — the page lists it, and a tick box counts those days in their own month's part instead.
 
-### ⏱ Timing (Production › ✨ Insights › ⏱ Timing)
+### ⏱ Timing (Production › 🧠 Insights › ⏱ Timing)
 What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (one row per job run: the machine, start and end date and time, cards persoed, remake, customer, item), and Matching's matching report.
 - **Link the report** where it's saved (on the Production tab, or ⚙ there). It's read every 10 minutes and **every run is kept**, so the history builds up day by day even though the report only holds one day; reading a report again updates its runs rather than adding them twice. **📂 Load reports…** takes older daily reports (several at once) to fill in the past. The columns are found by their names, in any order. **The history starts when the report is linked**: the daily report only ever holds one day, so to see earlier weeks or months, export the timing report once for a longer period (e.g. the last 3 months, same columns) and load it with 📂 Load reports… (3 months of runs load in about a second). The page opens on the latest day with runs.
 - **Every run the report holds is kept, whatever its day**: a report covering several days or months fills in all of them. A **history strip** at the top shows every day kept (cards a day; click a day to open it), and the report line says what the report itself held when last read (e.g. *the report held 8,090 runs over 66 days*). Views: a day, 3 days, a week, two weeks or a month.
@@ -221,7 +221,7 @@ What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (
 - **▦ Load**: machine time busy per machine per day (runs that overlap on a machine count once), as a share of the working day, with the cards made and each machine's average time a card. **☰ Runs** lists every run.
 - **Anomalies are set aside automatically.** Each machine's usual **set-up time** and **time a card** are learned from its own runs over the last 120 days (a robust line fit, which the odd bad run doesn't move), so a run is compared with what a job *that size* should take on *that machine*. A run is an anomaly when it's at least **3× quicker or slower** than that (*Normal*; *Strict* 2×, *Loose* 5×) and well outside the machine's usual spread. Runs over 24 hours, ending before they start, or with nothing made are always set aside, and a run without an end is shown as still open. Anomalies are left out of every figure and listed with the reason (e.g. *28× slower than usual on MX#1 (18.4 h for 928 cards, usually about 40 min)*); **count them anyway** puts them back (dashed on the Gantt).
 
-**⚠ Anomalies to Excel**, for investigations, puts the timing runs that were set aside into one workbook. Open it from ⏱ Timing, the ⚠ Anomalies table, or 🧠 Learned's "anomalies left out". Choose the period (30 days to a year, or any dates) and the strictness; the workbook has:
+**⚠ Anomalies to Excel**, for investigations, puts the timing runs that were set aside into one workbook. Open it from ⏱ Timing, the ⚠ Anomalies table, or 🔬 Learned's "anomalies left out". Choose the period (30 days to a year, or any dates) and the strictness; the workbook has:
 - **Anomalies by WO:** each work order with runs that can't be right for their machine and size (far too slow or quick, no end time, impossible). Each row shows the runs, kinds, cards, minutes against the usual, the worst run, the machines, the dates and where the work order stands in the export now. Empty **Cause · Action · Owner · Closed** columns are there to fill in.
 - **Anomalous runs:** every one of those runs, with how far off it was.
 - **Read me:** what's in it and the period.
@@ -230,15 +230,15 @@ What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (
 
 **🏭 Production** in the top bar (formerly Planning) has three tabs:
 - **💳 Perso:** the open perso work orders, in the order chosen in the drop-down on the tab (FIFO, BAU, ⚖ Score or 🛟 Mitigation). Views are ☰ List, ▤ Gantt, ▦ Load and 📈 History.
-- **🧩 Matching:** the Matching jobs.
+- **✉️ Matching:** the Matching jobs.
 - **🚚 Dispatch:** the open dispatch jobs from the Dispatch export (*OpenDespatchWorkorders*), set in ⚙ Setup or tried with 📂 Load file….
   - **What's read:** **WO** (the perso work order plus `DES0001`, so `CCBCS26101956DES0001` belongs to work order `CCBCS26101956`, customer CBC), **QNY**, **Due Out**, **Status**, Prio, LIVE, GROUP, and the customer's name.
-  - **Where each one is in the chain:** each dispatch job is linked by its work order to the perso jobs still open and to its Matching jobs. It shows ⏳ *Waiting on perso*, 🧩 *Waiting on Matching* or ✔ *Ready to dispatch*, with roughly when it will be ready (from their projected finishes) and the export's own status beside it.
+  - **Where each one is in the chain:** each dispatch job is linked by its work order to the perso jobs still open and to its Matching jobs. It shows ⏳ *Waiting on perso*, ✉️ *Waiting on Matching* or ✔ *Ready to dispatch*, with roughly when it will be ready (from their projected finishes) and the export's own status beside it.
   - **Tiles:** open, due today, overdue, waiting on perso, waiting on Matching, ready. Click a stage tile to show only those.
   - **Click a job** for its perso and Matching jobs, and **🔍 Everything about** the work order.
   - **Old ones:** dispatch jobs due long ago are hidden like the rest and are in the hidden export (*Hidden Dispatch*). Despatched ones aren't listed.
   - **Elsewhere:** the 🔍 work order window lists its dispatch jobs, search finds them, and 📆 D+ due out covers Dispatch too (its history is recorded from now on).
-- **✨ Insights:** 🧠 Learned and 📆 D+ due out (both described below, D+ for Perso, Matching, Dispatch or All), and ⏱ Timing (what ran on each machine; see *⏱ Timing*). Timing moved here from Reporting, and its old links lead here.
+- **🧠 Insights:** 🔬 Learned and 📆 D+ due out (both described below, D+ for Perso, Matching, Dispatch or All), and ⏱ Timing (what ran on each machine; see *⏱ Timing*). Timing moved here from Reporting, and its old links lead here.
 
 **📄 Generate plan** is the large button at the right of the tiles row, on Perso and on Matching.
 
@@ -250,7 +250,7 @@ The Perso tab turns the open perso work orders export (`OpenPersoWorkorders_PerA
 - **Cards due by each cut-off**: jobs and cards per deadline with the running total — what has to be done by when.
 - **Card database** (in ⚙ Setup): the Access database (`.accdb` / `.mdb`) whose **Cards** table gives each card article (**AX Ref**) its **Type**, **Material** and **Print Sides** (plus name, customer, provider…). It's read directly — no Access needed, nothing changed, it can stay open — and again whenever it's saved. (An Excel export of the table works too, e.g. if the database is password protected.)
 - **Card lines without a speed:** when some card lines have no speed of their own, a notice says how many. **🔎 Show which** opens them:
-  - **No speed for their kind of card**, grouped by type · material · print sides, biggest first. Each group shows its lines, cards, cards (AX) and work orders, and the 🧠 learned speed for the kind where the runs know it. With the setup right, type a speed and press **Save** to add the rule; the whole group is then timed with it.
+  - **No speed for their kind of card**, grouped by type · material · print sides, biggest first. Each group shows its lines, cards, cards (AX) and work orders, and the 🔬 learned speed for the kind where the runs know it. With the setup right, type a speed and press **Save** to add the rule; the whole group is then timed with it.
   - **Not in the card database:** cards with no kind, so no rule can reach them. Add them to the Cards table, or correct the Card AX in the work order.
   - Card and work order numbers open in 🔍 search. **⬇ CSV** lists every line (work order, job, card, kind, cards, why) to hand on.
 - **Speeds**: Setup lists the kinds of card in the open work orders — type × material × print sides, most cards first — to type each one's cards per hour; **general rules** (a blank field matches any, e.g. every DOD card) cover the rest, the most specific rule winning. Card articles missing from the database are listed; a line without a speed gets the flat rate if one is set, else the average of the others (marked ≈).
@@ -276,8 +276,8 @@ The Perso tab turns the open perso work orders export (`OpenPersoWorkorders_PerA
   - **📥 Import from the Production Planning workbook** brings over ShiftLookup, ManualLookup, MatchingLookup, DispatchLookup and the Cards sheet's AX / Tag list, replacing lists of the same name.
   - Each module has its own on/off switch. Kept in `plan_modifiers`, `plan_mod_shifts` and `plan_card_tags` (audited, backed up).
 - **⏳ Backlog** (Perso list view and the Matching view): the cards or items overdue (past the cut-off / plan date), in how many jobs, and the oldest due date. It also estimates how long catching up will take at the pace of the last 7 days' working days: output a day (Perso: jobs gone from the export, from the plan history; Matching: finished jobs by their End Date) against work due a day (by due / plan date). It gives two figures: the overdue on its own ÷ output a day, and, with new work still coming, overdue ÷ (output − due), with the working day it's reached. If as much or more is due each day as is done, it says the backlog isn't shrinking. The Overdue tiles now show cards / items, with the catch-up days.
-- **🧠 Learned** (✨ Insights): Planning learns from what really ran, the runs in the ⏱ Production timing reports (✨ Insights › ⏱ Timing), over the last 30 days to a year, with anomalies left out and each card matched to the card database.
-  - **🧠 Card by card (run times learned item by item):** each card line in a work order is timed as the usual set-up plus its cards at that card's own running speed, learned from its runs. A card with few runs leans on its kind of card: one run counts for little, ten for most. The kind's speed is adjusted by how that customer's cards usually run. A card with no history takes its kind's speed. A card with no history whose kind has none either takes all runs' speed, unless a speed rule covers it, in which case the rule is kept. So a work order with several different cards is timed by what's actually in it. Switch it on with **Use it in the plan**, or in ⚙ Setup › **Run times**. Lines timed this way show 🧠 by their speed; hover over it to see how many runs it's based on and the set-up added. Every later step (machines, Gantt, load, mitigation and the projected finish) uses these times. The model uses the last 180 days of runs and updates as new timing reports come in. The Accuracy tiles compare all three ways on the newest runs.
+- **🔬 Learned** (🧠 Insights): Planning learns from what really ran, the runs in the ⏱ Production timing reports (🧠 Insights › ⏱ Timing), over the last 30 days to a year, with anomalies left out and each card matched to the card database.
+  - **🔬 Card by card (run times learned item by item):** each card line in a work order is timed as the usual set-up plus its cards at that card's own running speed, learned from its runs. A card with few runs leans on its kind of card: one run counts for little, ten for most. The kind's speed is adjusted by how that customer's cards usually run. A card with no history takes its kind's speed. A card with no history whose kind has none either takes all runs' speed, unless a speed rule covers it, in which case the rule is kept. So a work order with several different cards is timed by what's actually in it. Switch it on with **Use it in the plan**, or in ⚙ Setup › **Run times**. Lines timed this way show 🔬 by their speed; hover over it to see how many runs it's based on and the set-up added. Every later step (machines, Gantt, load, mitigation and the projected finish) uses these times. The model uses the last 180 days of runs and updates as new timing reports come in. The Accuracy tiles compare all three ways on the newest runs.
   - **Accuracy:** the share of runs Planning would have timed within 25% of what they took, with the setup as it is and with the learned values. The learned values are worked out on the older runs and tested on the newest, so the figure isn't flattered.
   - **Speeds by kind of card** (type · material · print sides): the running speed once a run is going, with the machine's usual set-up taken off. It's the middle of the runs, weighted by cards, with the range half of them fall in, set against the speed planned now. **Apply** adds or updates that exact speed rule. **Apply the confident speeds** does all the rows with enough runs: ●●● 30+ runs over 5+ days, ●●○ 10+ over 2+ days. ●○○ rows are left for you to judge.
   - **Estimated OEE by customer:** the time each customer's runs would take at the speeds planned now, divided by the time they took. It takes in set-ups, stops and slower cards. It's measured against the current speeds, so apply the speeds first; the OEE figures then update.
@@ -315,12 +315,12 @@ The Perso tab turns the open perso work orders export (`OpenPersoWorkorders_PerA
   - **A card (AX)** shows:
     - its card database details;
     - its runs, cards run and usual cards an hour;
-    - the **🧠 learned speed** and the time for 1,000 cards;
+    - the **🔬 learned speed** and the time for 1,000 cards;
     - the open work orders it's in;
     - its runs by machine and by customer, and its latest runs.
     - **⤢ Explode its runs** opens them in the Explode window.
   - Work orders and cards are links between each other. **← Back** returns to the previous one, scrolled to where you were.
-- **📆 D+ due out** (✨ Insights) shows how much notice work orders come with, for **Perso**, **Matching** or **Both**:
+- **📆 D+ due out** (🧠 Insights) shows how much notice work orders come with, for **Perso**, **Matching** or **Both**:
   - **How it's counted:**
     - A work order *comes in* on the day it first appears in its export. Perso uses the open work orders, recorded in the plan history. Matching uses its jobs, grouped by work order; the Matching export is now recorded the same way, from when this was added.
     - Its notice is the working days from then to its due-out day (Matching: its plan date), using Planning's working days. **D+0** is due the same day, **D+1** the next working day (Friday → Monday is D+1), up to **D+5 or more**. **Past due** means it was already late when it came in.
@@ -418,7 +418,7 @@ Instead of a copy on each PC, one computer runs the CI Manager and everyone open
   - **To tick:**
     - **🗂 Management:** Projects (the board, project pages and charters, the projects list in the sidebar) and 📊 Reporting (the Weekly Ops Report, its database and sources).
     - **💡 Continuous Improvement:** Ideas.
-    - **🏭 Prod Management:** Production, including ✨ Insights and its ⏱ Timing.
+    - **🏭 Prod Management:** Production, including 🧠 Insights and its ⏱ Timing.
     - **🗄 Archive:** the status report.
     - **📇 Admin:** Contacts, for editing the lists. Names can still be picked as owners without it.
   - **Carried over:** ticks made before the grouping move across. Projects or KPIs become Management, Ideas becomes Continuous Improvement, Planning becomes Prod Management, Report becomes Archive and Contacts becomes Admin.
@@ -439,7 +439,7 @@ Instead of a copy on each PC, one computer runs the CI Manager and everyone open
   - **What only they can change:**
     - ⚙ Settings (areas, currency, project lists, the charter template, the team pack, accounts);
     - Planning's ⚙ Setup and ⚖ Modifiers (machines, speeds, OEE, card tags, export/import setup);
-    - the 🧠 Learned view's *Apply* and *Use it in the plan* buttons;
+    - the 🔬 Learned view's *Apply* and *Use it in the plan* buttons;
     - KPI Sources and the ⏱ Production report paths;
     - importing or removing Library notes;
     - Backups.

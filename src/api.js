@@ -1937,7 +1937,7 @@ router.get('/plan', h((req, res) => {
   const oeeDefault = Number(set.plan_oee_default) > 0 && Number(set.plan_oee_default) <= 100 ? Number(set.plan_oee_default) / 100 : null;
   const maxAge = planMaxAge(set);
   const hiddenJobs = planning.jobsOf(src.lines.filter((l) => planning.tooOld(l.due, maxAge)));
-  // 🧠 learned run times (Setup › Run times): each card line timed from the history of that card
+  // 🔬 learned run times (Setup › Run times): each card line timed from the history of that card
   const learnOn = set.plan_learned_times === '1';
   const model = learnOn ? planLearn.modelFor({ cards: db_.status === 'ok' ? db_.cards : null, cardsKey: `${db_.file}|${db_.modified}|${db_.count}` }) : null;
   const kindKey = (c) => [c.type, c.material, c.sides].map((v) => String(v ?? '').trim().toLowerCase()).join('|');
@@ -2454,7 +2454,7 @@ router.delete('/plan/pins', h((req, res) => {
 }));
 
 // What's been done: completions per day (on time or late), the week, the latest jobs done.
-// 🧠 Learned from the production runs: speeds, OEE, accuracy, patterns and findings (see planlearn.js).
+// 🔬 Learned from the production runs: speeds, OEE, accuracy, patterns and findings (see planlearn.js).
 function learnNow(daysQ, toQ) {
   const set = getSettings();
   const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });

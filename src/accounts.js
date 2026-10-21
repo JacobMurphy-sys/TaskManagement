@@ -39,7 +39,7 @@ const MODULES = [
   { key: 'basic', label: 'Basic pack', icon: '📋', what: 'Home, Tasks, Calendar, Library, 📥 My work, quick notes and search', always: true, areas: [] },
   { key: 'management', label: 'Management', icon: '🗂', what: 'Projects (the board, project pages and charters, the projects list in the sidebar) and Reporting (the weekly ops report, its database and sources)', areas: ['projects', 'kpi'] },
   { key: 'ci', label: 'Continuous Improvement', icon: '💡', what: 'Ideas: the ideas, their notes and the pipeline', areas: ['ideas'] },
-  { key: 'production', label: 'Prod Management', icon: '🏭', what: 'Production: perso, Matching, Insights (🧠 Learned, 📆 D+ due out, ⏱ Timing) and 🔍 search', areas: ['planning'] },
+  { key: 'production', label: 'Prod Management', icon: '🏭', what: 'Production: perso, Matching, Insights (🔬 Learned, 📆 D+ due out, ⏱ Timing) and 🔍 search', areas: ['planning'] },
   { key: 'archive', label: 'Archive', icon: '🗄', what: 'the archived status report', areas: ['report'] },
   { key: 'admin', label: 'Admin', icon: '📇', what: 'Contacts, to edit the lists (names can still be picked as owners without it)', areas: ['contacts'] },
 ];

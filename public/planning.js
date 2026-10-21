@@ -16,19 +16,19 @@ const PLF = {
 const PL_PAGE = 150;
 
 // 🏭 Production's three tabs: Perso (with its order — FIFO, BAU, Score, Mitigation — in a drop-down on
-// the tab), Matching, 🚚 Dispatch and ✨ Insights (🧠 Learned and 📆 D+ due out, in dplus.js).
+// the tab), Matching, 🚚 Dispatch and 🧠 Insights (🔬 Learned and 📆 D+ due out, in dplus.js).
 const PL_MODES = [['fifo', 'FIFO', 'By deadline only'], ['bau', 'BAU', 'By due day, then High / Normal / Low, then cut-off'], ['score', '⚖ Score', 'Highest score first: the deadline plus the ⚖ modifiers'],
   ['mitigation', '🛟 Mitigation', 'Save as many as possible: work orders due in the next few working days that can still make it first, then those already overdue or that would be late anyway, then those due later']];
 function plHalvesHtml(half, mode = store.get('planMode', 'fifo')) {
   const tab = (k, label, extra = '') => `<div class="pl-half ${half === k ? 'on' : ''}"><button type="button" data-pl-half="${k}">${label}</button>${extra}</div>`;
   return `<div class="pl-halves">
     ${tab('perso', '💳 Perso', half === 'perso' ? `<select id="pl-mode" title="The order the work orders are taken in — ${esc(PL_MODES.map(([, l, w]) => `${l}: ${w}`).join(' · '))}">${PL_MODES.map(([k, l]) => `<option value="${k}" ${mode === k ? 'selected' : ''}>${l}</option>`).join('')}</select>` : '')}
-    ${tab('otto', '🧩 Matching')}${tab('disp', '🚚 Dispatch')}${tab('insights', '✨ Insights')}</div>`;
+    ${tab('otto', '✉️ Matching')}${tab('disp', '🚚 Dispatch')}${tab('insights', '🧠 Insights')}</div>`;
 }
 
 // 🔎 The card lines without a speed of their own, for putting right: those whose card isn't in the card
 // database (no kind, so no rule can reach them), and the rest by kind of card — one speed rule (type ·
-// material · print sides) covers a whole group; the 🧠 learned speed for the kind is offered where known.
+// material · print sides) covers a whole group; the 🔬 learned speed for the kind is offered where known.
 async function plNoSpeed() {
   const p = planNow; if (!p) return;
   const lines = [];
@@ -55,7 +55,7 @@ async function plNoSpeed() {
     <p class="small muted">These lines are timed at ${p.capacity?.rate ? 'the flat rate' : 'the average of the others (≈)'}, so their planned times are a guess. Put them right in the order below — biggest first.</p>
     ${groupsSorted.length ? `<h3 class="pl-h">No speed for their kind of card <span class="muted small">${groupsSorted.length} kind${groupsSorted.length === 1 ? '' : 's'} · ${n(noSpeed.length)} lines · ${n(sum(noSpeed))} cards</span></h3>
       <p class="small muted">Each is a type · material · print sides with no speed rule. ${canSet ? 'Type a speed and press <b>Save</b> to add the rule — every line of that kind is then timed with it.' : 'Someone with the setup right can add a speed rule for each in ⚙ Setup › Speeds.'}</p>
-      <div class="kdb-scroll"><table class="log pll-t"><thead><tr><th>Kind of card</th><th class="num">Lines</th><th class="num">Cards</th><th>Cards (AX)</th><th>Work orders</th><th class="num">🧠 Learned</th>${canSet ? '<th>Speed (cards/h)</th>' : ''}</tr></thead><tbody>
+      <div class="kdb-scroll"><table class="log pll-t"><thead><tr><th>Kind of card</th><th class="num">Lines</th><th class="num">Cards</th><th>Cards (AX)</th><th>Work orders</th><th class="num">🔬 Learned</th>${canSet ? '<th>Speed (cards/h)</th>' : ''}</tr></thead><tbody>
       ${groupsSorted.map((g, i) => { const lk = learned.get(kindKey({ type: g.kind[0], material: g.kind[1], sides: g.kind[2] })); const arts = [...new Set(g.lines.map((l) => l.article))];
         return `<tr><td><b>${kindText(g.kind)}</b></td><td class="num">${n(g.lines.length)}</td><td class="num">${n(sum(g.lines))}</td>
         <td class="small">${arts.slice(0, 5).map((a) => `<a href="#" data-pf-open-item="${esc(a)}">${esc(a)}</a>`).join(', ')}${arts.length > 5 ? ` <span class="muted">+${arts.length - 5}</span>` : ''}</td><td class="small">${woLinks(g.lines)}</td>
@@ -89,7 +89,7 @@ async function plNoSpeed() {
 }
 
 async function renderPlanning() {
-  if (['insights', 'dplus'].includes(store.get('planHalf', 'perso'))) return renderPlanInsights(); // ✨ Insights (dplus.js)
+  if (['insights', 'dplus'].includes(store.get('planHalf', 'perso'))) return renderPlanInsights(); // 🧠 Insights (dplus.js)
   const mode = ['bau', 'score', 'mitigation'].includes(store.get('planMode', 'fifo')) ? store.get('planMode') : 'fifo';
   const half = ['otto', 'disp'].includes(store.get('planHalf', 'perso')) ? store.get('planHalf') : 'perso';
   const [p, settings] = await Promise.all([api.get(`/plan?mode=${mode}`), api.get('/settings')]);
@@ -161,7 +161,7 @@ async function renderPlanning() {
   // a job's card articles: built when it's opened, not for every row up front
   const detailRow = (j) => `<tr class="pl-detail" data-pl-detail="${esc(j.key)}"><td></td><td colspan="${(p.projected ? 7 : 6) + (mode === 'score' ? 1 : 0)}">${j.score_parts?.length ? `<div class="pl-score-parts small">⚖ ${j.score_parts.map((x) => `<span class="pl-chip" title="${esc([x.note, x.authoriser ? `authorised by ${x.authoriser}` : ''].filter(Boolean).join(' · '))}">${esc(x.module)}${x.note && x.module === 'Shift' ? ` (${esc(x.note)})` : ''} <b>${x.value > 0 ? '+' : ''}${scoreFmt(x.value)}</b></span>`).join(' ')} = <b>${scoreFmt(j.score)}</b>${j.tags?.length ? ` · tags ${esc(j.tags.join(', '))}` : ''}</div>` : ''}<table class="log small"><thead><tr><th>Card article</th><th>Card</th><th>Type</th><th>Material</th><th>Print sides</th><th class="num">Cards</th><th class="num">Speed</th><th class="num">Time</th>${(p.machines || []).some((m) => m.active) ? '<th>Machine</th>' : ''}<th>Status</th></tr></thead>
       <tbody>${j.articles.map((a) => `<tr><td>${esc(a.article)}</td><td>${a.card ? esc(a.card.name || '') : '<span class="pl-warn">not in the card database</span>'}</td><td>${esc(a.card?.type || '')}</td><td>${esc(a.card?.material || '')}</td><td>${esc(a.card?.sides || '')}</td>
-        <td class="num">${n(a.qty)}</td><td class="num">${a.speed ? `${n(a.speed)}/h${String(a.speed_from).startsWith('learned') ? ` <span title="${esc(learnedTitle(a))}">🧠</span>` : a.speed_from === 'fallback' ? ' <span class="muted" title="No speed for this kind of card — the flat rate">≈</span>' : a.speed_from === 'average' ? ' <span class="muted" title="No speed for this card — the average of the others">≈</span>' : ''}${a.oee ? ` <span class="muted small" title="Estimated OEE for this customer — planned at ${n(Math.round(a.speed * a.oee))}/h">× ${Math.round(a.oee * 1000) / 10}%</span>` : ''}` : '<span class="pl-warn">no speed</span>'}</td>
+        <td class="num">${n(a.qty)}</td><td class="num">${a.speed ? `${n(a.speed)}/h${String(a.speed_from).startsWith('learned') ? ` <span title="${esc(learnedTitle(a))}">🔬</span>` : a.speed_from === 'fallback' ? ' <span class="muted" title="No speed for this kind of card — the flat rate">≈</span>' : a.speed_from === 'average' ? ' <span class="muted" title="No speed for this card — the average of the others">≈</span>' : ''}${a.oee ? ` <span class="muted small" title="Estimated OEE for this customer — planned at ${n(Math.round(a.speed * a.oee))}/h">× ${Math.round(a.oee * 1000) / 10}%</span>` : ''}` : '<span class="pl-warn">no speed</span>'}</td>
         <td class="num">${a.minutes !== null ? fmtSpan(a.minutes) : '—'}</td>${(p.machines || []).some((m) => m.active) ? `<td>${a.machine ? `${esc(a.machine)} <span class="muted">${PLF.wkHm.format(new Date(a.start_at))}–${PLF.hm.format(new Date(a.finish_at))}</span>` : '<span class="pl-warn">no machine</span>'}</td>` : ''}<td>${esc(a.status || '')}</td></tr>`).join('')}</tbody></table></td></tr>`;
   plDetail.perso = (key) => (byKey.has(key) ? detailRow(byKey.get(key)) : '');
   const head = `<tr><th></th><th>Deadline</th><th>Work order / job</th><th>Customer</th><th class="num">Cards</th>${mode === 'score' ? '<th class="num">Score</th>' : ''}<th>Prio</th><th>Shipper</th>${p.projected ? '<th>Projected finish</th>' : ''}</tr>`;
@@ -194,7 +194,7 @@ async function renderPlanning() {
       <p class="small muted">Max cards a day: the machines able to run the type, for the working day, at the type's speed (the open cards' average). A machine running several types counts for each — the ceiling for that type on its own.</p></div>` : '';
   const cdb = p.cards_db;
   const withMachines = (p.machines || []).some((m) => m.active) && p.projected;
-  const viewList = [['list', '☰ List'], ...(withMachines ? [['gantt', '▤ Gantt'], ['load', '▦ Load']] : []), ['history', '📈 History']]; // 🧠 Learned: in ✨ Insights
+  const viewList = [['list', '☰ List'], ...(withMachines ? [['gantt', '▤ Gantt'], ['load', '▦ Load']] : []), ['history', '📈 History']]; // 🔬 Learned: in 🧠 Insights
   const view = viewList.some(([k]) => k === store.get('planView', 'list')) ? store.get('planView', 'list') : 'list';
   const hist = view === 'history' ? await api.get('/plan/history?days=14') : null;
   const historyHtml = () => {
@@ -345,7 +345,7 @@ async function renderPlanning() {
     const dCust = [...new Set(all.map((d) => d.customer).filter(Boolean))].sort();
     const over = all.filter((d) => d.due && d.due < todayIso); const today_ = all.filter((d) => d.due === todayIso);
     const st = (k) => all.filter((d) => d.stage === k);
-    const STAGE = { perso: ['⏳ Waiting on perso', 'pl-late'], matching: ['🧩 Waiting on Matching', 'pl-warn'], ready: ['✔ Ready to dispatch', 'pl-ok'] };
+    const STAGE = { perso: ['⏳ Waiting on perso', 'pl-late'], matching: ['✉️ Waiting on Matching', 'pl-warn'], ready: ['✔ Ready to dispatch', 'pl-ok'] };
     const chain = (d) => {
       const pc = d.perso_open ? `<span class="pl-warn">⏳ ${d.perso.length} perso job${d.perso.length === 1 ? '' : 's'} open</span>` : '<span class="pl-ok">✔ perso</span>';
       const mc = !d.matching.length ? '<span class="muted">no Matching job</span>' : d.matching_open ? `<span class="pl-warn">⏳ Matching: ${esc(d.matching.filter((m) => !m.done).map((m) => m.status || 'open').join(', '))}</span>` : '<span class="pl-ok">✔ Matching</span>';
@@ -476,8 +476,8 @@ async function renderPlanning() {
         <label class="f">Change-over (minutes) <span class="muted small">— when a machine switches card type or material</span><input type="number" min="0" step="1" name="plan_changeover" value="${esc(settings.plan_changeover || '0')}"></label>
         <div class="f full"><span>Run times</span><div class="row">
           <label class="row small"><input type="radio" name="pl-learned" data-pl-learned="0" ${settings.plan_learned_times === '1' ? '' : 'checked'}> From the speeds and OEE below</label>
-          <label class="row small"><input type="radio" name="pl-learned" data-pl-learned="1" ${settings.plan_learned_times === '1' ? 'checked' : ''}> 🧠 Learned from what ran — each card's own time, with the set-up</label></div>
-          <span class="small muted">${p.learned_times?.on ? `${n(p.learned_times.card)} of ${n(p.learned_times.lines)} card lines timed from their card's own runs, ${n(p.learned_times.kind + p.learned_times.all)} from their kind's or all runs${p.learned_times.setup !== null ? `, each with ${n(p.learned_times.setup)} min set-up` : ''}; the rest from the speeds and OEE. Learned from the last 180 days of ⏱ Production runs (${n(p.learned_times.runs)}).` : 'Learned run times come from the ⏱ Production runs: see ✨ Insights › 🧠 Learned for how close each way has been.'}</span></div>
+          <label class="row small"><input type="radio" name="pl-learned" data-pl-learned="1" ${settings.plan_learned_times === '1' ? 'checked' : ''}> 🔬 Learned from what ran — each card's own time, with the set-up</label></div>
+          <span class="small muted">${p.learned_times?.on ? `${n(p.learned_times.card)} of ${n(p.learned_times.lines)} card lines timed from their card's own runs, ${n(p.learned_times.kind + p.learned_times.all)} from their kind's or all runs${p.learned_times.setup !== null ? `, each with ${n(p.learned_times.setup)} min set-up` : ''}; the rest from the speeds and OEE. Learned from the last 180 days of ⏱ Production runs (${n(p.learned_times.runs)}).` : 'Learned run times come from the ⏱ Production runs: see 🧠 Insights › 🔬 Learned for how close each way has been.'}</span></div>
         <label class="f">Hide anything due more than (days ago) <span class="muted small">— likely errors; 0 shows all</span><input type="number" min="0" step="1" name="plan_max_age" value="${esc(settings.plan_max_age ?? '30')}"></label>
         <label class="f">🛟 Mitigation: due within (working days) <span class="muted small">— go before the overdue; 0 = all</span><input type="number" min="0" step="1" name="plan_miti_days" value="${esc(settings.plan_miti_days ?? '5')}"></label>
         <label class="f">Working day from<input type="time" name="plan_day_start" value="${esc(settings.plan_day_start || '06:00')}"></label>
@@ -952,7 +952,7 @@ function printDialog(p, mode, settings = {}, half = 'perso') {
 }
 
 // 95 → "1 h 35 min", 2000 → "1 d 9 h"
-// The 🧠 mark's explanation on a card line timed from history.
+// The 🔬 mark's explanation on a card line timed from history.
 function learnedTitle(a) {
   const from = a.speed_from === 'learned:card' ? `${a.learned.runs} run${a.learned.runs === 1 ? '' : 's'} of this card${a.learned.runs < 10 ? ', leaning on its kind of card' : ''}`
     : a.speed_from === 'learned:kind' ? `${a.learned.runs} runs of this kind of card (none of this card yet)` : `all runs (no history for this card or its kind yet)`;
