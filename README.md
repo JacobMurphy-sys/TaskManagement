@@ -260,6 +260,10 @@ What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (
   - **A work order** shows:
     - its customer, due date and cut-off, shipper and priority;
     - **where it is in the plan now**: running, or its place in the queue, with the projected machines, start, finish and on time / late when the plan has speeds;
+    - **Cards in it:** how many of each card the work order holds, with its share, next to the cards actually run, remade and the number of runs. The heading says which way the figures were found:
+      - **from the export** while the work order is open;
+      - **as recorded** once it's gone: each version of the export now keeps every job's cards and how many (from this version on, and carried in *Export setup + history*);
+      - **≈ estimated** from the production runs for older work orders, as each card's share of the cards run (remakes left out) applied to the work order's recorded total. Shares are used rather than the sums because a card run on several stations counts more than once. With no total recorded, the estimate is simply the cards run.
     - its lines (each card, with its kind from the card database);
     - its Matching jobs;
     - its **plan history** (first seen, started, done, against the deadline);

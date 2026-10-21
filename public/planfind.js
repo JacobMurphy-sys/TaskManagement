@@ -89,6 +89,24 @@ function pfClick(e) {
   }
 }
 
+// How many of each card: exact from the export (or as recorded from it), else estimated from the runs.
+function pfMakeupHtml(m) {
+  if (!m || !m.cards.length) return '';
+  const est = m.basis === 'runs';
+  const why = m.basis === 'export' ? 'from the open work orders export'
+    : m.basis === 'recorded' ? 'as recorded from the export while it was open'
+      : m.basis === 'runs' ? `<b>estimated</b> from its production runs: each card's share of the cards run (remakes left out)${m.history_total ? `, applied to the ${pfN(m.history_total)} cards the work order had` : ' — no total was recorded, so these are the cards run'}`
+        : 'no card lines known — only what ran';
+  const maxShare = Math.max(1, ...m.cards.map((c) => c.share || 0));
+  return `<h3 class="pl-h">Cards in it <span class="muted small">${m.cards.length} card${m.cards.length === 1 ? '' : 's'}${m.total ? ` · ${est ? '≈ ' : ''}${pfN(m.total)} in all` : ''} — ${why}</span></h3>
+    <div class="kdb-scroll pf-scroll"><table class="log pll-t"><thead><tr><th>Card (AX)</th><th>Card</th><th class="num">${est ? '≈ ' : ''}Cards</th><th>Share</th><th class="num" title="Cards run in the ⏱ Production runs, remakes apart">Run</th><th class="num">Remade</th><th class="num">Runs</th></tr></thead><tbody>
+      ${m.cards.map((c) => `<tr><td>${pfItemLink(c.article)}</td><td class="small">${c.card ? `${esc(c.card.name || '')} <span class="muted">${pfKind(c.card)}</span>` : '<span class="muted">not in the card database</span>'}</td>
+        <td class="num"><b>${c.qty === null ? '<span class="muted" title="Ran, but not in the work order\'s lines">—</span>' : `${est ? '≈ ' : ''}${pfN(c.qty)}`}</b></td>
+        <td>${c.share === null ? '' : `<div class="pllx-share"><div class="pll-track"><div style="width:${(c.share / maxShare) * 100}%"></div></div><span>${c.share}%</span></div>`}</td>
+        <td class="num">${c.runs ? pfN(c.run) : '<span class="muted">—</span>'}</td><td class="num">${c.remade ? `<span class="pl-late">${pfN(c.remade)}</span>` : ''}</td><td class="num">${c.runs || ''}</td></tr>`).join('')}
+    </tbody></table></div>`;
+}
+
 function pfWoHtml(d) {
   if (!d.found) return `${pfHead(`🔍 ${esc(d.wo)}`)}<p>No work order <b>${esc(d.wo)}</b> in the open work orders, the Matching export, the plan history or the production runs.</p>`;
   // where it is in the plan drawn on the page (open work orders only)
@@ -106,6 +124,7 @@ function pfWoHtml(d) {
       ${jobs.map((j) => `<tr><td><b>${esc(j.per || j.key)}</b>${j.pinned ? ' 📌' : ''}</td><td>${pos(j)}</td><td class="num">${pfN(j.qty)}</td><td class="small">${esc(j.deadline ? fmtDateTime(j.deadline) : '—')}</td>
         ${projected ? `<td class="small">${esc((j.machines || []).join(', ') || j.machine_planned || '—')}</td><td class="small">${esc(pfWhen(j.start_at))}</td><td class="small">${esc(pfWhen(j.finish_at))}</td><td>${j.unplanned ? '<span class="pl-warn">not planned</span>' : lateText(j.late_minutes)}</td>` : ''}</tr>`).join('')}
     </tbody></table></div>${projected ? '' : '<p class="small muted">Starts, finishes and machines show here once the plan has speeds to project with (⚙ Setup).</p>'}` : ''}
+    ${pfMakeupHtml(d.makeup)}
     ${d.open.length ? `<h3 class="pl-h">Lines in the open work orders <span class="muted small">${d.open.length}</span></h3><div class="kdb-scroll pf-scroll"><table class="log pll-t"><thead><tr><th>PER</th><th>Card (AX)</th><th>Card</th><th class="num">Cards</th><th>Status</th><th>Due</th><th>Group</th></tr></thead><tbody>
       ${d.open.map((l) => `<tr><td>${esc(l.per)}</td><td>${pfItemLink(l.article)}</td><td class="small">${l.card ? `${esc(l.card.name || '')} <span class="muted">${pfKind(l.card)}</span>` : '<span class="muted">not in the card database</span>'}</td>
         <td class="num">${pfN(l.qty)}</td><td class="small">${esc(l.status || '')}</td><td class="small">${esc(l.due || '')}</td><td class="small">${esc(l.group || '')}</td></tr>`).join('')}

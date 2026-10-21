@@ -28,6 +28,10 @@ function ingest(lines, modifiedIso, file = null) {
     const seen = new Set();
     for (const j of jobs) {
       seen.add(j.key);
+      // its cards and how many, as this export has them (a card on several lines counted together)
+      const byCard = new Map();
+      for (const a of j.articles) if (a.article) byCard.set(a.article, (byCard.get(a.article) || 0) + (a.qty || 0));
+      for (const [article, qty] of byCard) db.run('INSERT INTO plan_history_lines (key, wo, article, qty) VALUES (?, ?, ?, ?) ON CONFLICT(key, article) DO UPDATE SET qty = excluded.qty', [j.key, j.wo, article, qty]);
       const old = db.get('SELECT * FROM plan_history_jobs WHERE key = ?', [j.key]);
       if (!old) {
         db.run(`INSERT INTO plan_history_jobs (key, wo, per, customer, qty, due, deadline, prio, shipper, first_seen, last_seen, started_at)

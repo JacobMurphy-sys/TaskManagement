@@ -2161,6 +2161,9 @@ router.get('/plan/setup', h((req, res) => {
   const history = withHistory ? {
     reads: db.all('SELECT file_modified, file, read_at, jobs, cards, running, done FROM plan_history_reads ORDER BY id'),
     jobs: db.all('SELECT * FROM plan_history_jobs ORDER BY id').map(({ id, ...rest }) => rest),
+    lines: db.all('SELECT key, wo, article, qty FROM plan_history_lines ORDER BY id'),
+    otto_reads: db.all('SELECT file_modified, file, read_at, jobs FROM plan_otto_reads ORDER BY id'),
+    otto_jobs: db.all('SELECT * FROM plan_otto_jobs ORDER BY id').map(({ id, ...rest }) => rest),
     prod_runs: db.all('SELECT * FROM prod_runs ORDER BY id').map(({ id, ...rest }) => rest),
   } : undefined;
   res.set('Content-Disposition', `attachment; filename="planning-setup${withHistory ? '-with-history' : ''}-${new Date().toISOString().slice(0, 10)}.json"`);
@@ -2320,6 +2323,10 @@ function mergeHistory(h) {
         out.jobs_updated++;
       } else if (first !== mine.first_seen) db.run('UPDATE plan_history_jobs SET first_seen = ? WHERE id = ?', [first, mine.id]);
     }
+    for (const l of Array.isArray(h.lines) ? h.lines : []) if (l?.key && l.wo && l.article) db.run('INSERT OR IGNORE INTO plan_history_lines (key, wo, article, qty) VALUES (?, ?, ?, ?)', [l.key, l.wo, l.article, Number(l.qty) || 0]);
+    for (const r of Array.isArray(h.otto_reads) ? h.otto_reads : []) if (r?.file_modified) db.run('INSERT OR IGNORE INTO plan_otto_reads (file_modified, file, read_at, jobs) VALUES (?, ?, ?, ?)', [r.file_modified, r.file || null, r.read_at || new Date().toISOString(), r.jobs || 0]);
+    const ocols = ['key', 'wo', 'customer', 'qty', 'due', 'deadline', 'prio', 'machine', 'first_seen', 'last_seen', 'done_at', 'late_minutes'];
+    for (const j of Array.isArray(h.otto_jobs) ? h.otto_jobs : []) if (j?.key && j.first_seen && j.last_seen) db.run(`INSERT OR IGNORE INTO plan_otto_jobs (${ocols.join(', ')}) VALUES (${ocols.map(() => '?').join(', ')})`, ocols.map((c) => j[c] ?? null));
     const pcols = ['source', 'job', 'machine', 'station', 'start_at', 'end_at', 'qty', 'job_qty', 'remake', 'mode', 'product', 'item', 'item_name', 'customer', 'trigram', 'due', 'file', 'read_at'];
     for (const r of Array.isArray(h.prod_runs) ? h.prod_runs : []) {
       if (!r?.source || !r.job || !r.start_at || !prod.counted(r.job)) continue;

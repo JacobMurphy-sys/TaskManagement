@@ -58,6 +58,48 @@ function totals(runs) {
 const runRow = (r) => ({ source: r.source, job: r.job, wo: planning.woOfName(r.job), machine: r.machine, start_at: r.start_at, end_at: r.end_at, qty: r.qty, remake: !!r.remake, item: r.item, item_name: r.item_name,
   minutes: r.minutes === null ? null : Math.round(r.minutes), per_hour: r.minutes ? Math.round((r.qty / r.minutes) * 60) : null });
 
+// How many of each card are in a work order: from the open export when it's there; else as recorded in the
+// plan history (each export's lines, kept since that was added); else estimated from the perso runs — each
+// card's share of the cards run (remakes left out) applied to the work order's recorded total (runs on
+// several stations count a card more than once, so it's the shares that are used, not the sums).
+// → { basis: 'export' | 'recorded' | 'runs' | null, total, cards: [{ article, qty, share, run, remade, runs, card }] }
+function makeup(wo, { open, history, perso, cards }) {
+  const runBy = new Map();
+  for (const r of perso) {
+    if (!r.item) continue;
+    const k = planning.axKey(r.item);
+    const x = runBy.get(k) || runBy.set(k, { label: String(r.item).trim(), run: 0, remade: 0, runs: 0, name: r.item_name || null }).get(k);
+    x.runs++; if (r.remake) x.remade += r.qty || 0; else x.run += r.qty || 0;
+  }
+  let basis = null; let lines = [];
+  if (open.length) { basis = 'export'; lines = open.map((l) => ({ article: l.article, qty: l.qty })); }
+  else {
+    const rec = db.all('SELECT article, qty FROM plan_history_lines WHERE upper(wo) = ?', [wo]);
+    if (rec.length) { basis = 'recorded'; lines = rec; }
+  }
+  const byCard = new Map();
+  for (const l of lines) { const k = planning.axKey(l.article); const x = byCard.get(k) || byCard.set(k, { article: String(l.article).trim(), qty: 0 }).get(k); x.qty += l.qty || 0; }
+  const histTotal = history.reduce((t, h) => t + (h.qty || 0), 0);
+  if (!byCard.size && runBy.size) {
+    basis = 'runs';
+    const runTotal = [...runBy.values()].reduce((t, x) => t + x.run, 0);
+    const target = histTotal || runTotal;
+    // largest remainder, so the estimates add up to the total
+    const raw = [...runBy].map(([k, x]) => ({ k, x, v: runTotal ? (target * x.run) / runTotal : 0 }));
+    let left = target - raw.reduce((t, r) => t + Math.floor(r.v), 0);
+    raw.sort((a, b) => (b.v - Math.floor(b.v)) - (a.v - Math.floor(a.v)));
+    for (const r of raw) { byCard.set(r.k, { article: r.x.label, qty: Math.floor(r.v) + (left > 0 ? 1 : 0) }); if (left > 0) left--; }
+  }
+  const total = [...byCard.values()].reduce((t, x) => t + x.qty, 0);
+  const keys = [...new Set([...byCard.keys(), ...runBy.keys()])];
+  const out = keys.map((k) => {
+    const c = byCard.get(k); const r = runBy.get(k); const card = cards ? cards.get(k) || null : null;
+    return { article: c?.article || r.label, qty: c ? c.qty : null, share: c && total ? Math.round((c.qty / total) * 1000) / 10 : null, run: r ? r.run : 0, remade: r ? r.remade : 0, runs: r ? r.runs : 0,
+      card: card ? { name: card.name, type: card.type, material: card.material, sides: card.sides } : r?.name ? { name: r.name } : null };
+  }).sort((a, b) => (b.qty ?? -1) - (a.qty ?? -1) || b.run - a.run);
+  return { basis, total, history_total: histTotal || null, cards: out };
+}
+
 /** Everything about a work order. ctx as suggest(). */
 function workorder(woIn, { lines = [], otto = [], cards = null } = {}) {
   const wo = String(woIn || '').trim().toUpperCase();
@@ -75,6 +117,7 @@ function workorder(woIn, { lines = [], otto = [], cards = null } = {}) {
   const cust = customer && cards ? [...cards.values()].find((c) => String(c.trigram || '').toUpperCase() === customer)?.customer || null : null;
   const found = open.length || matching.length || history.length || runs.length;
   return { wo, found: !!found, customer, customer_name: cust, open, matching, history, runs: runs.map(runRow),
+    makeup: makeup(wo, { open, history, perso, cards }),
     perso: totals(perso), otto: totals(matchRuns), items: [...new Set([...open.map((l) => l.article), ...perso.map((r) => r.item)].filter(Boolean))] };
 }
 

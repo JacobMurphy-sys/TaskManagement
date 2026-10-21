@@ -1378,6 +1378,9 @@ async function waitForServer() {
         const ind = po.otto.queue[1];
         assert.deepEqual([ind.perso_open, ind.perso.map((x) => x.key), !!ind.perso_finish_at], [true, ['CINDS26100602/0001'], true], 'linked to its open perso job, with the projected finish');
         assert.equal(po.otto.running[0].perso_open, false, 'no perso job open for its WO');
+        const indWo = await call('GET', '/plan/find/wo/CINDS26100602');
+        assert.equal(indWo.makeup.basis, 'export', 'an open work order: its cards from the export');
+        assert.equal(indWo.makeup.total, indWo.open.reduce((t, l) => t + l.qty, 0));
         const indPerso = po.queue.find((j) => j.key === 'CINDS26100602/0001');
         if (!indPerso.no_cutoff) {
           assert.deepEqual([ind.time_from, ind.deadline.slice(11), ind.shipper], ['perso', indPerso.deadline.slice(11), indPerso.shipper], 'a 23:59 matching job takes its perso work order\'s shipper and cut-off');
@@ -1673,6 +1676,10 @@ async function waitForServer() {
       assert.ok(sug.some((x) => x.kind === 'wo'), 'work orders suggested from the runs');
       const woInfo = await call('GET', `/plan/find/wo/${encodeURIComponent(job1)}`);
       assert.ok(woInfo.found && woInfo.perso.runs >= 1 && woInfo.runs.length >= 1, 'the work order\'s runs');
+      // how many of each card: estimated from the runs when no lines are known — shares of what ran, adding up
+      const made = woInfo.makeup;
+      assert.ok(['export', 'recorded', 'runs'].includes(made.basis) && made.cards.length, 'the cards in it');
+      if (made.basis === 'runs') assert.equal(made.cards.reduce((t, c) => t + (c.qty || 0), 0), made.total, 'the estimates add up to the total');
       const itemRun = woInfo.runs.find((r) => r.item);
       if (itemRun) {
         const itInfo = await call('GET', `/plan/find/item/${encodeURIComponent(itemRun.item)}`);

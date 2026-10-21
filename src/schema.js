@@ -394,6 +394,16 @@ const TABLES = {
     done_at      TEXT,
     late_minutes INTEGER`,
 
+  // 🏭 Planning history: the cards (Card AX) in each job and how many, as last seen in the export — so a
+  // work order's make-up is known after it has left the export (🔍 search).
+  plan_history_lines: `
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    key      TEXT    NOT NULL,
+    wo       TEXT    NOT NULL,
+    article  TEXT    NOT NULL,
+    qty      INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (key, article)`,
+
   // 🏭 Matching's history, as the perso one: each new version of the Matching export read once, and each
   // job's first and last time in it — when it came in (📆 D+ due out) and when it was done.
   plan_otto_reads: `
