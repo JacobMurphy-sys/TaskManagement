@@ -24,7 +24,8 @@ async function renderPlanDplus() {
   const q = `/plan/dplus?source=${dplState.source}&from=${dplState.from}&to=${dplState.to}${dplState.bucket ? `&bucket=${dplState.bucket}` : ''}`;
   const d = await api.get(q);
   const otto = d.source === 'otto'; const both = d.source === 'both';
-  const unit = otto ? 'items' : both ? 'qty' : 'cards'; // both: cards (perso) and items (Matching) const Unit = unit[0].toUpperCase() + unit.slice(1);
+  const unit = otto ? 'items' : both ? 'qty' : 'cards'; // both: cards (perso) and items (Matching)
+  const Unit = unit[0].toUpperCase() + unit.slice(1);
   const n = (v, dp = 0) => (v === null || v === undefined ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: dp }));
   const pc = (v) => (v === null || v === undefined ? '—' : `${n(v, 1)}%`);
   const T = d.total;
