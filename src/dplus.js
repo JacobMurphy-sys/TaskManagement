@@ -17,7 +17,8 @@ const pct = (n, all) => (all ? r1((n / all) * 100) : null);
 const median = (xs) => { const a = xs.filter(Number.isFinite).sort((x, y) => x - y); if (!a.length) return null; const m = Math.floor(a.length / 2); return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const SIZES = [[1, 1, '1'], [2, 10, '2–10'], [11, 100, '11–100'], [101, 500, '101–500'], [501, 2000, '501–2,000'], [2001, Infinity, 'Over 2,000']];
-const MAX_D = 5; // D+5 and more together
+const MAX_D = 5;
+const SIDE = { perso: 'Perso', otto: 'Matching', disp: 'Dispatch' }; // D+5 and more together
 
 // Working days from `from` to `to` (days): 0 the same day, 1 the next working day, -1 already past.
 function workingDaysBetween(from, to, workDays) {
@@ -35,12 +36,13 @@ const BUCKETS = [{ key: 'past', label: 'Past due', what: 'already past its due-o
 const SOURCES = {
   perso: { reads: 'plan_history_reads', jobs: 'SELECT wo, customer, shipper AS via, prio, qty, due, first_seen, done_at, late_minutes FROM plan_history_jobs' },
   otto: { reads: 'plan_otto_reads', jobs: "SELECT coalesce(wo, key) AS wo, customer, machine AS via, prio, qty, due, first_seen, done_at, late_minutes FROM plan_otto_jobs" },
+  disp: { reads: 'plan_disp_reads', jobs: "SELECT coalesce(wo, key) AS wo, customer, machine AS via, prio, qty, due, first_seen, done_at, late_minutes FROM plan_disp_jobs" },
 };
 function workorders(workDays, source = 'perso') {
   if (source === 'both') {
-    const a = workorders(workDays, 'perso'); const b = workorders(workDays, 'otto');
-    const since = [a.since, b.since].filter(Boolean).sort()[0] || null;
-    return { list: [...a.list, ...b.list].sort((x, y) => (x.at < y.at ? -1 : 1)), since };
+    const parts = ['perso', 'otto', 'disp'].map((k) => workorders(workDays, k));
+    const since = parts.map((x) => x.since).filter(Boolean).sort()[0] || null;
+    return { list: parts.flatMap((x) => x.list).sort((x, y) => (x.at < y.at ? -1 : 1)), since };
   }
   const S = SOURCES[source] || SOURCES.perso;
   const first = db.get(`SELECT MIN(file_modified) AS f FROM ${S.reads}`).f;
@@ -76,7 +78,7 @@ function breakdown(l, keyOf, order) {
  * opts: { from, to (arrival days, YYYY-MM-DD), bucket (one opened up, or 'all'), workDays (Set of 0–6), custNames (Map) }
  */
 function profile({ from, to, bucket = null, source = 'perso', workDays = new Set([1, 2, 3, 4, 5]), custNames = new Map() } = {}) {
-  source = ['perso', 'otto', 'both'].includes(source) ? source : 'perso';
+  source = ['perso', 'otto', 'disp', 'both'].includes(source) ? source : 'perso';
   const { list: everything, since } = workorders(workDays, source);
   const okDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
   const today = ymd(new Date());
@@ -111,8 +113,8 @@ function profile({ from, to, bucket = null, source = 'perso', workDays = new Set
     detail = { bucket, label: bucket === 'all' ? 'All work orders' : BUCKETS.find((b) => b.key === bucket)?.label, ...sum(l),
       customers: breakdown(l, (w) => w.customer).map((x) => ({ ...x, name: name(x.label) })),
       sizes: breakdown(l, (w) => SIZES.find(([lo, hi]) => w.qty >= lo && w.qty <= hi)?.[2] || '0', (k) => SIZES.findIndex((s) => s[2] === k)),
-      via: breakdown(l, (w) => (source === 'both' ? `${w.source === 'otto' ? 'Matching' : 'Perso'} · ${w.via}` : w.via)), via_label: source === 'otto' ? 'Machines' : source === 'both' ? 'Shippers (perso) and machines (Matching)' : 'Shippers',
-      sources: source === 'both' ? breakdown(l, (w) => (w.source === 'otto' ? 'Matching' : 'Perso')) : null, prios: breakdown(l, (w) => w.prio),
+      via: breakdown(l, (w) => (source === 'both' ? `${SIDE[w.source]} · ${w.via}` : w.via)), via_label: { otto: 'Machines', disp: 'Dispatch groups', both: 'Shippers (perso), machines (Matching) and groups (Dispatch)' }[source] || 'Shippers',
+      sources: source === 'both' ? breakdown(l, (w) => SIDE[w.source]) : null, prios: breakdown(l, (w) => w.prio),
       weekdays: breakdown(l, (w) => WEEKDAYS[new Date(`${w.arrived}T12:00:00`).getDay()], (k) => (WEEKDAYS.indexOf(k) + 6) % 7),
       outcome: { done: done.length, open: l.length - done.length, late: late.length, late_pct: pct(late.length, done.length), avg_late: late.length ? Math.round(late.reduce((t, w) => t + w.late_minutes, 0) / late.length) : null,
         median_hours: r1(median(hours)) },

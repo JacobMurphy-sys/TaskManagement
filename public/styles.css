@@ -1319,3 +1319,4 @@ body.not-admin .pll-switch button { display: none !important; }
 .search-place:hover { border-color: var(--accent); background: var(--accent-soft); }
 .place-flash { outline: 3px solid var(--accent); outline-offset: 3px; transition: outline-color 1.5s; }
 #main h2, #main h3, #main .card { scroll-margin-top: 72px; } /* clear of the top bar when a search scrolls to them */
+.pl-tile-click { cursor: pointer; } .pl-tile-click:hover { border-color: var(--accent); }

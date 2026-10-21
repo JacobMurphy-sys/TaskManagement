@@ -428,6 +428,30 @@ const TABLES = {
     done_at      TEXT,
     late_minutes INTEGER`,
 
+  // 🚚 Dispatch's history, as Matching's: each new version of the Dispatch export read once, and each
+  // job's first and last time in it (📆 D+ due out; when it was dispatched). via = its GROUP.
+  plan_disp_reads: `
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_modified TEXT    NOT NULL UNIQUE,
+    file          TEXT,
+    read_at       TEXT    NOT NULL,
+    jobs          INTEGER NOT NULL DEFAULT 0`,
+
+  plan_disp_jobs: `
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    key          TEXT    NOT NULL UNIQUE,
+    wo           TEXT,
+    customer     TEXT,
+    qty          INTEGER NOT NULL DEFAULT 0,
+    due          TEXT,
+    deadline     TEXT,
+    prio         TEXT,
+    machine      TEXT,
+    first_seen   TEXT    NOT NULL,
+    last_seen    TEXT    NOT NULL,
+    done_at      TEXT,
+    late_minutes INTEGER`,
+
   // ⏱ Production actuals: each run in the daily timing reports (perso, Matching) — a job on a
   // machine from start to end — kept as the reports roll over (not audited: written by the reader).
   prod_runs: `

@@ -17,7 +17,7 @@ const r1 = (x) => (x === null || !Number.isFinite(x) ? null : Math.round(x * 10)
  * ctx: { lines (open WO export lines), otto (Matching jobs), cards (Map AX → card) }
  * → [{ kind: 'wo' | 'item', key, label, sub, open }]
  */
-function suggest(q, { lines = [], otto = [], cards = null } = {}) {
+function suggest(q, { lines = [], otto = [], disp = [], cards = null } = {}) {
   const t = lc(q);
   if (t.length < 2) return [];
   const wos = new Map(); const items = new Map();
@@ -28,6 +28,7 @@ function suggest(q, { lines = [], otto = [], cards = null } = {}) {
     if (lc(l.article).includes(t) || lc(planning.axKey(l.article)).includes(t)) addItem(l.article, `in open WO ${l.wo}`, true);
   }
   for (const j of otto) if (lc(j.name).includes(t) || lc(j.wo).includes(t)) addWo(j.wo, `Matching ${j.done ? 'done' : 'open'} · ${j.name}`, !j.done);
+  for (const j of disp) if (lc(j.name).includes(t) || lc(j.wo).includes(t)) addWo(j.wo, `Dispatch ${j.done ? 'done' : j.status || 'open'} · ${j.name}`, !j.done);
   for (const h of db.all('SELECT wo, customer, due, done_at FROM plan_history_jobs WHERE lower(wo) LIKE ? ESCAPE \'\\\' ORDER BY first_seen DESC LIMIT 40', [like(t)])) {
     addWo(h.wo, `${h.done_at ? `done ${h.done_at.slice(0, 10)}` : `due ${h.due || '—'}`}${h.customer ? ` · ${h.customer}` : ''}`);
   }
@@ -101,7 +102,7 @@ function makeup(wo, { open, history, perso, cards }) {
 }
 
 /** Everything about a work order. ctx as suggest(). */
-function workorder(woIn, { lines = [], otto = [], cards = null } = {}) {
+function workorder(woIn, { lines = [], otto = [], disp = [], cards = null } = {}) {
   const wo = String(woIn || '').trim().toUpperCase();
   const open = lines.filter((l) => String(l.wo).toUpperCase() === wo).map((l) => {
     const c = cards ? cards.get(planning.axKey(l.article)) || null : null;
@@ -115,8 +116,9 @@ function workorder(woIn, { lines = [], otto = [], cards = null } = {}) {
   const first = open[0] || history[0] || null;
   const customer = first?.customer || (/^C[A-Z]{3}/i.test(wo) ? wo.slice(1, 4) : null);
   const cust = customer && cards ? [...cards.values()].find((c) => String(c.trigram || '').toUpperCase() === customer)?.customer || null : null;
-  const found = open.length || matching.length || history.length || runs.length;
-  return { wo, found: !!found, customer, customer_name: cust, open, matching, history, runs: runs.map(runRow),
+  const dispatch = disp.filter((j) => String(j.wo).toUpperCase() === wo).map((j) => ({ name: j.name, qty: j.qty, status: j.status, due: j.due, done: !!j.done, prio: j.prio, live: j.live, group: j.group }));
+  const found = open.length || matching.length || dispatch.length || history.length || runs.length;
+  return { wo, found: !!found, customer, customer_name: cust, open, matching, dispatch, history, runs: runs.map(runRow),
     makeup: makeup(wo, { open, history, perso, cards }),
     perso: totals(perso), otto: totals(matchRuns), items: [...new Set([...open.map((l) => l.article), ...perso.map((r) => r.item)].filter(Boolean))] };
 }

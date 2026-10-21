@@ -1811,6 +1811,7 @@ router.post('/kpi/snapshots/:id/export', h((req, res) => {
 const planning = require('./planning');
 const PLAN_UPLOAD = path.join(config.dataDir, 'plan', 'open-workorders.xlsx');
 const OTTO_UPLOAD = path.join(config.dataDir, 'plan', 'otto.xlsx');
+const DISP_UPLOAD = path.join(config.dataDir, 'plan', 'dispatch.xlsx');
 const planHistory = require('./planhistory');
 // Matching (the other half of production): its export, open jobs in plan-date order, linked to the
 // perso jobs by work order. Finished and test jobs are counted but not listed.
@@ -1866,6 +1867,29 @@ function ottoOf(set, persoJobs, capacity) {
   return { source, machines, speeds, customers, running, queue, load: load || [], projected: !!load, backlog,
     done: o.jobs.filter((j) => j.done && !j.test).length, tests: o.jobs.filter((j) => j.test).length };
 }
+// 🚚 Dispatch: the open dispatch jobs (those due long ago hidden, as elsewhere), each linked to its work
+// order's perso jobs and Matching jobs — where it is in the chain — in due order, then priority.
+const DISP_PRIO = (p) => (/urgent/i.test(p || '') ? 0 : /high/i.test(p || '') ? 1 : /low/i.test(p || '') ? 3 : 2);
+function dispOf(set, persoJobs, ottoOpen) {
+  const d = planning.readSource({ file: cleanPath(set.plan_disp_src) || null, uploaded: DISP_UPLOAD, parser: planning.parseDisp });
+  recordDisp(d);
+  const source = { status: d.status, file: d.file || null, name: d.name || null, uploaded: !!d.uploaded, modified: d.modified || null, error: d.error || null, skipped: d.skipped || [] };
+  if (d.status !== 'ok') return { source, jobs: [], done: 0, hidden: 0, hidden_qty: 0, max_age: planMaxAge(set) };
+  const maxAge = planMaxAge(set);
+  const openAll = d.jobs.filter((j) => !j.done);
+  const hidden = openAll.filter((j) => planning.tooOld(j.due, maxAge));
+  const open = openAll.filter((j) => !planning.tooOld(j.due, maxAge)).map((j) => ({ ...j }));
+  // Matching: the open jobs (with their projected finish) and the finished ones still in its export
+  const o = planning.readSource({ file: cleanPath(set.plan_otto_src) || null, uploaded: OTTO_UPLOAD, parser: planning.parseOtto });
+  const ottoDone = o.status === 'ok' ? o.jobs.filter((j) => j.done && !j.test) : [];
+  planning.linkDisp(open, persoJobs, [...ottoOpen, ...ottoDone]);
+  open.sort((a, b) => ((a.due || '9') !== (b.due || '9') ? ((a.due || '9') < (b.due || '9') ? -1 : 1) : DISP_PRIO(a.prio) - DISP_PRIO(b.prio) || a.name.localeCompare(b.name)));
+  return { source, jobs: open, done: d.jobs.filter((j) => j.done).length, hidden: hidden.length, hidden_qty: hidden.reduce((t, j) => t + j.qty, 0), max_age: maxAge };
+}
+function recordDisp(d) {
+  if (d.status !== 'ok' || d.uploaded) return;
+  try { const r = planHistory.ingestDisp(d.jobs, d.modified, d.file); if (r) log.info('Planning: Dispatch export recorded', r); } catch (err) { log.warn('Planning: Dispatch history not recorded', err.message); }
+}
 // Each new version of the linked export goes into the plan history (an uploaded copy doesn't).
 function recordPlan(src) {
   if (src.status !== 'ok' || src.uploaded) return;
@@ -1887,6 +1911,7 @@ function checkPlanExport() {
     if (file) recordPlan(planning.readSource({ file }));
     if (cleanPath(set.plan_db)) planning.readCards({ file: cleanPath(set.plan_db), table: set.plan_db_table || 'Cards' });
     if (cleanPath(set.plan_otto_src)) recordOtto(planning.readSource({ file: cleanPath(set.plan_otto_src), parser: planning.parseOtto }));
+    if (cleanPath(set.plan_disp_src)) recordDisp(planning.readSource({ file: cleanPath(set.plan_disp_src), parser: planning.parseDisp }));
   } catch (err) { log.warn('Planning: reading ahead', err.message); }
 }
 setTimeout(checkPlanExport, 3000).unref();
@@ -1906,7 +1931,7 @@ router.get('/plan', h((req, res) => {
   const cardsDb = { status: db_.status, file: db_.file || null, name: db_.name || null, modified: db_.modified || null, table: db_.table || null, count: db_.count || 0, error: db_.error || null, columns: db_.columns || null };
   const rules = db.all('SELECT * FROM plan_speeds ORDER BY type, material, sides');
   let sharedSetup = null; try { sharedSetup = JSON.parse(metaGet('shared_setup_info') || 'null'); } catch { /* none */ }
-  if (src.status !== 'ok') return res.json({ shared_setup: sharedSetup, otto: ottoOf(set, [], capacity), machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: (['bau', 'score', 'mitigation'].includes(req.query.mode) ? req.query.mode : 'fifo'), running: [], queue: [], slots: [] });
+  if (src.status !== 'ok') { const otto0 = ottoOf(set, [], capacity); return res.json({ shared_setup: sharedSetup, otto: otto0, disp: dispOf(set, [], [...otto0.running, ...otto0.queue]), machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: (['bau', 'score', 'mitigation'].includes(req.query.mode) ? req.query.mode : 'fifo'), running: [], queue: [], slots: [] }); }
   const mode = (['bau', 'score', 'mitigation'].includes(req.query.mode) ? req.query.mode : 'fifo');
   const oeeRows = db.all('SELECT customer, oee FROM plan_oee ORDER BY customer');
   const oeeDefault = Number(set.plan_oee_default) > 0 && Number(set.plan_oee_default) <= 100 ? Number(set.plan_oee_default) / 100 : null;
@@ -1958,6 +1983,7 @@ router.get('/plan', h((req, res) => {
   const windows = planning.workingWindows(now, new Date(now.getTime() + 14 * 86400000), capacity).map((w) => ({ start: w.start.toISOString(), end: w.end.toISOString() }));
   const available = planning.minutesByDay(now, new Date(now.getTime() + 14 * 86400000), capacity);
   const otto = ottoOf(set, [...running, ...queue], capacity);
+  const disp = dispOf(set, [...running, ...queue], [...otto.running, ...otto.queue]);
   // the pace from the plan history: jobs done (when they left the export) and all jobs due
   const since = new Date(Date.now() - 10 * 86400000);
   const histFirst = db.get('SELECT MIN(file_modified) AS f FROM plan_history_reads')?.f || null;
@@ -1966,7 +1992,7 @@ router.get('/plan', h((req, res) => {
     due: db.all('SELECT due, qty FROM plan_history_jobs WHERE due >= ?', [localYmd(since)]).map((r) => ({ date: r.due, qty: r.qty })),
     from: histFirst }, capacity, maxAge);
   delete modifiers.tagBy;
-  res.json({ shared_setup: sharedSetup, mitigation, modifiers, backlog, otto, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
+  res.json({ shared_setup: sharedSetup, mitigation, modifiers, backlog, otto, disp, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
     source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length,
     learned_times: { on: learnOn, runs: model?.runs || 0, setup: model ? Math.round(model.setup * 10) / 10 : null, lines: lines.length,
       card: lines.filter((l) => l.speed_from === 'learned:card').length, kind: lines.filter((l) => l.speed_from === 'learned:kind').length, all: lines.filter((l) => l.speed_from === 'learned:all').length }, averaged: lines.some((l) => l.speed_from === 'average'),
@@ -2164,6 +2190,8 @@ router.get('/plan/setup', h((req, res) => {
     lines: db.all('SELECT key, wo, article, qty FROM plan_history_lines ORDER BY id'),
     otto_reads: db.all('SELECT file_modified, file, read_at, jobs FROM plan_otto_reads ORDER BY id'),
     otto_jobs: db.all('SELECT * FROM plan_otto_jobs ORDER BY id').map(({ id, ...rest }) => rest),
+    disp_reads: db.all('SELECT file_modified, file, read_at, jobs FROM plan_disp_reads ORDER BY id'),
+    disp_jobs: db.all('SELECT * FROM plan_disp_jobs ORDER BY id').map(({ id, ...rest }) => rest),
     prod_runs: db.all('SELECT * FROM prod_runs ORDER BY id').map(({ id, ...rest }) => rest),
   } : undefined;
   res.set('Content-Disposition', `attachment; filename="planning-setup${withHistory ? '-with-history' : ''}-${new Date().toISOString().slice(0, 10)}.json"`);
@@ -2327,6 +2355,8 @@ function mergeHistory(h) {
     for (const r of Array.isArray(h.otto_reads) ? h.otto_reads : []) if (r?.file_modified) db.run('INSERT OR IGNORE INTO plan_otto_reads (file_modified, file, read_at, jobs) VALUES (?, ?, ?, ?)', [r.file_modified, r.file || null, r.read_at || new Date().toISOString(), r.jobs || 0]);
     const ocols = ['key', 'wo', 'customer', 'qty', 'due', 'deadline', 'prio', 'machine', 'first_seen', 'last_seen', 'done_at', 'late_minutes'];
     for (const j of Array.isArray(h.otto_jobs) ? h.otto_jobs : []) if (j?.key && j.first_seen && j.last_seen) db.run(`INSERT OR IGNORE INTO plan_otto_jobs (${ocols.join(', ')}) VALUES (${ocols.map(() => '?').join(', ')})`, ocols.map((c) => j[c] ?? null));
+    for (const r of Array.isArray(h.disp_reads) ? h.disp_reads : []) if (r?.file_modified) db.run('INSERT OR IGNORE INTO plan_disp_reads (file_modified, file, read_at, jobs) VALUES (?, ?, ?, ?)', [r.file_modified, r.file || null, r.read_at || new Date().toISOString(), r.jobs || 0]);
+    for (const j of Array.isArray(h.disp_jobs) ? h.disp_jobs : []) if (j?.key && j.first_seen && j.last_seen) db.run(`INSERT OR IGNORE INTO plan_disp_jobs (${ocols.join(', ')}) VALUES (${ocols.map(() => '?').join(', ')})`, ocols.map((c) => j[c] ?? null));
     const pcols = ['source', 'job', 'machine', 'station', 'start_at', 'end_at', 'qty', 'job_qty', 'remake', 'mode', 'product', 'item', 'item_name', 'customer', 'trigram', 'due', 'file', 'read_at'];
     for (const r of Array.isArray(h.prod_runs) ? h.prod_runs : []) {
       if (!r?.source || !r.job || !r.start_at || !prod.counted(r.job)) continue;
@@ -2452,7 +2482,8 @@ function findCtx(withModel = false) {
   const o = planning.readSource({ file: cleanPath(set.plan_otto_src) || null, uploaded: OTTO_UPLOAD, parser: planning.parseOtto });
   const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
   const cards = dbc.status === 'ok' ? dbc.cards : null;
-  return { lines: src.status === 'ok' ? src.lines : [], otto: o.status === 'ok' ? o.jobs : [], cards,
+  const dsp = planning.readSource({ file: cleanPath(set.plan_disp_src) || null, uploaded: DISP_UPLOAD, parser: planning.parseDisp });
+  return { lines: src.status === 'ok' ? src.lines : [], otto: o.status === 'ok' ? o.jobs : [], disp: dsp.status === 'ok' ? dsp.jobs : [], cards,
     ...(withModel ? { model: planLearn.modelFor({ cards, cardsKey: `${dbc.file}|${dbc.modified}|${dbc.count}` }), predict: planLearn.predict } : {}) };
 }
 router.get('/plan/find', h((req, res) => res.json(planFind.suggest(String(req.query.q || '').slice(0, 60), findCtx()))));
@@ -2508,10 +2539,10 @@ router.get('/plan/history', h((req, res) => {
 
 // A copy of the export, to try it out before linking the file itself.
 router.post('/plan/upload', express.raw({ type: '*/*', limit: '50mb' }), h((req, res) => {
-  const otto = req.query.half === 'otto';
-  if (!req.body?.length) throw new HttpError(400, otto ? 'Choose the Matching export' : 'Choose the open work orders export');
-  try { (otto ? planning.parseOtto : planning.parse)(req.body); } catch (err) { throw new HttpError(400, err.message); }
-  const to = otto ? OTTO_UPLOAD : PLAN_UPLOAD;
+  const half = ['otto', 'disp'].includes(req.query.half) ? req.query.half : 'perso';
+  if (!req.body?.length) throw new HttpError(400, { otto: 'Choose the Matching export', disp: 'Choose the Dispatch export', perso: 'Choose the open work orders export' }[half]);
+  try { ({ otto: planning.parseOtto, disp: planning.parseDisp, perso: planning.parse }[half])(req.body); } catch (err) { throw new HttpError(400, err.message); }
+  const to = { otto: OTTO_UPLOAD, disp: DISP_UPLOAD, perso: PLAN_UPLOAD }[half];
   fs.mkdirSync(path.dirname(to), { recursive: true });
   fs.writeFileSync(to, req.body);
   res.status(201).json({ ok: true });
@@ -2534,7 +2565,7 @@ const SETTING_DEFAULTS = {
   kpi_time_perso: '', kpi_time_otto: '',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
-  plan_src: '', planner_url: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_learned_times: '0', plan_oee_default: '', plan_otto_src: '', plan_max_age: '30', plan_miti_days: '5', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
+  plan_src: '', planner_url: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_learned_times: '0', plan_oee_default: '', plan_otto_src: '', plan_disp_src: '', plan_max_age: '30', plan_miti_days: '5', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
 };
 function getSettings() {
   const out = { ...SETTING_DEFAULTS };
@@ -2649,11 +2680,19 @@ router.get('/plan/hidden.xlsx', h((req, res) => {
     const persoOpen = src.status === 'ok' && src.lines.some((l) => String(l.wo).toUpperCase() === String(j.wo).toUpperCase());
     return [j.name, j.wo, j.customer || '', j.customer_name || '', j.qty, j.due, daysAgo(j.due), j.status || '', j.machine || '', persoOpen ? 'yes' : 'no', r.n, r.items, r.last || null,
       r.n && r.items >= j.qty ? 'Ran in full — likely done but not closed' : r.n ? `Partly run (${r.items} of ${j.qty} items)` : persoOpen ? 'Never ran — perso still open' : 'Never ran — perso done', '', '', '', '']; });
+  const dsp = planning.readSource({ file: cleanPath(set.plan_disp_src) || null, uploaded: DISP_UPLOAD, parser: planning.parseDisp });
+  const dispHidden = dsp.status === 'ok' ? dsp.jobs.filter((j) => !j.done && planning.tooOld(j.due, maxAge)).sort((a, b) => String(a.due).localeCompare(String(b.due))) : [];
+  const dispRows = dispHidden.map((j) => { const persoOpen = src.status === 'ok' && src.lines.some((l) => String(l.wo).toUpperCase() === j.wo); const ox = ottoOf(j.wo);
+    const matchingOpen = ox.some((x) => !x.done);
+    return [j.name, j.wo, j.customer || '', j.customer_name || '', j.qty, j.due, daysAgo(j.due), j.status || '', j.prio || '', j.group || '', persoOpen ? 'yes' : 'no',
+      ox.length ? ox.map((x) => `${x.name}: ${x.done ? 'done' : x.status || 'open'}`).join('; ') : '',
+      persoOpen ? 'Perso still open — check the perso work order first' : matchingOpen ? 'Waiting on Matching — check the Matching job' : 'Perso and Matching done — likely dispatched but not closed', '', '', '', '']; });
   const sheets = [
     { name: 'Read me', columns: [c('', 24), c('', 110)], rows: [
       ['What', `Open work orders hidden from Production because they were due more than ${maxAge} days ago (Production › ⚙ Setup › Hide anything due more than … days ago). They aren't shown or counted in the plan, the backlog or the tiles.`],
       ['Perso', `${new Set(jobs.map((j) => j.wo)).size} work orders, ${jobs.length} jobs, ${lines.length} card lines, ${jobs.reduce((t, j) => t + j.qty, 0)} cards — see "Hidden perso" (one row per job) and "Hidden perso lines" (one per card).`],
       ['Matching', `${ottoHidden.length} Matching jobs — see "Hidden Matching".`],
+      ['Dispatch', `${dispHidden.length} dispatch jobs — see "Hidden Dispatch".`],
       ['Ran?', 'From the ⏱ timing runs kept by the CI Manager: "Ran in full" usually means the work is done but the work order was never closed; "Never ran" that it is still waiting, no longer wanted, or wrong.'],
       ['Investigation', 'Fill in Cause, Action, Owner and Closed as each is resolved.'],
       ['Made', `${ymdL(now)} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`]] },
@@ -2662,7 +2701,9 @@ router.get('/plan/hidden.xlsx', h((req, res) => {
       c('Machines', 14), c('Matching', 30), c('Hint', 48), ...inv], rows: persoRows },
     { name: 'Hidden perso lines', columns: [c('Work order', 16), c('Job', 7), c('Card (AX)', 12), c('Card name', 24), c('Kind', 26), c('Cards', 8, 'number'), c('Due', 11, 'date'), c('Days ago', 8, 'number'), c('Status', 18), c('Runs', 6, 'number'), c('Cards run', 9, 'number')], rows: lineRows },
     { name: 'Hidden Matching', columns: [c('Name', 24), c('Work order', 16), c('Customer', 9), c('Customer name', 20), c('Items', 8, 'number'), c('Plan date', 11, 'date'), c('Days ago', 8, 'number'), c('Status', 18), c('Machine', 14),
-      c('Perso still open', 10), c('Runs', 6, 'number'), c('Items run', 9, 'number'), c('Last run', 17, 'datetime'), c('Hint', 40), ...inv], rows: ottoRows },
+      c('Perso still open', 10), c('Runs', 6, 'number'), c('Items run', 9, 'number'), c('Last run', 17, 'datetime'), c('Hint', 40), ...inv], rows: ottoRows },,
+    { name: 'Hidden Dispatch', columns: [c('Name', 24), c('Work order', 16), c('Customer', 9), c('Customer name', 20), c('Qty', 8, 'number'), c('Due out', 11, 'date'), c('Days ago', 8, 'number'), c('Status', 22), c('Priority', 8), c('Group', 22),
+      c('Perso still open', 10), c('Matching', 30), c('Hint', 44), ...inv], rows: dispRows }
   ];
   res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.set('Content-Disposition', `attachment; filename="hidden-work-orders-${ymdL(now)}.xlsx"`);
@@ -2748,7 +2789,7 @@ router.post('/prod/upload', express.raw({ type: '*/*', limit: '100mb' }), h((req
 // still the built-in default, or still what the last shared file said: anything someone set
 // for themselves is left alone.
 const SHARED_KEYS = Object.keys(SETTING_DEFAULTS).filter((k) => k.startsWith('kpi_')
-  || ['plan_src', 'plan_otto_src', 'plan_db', 'plan_db_table', 'planner_url'].includes(k));
+  || ['plan_src', 'plan_otto_src', 'plan_disp_src', 'plan_db', 'plan_db_table', 'planner_url'].includes(k));
 const metaGet = (key) => db.get('SELECT value FROM settings WHERE key = ?', [key])?.value;
 const metaSet = (key, value) => db.run(`INSERT INTO settings (key, value) VALUES (?, ?)
   ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [key, value]);

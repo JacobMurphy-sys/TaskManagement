@@ -16,14 +16,14 @@ const PLF = {
 const PL_PAGE = 150;
 
 // 🏭 Production's three tabs: Perso (with its order — FIFO, BAU, Score, Mitigation — in a drop-down on
-// the tab), Matching and ✨ Insights (🧠 Learned and 📆 D+ due out, in dplus.js).
+// the tab), Matching, 🚚 Dispatch and ✨ Insights (🧠 Learned and 📆 D+ due out, in dplus.js).
 const PL_MODES = [['fifo', 'FIFO', 'By deadline only'], ['bau', 'BAU', 'By due day, then High / Normal / Low, then cut-off'], ['score', '⚖ Score', 'Highest score first: the deadline plus the ⚖ modifiers'],
   ['mitigation', '🛟 Mitigation', 'Save as many as possible: work orders due in the next few working days that can still make it first, then those already overdue or that would be late anyway, then those due later']];
 function plHalvesHtml(half, mode = store.get('planMode', 'fifo')) {
   const tab = (k, label, extra = '') => `<div class="pl-half ${half === k ? 'on' : ''}"><button type="button" data-pl-half="${k}">${label}</button>${extra}</div>`;
   return `<div class="pl-halves">
     ${tab('perso', '💳 Perso', half === 'perso' ? `<select id="pl-mode" title="The order the work orders are taken in — ${esc(PL_MODES.map(([, l, w]) => `${l}: ${w}`).join(' · '))}">${PL_MODES.map(([k, l]) => `<option value="${k}" ${mode === k ? 'selected' : ''}>${l}</option>`).join('')}</select>` : '')}
-    ${tab('otto', '🧩 Matching')}${tab('insights', '✨ Insights')}</div>`;
+    ${tab('otto', '🧩 Matching')}${tab('disp', '🚚 Dispatch')}${tab('insights', '✨ Insights')}</div>`;
 }
 
 // 🔎 The card lines without a speed of their own, for putting right: those whose card isn't in the card
@@ -91,7 +91,7 @@ async function plNoSpeed() {
 async function renderPlanning() {
   if (['insights', 'dplus'].includes(store.get('planHalf', 'perso'))) return renderPlanInsights(); // ✨ Insights (dplus.js)
   const mode = ['bau', 'score', 'mitigation'].includes(store.get('planMode', 'fifo')) ? store.get('planMode') : 'fifo';
-  const half = store.get('planHalf', 'perso') === 'otto' ? 'otto' : 'perso';
+  const half = ['otto', 'disp'].includes(store.get('planHalf', 'perso')) ? store.get('planHalf') : 'perso';
   const [p, settings] = await Promise.all([api.get(`/plan?mode=${mode}`), api.get('/settings')]);
   const f = store.get('planFilter', {}) || {};
   const all = [...p.running, ...p.queue];
@@ -245,6 +245,7 @@ async function renderPlanning() {
   const general = (p.rules || []).filter((r) => !(p.combos || []).some((c) => (r.type || '') === (c.type || '') && (r.material || '') === (c.material || '') && (r.sides || '') === (c.sides || '')));
   const src = p.source;
   const ot = p.otto || { source: { status: 'none' }, running: [], queue: [] };
+  const dp = p.disp || { source: { status: 'none' }, jobs: [], hidden: 0 };
   // ⏳ Backlog: what's overdue, and how long catching up takes at the recent pace
   const backlogCard = (b, unit, otto) => {
     if (!b) return '';
@@ -333,6 +334,57 @@ async function renderPlanning() {
   const finishO = (o) => (!ot.projected ? '' : o.finish_at ? `<span class="${o.late_minutes > 0 ? 'pl-late' : 'pl-ok'}" title="Projected ${esc(fmtDateTime(o.start_at))} → ${esc(fmtDateTime(o.finish_at))} at ${n(o.speed)} items/h">${PLF.wkHm.format(new Date(o.finish_at))}${o.late_minutes > 0 ? ` · ${fmtSpan(o.late_minutes)} late` : ''}</span>
       <div class="small muted">${esc(o.machine_planned)}${o.waited_perso ? ' · after perso' : ''}</div>`
     : `<span class="pl-warn">⚠ ${o.unplanned === 'speed' ? 'no speed — ⚙ Setup' : 'no working time — check the working day'}</span>`);
+  // 🚚 Dispatch: the open dispatch jobs by due date, and where each work order is in the chain
+  const dispHtml = () => {
+    if (dp.source.status !== 'ok') return `<div class="card lib-empty"><h2>🚚 Dispatch</h2><p>Set where the Dispatch export (OpenDespatchWorkorders) is saved in ⚙ Setup, or try it with 📂 Load file…. Each dispatch job is linked to its work order's perso and Matching jobs, so you can see what's ready to go and what's holding the rest up.</p>
+      ${dp.source.status === 'missing' ? `<p class="pl-late">⚠ Can't find <code>${esc(dp.source.file)}</code>.</p>` : dp.source.status === 'error' ? `<p class="pl-late">⚠ ${esc(dp.source.error)}</p>` : ''}</div>`;
+    const df = store.get('planDispFilter', {}) || {};
+    const all = dp.jobs;
+    const dm = (d) => (!df.customer || d.customer === df.customer) && (!df.stage || d.stage === df.stage)
+      && (!df.q || `${d.name} ${d.customer} ${d.customer_name || ''} ${d.group || ''} ${d.status || ''}`.toLowerCase().includes(df.q.toLowerCase()));
+    const dCust = [...new Set(all.map((d) => d.customer).filter(Boolean))].sort();
+    const over = all.filter((d) => d.due && d.due < todayIso); const today_ = all.filter((d) => d.due === todayIso);
+    const st = (k) => all.filter((d) => d.stage === k);
+    const STAGE = { perso: ['⏳ Waiting on perso', 'pl-late'], matching: ['🧩 Waiting on Matching', 'pl-warn'], ready: ['✔ Ready to dispatch', 'pl-ok'] };
+    const chain = (d) => {
+      const pc = d.perso_open ? `<span class="pl-warn">⏳ ${d.perso.length} perso job${d.perso.length === 1 ? '' : 's'} open</span>` : '<span class="pl-ok">✔ perso</span>';
+      const mc = !d.matching.length ? '<span class="muted">no Matching job</span>' : d.matching_open ? `<span class="pl-warn">⏳ Matching: ${esc(d.matching.filter((m) => !m.done).map((m) => m.status || 'open').join(', '))}</span>` : '<span class="pl-ok">✔ Matching</span>';
+      return `${pc} → ${mc}${d.ready_at ? `<div class="small muted">ready about ${esc(PLF.wkHm.format(new Date(d.ready_at)))}</div>` : ''}`;
+    };
+    const drow = (d, i) => { const late = d.due && d.due < todayIso; return `<tr class="pl-job ${late ? 'pl-over-row' : d.due === todayIso ? 'pl-today-row' : ''}" data-pl-job="disp:${esc(d.key)}">
+      <td class="num muted pl-n">${i + 1}</td>
+      <td><b>${esc(d.due ? dayLabel(d.due) : '—')}</b>${late ? '<div class="small pl-over">overdue</div>' : ''}</td>
+      <td><b>${esc(d.wo)}</b><span class="muted">${esc(d.name.slice(d.wo.length))}</span>${d.live ? ` <span class="pf-chip">${esc(d.live)}</span>` : ''}<div class="small muted">${esc(d.group || '')}</div></td>
+      <td>${esc(d.customer || '—')}<div class="small muted">${esc(d.customer_name || '')}</div></td>
+      <td class="num"><b>${n(d.qty)}</b></td><td>${prioChip(d.prio)}</td><td class="small">${esc(d.status || '')}</td>
+      <td><span class="${STAGE[d.stage][1]}"><b>${STAGE[d.stage][0]}</b></span><div class="small">${chain(d)}</div></td></tr>`; };
+    const ddetail = (d) => `<tr class="pl-detail" data-pl-detail="disp:${esc(d.key)}"><td></td><td colspan="7"><div class="row" style="gap:16px;flex-wrap:wrap;align-items:flex-start">
+      <div><b>Perso</b>${d.perso.length ? `<table class="log small"><thead><tr><th>Job</th><th class="num">Cards</th><th>Status</th><th>Projected finish</th></tr></thead><tbody>${d.perso.map((j) => `<tr><td>${esc(j.key)}</td><td class="num">${n(j.qty)}</td><td>${esc(j.status || '')}</td><td>${j.finish_at ? esc(PLF.wkHm.format(new Date(j.finish_at))) : '—'}</td></tr>`).join('')}</tbody></table>` : '<div class="small pl-ok">✔ no perso job open</div>'}</div>
+      <div><b>Matching</b>${d.matching.length ? `<table class="log small"><thead><tr><th>Job</th><th class="num">Items</th><th>Status</th><th>Plan date</th><th>Projected finish</th></tr></thead><tbody>${d.matching.map((m) => `<tr><td>${esc(m.name)}</td><td class="num">${n(m.qty)}</td><td>${m.done ? '✔ ' : ''}${esc(m.status || '')}</td><td>${esc(m.due || '')}</td><td>${m.finish_at ? esc(PLF.wkHm.format(new Date(m.finish_at))) : '—'}</td></tr>`).join('')}</tbody></table>` : '<div class="small muted">no Matching job in its export</div>'}</div>
+      <div><button class="small" data-pf-wo-open="${esc(d.wo)}">🔍 Everything about ${esc(d.wo)}</button></div></div></td></tr>`;
+    plDetail.disp = (key) => { const d = all.find((x) => `disp:${x.key}` === key); return d ? ddetail(d) : ''; };
+    const shown = all.filter(dm);
+    const sum_ = (l) => l.reduce((t, d) => t + d.qty, 0);
+    const tile = (l, v, sub, cls = '', stage = null) => `<div class="kdb-tile ${stage ? 'pl-tile-click' : ''}" ${stage ? `data-pl-dstage="${stage}" title="Show only these"` : ''}><div class="kdb-tile-l">${l}</div><div class="kdb-tile-v ${cls}">${v}</div><div class="kdb-tile-s">${sub}</div></div>`;
+    return `<div class="pl-tiles-row"><div class="kdb-tiles pl-tiles">
+        ${tile('Open dispatch jobs', n(all.length), `${n(sum_(all))} pieces${dp.done ? ` · ${n(dp.done)} done not shown` : ''}`)}
+        ${tile('Due today', n(today_.length), `${n(sum_(today_))} pieces`, today_.length ? 'kdb-warn' : '')}
+        ${tile('Overdue', n(over.length), `${n(sum_(over))} pieces`, over.length ? 'kdb-bad' : 'kdb-ok')}
+        ${tile('Waiting on perso', n(st('perso').length), `${n(sum_(st('perso')))} pieces`, st('perso').length ? 'kdb-bad' : '', 'perso')}
+        ${tile('Waiting on Matching', n(st('matching').length), `${n(sum_(st('matching')))} pieces`, st('matching').length ? 'kdb-warn' : '', 'matching')}
+        ${tile('Ready to dispatch', n(st('ready').length), `${n(sum_(st('ready')))} pieces`, 'kdb-ok', 'ready')}
+      </div></div>
+      ${dp.hidden ? `<p class="small muted">${n(dp.hidden)} dispatch job${dp.hidden === 1 ? '' : 's'} (${n(dp.hidden_qty)} pieces) due more than ${dp.max_age} days ago ${dp.hidden === 1 ? 'isn\'t' : 'aren\'t'} shown — likely errors. <a class="button small" href="/api/plan/hidden.xlsx" download>⬇ Export them to Excel</a></p>` : ''}
+      <div class="row pl-filters">
+        <input type="search" id="pld-q" placeholder="Search WO, customer, group, status…" value="${esc(df.q || '')}">
+        <select id="pld-customer"><option value="">All customers</option>${dCust.map((c) => `<option ${df.customer === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+        <select id="pld-stage"><option value="">Any stage</option>${Object.entries(STAGE).map(([k, [l]]) => `<option value="${k}" ${df.stage === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        ${df.q || df.customer || df.stage ? '<button class="link small" data-pl="dclear">Clear</button>' : ''}</div>
+      <div class="card"><h3 class="pl-h">🚚 Dispatch — by due date, then priority <span class="muted small">${shown.length} job${shown.length === 1 ? '' : 's'} · ${n(sum_(shown))} pieces · click a job for its perso and Matching jobs</span></h3>
+        <div class="kdb-scroll"><table class="log pl-table"><thead><tr><th></th><th>Due out</th><th>Work order</th><th>Customer</th><th class="num">Qty</th><th>Priority</th><th>Status (export)</th><th>Where it is</th></tr></thead>
+        <tbody>${shown.map((d) => drow(d, all.indexOf(d))).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>
+      ${dp.source.skipped?.length ? `<p class="small muted">${dp.source.skipped.length} row${dp.source.skipped.length === 1 ? '' : 's'} with a due date not understood.</p>` : ''}`;
+  };
   const ottoHtml = () => {
     const os = ot.source; const allO = [...ot.running, ...ot.queue];
     if (os.status === 'missing') return `<div class="kc-note">⚠ Can't find <code>${esc(os.file)}</code> — check the Matching path in ⚙ Setup.</div>`;
@@ -389,7 +441,7 @@ async function renderPlanning() {
       ${plHalvesHtml(half, mode)}
       <div class="spacer"></div>
       ${state.mode === 'planner' ? '<span id="pl-presence" class="pl-presence" title="Others with the planner open">👤 just you</span>' : ''}
-      <span class="small muted">${(half === 'otto' ? ot.source : src).status === 'ok' ? `${esc((half === 'otto' ? ot.source : src).name)} · saved ${esc(fmtDateTime((half === 'otto' ? ot.source : src).modified))}${(half === 'otto' ? ot.source : src).uploaded ? ' (uploaded copy)' : ''}` : ''}</span>
+      <span class="small muted">${(half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).status === 'ok' ? `${esc((half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).name)} · saved ${esc(fmtDateTime((half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).modified))}${(half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).uploaded ? ' (uploaded copy)' : ''}` : ''}</span>
       <button data-pl="refresh" title="Read the export again if it has changed">🔄 Refresh</button>
       <label class="button" title="Try it with a copy of the ${half === 'otto' ? 'Matching' : 'open work orders'} export">📂 Load file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
       ${half === 'perso' ? '<button class="admin-only" data-pl="mods" title="Priority modifiers: customers and work order types that go first">⚖ Modifiers</button>' : ''}
@@ -413,6 +465,8 @@ async function renderPlanning() {
           <span class="small muted">Read again whenever it's saved (e.g. the hourly SSRS export). Nothing in it is changed.</span></label>
         <label class="f full">Matching export (where it's saved) — Name, Prod. Status, Items, Plan Date<input type="text" name="plan_otto_src" value="${esc(settings.plan_otto_src || '')}" placeholder="e.g. S:\\…\\Source Data\\Matching.xlsx">
           <span class="small ${ot.source.status === 'missing' || ot.source.status === 'error' ? 'pl-late' : 'muted'}">${ot.source.status === 'ok' ? `✔ ${n(ot.running.length + ot.queue.length)} open Matching jobs · saved ${esc(fmtDateTime(ot.source.modified))}` : ot.source.status === 'missing' ? '⚠ Can\'t find this file' : ot.source.status === 'error' ? `⚠ ${esc(ot.source.error)}` : 'Each Matching job is matched to its perso work order by the start of its Name.'}</span></label>
+        <label class="f full">Dispatch export (where it's saved) — WO, QNY, Due Out, Status<input type="text" name="plan_disp_src" value="${esc(settings.plan_disp_src || '')}" placeholder="e.g. S:\\…\\Source Data\\OpenDespatchWorkorders.xlsx">
+          <span class="small ${dp.source.status === 'missing' || dp.source.status === 'error' ? 'pl-late' : 'muted'}">${dp.source.status === 'ok' ? `✔ ${n(dp.jobs.length)} open dispatch jobs · saved ${esc(fmtDateTime(dp.source.modified))}` : dp.source.status === 'missing' ? '⚠ Can\'t find the file there' : dp.source.status === 'error' ? `⚠ ${esc(dp.source.error)}` : 'Each dispatch job is linked to its perso and Matching jobs by its work order (the start of its WO).'}</span></label>
         <label class="f full">Card database (Access) — the Cards table gives each card article's type, material and print sides<input type="text" name="plan_db" value="${esc(settings.plan_db || '')}" placeholder="e.g. S:\\…\\Cards.accdb">
           <span class="small ${cdb.status === 'error' || cdb.status === 'missing' ? 'pl-late' : 'muted'}">${cdb.status === 'ok' ? `✔ ${n(cdb.count)} cards in the ${esc(cdb.table)} table · saved ${esc(fmtDateTime(cdb.modified))} — read again whenever it's saved` : cdb.status === 'missing' ? '⚠ Can\'t find this file' : cdb.status === 'error' ? `⚠ ${esc(cdb.error)}` : 'Read only — nothing in the database is changed. It can stay open in Access.'}</span></label>
         <label class="f">Table<input type="text" name="plan_db_table" value="${esc(settings.plan_db_table || 'Cards')}"></label>
@@ -455,7 +509,7 @@ ${half === 'otto' ? ottoSetup() : `
       <p class="small muted">Jobs are worked through in the list's order — what's running first — each card line at its speed ${useMachines ? 'on a machine that runs its type' : '(divided over the lines running)'}, and each job gets a projected finish against its deadline.</p>
 `}
     </div>
-    ${half === 'otto' ? ottoHtml() : `
+    ${half === 'otto' ? ottoHtml() : half === 'disp' ? dispHtml() : `
     ${src.status === 'ok' && cdb.status === 'ok' && (p.unknown_articles?.length || p.no_speed) ? `<div class="kc-note">⚠ ${[p.unknown_articles.length ? `${p.unknown_articles.length} card article${p.unknown_articles.length === 1 ? ' isn\'t' : 's aren\'t'} in the card database (${esc(p.unknown_articles.slice(0, 6).join(', '))}${p.unknown_articles.length > 6 ? ', …' : ''})` : '', p.no_speed ? `${p.no_speed} card line${p.no_speed === 1 ? ' has no speed of its own' : 's have no speed of their own'} — ${cap.rate ? 'the flat rate is used' : 'the average of the others is used (≈)'}` : ''].filter(Boolean).join(' · ')}. <button class="small" data-pl="nospeed">🔎 Show which</button> <button class="link small admin-only" data-pl="setup">⚙ Speeds</button></div>` : ''}
     ${src.status === 'missing' ? `<div class="kc-note">⚠ Can't find <code>${esc(src.file)}</code> — check the path in ⚙ Setup.</div>` : ''}
     ${src.status === 'error' ? `<div class="kc-note">⚠ Couldn't read <code>${esc(src.file)}</code>: ${esc(src.error)}</div>` : ''}
@@ -500,6 +554,10 @@ ${half === 'otto' ? ottoSetup() : `
   const setO = (k, v) => { const of = store.get('planOttoFilter', {}) || {}; of[k] = v || ''; store.set('planOttoFilter', of); renderPlanning(); };
   $('#pl-mode')?.addEventListener('change', (e) => { store.set('planMode', e.target.value); renderPlanning(); });
   $('#plo-q')?.addEventListener('change', (e) => setO('q', e.target.value.trim()));
+  const setD = (k, v) => { const df = store.get('planDispFilter', {}) || {}; df[k] = v || ''; store.set('planDispFilter', df); renderPlanning(); };
+  $('#pld-q')?.addEventListener('change', (e) => setD('q', e.target.value.trim()));
+  $('#pld-customer')?.addEventListener('change', (e) => setD('customer', e.target.value));
+  $('#pld-stage')?.addEventListener('change', (e) => setD('stage', e.target.value));
   $('#plo-customer')?.addEventListener('change', (e) => setO('customer', e.target.value));
   $('#plo-waiting')?.addEventListener('change', (e) => setO('waiting', e.target.value));
   const setF = (k, v) => { f[k] = v || ''; store.set('planFilter', f); renderPlanning(); };
@@ -510,9 +568,9 @@ ${half === 'otto' ? ottoSetup() : `
   $('#pl-file').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const res = await fetch(`/api/plan/upload${half === 'otto' ? '?half=otto' : ''}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
+    const res = await fetch(`/api/plan/upload${half !== 'perso' ? `?half=${half}` : ''}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
     const d = await res.json().catch(() => ({}));
-    if (!res.ok) toast(d.error || res.statusText, 'error'); else toast(`${file.name} loaded${(half === 'otto' ? settings.plan_otto_src : settings.plan_src) ? ' — the linked export is still used; clear its path to use this copy' : ''}`);
+    if (!res.ok) toast(d.error || res.statusText, 'error'); else toast(`${file.name} loaded${({ otto: settings.plan_otto_src, disp: settings.plan_disp_src }[half] ?? settings.plan_src) ? ' — the linked export is still used; clear its path to use this copy' : ''}`);
     renderPlanning();
   });
   $('#pl-setup-file')?.addEventListener('change', async (e) => {
@@ -636,6 +694,11 @@ ${half === 'otto' ? ottoSetup() : `
     const hf = e.target.closest('[data-pl-half]');
     if (hf) { store.set('planHalf', hf.dataset.plHalf); renderPlanning(); return; }
     if (e.target.closest('[data-pl="oclear"]')) { store.set('planOttoFilter', {}); renderPlanning(); return; }
+    if (e.target.closest('[data-pl="dclear"]')) { store.set('planDispFilter', {}); renderPlanning(); return; }
+    const ds = e.target.closest('[data-pl-dstage]');
+    if (ds) { const df = store.get('planDispFilter', {}) || {}; df.stage = df.stage === ds.dataset.plDstage ? '' : ds.dataset.plDstage; store.set('planDispFilter', df); renderPlanning(); return; }
+    const wo = e.target.closest('[data-pf-wo-open]');
+    if (wo) { pfBack.length = 0; pfOpen('wo', wo.dataset.pfWoOpen); return; }
     const m = e.target.closest('[data-pl-mode]');
     if (m) { store.set('planMode', m.dataset.plMode); renderPlanning(); return; }
     const b = e.target.closest('[data-pl]');
@@ -664,7 +727,7 @@ ${half === 'otto' ? ottoSetup() : `
     if (job) {
       const key = job.dataset.plJob; const next = job.nextElementSibling;
       if (next?.classList.contains('pl-detail') && next.dataset.plDetail === key) { next.hidden = !next.hidden; return; }
-      const html = (key.startsWith('otto:') ? plDetail.otto : plDetail.perso)?.(key);
+      const html = (key.startsWith('otto:') ? plDetail.otto : key.startsWith('disp:') ? plDetail.disp : plDetail.perso)?.(key);
       if (html) job.insertAdjacentHTML('afterend', html);
     }
   };

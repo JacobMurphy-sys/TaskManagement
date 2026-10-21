@@ -1372,7 +1372,7 @@ async function waitForServer() {
         const hx = await fetch(`${BASE}/plan/hidden.xlsx`);
         assert.equal(hx.status, 200);
         const hBook = require('../src/xlsxread').readBook(Buffer.from(await hx.arrayBuffer()));
-        assert.deepEqual(hBook.sheets.map((x) => x.name), ['Read me', 'Hidden perso', 'Hidden perso lines', 'Hidden Matching']);
+        assert.deepEqual(hBook.sheets.map((x) => x.name), ['Read me', 'Hidden perso', 'Hidden perso lines', 'Hidden Matching', 'Hidden Dispatch']);
         const hm = hBook.sheet('Hidden Matching');
         assert.equal(hm.maxRow, 2, 'the one Matching job due long ago');
         assert.ok([...hm.cells.values()].some((c) => c.row === 2 && String(c.v).startsWith('COLDS')), 'it is listed');
@@ -1396,6 +1396,22 @@ async function waitForServer() {
         }
         assert.deepEqual([po.otto.queue[0].deadline, po.otto.queue[0].time_from], ['2026-10-07T14:00', undefined], 'a matching job with a time of its own keeps it');
         assert.deepEqual(po.queue.find((j) => j.key === 'CINDS26100602/0001').otto.map((x) => x.name), ['CINDS26100602MAT0001'], 'perso jobs list their Otto jobs');
+        // 🚚 Dispatch: its export (WO = work order + DES…), each job linked to its perso and Matching jobs
+        const dispX = bx([{ name: 'OpenDespatchWorkorders_v2', columns: ['Due Out', 'Customer ', 'Ref', 'WO', 'QNY', '', 'Due Out', 'Prio', 'Status', 'LIVE', 'GROUP'].map((header) => ({ header })),
+          rows: [['Oct  8 2026 ', 'Ind', 'IX', 'CINDS26100602DES0001', 100, '', 'Oct  8 2026 ', 'Low', 'Waiting For Matching', 'LIVE', 'IND Post'],
+            ['Oct  9 2026 ', 'Nobody', 'NB', 'CNOBS26100777DES0001', 5, '', 'Oct  9 2026 ', 'High', 'Ready', 'LIVE', 'NOB Courier'],
+            ['Oct  9 2026 ', 'Gone', 'GN', 'CGONS26100778DES0001', 5, '', 'Oct  9 2026 ', 'High', 'Despatched', '', '']] }]);
+        const pd = P.parseDisp(dispX);
+        assert.deepEqual(pd.jobs.map((j) => [j.wo, j.customer, j.qty, j.due, j.status, j.done]), [['CINDS26100602', 'IND', 100, '2026-10-08', 'Waiting For Matching', false],
+          ['CNOBS26100777', 'NOB', 5, '2026-10-09', 'Ready', false], ['CGONS26100778', 'GON', 5, '2026-10-09', 'Despatched', true]], 'WO, customer, QNY, the Due Out after the WO, status, done');
+        assert.equal((await fetch(`${BASE}/plan/upload?half=disp`, { method: 'POST', body: dispX, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } })).status, 201);
+        const pdp = (await call('GET', '/plan')).disp;
+        assert.deepEqual(pdp.jobs.map((j) => [j.name, j.stage]), [['CINDS26100602DES0001', 'perso'], ['CNOBS26100777DES0001', 'ready']], 'in due order; the despatched one not listed');
+        assert.equal(pdp.done, 1);
+        const indD = pdp.jobs[0];
+        assert.deepEqual([indD.perso.map((x) => x.key), indD.matching.map((x) => x.name)], [['CINDS26100602/0001'], ['CINDS26100602MAT0001']], 'its perso and Matching jobs');
+        assert.ok((await call('GET', '/plan/find/wo/CINDS26100602')).dispatch.some((x) => x.name === 'CINDS26100602DES0001'), 'the work order window shows its dispatch job');
+        assert.equal((await fetch(`${BASE}/plan/upload?half=disp`, { method: 'POST', body: exp, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } })).status, 400, 'a perso export isn\'t a Dispatch export');
         assert.equal((await fetch(`${BASE}/plan/upload?half=otto`, { method: 'POST', body: exp, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } })).status, 400, 'a perso export isn\'t an Otto export');
         // Otto machines and speeds: each job on the machine where it finishes first, never before its perso work
         assert.equal(po.otto.projected, false, 'no Otto machines yet: not projected');

@@ -122,6 +122,69 @@ function parseOtto(buf) {
   }
   return { sheet: info.name, jobs, skipped };
 }
+// ---- Dispatch: the last link, from its own export (OpenDespatchWorkorders) -----------------------
+// One row per dispatch job: WO (the perso work order + DES0001, e.g. CCBCS26101956DES0001 → work order
+// CCBCS26101956, customer CBC), QNY (merged over two columns: the value is in the first), Due Out,
+// Prio, Status (e.g. Waiting For Matching), LIVE, GROUP, and the customer's name and Ref.
+const DISP_COLUMNS = { name: 'WO', qty: 'QNY', due: 'Due Out', prio: 'Prio', status: 'Status', live: 'LIVE', group: 'GROUP', customer_name: 'Customer', ref: 'Ref' };
+const DISP_DONE = /despatched|dispatched|shipped|delivered|done|complete|closed|cancel/i;
+function parseDisp(buf) {
+  const book = readBook(buf);
+  const info = book.sheets[0];
+  if (!info) throw new Error('The file has no sheets');
+  const sh = book.sheet(info.name);
+  const text = (c) => String(c?.v ?? '').trim().toLowerCase();
+  let headRow = 0; const col = {};
+  for (let r = 1; r <= Math.min(sh.maxRow, 30) && !headRow; r++) {
+    const found = {};
+    // "Due Out" can be there twice (A and G): the one after the WO column counts
+    for (const c of [...sh.cells.values()].filter((x) => x.row === r).sort((a, b) => a.col - b.col)) {
+      for (const [k, h] of Object.entries(DISP_COLUMNS)) if (text(c) === h.toLowerCase() && (!found[k] || (k === 'due' && found.name && c.col > found.name))) found[k] = c.col;
+    }
+    if (found.name && found.qty && found.status) { headRow = r; Object.assign(col, found); }
+  }
+  if (!headRow) throw new Error(`Can't find the Dispatch column headings (WO, QNY, Due Out, Status) in ${info.name}`);
+  // the open work orders export has these headings too: it has a Card AX column, Dispatch doesn't
+  if ([...sh.cells.values()].some((c) => c.row === headRow && text(c) === COLUMNS.article.toLowerCase())) throw new Error('That\'s the open work orders export, not the Dispatch one');
+  const L = (n) => { let t = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) t = String.fromCharCode(65 + ((n - 1) % 26)) + t; return t; };
+  const jobs = []; const skipped = [];
+  for (let r = headRow + 1; r <= sh.maxRow; r++) {
+    const g = (k) => (col[k] ? sh.cells.get(`${L(col[k])}${r}`)?.v ?? null : null);
+    const name = String(g('name') ?? '').trim();
+    if (!name) continue;
+    const day = parseDay(g('due'));
+    const status = String(g('status') ?? '').trim() || null;
+    const job = {
+      key: name, name, wo: woOfName(name), customer: name.length >= 4 ? name.slice(1, 4).toUpperCase() : null,
+      qty: Number(g('qty')) || 0, due: day ? iso(day) : null, status, prio: String(g('prio') ?? '').trim() || null,
+      live: String(g('live') ?? '').trim() || null, group: String(g('group') ?? '').trim() || null,
+      customer_name: String(g('customer_name') ?? '').trim() || null, ref: String(g('ref') ?? '').trim() || null,
+      done: DISP_DONE.test(status || ''),
+    };
+    job.deadline = job.due ? `${job.due}T23:59` : null;
+    if (!day) skipped.push({ row: r, wo: name, why: `due date “${g('due') ?? ''}” not understood` });
+    jobs.push(job);
+  }
+  return { sheet: info.name, jobs, skipped };
+}
+// Each dispatch job with where its work order is in the chain: its perso jobs still open (and when the
+// last is projected done), its Matching jobs (done or not, projected finish), and its stage:
+// waiting on perso → waiting on Matching → ready to dispatch.
+function linkDisp(dispJobs, persoJobs, ottoJobs) {
+  const by = (list, f) => { const m = new Map(); for (const x of list) { const k = String(f(x) || '').toUpperCase(); if (!m.has(k)) m.set(k, []); m.get(k).push(x); } return m; };
+  const persoBy = by(persoJobs, (j) => j.wo); const ottoBy = by(ottoJobs, (o) => o.wo);
+  for (const d of dispJobs) {
+    const ps = persoBy.get(d.wo) || []; const os = ottoBy.get(d.wo) || [];
+    d.perso = ps.map((j) => ({ key: j.key, qty: j.qty, status: j.status, finish_at: j.finish_at || null }));
+    d.perso_open = ps.length > 0;
+    d.matching = os.map((o) => ({ name: o.name, qty: o.qty, status: o.status, done: !!o.done, due: o.due, finish_at: o.finish_at || null }));
+    d.matching_open = os.some((o) => !o.done);
+    d.stage = d.perso_open ? 'perso' : d.matching_open ? 'matching' : 'ready';
+    const fins = [...ps.map((j) => j.finish_at), ...os.filter((o) => !o.done).map((o) => o.finish_at)];
+    d.ready_at = d.stage === 'ready' ? null : fins.length && fins.every(Boolean) ? fins.sort()[fins.length - 1] : null;
+  }
+}
+
 // Matching first by plan date and time, then Urgent / High before the rest, then name.
 const OTTO_PRIO = (p) => (/urgent/i.test(p || '') ? 0 : /high/i.test(p || '') ? 1 : /low/i.test(p || '') ? 3 : 2);
 function orderOtto(jobs) {
@@ -769,4 +832,4 @@ function readSource({ file, uploaded, parser = parse }) {
 }
 
 module.exports = {
-  shipFromPerso, lineStepper, machineStepper, workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, mitigate, workingDaysAhead, scoreJobs, deadlineScore, shiftAt, SHIFTS, DEADLINE_DEFAULTS, woOfName, OTTO_COLUMNS };
+  shipFromPerso, lineStepper, machineStepper, workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, mitigate, parseDisp, linkDisp, DISP_COLUMNS, workingDaysAhead, scoreJobs, deadlineScore, shiftAt, SHIFTS, DEADLINE_DEFAULTS, woOfName, OTTO_COLUMNS };

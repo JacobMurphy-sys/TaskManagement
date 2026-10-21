@@ -132,6 +132,9 @@ function pfWoHtml(d) {
     ${d.matching.length ? `<h3 class="pl-h">Matching</h3><div class="kdb-scroll"><table class="log pll-t"><thead><tr><th>Job</th><th class="num">Items</th><th>Status</th><th>Plan date</th><th>Machine</th></tr></thead><tbody>
       ${d.matching.map((m) => `<tr><td>${esc(m.name)}</td><td class="num">${pfN(m.qty)}</td><td class="small">${m.done ? '✔ ' : ''}${esc(m.status || '')}</td><td class="small">${esc(m.due || '')}</td><td class="small">${esc(m.machine || '—')}</td></tr>`).join('')}
     </tbody></table></div>` : ''}
+    ${d.dispatch?.length ? `<h3 class="pl-h">🚚 Dispatch</h3><div class="kdb-scroll"><table class="log pll-t"><thead><tr><th>Job</th><th class="num">Qty</th><th>Status</th><th>Due out</th><th>Priority</th><th>Group</th></tr></thead><tbody>
+      ${d.dispatch.map((x) => `<tr><td>${esc(x.name)}${x.live ? ` <span class="pf-chip">${esc(x.live)}</span>` : ''}</td><td class="num">${pfN(x.qty)}</td><td class="small">${x.done ? '✔ ' : ''}${esc(x.status || '')}</td><td class="small">${esc(x.due || '')}</td><td class="small">${esc(x.prio || '')}</td><td class="small">${esc(x.group || '')}</td></tr>`).join('')}
+    </tbody></table></div>` : ''}
     ${d.history.length ? `<h3 class="pl-h">Plan history <span class="muted small">— from each version of the open work orders export</span></h3><div class="kdb-scroll"><table class="log pll-t"><thead><tr><th>Job</th><th class="num">Cards</th><th>First seen</th><th>Started</th><th>Done</th><th>Deadline</th><th>Against it</th></tr></thead><tbody>
       ${d.history.map((h) => `<tr><td>${esc(h.per || h.key)}</td><td class="num">${pfN(h.qty)}</td><td class="small">${esc(pfWhen(h.first_seen))}</td><td class="small">${esc(pfWhen(h.started_at))}</td><td class="small">${esc(h.done_at ? fmtDateTime(h.done_at) : 'not yet')}</td>
         <td class="small">${esc(h.deadline ? fmtDateTime(h.deadline) : '—')}</td><td>${h.done_at ? lateText(h.late_minutes) : '—'}</td></tr>`).join('')}

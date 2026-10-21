@@ -58,11 +58,11 @@ The top bar's tabs were renamed for 1.0 (the addresses behind them are unchanged
 | Ideas | 💡 **Ideas** | | Continuous Improvement |
 | Library | 📚 **Library** | | Basic pack |
 | KPIs | 📊 **Reporting** | **Weekly Ops Report** (the A3), Database, Sources | Management |
-| Planning | 🏭 **Production** | 💳 Perso, 🧩 Matching, ✨ Insights (🧠 Learned, 📆 D+ due out, ⏱ Timing) | Prod Management |
+| Planning | 🏭 **Production** | 💳 Perso, 🧩 Matching, 🚚 Dispatch, ✨ Insights (🧠 Learned, 📆 D+ due out, ⏱ Timing) | Prod Management |
 | Report | 🗄 *Archive* | the status report | Archive |
 | Contacts | 📇 **Contacts** | | Admin |
 
-Planned for later, not built yet: a project Gantt across projects, the Quality Report, and Dispatch alongside Matching.
+Planned for later, not built yet: the Quality Report. (Projects' ▤ Timeline shows all projects over time.)
 
 ## 1. One-time setup (Windows)
 
@@ -231,7 +231,14 @@ What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (
 **🏭 Production** in the top bar (formerly Planning) has three tabs:
 - **💳 Perso:** the open perso work orders, in the order chosen in the drop-down on the tab (FIFO, BAU, ⚖ Score or 🛟 Mitigation). Views are ☰ List, ▤ Gantt, ▦ Load and 📈 History.
 - **🧩 Matching:** the Matching jobs.
-- **✨ Insights:** 🧠 Learned and 📆 D+ due out (both described below), and ⏱ Timing (what ran on each machine; see *⏱ Timing*). Timing moved here from Reporting, and its old links lead here.
+- **🚚 Dispatch:** the open dispatch jobs from the Dispatch export (*OpenDespatchWorkorders*), set in ⚙ Setup or tried with 📂 Load file….
+  - **What's read:** **WO** (the perso work order plus `DES0001`, so `CCBCS26101956DES0001` belongs to work order `CCBCS26101956`, customer CBC), **QNY**, **Due Out**, **Status**, Prio, LIVE, GROUP, and the customer's name.
+  - **Where each one is in the chain:** each dispatch job is linked by its work order to the perso jobs still open and to its Matching jobs. It shows ⏳ *Waiting on perso*, 🧩 *Waiting on Matching* or ✔ *Ready to dispatch*, with roughly when it will be ready (from their projected finishes) and the export's own status beside it.
+  - **Tiles:** open, due today, overdue, waiting on perso, waiting on Matching, ready. Click a stage tile to show only those.
+  - **Click a job** for its perso and Matching jobs, and **🔍 Everything about** the work order.
+  - **Old ones:** dispatch jobs due long ago are hidden like the rest and are in the hidden export (*Hidden Dispatch*). Despatched ones aren't listed.
+  - **Elsewhere:** the 🔍 work order window lists its dispatch jobs, search finds them, and 📆 D+ due out covers Dispatch too (its history is recorded from now on).
+- **✨ Insights:** 🧠 Learned and 📆 D+ due out (both described below, D+ for Perso, Matching, Dispatch or All), and ⏱ Timing (what ran on each machine; see *⏱ Timing*). Timing moved here from Reporting, and its old links lead here.
 
 **📄 Generate plan** is the large button at the right of the tiles row, on Perso and on Matching.
 
@@ -330,6 +337,7 @@ The Perso tab turns the open perso work orders export (`OpenPersoWorkorders_PerA
   - **Hidden perso**, one row per job: customer, cards, card lines, due date and how many days ago, status, priority, group, shipper and cut-off, and when it first appeared in the export. It also shows whether it ran (runs, cards run, last run, machines from the ⏱ timing runs), its Matching jobs, and a **hint**: *ran in full* (likely done but not closed in the system), *partly run*, *In Progress but no runs recorded*, or *never ran*. Empty **Cause · Action · Owner · Closed** columns are there for the investigation.
   - **Hidden perso lines:** each card line, with the card's name and kind and how many of it ran.
   - **Hidden Matching:** the Matching jobs hidden the same way, whether their perso work order is still open, and what ran.
+  - **Hidden Dispatch:** the dispatch jobs hidden the same way, with whether perso and Matching are done. *Perso and Matching done* likely means it was dispatched but not closed.
 - **Hide anything due more than … days ago** (Setup, default 30; 0 shows everything): older jobs in either export are likely errors, so they're left out of the list, the plan and the backlog. The Backlog card says how many were left out.
 - **📈 History**: each new version of the linked export is recorded (checked every 10 minutes, so hourly exports are caught with Planning closed). A job that was open and is gone from the next export is **done** at that export's time — to within the export interval — and **on time** if that's not after its cut-off; a job that comes back is open again. An empty export is ignored, and linking a different file doesn't count the old file's jobs as done. The view shows the last 7 days (jobs and cards done, % on time, average lead time from first seen to done), cards done per day (on time / late) and the latest jobs done. The history is kept in the database and backed up.
 - **Long lists** show the first 150 jobs, with **Show more** / **Show all** below them; the search box and filters still search every job, and **Generate plan** always uses the whole list. A job's card articles are drawn when you open it. Large answers from the app are sent compressed, which helps most with the shared planner over the network.
