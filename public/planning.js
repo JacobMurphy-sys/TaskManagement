@@ -26,6 +26,68 @@ function plHalvesHtml(half, mode = store.get('planMode', 'fifo')) {
     ${tab('otto', '🧩 Matching')}${tab('insights', '✨ Insights')}</div>`;
 }
 
+// 🔎 The card lines without a speed of their own, for putting right: those whose card isn't in the card
+// database (no kind, so no rule can reach them), and the rest by kind of card — one speed rule (type ·
+// material · print sides) covers a whole group; the 🧠 learned speed for the kind is offered where known.
+async function plNoSpeed() {
+  const p = planNow; if (!p) return;
+  const lines = [];
+  for (const j of [...p.running, ...p.queue]) for (const a of j.articles) if (a.speed === null || a.speed_from === 'average' || !a.card) lines.push({ ...a, wo: j.wo, per: j.per, key: j.key, customer: j.customer, due: j.due });
+  const unknown = lines.filter((l) => !l.card);
+  const noSpeed = lines.filter((l) => l.card && (l.speed === null || l.speed_from === 'average'));
+  const kindOf = (c) => [c.type, c.material, c.sides];
+  const kindKey = (c) => kindOf(c).map((v) => String(v ?? '').trim().toLowerCase()).join('|');
+  const groups = new Map();
+  for (const l of noSpeed) { const k = kindKey(l.card); const g = groups.get(k) || groups.set(k, { kind: kindOf(l.card), lines: [] }).get(k); g.lines.push(l); }
+  const byArticle = new Map();
+  for (const l of unknown) { const g = byArticle.get(l.article) || byArticle.set(l.article, []).get(l.article); g.push(l); }
+  // the learned speeds, where the runs know the kind (best effort)
+  let learned = new Map();
+  try { const L = await api.get(`/plan/learn?days=${store.get('planLearnDays', 90)}`); learned = new Map(L.speeds.map((x) => [[x.type, x.material, x.sides].map((v) => String(v ?? '').trim().toLowerCase()).join('|'), x])); } catch { /* none */ }
+  const n = (v) => PLF.num.format(Math.round(Number(v || 0)));
+  const sum = (l) => l.reduce((t, x) => t + (x.qty || 0), 0);
+  const wos = (l) => [...new Set(l.map((x) => x.wo))];
+  const woLinks = (l) => { const w = wos(l); return `${w.slice(0, 4).map((x) => `<a href="#" data-pf-open-wo="${esc(x)}">${esc(x)}</a>`).join(', ')}${w.length > 4 ? ` <span class="muted">+${w.length - 4}</span>` : ''}`; };
+  const kindText = (k) => k.filter(Boolean).map(esc).join(' · ') || '<span class="muted">no type, material or sides</span>';
+  const canSet = acctAdmin();
+  const groupsSorted = [...groups.values()].sort((a, b) => sum(b.lines) - sum(a.lines));
+  openModal(`<div class="modal-head"><h2 style="margin:0">🔎 Card lines without a speed <span class="muted small">${n(lines.length)} line${lines.length === 1 ? '' : 's'}</span></h2><button class="icon" data-action="close-modal">✕</button></div>
+    <p class="small muted">These lines are timed at ${p.capacity?.rate ? 'the flat rate' : 'the average of the others (≈)'}, so their planned times are a guess. Put them right in the order below — biggest first.</p>
+    ${groupsSorted.length ? `<h3 class="pl-h">No speed for their kind of card <span class="muted small">${groupsSorted.length} kind${groupsSorted.length === 1 ? '' : 's'} · ${n(noSpeed.length)} lines · ${n(sum(noSpeed))} cards</span></h3>
+      <p class="small muted">Each is a type · material · print sides with no speed rule. ${canSet ? 'Type a speed and press <b>Save</b> to add the rule — every line of that kind is then timed with it.' : 'Someone with the setup right can add a speed rule for each in ⚙ Setup › Speeds.'}</p>
+      <div class="kdb-scroll"><table class="log pll-t"><thead><tr><th>Kind of card</th><th class="num">Lines</th><th class="num">Cards</th><th>Cards (AX)</th><th>Work orders</th><th class="num">🧠 Learned</th>${canSet ? '<th>Speed (cards/h)</th>' : ''}</tr></thead><tbody>
+      ${groupsSorted.map((g, i) => { const lk = learned.get(kindKey({ type: g.kind[0], material: g.kind[1], sides: g.kind[2] })); const arts = [...new Set(g.lines.map((l) => l.article))];
+        return `<tr><td><b>${kindText(g.kind)}</b></td><td class="num">${n(g.lines.length)}</td><td class="num">${n(sum(g.lines))}</td>
+        <td class="small">${arts.slice(0, 5).map((a) => `<a href="#" data-pf-open-item="${esc(a)}">${esc(a)}</a>`).join(', ')}${arts.length > 5 ? ` <span class="muted">+${arts.length - 5}</span>` : ''}</td><td class="small">${woLinks(g.lines)}</td>
+        <td class="num">${lk ? `<b>${n(lk.speed)}/h</b><div class="small muted">${n(lk.runs)} runs</div>` : '<span class="muted">—</span>'}</td>
+        ${canSet ? `<td class="nowrap"><input type="number" min="1" step="1" style="width:90px" data-ns-speed="${i}" value="${lk ? Math.round(lk.speed) : ''}" placeholder="cards/h"> <button class="small primary" data-ns-save="${i}">Save</button></td>` : ''}</tr>`; }).join('')}
+      </tbody></table></div>` : ''}
+    ${byArticle.size ? `<h3 class="pl-h">Not in the card database <span class="muted small">${byArticle.size} card${byArticle.size === 1 ? '' : 's'} · ${n(unknown.length)} lines · ${n(sum(unknown))} cards</span></h3>
+      <p class="small muted">Their kind isn't known, so no speed rule can reach them: add them to the card database (Access, the Cards table), or correct the Card AX in the work order if it's wrong.</p>
+      <div class="kdb-scroll"><table class="log pll-t"><thead><tr><th>Card (AX)</th><th class="num">Lines</th><th class="num">Cards</th><th>Work orders</th><th>Customers</th></tr></thead><tbody>
+      ${[...byArticle].sort((a, b) => sum(b[1]) - sum(a[1])).map(([a, l]) => `<tr><td><b><a href="#" data-pf-open-item="${esc(a)}">${esc(a)}</a></b></td><td class="num">${n(l.length)}</td><td class="num">${n(sum(l))}</td><td class="small">${woLinks(l)}</td><td class="small">${esc([...new Set(l.map((x) => x.customer).filter(Boolean))].join(', '))}</td></tr>`).join('')}
+      </tbody></table></div>` : ''}
+    <div class="row" style="margin-top:10px"><span class="small muted">Every line, with its work order, job, card, kind and cards, as a CSV — to hand on.</span><span class="spacer"></span><button data-ns-csv>⬇ CSV</button></div>`, { wide: true });
+  const box = $('#modal-body');
+  box.onclick = async (e) => {
+    const w = e.target.closest('[data-pf-open-wo], [data-pf-open-item]');
+    if (w) { e.preventDefault(); closeModal(); pfBack.length = 0; pfOpen(w.dataset.pfOpenWo ? 'wo' : 'item', w.dataset.pfOpenWo || w.dataset.pfOpenItem); return; }
+    const sv = e.target.closest('[data-ns-save]');
+    if (sv) {
+      const g = groupsSorted[Number(sv.dataset.nsSave)]; const speed = $(`[data-ns-speed="${sv.dataset.nsSave}"]`, box).value;
+      try { await api.post('/plan/speeds', { type: g.kind[0], material: g.kind[1], sides: g.kind[2], speed }); toast(`Speed set: ${speed}/h for ${g.kind.filter(Boolean).join(' · ') || 'that kind'}`); await renderPlanning(); plNoSpeed(); } catch (err) { toast(err.message, 'error'); }
+      return;
+    }
+    if (e.target.closest('[data-ns-csv]')) {
+      const cell = (v) => (v === null || v === undefined ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+      const rows = [['Work order', 'Job', 'Card (AX)', 'Type', 'Material', 'Print sides', 'Cards', 'Customer', 'Due', 'Why'],
+        ...lines.map((l) => [l.wo, l.per, l.article, l.card?.type, l.card?.material, l.card?.sides, l.qty, l.customer, l.due, l.card ? 'no speed for its kind' : 'not in the card database'])];
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([`${rows.map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`], { type: 'text/csv' }));
+      a.download = `card-lines-without-a-speed-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+  };
+}
+
 async function renderPlanning() {
   if (['insights', 'dplus'].includes(store.get('planHalf', 'perso'))) return renderPlanInsights(); // ✨ Insights (dplus.js)
   const mode = ['bau', 'score', 'mitigation'].includes(store.get('planMode', 'fifo')) ? store.get('planMode') : 'fifo';
@@ -394,7 +456,7 @@ ${half === 'otto' ? ottoSetup() : `
 `}
     </div>
     ${half === 'otto' ? ottoHtml() : `
-    ${src.status === 'ok' && cdb.status === 'ok' && (p.unknown_articles?.length || p.no_speed) ? `<div class="kc-note">⚠ ${[p.unknown_articles.length ? `${p.unknown_articles.length} card article${p.unknown_articles.length === 1 ? ' isn\'t' : 's aren\'t'} in the card database (${esc(p.unknown_articles.slice(0, 6).join(', '))}${p.unknown_articles.length > 6 ? ', …' : ''})` : '', p.no_speed ? `${p.no_speed} card line${p.no_speed === 1 ? ' has no speed of its own' : 's have no speed of their own'} — ${cap.rate ? 'the flat rate is used' : 'the average of the others is used (≈)'}` : ''].filter(Boolean).join(' · ')}. <button class="link small" data-pl="setup">⚙ Speeds</button></div>` : ''}
+    ${src.status === 'ok' && cdb.status === 'ok' && (p.unknown_articles?.length || p.no_speed) ? `<div class="kc-note">⚠ ${[p.unknown_articles.length ? `${p.unknown_articles.length} card article${p.unknown_articles.length === 1 ? ' isn\'t' : 's aren\'t'} in the card database (${esc(p.unknown_articles.slice(0, 6).join(', '))}${p.unknown_articles.length > 6 ? ', …' : ''})` : '', p.no_speed ? `${p.no_speed} card line${p.no_speed === 1 ? ' has no speed of its own' : 's have no speed of their own'} — ${cap.rate ? 'the flat rate is used' : 'the average of the others is used (≈)'}` : ''].filter(Boolean).join(' · ')}. <button class="small" data-pl="nospeed">🔎 Show which</button> <button class="link small admin-only" data-pl="setup">⚙ Speeds</button></div>` : ''}
     ${src.status === 'missing' ? `<div class="kc-note">⚠ Can't find <code>${esc(src.file)}</code> — check the path in ⚙ Setup.</div>` : ''}
     ${src.status === 'error' ? `<div class="kc-note">⚠ Couldn't read <code>${esc(src.file)}</code>: ${esc(src.error)}</div>` : ''}
     ${src.status === 'none' ? '<div class="card lib-empty"><h2>Production planning</h2><p>Set where the open work orders export is saved in ⚙ Setup (or try it with 📂 Load file…). The work orders are put in order by their deadline — the due date at the shipper\'s cut-off — and, with a capacity, each one\'s finish is projected.</p></div>' : ''}
@@ -577,6 +639,7 @@ ${half === 'otto' ? ottoSetup() : `
     const m = e.target.closest('[data-pl-mode]');
     if (m) { store.set('planMode', m.dataset.plMode); renderPlanning(); return; }
     const b = e.target.closest('[data-pl]');
+    if (b?.dataset.pl === 'nospeed') { plNoSpeed(); return; }
     if (b?.dataset.pl === 'setup') { const s = $('#pl-setup'); s.hidden = !s.hidden; store.set('planSetupOpen', !s.hidden); if (!s.hidden) s.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (b?.dataset.pl === 'refresh') { renderPlanning(); return; }
     if (b?.dataset.pl === 'clear') { store.set('planFilter', {}); renderPlanning(); return; }
