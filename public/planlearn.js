@@ -29,7 +29,7 @@ function planLearnHtml(L) {
   const pick = `<div class="seg">${PLL.days.map(([d, l]) => `<button type="button" data-pll-days="${d}" class="${d === days ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   if (!L.runs.used) {
     return `<div class="row pl-views">${pick}</div><div class="card lib-empty"><h2>🧠 Nothing to learn from yet</h2>
-      <p>This learns from the runs in the ⏱ Production timing reports (Reporting › ⏱ Timing): link the perso report there, and the planning setup is compared with what really ran.
+      <p>This learns from the runs in the ⏱ Production timing reports (✨ Insights › ⏱ Timing): link the perso report there, and the planning setup is compared with what really ran.
       ${L.runs.total ? `There ${L.runs.total === 1 ? 'is 1 run' : `are ${pllN(L.runs.total)} runs`} in this window, all set aside as anomalies.` : 'There are no runs in this window — try a longer one.'}</p></div>`;
   }
   const A = L.accuracy;

@@ -2067,6 +2067,7 @@ async function waitForServer() {
       assert.equal((await sam('GET', '/kpi/snapshots')).status, 403, 'no KPIs');
       assert.equal((await sam('GET', '/ideas')).status, 403, 'no ideas');
       assert.equal((await sam('GET', '/plan/find?q=ab')).status, 200, 'planning');
+      assert.equal((await sam('GET', '/prod?source=perso')).status, 200, '⏱ Timing is Production\'s (Insights)');
       assert.equal((await sam('GET', '/tasks')).status, 200, 'the basic pack');
       assert.deepEqual((await sam('GET', '/search?q=Sam')).data.ideas, [], 'search leaves out what Sam can\'t use');
       assert.equal((await sam('PATCH', `/accounts/${samId}`, { modules: ['management'] })).status, 403, 'only admins give modules');

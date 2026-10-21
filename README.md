@@ -56,8 +56,8 @@ The top bar's tabs were renamed for 1.0 (the addresses behind them are unchanged
 | Board | 🗂 **Projects** | the projects board | Management |
 | Ideas | 💡 **Ideas** | | Continuous Improvement |
 | Library | 📚 **Library** | | Basic pack |
-| KPIs | 📊 **Reporting** | **Weekly Ops Report** (the A3), Database, Sources, ⏱ Timing | Management |
-| Planning | 🏭 **Production** | 💳 Perso, 🧩 Matching, ✨ Insights (🧠 Learned, 📆 D+ due out) | Prod Management |
+| KPIs | 📊 **Reporting** | **Weekly Ops Report** (the A3), Database, Sources | Management |
+| Planning | 🏭 **Production** | 💳 Perso, 🧩 Matching, ✨ Insights (🧠 Learned, 📆 D+ due out, ⏱ Timing) | Prod Management |
 | Report | 🗄 *Archive* | the status report | Archive |
 | Contacts | 📇 **Contacts** | | Admin |
 
@@ -209,7 +209,7 @@ Past weeks stay in the list, so any earlier A3 can be viewed or saved again.
 - Worked out from those: CPMS (complaints per million cards shipped), scrap rate (scrap ÷ cards persoed), productivity (cards persoed per working hour) and HC (contract + temps) — all checked against Excel the same way.
 - Week codes are worked out, not typed: weeks run Sunday–Saturday (W2639), and a week whose weekdays fall in two months is split into W…_1 and W…_2. Excel's calendar leaves the Saturday and Sunday of a split week out of both parts, so weekend work in those weeks never reaches the report — the page lists it, and a tick box counts those days in their own month's part instead.
 
-### ⏱ Timing (Reporting › ⏱ Timing)
+### ⏱ Timing (Production › ✨ Insights › ⏱ Timing)
 What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (one row per job run: the machine, start and end date and time, cards persoed, remake, customer, item), and Matching's matching report.
 - **Link the report** where it's saved (on the Production tab, or ⚙ there). It's read every 10 minutes and **every run is kept**, so the history builds up day by day even though the report only holds one day; reading a report again updates its runs rather than adding them twice. **📂 Load reports…** takes older daily reports (several at once) to fill in the past. The columns are found by their names, in any order. **The history starts when the report is linked**: the daily report only ever holds one day, so to see earlier weeks or months, export the timing report once for a longer period (e.g. the last 3 months, same columns) and load it with 📂 Load reports… (3 months of runs load in about a second). The page opens on the latest day with runs.
 - **Every run the report holds is kept, whatever its day**: a report covering several days or months fills in all of them. A **history strip** at the top shows every day kept (cards a day; click a day to open it), and the report line says what the report itself held when last read (e.g. *the report held 8,090 runs over 66 days*). Views: a day, 3 days, a week, two weeks or a month.
@@ -225,7 +225,7 @@ What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (
 **🏭 Production** in the top bar (formerly Planning) has three tabs:
 - **💳 Perso:** the open perso work orders, in the order chosen in the drop-down on the tab (FIFO, BAU, ⚖ Score or 🛟 Mitigation). Views are ☰ List, ▤ Gantt, ▦ Load and 📈 History.
 - **🧩 Matching:** the Matching jobs.
-- **✨ Insights:** 🧠 Learned and 📆 D+ due out, both described below.
+- **✨ Insights:** 🧠 Learned and 📆 D+ due out (both described below), and ⏱ Timing (what ran on each machine; see *⏱ Timing*). Timing moved here from Reporting, and its old links lead here.
 
 **📄 Generate plan** is the large button at the right of the tiles row, on Perso and on Matching.
 
@@ -259,7 +259,7 @@ The Perso tab turns the open perso work orders export (`OpenPersoWorkorders_PerA
   - **📥 Import from the Production Planning workbook** brings over ShiftLookup, ManualLookup, MatchingLookup, DispatchLookup and the Cards sheet's AX / Tag list, replacing lists of the same name.
   - Each module has its own on/off switch. Kept in `plan_modifiers`, `plan_mod_shifts` and `plan_card_tags` (audited, backed up).
 - **⏳ Backlog** (Perso list view and the Matching view): the cards or items overdue (past the cut-off / plan date), in how many jobs, and the oldest due date. It also estimates how long catching up will take at the pace of the last 7 days' working days: output a day (Perso: jobs gone from the export, from the plan history; Matching: finished jobs by their End Date) against work due a day (by due / plan date). It gives two figures: the overdue on its own ÷ output a day, and, with new work still coming, overdue ÷ (output − due), with the working day it's reached. If as much or more is due each day as is done, it says the backlog isn't shrinking. The Overdue tiles now show cards / items, with the catch-up days.
-- **🧠 Learned** (✨ Insights): Planning learns from what really ran, the runs in the ⏱ Production timing reports (Reporting › ⏱ Timing), over the last 30 days to a year, with anomalies left out and each card matched to the card database.
+- **🧠 Learned** (✨ Insights): Planning learns from what really ran, the runs in the ⏱ Production timing reports (✨ Insights › ⏱ Timing), over the last 30 days to a year, with anomalies left out and each card matched to the card database.
   - **🧠 Card by card (run times learned item by item):** each card line in a work order is timed as the usual set-up plus its cards at that card's own running speed, learned from its runs. A card with few runs leans on its kind of card: one run counts for little, ten for most. The kind's speed is adjusted by how that customer's cards usually run. A card with no history takes its kind's speed. A card with no history whose kind has none either takes all runs' speed, unless a speed rule covers it, in which case the rule is kept. So a work order with several different cards is timed by what's actually in it. Switch it on with **Use it in the plan**, or in ⚙ Setup › **Run times**. Lines timed this way show 🧠 by their speed; hover over it to see how many runs it's based on and the set-up added. Every later step (machines, Gantt, load, mitigation and the projected finish) uses these times. The model uses the last 180 days of runs and updates as new timing reports come in. The Accuracy tiles compare all three ways on the newest runs.
   - **Accuracy:** the share of runs Planning would have timed within 25% of what they took, with the setup as it is and with the learned values. The learned values are worked out on the older runs and tested on the newest, so the figure isn't flattered.
   - **Speeds by kind of card** (type · material · print sides): the running speed once a run is going, with the machine's usual set-up taken off. It's the middle of the runs, weighted by cards, with the range half of them fall in, set against the speed planned now. **Apply** adds or updates that exact speed rule. **Apply the confident speeds** does all the rows with enough runs: ●●● 30+ runs over 5+ days, ●●○ 10+ over 2+ days. ●○○ rows are left for you to judge.
@@ -393,9 +393,9 @@ Instead of a copy on each PC, one computer runs the CI Manager and everyone open
 - **🧩 Modules:** the admin ticks which parts of the app each account can see and use, in ⚙ Settings › 👤 Accounts (the Modules column, or when adding an account).
   - **Basic pack**, always included: Home, Tasks, Calendar, Library, 📥 My work, quick notes and search.
   - **To tick:**
-    - **🗂 Management:** Projects (the board, project pages and charters, the projects list in the sidebar) and 📊 Reporting.
+    - **🗂 Management:** Projects (the board, project pages and charters, the projects list in the sidebar) and 📊 Reporting (the Weekly Ops Report, its database and sources).
     - **💡 Continuous Improvement:** Ideas.
-    - **🏭 Prod Management:** Production.
+    - **🏭 Prod Management:** Production, including ✨ Insights and its ⏱ Timing.
     - **🗄 Archive:** the status report.
     - **📇 Admin:** Contacts, for editing the lists. Names can still be picked as owners without it.
   - **Carried over:** ticks made before the grouping move across. Projects or KPIs become Management, Ideas becomes Continuous Improvement, Planning becomes Prod Management, Report becomes Archive and Contacts becomes Admin.

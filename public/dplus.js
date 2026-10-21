@@ -1,5 +1,5 @@
 'use strict';
-// ✨ Production › Insights: 🧠 Learned (planlearn.js) and 📆 D+ due out.
+// ✨ Production › Insights: 🧠 Learned (planlearn.js), 📆 D+ due out and ⏱ Timing (production.js).
 // 📆 D+ due out: how much notice work orders come with (src/dplus.js) — D+0 due out the day
 // they came in, D+1 the next working day… — perso, Matching or both, over a time frame, as totals and an
 // average a working day, with the arrivals day by day. Click a row for that bucket's customers, job
@@ -22,7 +22,7 @@ function dplRange(q, since) {
 // The Insights tab: Production's tabs, then Learned / D+ due out.
 const plInsightsHead = (sub, extra = '') => `
     <div class="kanban-tools"><h1 style="margin:0">🏭 Production</h1>${plHalvesHtml('insights')}</div>
-    <div class="row pl-views"><div class="seg">${[['learn', '🧠 Learned'], ['dplus', '📆 D+ due out']].map(([k, l]) => `<button type="button" data-pl-insight="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>${extra}</div>`;
+    <div class="row pl-views"><div class="seg">${[['learn', '🧠 Learned'], ['dplus', '📆 D+ due out'], ['timing', '⏱ Timing']].map(([k, l]) => `<button type="button" data-pl-insight="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>${extra}</div>`;
 // a click on Production's tabs or Insights' own: true when handled
 function plInsightsClick(e) {
   const hf = e.target.closest('[data-pl-half]'); if (hf) { store.set('planHalf', hf.dataset.plHalf); renderPlanning(); return true; }
@@ -32,6 +32,7 @@ function plInsightsClick(e) {
 async function renderPlanInsights() {
   store.set('planHalf', 'insights');
   if (store.get('planInsight', 'learn') === 'dplus') return renderPlanDplus();
+  if (store.get('planInsight', 'learn') === 'timing') return renderKpiProduction();
   const L = await api.get(`/plan/learn?days=${store.get('planLearnDays', 90)}`);
   main().innerHTML = `${plInsightsHead('learn')}<div class="pll-view">${planLearnHtml(L)}</div>`;
   main().onclick = async (e) => { if (plInsightsClick(e)) return; await planLearnClick(e, L, renderPlanInsights); };

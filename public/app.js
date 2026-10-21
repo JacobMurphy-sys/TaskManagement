@@ -291,6 +291,8 @@ async function route() {
   if ((view === 'backups' ? !acctRight('backups') : view === 'kpi' && ['sources', 'calc'].includes(rest[0]) && !acctAdmin())) {
     toast('That\'s part of the setup — only an admin can open it', 'error'); location.replace(view === 'kpi' ? '#/kpi' : '#/dashboard'); view = view === 'kpi' ? 'kpi' : 'dashboard'; rest = [];
   }
+  // ⏱ Timing moved from Reporting to Production › Insights: old links go there
+  if (view === 'kpi' && rest[0] === 'production') { store.set('planHalf', 'insights'); store.set('planInsight', 'timing'); location.replace('#/planning'); view = 'planning'; rest = []; }
   const mod = MOD_OF_VIEW[view];
   if (mod && !modOk(mod)) { toast(`Your account doesn't include ${ACCT.modules.find((m) => (m.areas || []).includes(mod))?.label || mod} — ask an admin`, 'error'); location.replace('#/dashboard'); view = 'dashboard'; rest = []; }
   state.view = view;

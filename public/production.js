@@ -1,5 +1,5 @@
 'use strict';
-// ⏱ Reporting › Timing: what actually ran, from the daily timing reports (perso, Matching) — a Gantt
+// ⏱ Production › Insights › Timing: what actually ran, from the daily timing reports (perso, Matching) — a Gantt
 // of each machine's jobs, the load per machine per day, and the runs set aside as anomalies
 // (far too quick, far too long) so they don't skew the picture. Loaded before app.js.
 
@@ -111,13 +111,10 @@ async function renderKpiProduction() {
   })();
 
   main().innerHTML = `
-    <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
-      <div class="seg"><a href="#/kpi">Weekly Ops Report</a><a href="#/kpi/0/database">Database</a><a href="#/kpi/sources">Sources</a><a href="#/kpi/production" class="on" title="What ran on each machine, from the daily timing reports">⏱ Timing</a></div>
-      <div class="seg"><button type="button" data-prod-source="perso" class="${source === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-prod-source="otto" class="${source === 'otto' ? 'on' : ''}">Matching</button></div>
+    ${plInsightsHead('timing', `<div class="seg"><button type="button" data-prod-source="perso" class="${source === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-prod-source="otto" class="${source === 'otto' ? 'on' : ''}">Matching</button></div>
       <div class="spacer"></div>
       ${linked ? '<button data-prod="read" title="Read the report again now">📥 Read now</button>' : ''}
-      <label class="button" title="Load older daily reports to fill in the history (several at once is fine)">📂 Load reports…<input type="file" accept=".xlsx,.xlsm" multiple hidden id="prod-files"></label>
-    </div>
+      <label class="button" title="Load older daily reports to fill in the history (several at once is fine)">📂 Load reports…<input type="file" accept=".xlsx,.xlsm" multiple hidden id="prod-files"></label>`)}
     ${linked ? `<div class="kpi-meta small muted">${esc(label)} timing report: <span title="${esc(p.file || '')}">${esc((p.file || '').split(/[\\/]/).pop())}</span>${p.history.last_read ? ` · read ${esc(fmtDateTime(p.history.last_read.at))}` : ''}
         · ${n(p.history.runs)} runs kept${p.history.first ? `, ${esc(p.history.first.slice(0, 10))} to ${esc(p.history.last.slice(0, 10))}` : ''} <details class="kpi-info"><summary>⚙</summary><div class="kpi-info-pop card">${fileHtml('perso')}${fileHtml('otto')}</div></details></div>`
     : `<div class="card"><h3 style="margin-top:0">Link the daily ${esc(label.toLowerCase())} timing report</h3>
@@ -169,6 +166,7 @@ async function renderKpiProduction() {
     renderKpiProduction();
   });
   main().onclick = async (e) => {
+    if (plInsightsClick(e)) return;
     const s = e.target.closest('[data-prod-source]'); if (s) { prodState.sel = null; set('prodSource', s.dataset.prodSource); return; }
     const v = e.target.closest('[data-prod-view]'); if (v) { set('prodView', v.dataset.prodView); return; }
     const d = e.target.closest('[data-prod-day]'); if (d) { set('prodFrom', shift(from, Number(d.dataset.prodDay) * span)); return; }
