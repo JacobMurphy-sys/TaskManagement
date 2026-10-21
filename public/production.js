@@ -114,7 +114,7 @@ async function renderKpiProduction() {
     ${plInsightsHead('timing', `<div class="seg"><button type="button" data-prod-source="perso" class="${source === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-prod-source="otto" class="${source === 'otto' ? 'on' : ''}">Matching</button></div>
       <div class="spacer"></div>
       ${linked ? '<button data-prod="read" title="Read the report again now">📥 Read now</button>' : ''}
-      <button data-anom-export title="Every anomalous run and every work order hidden for its age, in one workbook to investigate">⬇ Anomalies to Excel</button>
+      <button data-anom-export title="Every run set aside as an anomaly, in one workbook to investigate">⬇ Anomalies to Excel</button>
       <label class="button" title="Load older daily reports to fill in the history (several at once is fine)">📂 Load reports…<input type="file" accept=".xlsx,.xlsm" multiple hidden id="prod-files"></label>`)}
     ${linked ? `<div class="kpi-meta small muted">${esc(label)} timing report: <span title="${esc(p.file || '')}">${esc((p.file || '').split(/[\\/]/).pop())}</span>${p.history.last_read ? ` · read ${esc(fmtDateTime(p.history.last_read.at))}` : ''}
         · ${n(p.history.runs)} runs kept${p.history.first ? `, ${esc(p.history.first.slice(0, 10))} to ${esc(p.history.last.slice(0, 10))}` : ''} <details class="kpi-info"><summary>⚙</summary><div class="kpi-info-pop card">${fileHtml('perso')}${fileHtml('otto')}</div></details></div>`
@@ -231,8 +231,8 @@ function anomExportDialog() {
     <p class="small muted">One workbook to start investigations from:</p>
     <ul class="small" style="margin:0 0 8px 18px;padding:0">
       <li><b>Anomalies by WO</b>: each work order with runs that can't be right for their machine and size (far too quick or slow, no end, impossible), with empty <i>Cause · Action · Owner · Closed</i> columns to fill in</li>
-      <li><b>Anomalous runs</b>: every one of those runs, with what it took against the usual</li>
-      <li><b>Old perso / Matching (hidden)</b>: open work orders hidden from Production for being due long ago</li></ul>
+      <li><b>Anomalous runs</b>: every one of those runs, with what it took against the usual</li></ul>
+    <p class="small muted">The open work orders hidden for being due long ago have their own export: ⬇ Export them to Excel on the hidden line in the Perso or Matching backlog.</p>
     <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
       <label class="f"><span>Runs from</span><input type="date" name="from" value="${back(90)}"></label>
       <label class="f"><span>To</span><input type="date" name="to" value="${ymd(t)}"></label>

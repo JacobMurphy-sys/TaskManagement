@@ -1368,6 +1368,14 @@ async function waitForServer() {
         assert.deepEqual([po.otto.source.status, po.otto.done, po.otto.tests], ['ok', 3, 1], 'finished and test jobs are counted, not listed');
         assert.ok((await call('GET', '/plan/dplus?source=otto')).since, 'the Matching export is recorded (📆 D+ due out)');
         assert.deepEqual([po.otto.backlog.hidden_jobs, po.otto.backlog.hidden_qty, po.otto.backlog.max_age], [1, 77, 30], 'due more than 30 days ago: not shown');
+        // 🕰 the hidden ones, to investigate
+        const hx = await fetch(`${BASE}/plan/hidden.xlsx`);
+        assert.equal(hx.status, 200);
+        const hBook = require('../src/xlsxread').readBook(Buffer.from(await hx.arrayBuffer()));
+        assert.deepEqual(hBook.sheets.map((x) => x.name), ['Read me', 'Hidden perso', 'Hidden perso lines', 'Hidden Matching']);
+        const hm = hBook.sheet('Hidden Matching');
+        assert.equal(hm.maxRow, 2, 'the one Matching job due long ago');
+        assert.ok([...hm.cells.values()].some((c) => c.row === 2 && String(c.v).startsWith('COLDS')), 'it is listed');
         assert.ok(po.otto.backlog.catch_up.basis_days > 0 && po.otto.backlog.catch_up.rate > 0, 'the pace from the finished jobs\' End Date');
         assert.ok(po.backlog && 'overdue_qty' in po.backlog && po.backlog.catch_up, 'perso backlog too');
         await call('PATCH', '/settings', { plan_max_age: '0' });
@@ -1704,7 +1712,7 @@ async function waitForServer() {
       const ax = await fetch(`${BASE}/prod/anomalies.xlsx?from=2026-09-01&to=2026-10-10&sensitivity=strict`);
       assert.equal(ax.status, 200); assert.match(ax.headers.get('content-disposition'), /anomalies-2026-09-01-to-2026-10-10\.xlsx/);
       const axBook = require('../src/xlsxread').readBook(Buffer.from(await ax.arrayBuffer()));
-      assert.deepEqual(axBook.sheets.map((x) => x.name), ['Read me', 'Anomalies by WO', 'Anomalous runs', 'Old perso (hidden)', 'Old Matching (hidden)']);
+      assert.deepEqual(axBook.sheets.map((x) => x.name), ['Read me', 'Anomalies by WO', 'Anomalous runs']);
       // 📆 D+ due out: working days from coming in to due out
       const DP = require('../src/dplus'); const W5 = new Set([1, 2, 3, 4, 5]);
       assert.deepEqual([DP.workingDaysBetween('2026-10-16', '2026-10-16', W5), DP.workingDaysBetween('2026-10-16', '2026-10-19', W5), DP.workingDaysBetween('2026-10-14', '2026-10-16', W5), DP.workingDaysBetween('2026-10-16', '2026-10-15', W5)],
