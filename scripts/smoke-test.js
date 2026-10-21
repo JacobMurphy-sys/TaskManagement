@@ -2029,7 +2029,7 @@ async function waitForServer() {
       const admin = as('admin'); const sam = as('sam'); const anon = as('anon');
       const me0 = (await anon('GET', '/auth/me')).data;
       assert.deepEqual([me0.enabled, me0.account], [false, null], 'off');
-      assert.ok(me0.modules.some((m) => m.key === 'planning') && me0.modules.find((m) => m.key === 'basic').always, 'the modules there are');
+      assert.ok(me0.modules.some((m) => m.key === 'production') && me0.modules.find((m) => m.key === 'basic').always, 'the modules there are');
       assert.equal((await anon('GET', '/projects')).status, 200, 'off: as before');
       let r = await admin('POST', '/accounts', { username: 'boss', person: 'Pat Boss', password: 'short' });
       assert.equal(r.status, 400, 'passwords of 8 characters or more');
@@ -2060,19 +2060,19 @@ async function waitForServer() {
       const boss = (await admin('GET', '/accounts')).data.find((a) => a.username === 'boss');
       assert.equal((await admin('PATCH', `/accounts/${boss.id}`, { role: 'user' })).status, 400, 'at least one admin');
       // 🧩 modules: Sam (made before modules: all of them) becomes a production account — basic + planning
-      assert.ok((await sam('GET', '/auth/me')).data.account.modules.includes('kpi'), 'no modules set: all');
+      assert.ok((await sam('GET', '/auth/me')).data.account.areas.includes('kpi'), 'no modules set: all');
       const samId = (await admin('GET', '/accounts')).data.find((a) => a.username === 'sam').id;
-      r = await admin('PATCH', `/accounts/${samId}`, { modules: ['planning', 'nonsense'] });
-      assert.deepEqual(r.data.modules, ['basic', 'planning'], 'the basic pack always, unknown ones dropped');
+      r = await admin('PATCH', `/accounts/${samId}`, { modules: ['production', 'nonsense'] });
+      assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'production'], ['planning']], 'the basic pack always, unknown ones dropped');
       assert.equal((await sam('GET', '/kpi/snapshots')).status, 403, 'no KPIs');
       assert.equal((await sam('GET', '/ideas')).status, 403, 'no ideas');
       assert.equal((await sam('GET', '/plan/find?q=ab')).status, 200, 'planning');
       assert.equal((await sam('GET', '/tasks')).status, 200, 'the basic pack');
       assert.deepEqual((await sam('GET', '/search?q=Sam')).data.ideas, [], 'search leaves out what Sam can\'t use');
-      assert.equal((await sam('PATCH', `/accounts/${samId}`, { modules: ['kpi'] })).status, 403, 'only admins give modules');
+      assert.equal((await sam('PATCH', `/accounts/${samId}`, { modules: ['management'] })).status, 403, 'only admins give modules');
       assert.equal((await admin('GET', '/kpi/snapshots')).status, 200, 'admins have them all');
       r = await admin('POST', '/accounts', { username: 'mgr', person: 'Max Manager', password: 'mgr-pass-1', modules: ['projects', 'kpi', 'report'] });
-      assert.deepEqual(r.data.modules, ['basic', 'projects', 'kpi', 'report'], 'modules from the start');
+      assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'management', 'archive'], ['projects', 'kpi', 'report']], 'modules from the start; the old ones (projects, kpi, report) carried over');
       // 🔒 the setup is for admins; your own appearance is yours
       assert.equal((await sam('PATCH', '/settings', { currency: '$' })).status, 403, 'settings are for admins');
       assert.equal((await sam('PATCH', '/settings', { report_last_sent: new Date().toISOString() })).status, 200, 'but the report can be marked sent');
@@ -2091,7 +2091,7 @@ async function waitForServer() {
       assert.equal((await sam('PATCH', '/settings', { currency: '€' })).status, 200, 'the setup right');
       assert.equal((await sam('POST', '/backups', {})).status, 403, 'not the backups right');
       const mgrId = (await sam('GET', '/accounts')).data.find((a) => a.username === 'mgr').id;
-      assert.equal((await sam('PATCH', `/accounts/${mgrId}`, { modules: ['kpi'] })).status, 200, 'the accounts right: modules');
+      assert.equal((await sam('PATCH', `/accounts/${mgrId}`, { modules: ['management'] })).status, 200, 'the accounts right: modules');
       assert.equal((await sam('PATCH', `/accounts/${mgrId}`, { rights: ['setup'] })).status, 403, 'only the host gives rights');
       assert.equal((await sam('PATCH', `/accounts/${mgrId}`, { role: 'admin' })).status, 403, 'or makes admins');
       assert.equal((await sam('PATCH', `/accounts/${boss.id}`, { password: 'taken-over-1' })).status, 403, 'the host account is the host\'s');

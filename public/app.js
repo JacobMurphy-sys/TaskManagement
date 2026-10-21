@@ -292,7 +292,7 @@ async function route() {
     toast('That\'s part of the setup — only an admin can open it', 'error'); location.replace(view === 'kpi' ? '#/kpi' : '#/dashboard'); view = view === 'kpi' ? 'kpi' : 'dashboard'; rest = [];
   }
   const mod = MOD_OF_VIEW[view];
-  if (mod && !modOk(mod)) { toast(`Your account doesn't include ${ACCT.modules.find((m) => m.key === mod)?.label || mod} — ask an admin`, 'error'); location.replace('#/dashboard'); view = 'dashboard'; rest = []; }
+  if (mod && !modOk(mod)) { toast(`Your account doesn't include ${ACCT.modules.find((m) => (m.areas || []).includes(mod))?.label || mod} — ask an admin`, 'error'); location.replace('#/dashboard'); view = 'dashboard'; rest = []; }
   state.view = view;
   state.projectId = view === 'project' ? rest[0] : null;
   renderSidebar();
@@ -436,7 +436,7 @@ async function renderDashboard() {
   };
 
   main().innerHTML = `
-    <div class="row" style="margin-bottom:14px"><h1 style="margin:0">Dashboard</h1><div class="spacer"></div>
+    <div class="row" style="margin-bottom:14px"><h1 style="margin:0">Home</h1><div class="spacer"></div>
       <span class="muted">${esc(fmtDate(new Date()))}</span>
       ${modOk('report') ? '<a class="button" href="#/report">📰 Status report</a>' : ''}
       ${modOk('projects') ? '<a class="button" href="/api/export.xlsx" title="Download everything as an Excel workbook">⬇ Export to Excel</a>' : ''}</div>
@@ -1013,7 +1013,7 @@ async function renderKanban() {
 
   main().innerHTML = `
     <div class="kanban-tools">
-      <h1 style="margin:0">Projects board</h1><div class="spacer"></div>
+      <h1 style="margin:0">🗂 Projects</h1><div class="spacer"></div>
       <span class="small muted">${timeline ? 'Drag a bar to change a project\'s dates' : 'Drag a project to change its status'} · open a project for its own tasks</span>
       <div class="seg" role="group" aria-label="Projects view">
         <button data-action="projects-view" data-view="board" class="${timeline ? '' : 'on'}">▦ Board</button>

@@ -1,5 +1,5 @@
 'use strict';
-// ⏱ KPIs › Production: what actually ran, from the daily timing reports (perso, Matching) — a Gantt
+// ⏱ Reporting › Timing: what actually ran, from the daily timing reports (perso, Matching) — a Gantt
 // of each machine's jobs, the load per machine per day, and the runs set aside as anomalies
 // (far too quick, far too long) so they don't skew the picture. Loaded before app.js.
 
@@ -111,8 +111,8 @@ async function renderKpiProduction() {
   })();
 
   main().innerHTML = `
-    <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 KPIs</h1>
-      <div class="seg"><a href="#/kpi">A3 Weekly Report</a><a href="#/kpi/0/database">Database</a><a href="#/kpi/sources">Sources</a><a href="#/kpi/production" class="on">⏱ Production</a></div>
+    <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
+      <div class="seg"><a href="#/kpi">Weekly Ops Report</a><a href="#/kpi/0/database">Database</a><a href="#/kpi/sources">Sources</a><a href="#/kpi/production" class="on" title="What ran on each machine, from the daily timing reports">⏱ Timing</a></div>
       <div class="seg"><button type="button" data-prod-source="perso" class="${source === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-prod-source="otto" class="${source === 'otto' ? 'on' : ''}">Matching</button></div>
       <div class="spacer"></div>
       ${linked ? '<button data-prod="read" title="Read the report again now">📥 Read now</button>' : ''}

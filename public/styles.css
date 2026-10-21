@@ -1291,3 +1291,16 @@ body.not-admin .pll-switch button { display: none !important; }
 .dpl-hist { height: 200px; }
 .dpl-h { margin: 12px 0 4px; }
 .dpl-detail { border-left: 3px solid var(--accent); }
+
+/* 🏭 Production's tabs (Perso with its order, Matching, Insights) and the Generate plan button */
+.pl-halves { display: inline-flex; gap: 4px; padding: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; }
+.pl-half { display: inline-flex; align-items: center; border-radius: 7px; }
+.pl-half > button { border: 0; background: transparent; padding: 7px 16px; font-size: 15px; font-weight: 600; color: var(--muted); border-radius: 7px; }
+.pl-half > button:hover { color: var(--text); }
+.pl-half.on { background: var(--panel); box-shadow: 0 1px 3px rgba(0,0,0,.15); outline: 1px solid var(--accent); }
+.pl-half.on > button { color: var(--accent); }
+.pl-half select { margin: 0 6px 0 -6px; padding: 3px 6px; font-size: 13px; width: auto; border-radius: 6px; }
+.pl-tiles-row { display: flex; align-items: stretch; gap: 12px; margin-bottom: 10px; }
+.pl-tiles-row > .kdb-tiles { flex: 1; margin-bottom: 0; }
+.pl-generate { margin-left: auto; align-self: stretch; min-width: 200px; font-size: 18px; font-weight: 600; padding: 10px 24px; border-radius: 10px; }
+@media (max-width: 900px) { .pl-tiles-row { flex-direction: column; } .pl-generate { margin-left: 0; } }

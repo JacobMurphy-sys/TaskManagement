@@ -1,5 +1,6 @@
 'use strict';
-// 📆 Planning › D+ due out: how much notice work orders come with (src/dplus.js) — D+0 due out the day
+// ✨ Production › Insights: 🧠 Learned (planlearn.js) and 📆 D+ due out.
+// 📆 D+ due out: how much notice work orders come with (src/dplus.js) — D+0 due out the day
 // they came in, D+1 the next working day… — perso, Matching or both, over a time frame, as totals and an
 // average a working day, with the arrivals day by day. Click a row for that bucket's customers, job
 // sizes, shippers / machines, priorities, weekdays, how it went and its largest work orders.
@@ -16,6 +17,24 @@ function dplRange(q, since) {
   if (q === 'lastmonth') return [dplDay(new Date(t.getFullYear(), t.getMonth() - 1, 1)), dplDay(new Date(t.getFullYear(), t.getMonth(), 0))];
   if (q === 'all') return [since || dplDay(t), dplDay(t)];
   const f = new Date(t); f.setDate(f.getDate() - Number(q) + 1); return [dplDay(f), dplDay(t)];
+}
+
+// The Insights tab: Production's tabs, then Learned / D+ due out.
+const plInsightsHead = (sub, extra = '') => `
+    <div class="kanban-tools"><h1 style="margin:0">🏭 Production</h1>${plHalvesHtml('insights')}</div>
+    <div class="row pl-views"><div class="seg">${[['learn', '🧠 Learned'], ['dplus', '📆 D+ due out']].map(([k, l]) => `<button type="button" data-pl-insight="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>${extra}</div>`;
+// a click on Production's tabs or Insights' own: true when handled
+function plInsightsClick(e) {
+  const hf = e.target.closest('[data-pl-half]'); if (hf) { store.set('planHalf', hf.dataset.plHalf); renderPlanning(); return true; }
+  const ins = e.target.closest('[data-pl-insight]'); if (ins) { store.set('planInsight', ins.dataset.plInsight); renderPlanInsights(); return true; }
+  return false;
+}
+async function renderPlanInsights() {
+  store.set('planHalf', 'insights');
+  if (store.get('planInsight', 'learn') === 'dplus') return renderPlanDplus();
+  const L = await api.get(`/plan/learn?days=${store.get('planLearnDays', 90)}`);
+  main().innerHTML = `${plInsightsHead('learn')}<div class="pll-view">${planLearnHtml(L)}</div>`;
+  main().onclick = async (e) => { if (plInsightsClick(e)) return; await planLearnClick(e, L, renderPlanInsights); };
 }
 
 async function renderPlanDplus() {
@@ -60,10 +79,7 @@ async function renderPlanDplus() {
     </tbody></table></div>` : ''}</div>`;
 
   main().innerHTML = `
-    <div class="kanban-tools"><h1 style="margin:0">🏭 Planning</h1>
-      <div class="seg"><button type="button" data-pl-half="perso">Perso</button><button type="button" data-pl-half="otto">Matching</button><button type="button" data-pl-half="dplus" class="on">📆 D+ due out</button></div>
-      <div class="seg">${[['perso', 'Perso'], ['otto', 'Matching'], ['both', 'Both']].map(([k, l]) => `<button type="button" data-dpl-source="${k}" class="${d.source === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-    </div>
+    ${plInsightsHead('dplus', `<div class="seg">${[['perso', 'Perso'], ['otto', 'Matching'], ['both', 'Both']].map(([k, l]) => `<button type="button" data-dpl-source="${k}" class="${d.source === k ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
     <p class="small muted" style="margin:6px 0 10px">How much notice work orders come with: the day each first appeared in its export (perso: the open work orders; Matching: its jobs, by work order) against its due-out day (Matching: its plan date), in working days (Planning's working days).
       <b>D+0</b> is due the day it came in, <b>D+1</b> the next working day, and so on. ${d.since ? `Recorded since ${esc(fmtDate(`${d.since}T12:00`))}; what was already in the export when recording began is left out (when it came in isn't known).` : ''}</p>
     ${!d.since ? `<div class="card muted">Nothing recorded yet${otto ? ' for Matching' : ''}. This builds up from the linked export${otto ? ' (Matching\'s, recorded from now on)' : both ? 's' : ' of open work orders'}: each new version is recorded, and what's new in it counted.</div>` : `
@@ -96,7 +112,7 @@ async function renderPlanDplus() {
   $('#dpl-to')?.addEventListener('change', (e) => { if (e.target.value) { dplState.to = e.target.value; reload(); } });
   $('#dpl-quick')?.addEventListener('change', (e) => { if (e.target.value) { [dplState.from, dplState.to] = dplRange(e.target.value, d.since); reload(); } });
   main().onclick = (e) => {
-    const hf = e.target.closest('[data-pl-half]'); if (hf) { store.set('planHalf', hf.dataset.plHalf); renderPlanning(); return; }
+    if (plInsightsClick(e)) return;
     const so = e.target.closest('[data-dpl-source]'); if (so) { dplState.source = so.dataset.dplSource; store.set('dplSource', dplState.source); reload(); return; }
     const b = e.target.closest('[data-dpl-bucket]'); if (b) { dplState.bucket = dplState.bucket === b.dataset.dplBucket ? null : b.dataset.dplBucket; reload(); return; }
     if (e.target.closest('[data-dpl-close]')) { dplState.bucket = null; reload(); return; }

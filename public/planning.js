@@ -15,8 +15,19 @@ const PLF = {
 // Long lists show this many rows at first, with "Show more" for the rest.
 const PL_PAGE = 150;
 
+// 🏭 Production's three tabs: Perso (with its order — FIFO, BAU, Score, Mitigation — in a drop-down on
+// the tab), Matching and ✨ Insights (🧠 Learned and 📆 D+ due out, in dplus.js).
+const PL_MODES = [['fifo', 'FIFO', 'By deadline only'], ['bau', 'BAU', 'By due day, then High / Normal / Low, then cut-off'], ['score', '⚖ Score', 'Highest score first: the deadline plus the ⚖ modifiers'],
+  ['mitigation', '🛟 Mitigation', 'Save as many as possible: work orders due in the next few working days that can still make it first, then those already overdue or that would be late anyway, then those due later']];
+function plHalvesHtml(half, mode = store.get('planMode', 'fifo')) {
+  const tab = (k, label, extra = '') => `<div class="pl-half ${half === k ? 'on' : ''}"><button type="button" data-pl-half="${k}">${label}</button>${extra}</div>`;
+  return `<div class="pl-halves">
+    ${tab('perso', '💳 Perso', half === 'perso' ? `<select id="pl-mode" title="The order the work orders are taken in — ${esc(PL_MODES.map(([, l, w]) => `${l}: ${w}`).join(' · '))}">${PL_MODES.map(([k, l]) => `<option value="${k}" ${mode === k ? 'selected' : ''}>${l}</option>`).join('')}</select>` : '')}
+    ${tab('otto', '🧩 Matching')}${tab('insights', '✨ Insights')}</div>`;
+}
+
 async function renderPlanning() {
-  if (store.get('planHalf', 'perso') === 'dplus') return renderPlanDplus(); // 📆 D+ due out (dplus.js)
+  if (['insights', 'dplus'].includes(store.get('planHalf', 'perso'))) return renderPlanInsights(); // ✨ Insights (dplus.js)
   const mode = ['bau', 'score', 'mitigation'].includes(store.get('planMode', 'fifo')) ? store.get('planMode') : 'fifo';
   const half = store.get('planHalf', 'perso') === 'otto' ? 'otto' : 'perso';
   const [p, settings] = await Promise.all([api.get(`/plan?mode=${mode}`), api.get('/settings')]);
@@ -121,10 +132,9 @@ async function renderPlanning() {
       <p class="small muted">Max cards a day: the machines able to run the type, for the working day, at the type's speed (the open cards' average). A machine running several types counts for each — the ceiling for that type on its own.</p></div>` : '';
   const cdb = p.cards_db;
   const withMachines = (p.machines || []).some((m) => m.active) && p.projected;
-  const viewList = [['list', '☰ List'], ...(withMachines ? [['gantt', '▤ Gantt'], ['load', '▦ Load']] : []), ['history', '📈 History'], ['learn', '🧠 Learned']];
+  const viewList = [['list', '☰ List'], ...(withMachines ? [['gantt', '▤ Gantt'], ['load', '▦ Load']] : []), ['history', '📈 History']]; // 🧠 Learned: in ✨ Insights
   const view = viewList.some(([k]) => k === store.get('planView', 'list')) ? store.get('planView', 'list') : 'list';
   const hist = view === 'history' ? await api.get('/plan/history?days=14') : null;
-  const learnt = view === 'learn' ? await api.get(`/plan/learn?days=${store.get('planLearnDays', 90)}`) : null;
   const historyHtml = () => {
     const h = hist; const max = Math.max(1, ...h.daily.map((d) => d.cards));
     const dshort = (d) => { const dt = new Date(`${d}T12:00`); return `${dt.toLocaleDateString('en-GB', { weekday: 'short' })}<br>${dt.getDate()}/${dt.getMonth() + 1}`; };
@@ -287,13 +297,13 @@ async function renderPlanning() {
     plDetail.otto = (key) => { const o = [...ot.running, ...ot.queue].find((x) => `otto:${x.key}` === key); return o ? odetailRow(o) : ''; };
     const ohead = `<tr><th></th><th>Plan date</th><th>Name</th><th>Customer</th><th class="num">Items</th><th>Priority</th><th>Status</th><th>Perso</th>${ot.projected ? '<th>Projected finish</th>' : ''}</tr>`;
     const rs = ot.running.filter(om); const qs = ot.queue.filter(om);
-    return `<div class="kdb-tiles pl-tiles">
+    return `<div class="pl-tiles-row"><div class="kdb-tiles pl-tiles">
       <div class="kdb-tile"><div class="kdb-tile-l">Open Matching jobs</div><div class="kdb-tile-v">${n(allO.length)}</div><div class="kdb-tile-s">${n(sum(allO))} items${ot.done ? ` · ${n(ot.done)} finished not shown` : ''}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Running</div><div class="kdb-tile-v">${n(ot.running.length)}</div><div class="kdb-tile-s">${n(sum(ot.running))} items</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Due today</div><div class="kdb-tile-v ${oToday.length ? 'kdb-warn' : ''}">${n(oToday.length)}</div><div class="kdb-tile-s">${n(sum(oToday))} items</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Overdue items</div><div class="kdb-tile-v ${oOver.length ? 'kdb-bad' : 'kdb-ok'}">${n(sum(oOver))}</div><div class="kdb-tile-s">${n(oOver.length)} job${oOver.length === 1 ? '' : 's'}${ot.backlog?.catch_up?.catch_days ? ` · caught up in ~${ot.backlog.catch_up.catch_days} d` : ''}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Projected late</div><div class="kdb-tile-v ${allO.some((o) => o.late_minutes > 0) ? 'kdb-bad' : ot.projected ? 'kdb-ok' : ''}">${ot.projected ? n(allO.filter((o) => o.late_minutes > 0).length) : '—'}</div><div class="kdb-tile-s">${ot.projected ? `${(ot.machines || []).filter((m) => m.active).length} machine${(ot.machines || []).filter((m) => m.active).length === 1 ? '' : 's'} · ${esc(dayText)}` : 'set machines in ⚙ Setup'}</div></div>
-      <div class="kdb-tile"><div class="kdb-tile-l">Waiting on perso</div><div class="kdb-tile-v ${allO.some(behind) ? 'kdb-bad' : ''}">${n(waiting.length)}</div><div class="kdb-tile-s">${allO.some(behind) ? `${n(allO.filter(behind).length)} perso ready after the plan date` : `${src.status === 'ok' ? 'perso work order still open' : 'link the perso export to match'}`}</div></div></div>
+      <div class="kdb-tile"><div class="kdb-tile-l">Waiting on perso</div><div class="kdb-tile-v ${allO.some(behind) ? 'kdb-bad' : ''}">${n(waiting.length)}</div><div class="kdb-tile-s">${allO.some(behind) ? `${n(allO.filter(behind).length)} perso ready after the plan date` : `${src.status === 'ok' ? 'perso work order still open' : 'link the perso export to match'}`}</div></div></div><button class="primary pl-generate" data-pl="print" title="A plan of the Matching jobs — Incoming, In Progress and Ready — as a PDF to print and hand out">📄 Generate plan</button></div>
     ${backlogCard(ot.backlog, 'items', true)}
     <div class="row pl-filters">
       <input type="search" id="plo-q" placeholder="Search name, customer, plan group…" value="${esc(of.q || '')}">
@@ -313,17 +323,13 @@ async function renderPlanning() {
   };
 
   main().innerHTML = `
-    <div class="kanban-tools"><h1 style="margin:0">🏭 Planning</h1>
-      <div class="seg"><button type="button" data-pl-half="perso" class="${half === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-pl-half="otto" class="${half === 'otto' ? 'on' : ''}">Matching</button><button type="button" data-pl-half="dplus" title="How much notice work orders come with: D+0, D+1, D+2… — perso and Matching">📆 D+ due out</button></div>
-${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. BAU: by due day, then High / Normal / Low, then cut-off">
-        <button type="button" data-pl-mode="fifo" class="${mode === 'fifo' ? 'on' : ''}">FIFO</button><button type="button" data-pl-mode="bau" class="${mode === 'bau' ? 'on' : ''}">BAU</button><button type="button" data-pl-mode="score" class="${mode === 'score' ? 'on' : ''}" title="Highest score first: the deadline plus the ⚖ modifiers">⚖ Score</button><button type="button" data-pl-mode="mitigation" class="${mode === 'mitigation' ? 'on' : ''}" title="Save as many as possible: work orders due in the next few working days that can still make it first, then those already overdue or that would be late anyway, then those due later">🛟 Mitigation</button></div>`}
+    <div class="kanban-tools"><h1 style="margin:0">🏭 Production</h1>
+      ${plHalvesHtml(half, mode)}
       <div class="spacer"></div>
       ${state.mode === 'planner' ? '<span id="pl-presence" class="pl-presence" title="Others with the planner open">👤 just you</span>' : ''}
       <span class="small muted">${(half === 'otto' ? ot.source : src).status === 'ok' ? `${esc((half === 'otto' ? ot.source : src).name)} · saved ${esc(fmtDateTime((half === 'otto' ? ot.source : src).modified))}${(half === 'otto' ? ot.source : src).uploaded ? ' (uploaded copy)' : ''}` : ''}</span>
       <button data-pl="refresh" title="Read the export again if it has changed">🔄 Refresh</button>
       <label class="button" title="Try it with a copy of the ${half === 'otto' ? 'Matching' : 'open work orders'} export">📂 Load file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
-      ${half === 'perso' && src.status === 'ok' ? '<button data-pl="print" title="A plan per cell (DOD, Emboss, Laser) of the work orders still open, as a PDF to print and hand out">📄 Generate plan</button>' : ''}
-      ${half === 'otto' && ot.source.status === 'ok' ? '<button data-pl="print" title="A plan of the Matching jobs — Incoming, In Progress and Ready — as a PDF to print and hand out">📄 Generate plan</button>' : ''}
       ${half === 'perso' ? '<button class="admin-only" data-pl="mods" title="Priority modifiers: customers and work order types that go first">⚖ Modifiers</button>' : ''}
       <button class="admin-only" data-pl="setup" title="Where the export is, and the capacity">⚙ Setup</button>
     </div>
@@ -355,7 +361,7 @@ ${half === 'otto' ? '' : `      <div class="seg" title="FIFO: by deadline only. 
         <div class="f full"><span>Run times</span><div class="row">
           <label class="row small"><input type="radio" name="pl-learned" data-pl-learned="0" ${settings.plan_learned_times === '1' ? '' : 'checked'}> From the speeds and OEE below</label>
           <label class="row small"><input type="radio" name="pl-learned" data-pl-learned="1" ${settings.plan_learned_times === '1' ? 'checked' : ''}> 🧠 Learned from what ran — each card's own time, with the set-up</label></div>
-          <span class="small muted">${p.learned_times?.on ? `${n(p.learned_times.card)} of ${n(p.learned_times.lines)} card lines timed from their card's own runs, ${n(p.learned_times.kind + p.learned_times.all)} from their kind's or all runs${p.learned_times.setup !== null ? `, each with ${n(p.learned_times.setup)} min set-up` : ''}; the rest from the speeds and OEE. Learned from the last 180 days of ⏱ Production runs (${n(p.learned_times.runs)}).` : 'Learned run times come from the ⏱ Production runs: see 🧠 Learned for how close each way has been.'}</span></div>
+          <span class="small muted">${p.learned_times?.on ? `${n(p.learned_times.card)} of ${n(p.learned_times.lines)} card lines timed from their card's own runs, ${n(p.learned_times.kind + p.learned_times.all)} from their kind's or all runs${p.learned_times.setup !== null ? `, each with ${n(p.learned_times.setup)} min set-up` : ''}; the rest from the speeds and OEE. Learned from the last 180 days of ⏱ Production runs (${n(p.learned_times.runs)}).` : 'Learned run times come from the ⏱ Production runs: see ✨ Insights › 🧠 Learned for how close each way has been.'}</span></div>
         <label class="f">Hide anything due more than (days ago) <span class="muted small">— likely errors; 0 shows all</span><input type="number" min="0" step="1" name="plan_max_age" value="${esc(settings.plan_max_age ?? '30')}"></label>
         <label class="f">🛟 Mitigation: due within (working days) <span class="muted small">— go before the overdue; 0 = all</span><input type="number" min="0" step="1" name="plan_miti_days" value="${esc(settings.plan_miti_days ?? '5')}"></label>
         <label class="f">Working day from<input type="time" name="plan_day_start" value="${esc(settings.plan_day_start || '06:00')}"></label>
@@ -393,20 +399,19 @@ ${half === 'otto' ? ottoSetup() : `
     ${src.status === 'error' ? `<div class="kc-note">⚠ Couldn't read <code>${esc(src.file)}</code>: ${esc(src.error)}</div>` : ''}
     ${src.status === 'none' ? '<div class="card lib-empty"><h2>Production planning</h2><p>Set where the open work orders export is saved in ⚙ Setup (or try it with 📂 Load file…). The work orders are put in order by their deadline — the due date at the shipper\'s cut-off — and, with a capacity, each one\'s finish is projected.</p></div>' : ''}
     ${src.status === 'ok' ? `
-    <div class="kdb-tiles pl-tiles">
+    <div class="pl-tiles-row"><div class="kdb-tiles pl-tiles">
       <div class="kdb-tile"><div class="kdb-tile-l">Open jobs</div><div class="kdb-tile-v">${n(all.length)}</div><div class="kdb-tile-s">${n(sum(all))} cards · ${n(new Set(all.map((j) => j.wo)).size)} work orders</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Running</div><div class="kdb-tile-v">${n(p.running.length)}</div><div class="kdb-tile-s">${n(sum(p.running))} cards</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Due today</div><div class="kdb-tile-v ${dueToday.length ? 'kdb-warn' : ''}">${n(dueToday.length)}</div><div class="kdb-tile-s">${n(sum(dueToday))} cards</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Overdue cards</div><div class="kdb-tile-v ${overdue.length ? 'kdb-bad' : 'kdb-ok'}">${n(sum(overdue))}</div><div class="kdb-tile-s">${n(overdue.length)} job${overdue.length === 1 ? '' : 's'}${p.backlog?.catch_up?.catch_days ? ` · caught up in ~${p.backlog.catch_up.catch_days} d` : ''}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Projected late</div><div class="kdb-tile-v ${late.length ? 'kdb-bad' : p.projected ? 'kdb-ok' : ''}">${p.projected ? n(late.length) : '—'}</div><div class="kdb-tile-s">${esc(capText)}</div></div>
-    </div>
+    </div><button class="primary pl-generate" data-pl="print" title="A plan per cell (DOD, Emboss, Laser) of the work orders still open, as a PDF to print and hand out">📄 Generate plan</button></div>
     ${src.status === 'ok' ? `<div class="row pl-views"><div class="seg">${viewList.map(([k, l]) => `<button type="button" data-pl-view="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       ${view === 'gantt' ? `<div class="seg">${[[1, '1 day'], [3, '3 days'], [7, '1 week']].map(([d, l]) => `<button type="button" data-pl-span="${d}" class="${Number(store.get('planSpan', 3)) === d ? 'on' : ''}">${l}</button>`).join('')}</div>
         <span class="small muted">Click a job to see its deadline; green on time · amber within 2 h of its cut-off · red late</span>` : ''}</div>` : ''}
     ${view === 'gantt' ? '<div class="card pl-gantt-card"><div id="pl-gantt-info" class="small"></div><div id="pl-gantt"></div></div>' : ''}
     ${view === 'load' ? `${loadHtml()}${capCard}` : ''}
     ${view === 'history' ? historyHtml() : ''}
-    ${view === 'learn' ? `<div class="pll-view">${planLearnHtml(learnt)}</div>` : ''}
     ${view !== 'list' ? '' : `${backlogCard(p.backlog, 'cards', false)}${capCard}
     <div class="card"><h3 class="pl-h">Cards due by each cut-off</h3>
       <div class="kdb-scroll"><table class="log pl-slots"><thead><tr><th>Deadline</th><th class="num">Jobs</th><th class="num">Cards</th><th class="num">Running total</th><th>Shippers</th>${p.projected ? '<th>Projected</th>' : ''}</tr></thead><tbody>
@@ -431,6 +436,7 @@ ${half === 'otto' ? ottoSetup() : `
   }
 
   const setO = (k, v) => { const of = store.get('planOttoFilter', {}) || {}; of[k] = v || ''; store.set('planOttoFilter', of); renderPlanning(); };
+  $('#pl-mode')?.addEventListener('change', (e) => { store.set('planMode', e.target.value); renderPlanning(); });
   $('#plo-q')?.addEventListener('change', (e) => setO('q', e.target.value.trim()));
   $('#plo-customer')?.addEventListener('change', (e) => setO('customer', e.target.value));
   $('#plo-waiting')?.addEventListener('change', (e) => setO('waiting', e.target.value));
@@ -517,7 +523,6 @@ ${half === 'otto' ? ottoSetup() : `
     try { await api.patch(`/plan/machines/${id}`, { [el.name]: el.type === 'checkbox' ? el.checked : el.value }); toast('Saved'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
   }));
   main().onclick = async (e) => {
-    if (learnt && await planLearnClick(e, learnt, renderPlanning)) return;
     const delM = e.target.closest('[data-pl-del-machine]');
     if (delM) { if (!confirm('Remove this machine?')) return; try { await api.del(`/plan/machines/${delM.dataset.plDelMachine}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
     const addMod = e.target.closest('[data-pl-add-mod]');

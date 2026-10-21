@@ -152,7 +152,7 @@ async function renderReport(projectFromRoute) {
 
   main().innerHTML = `
     <div class="kanban-tools report-tools">
-      <h1 style="margin:0">📰 Report</h1><div class="spacer"></div>
+      <h1 style="margin:0">🗄 Archive · 📰 Report</h1><div class="spacer"></div>
       <select id="r-period">${options(REPORT_PERIODS, saved.period)}</select>
       ${saved.period === 'custom' ? `<input type="date" id="r-from" value="${esc(from)}"> to <input type="date" id="r-to" value="${esc(to)}">` : ''}
       <select id="r-project"><option value="">All projects</option>${projects.map((p) =>

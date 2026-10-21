@@ -5,8 +5,8 @@
 //   the middle of something), other pages say what changed with a 🔄 Refresh button;
 // - the dialog for two edits of the same text (see request() in app.js), and 🕘 History with ↩ Put back.
 const COLLAB = { on: false, seq: -1, others: [], timer: null, notes: [] };
-const COLLAB_VIEWS = { dashboard: 'Dashboard', tasks: 'Tasks', calendar: 'Calendar', kanban: 'Board', ideas: 'Ideas', idea: 'an idea', library: 'Library', kpi: 'KPIs',
-  planning: 'Planning', report: 'Report', contacts: 'Contacts', settings: 'Settings', log: 'Activity log', backups: 'Backups', project: 'a project', search: 'Search' };
+const COLLAB_VIEWS = { dashboard: 'Home', tasks: 'Tasks', calendar: 'Calendar', kanban: 'Projects', ideas: 'Ideas', idea: 'an idea', library: 'Library', kpi: 'Reporting',
+  planning: 'Production', report: 'the archived report', contacts: 'Contacts', settings: 'Settings', log: 'Activity log', backups: 'Backups', project: 'a project', search: 'Search' };
 
 // What the open page shows: the topics a change must touch to concern it, and whether it's a list
 // (refreshed by itself) or a page someone may be editing (told, with a Refresh button).

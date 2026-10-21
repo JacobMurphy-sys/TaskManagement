@@ -28,12 +28,12 @@ async function renderKpi(arg, tab) {
         .map(([k, l, t]) => `<button type="button" data-kdb-tab="${k}" class="${dbTab === k ? 'on' : ''}" title="${esc(t)}">${l}</button>`).join('')}</div></div>
       ${calc ? kpiTablesHtml(calc, dbTab) : dbTab === 'tables' ? kpiReportTablesHtml(snap) : '<div class="kpi-sheet-wrap" id="kpi-wrap"><div id="kpi-sizer"><div id="kpi-sheet"></div></div></div>'}</div>`;
   main().innerHTML = `
-    <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 KPIs</h1>
+    <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
       ${year?.weeks?.length ? `<select id="kpi-week" title="Reporting week — any week of ${year.year}: from Excel, or built by the CI Manager from the source figures">
           ${year.weeks.map((w) => `<option value="${w.a3 ? w.a3.id : `build:${esc(w.week)}`}" ${w.a3 && w.a3.id === snap?.id ? 'selected' : ''}>${esc(w.week)} · ${esc(w.month)}${w.a3 ? (w.a3.origin === 'ci' ? ' — CI Manager' : ' — Excel') : ''}</option>`).join('')}
           ${weeks.filter((w) => !year.weeks.some((y) => y.a3?.id === w.id)).map((w) => `<option value="${w.id}" ${w.id === snap?.id ? 'selected' : ''}>${esc(w.week)}${w.month ? ` · ${esc(w.month)}` : ''} — ${w.origin === 'ci' ? 'CI Manager' : 'Excel'}</option>`).join('')}</select>`
         : weeks.length ? `<select id="kpi-week" title="Reporting week">${weeks.map((w) => `<option value="${w.id}" ${w.id === snap?.id ? 'selected' : ''}>${esc(w.week)}${w.month ? ` · ${esc(w.month)}` : ''}</option>`).join('')}</select>` : ''}
-      <div class="seg"><a href="#/kpi/${snap?.id || ''}" class="${view === 'a3' ? 'on' : ''}">A3 Weekly Report</a><a href="#/kpi/${snap?.id || 0}/database" class="${view === 'database' ? 'on' : ''}">Database</a><a href="#/kpi/sources" title="Where the workbook, the source files and the forecasts are">Sources</a><a href="#/kpi/production">⏱ Production</a></div>
+      <div class="seg"><a href="#/kpi/${snap?.id || ''}" class="${view === 'a3' ? 'on' : ''}">Weekly Ops Report</a><a href="#/kpi/${snap?.id || 0}/database" class="${view === 'database' ? 'on' : ''}">Database</a><a href="#/kpi/sources" title="Where the workbook, the source files and the forecasts are">Sources</a><a href="#/kpi/production" title="What ran on each machine, from the daily timing reports">⏱ Timing</a></div>
       <div class="spacer"></div>
       <a class="button primary" href="#/kpi/prepare" title="Read the latest exports, fill in the week, build its A3 and save it — step by step">▶ Prepare this week</a>
       ${settings.kpi_workbook_path ? '<button data-kpi="load-path" title="Read the workbook from where it\'s saved (Excel\'s own copy of the week)">📥 Load from Excel</button>' : ''}
@@ -541,8 +541,8 @@ async function renderKpiSources() {
       <td class="num">${s.rows ? s.rows.toLocaleString('en-GB') : ''}${s.skipped ? `<div class="small muted" title="Rows without a date">${s.skipped.toLocaleString('en-GB')} undated</div>` : ''}</td>
       <td class="small">${s.first_day ? `${esc(s.first_day)} → ${esc(s.last_day)}` : ''}</td></tr>`;
   main().innerHTML = `
-    <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 KPIs</h1>
-      <div class="seg"><a href="#/kpi">A3 Weekly Report</a><a href="#/kpi/0/database">Database</a><a href="#/kpi/sources" class="on">Sources</a><a href="#/kpi/production">⏱ Production</a></div>
+    <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
+      <div class="seg"><a href="#/kpi">Weekly Ops Report</a><a href="#/kpi/0/database">Database</a><a href="#/kpi/sources" class="on">Sources</a><a href="#/kpi/production" title="What ran on each machine, from the daily timing reports">⏱ Timing</a></div>
       <div class="spacer"></div>
       <button class="primary" data-kc="import" title="Read the source files that changed since last time">📥 Read changed files</button>
       <button data-kc="force" title="Read every source file again">Read all again</button>
@@ -1348,8 +1348,8 @@ async function renderKpiPrepare(weekArg) {
       `<button class="${snap.saved_current ? '' : 'primary'}" data-kp="save" ${p.export_path ? '' : 'disabled'}>💾 Save A3 to folder</button><button data-kp="download">⬇ Download</button>`);
 
   main().innerHTML = `
-    <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 KPIs</h1>
-      <div class="seg"><a href="#/kpi">A3 Weekly Report</a><a href="#/kpi/0/database">Database</a><a href="#/kpi/sources">Sources</a><a href="#/kpi/production">⏱ Production</a></div>
+    <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
+      <div class="seg"><a href="#/kpi">Weekly Ops Report</a><a href="#/kpi/0/database">Database</a><a href="#/kpi/sources">Sources</a><a href="#/kpi/production" title="What ran on each machine, from the daily timing reports">⏱ Timing</a></div>
       <div class="spacer"></div>
     </div>
     <div class="kp-top"><h2>▶ Prepare the week</h2>

@@ -1,10 +1,11 @@
 // 👤 Accounts (src/accounts.js): sign-in when they're on, your password, 📥 My work, and the
 // admin's list of accounts in Settings. Off until the first account is made: nothing changes until then.
-const ACCT = { enabled: false, account: null, newCount: 0, modules: [], rights: [] };
+const ACCT = { enabled: false, account: null, newCount: 0, modules: [], areas: [], rights: [] };
 
 // 🧩 Modules: the parts of the app an account can see (admins and no-accounts: all of them).
 const MOD_OF_VIEW = { kanban: 'projects', project: 'projects', ideas: 'ideas', idea: 'ideas', kpi: 'kpi', planning: 'planning', report: 'report', contacts: 'contacts' };
-const modOk = (key) => !ACCT.account || (ACCT.account.modules || []).includes(key);
+// areas (projects, kpi, ideas, planning, report, contacts), each part of a module (Management: projects and kpi)
+const modOk = (area) => !ACCT.account || (ACCT.account.areas || []).includes(area);
 // 🔒 admin rights (src/accounts.js RIGHTS): setup, accounts, backups, server. Admins and the host have
 // them all; the host gives some to other accounts. With accounts off, whoever is here has them.
 const acctRight = (key) => !ACCT.enabled || (ACCT.account?.rights || []).includes(key);
@@ -14,14 +15,14 @@ function modApply() {
   document.body.classList.toggle('not-admin', !acctAdmin());
   $$('#top-menu a[data-nav="backups"]').forEach((a) => { a.hidden = !acctRight('backups'); });
   $$('#topnav a[data-nav], #top-menu a[data-nav]').forEach((a) => { const m = MOD_OF_VIEW[a.dataset.nav]; if (m) a.hidden = !modOk(m); });
-  for (const m of ACCT.modules) document.body.classList.toggle(`nomod-${m.key}`, !modOk(m.key));
+  for (const a of ACCT.areas) document.body.classList.toggle(`nomod-${a}`, !modOk(a));
 }
 
 // At start-up: who's signed in. → false when the sign-in page is showing instead of the app.
 async function acctInit() {
   let me0;
   try { me0 = await api.get('/auth/me'); } catch { return true; }
-  ACCT.enabled = !!me0.enabled; ACCT.account = me0.account; ACCT.modules = me0.modules || []; ACCT.rights = me0.rights || [];
+  ACCT.enabled = !!me0.enabled; ACCT.account = me0.account; ACCT.modules = me0.modules || []; ACCT.areas = me0.areas || []; ACCT.rights = me0.rights || [];
   if (ACCT.enabled && !ACCT.account) { renderSignIn(); return false; }
   if (ACCT.account) {
     if (ACCT.account.theme) setTheme(ACCT.account.theme, { save: false }); // your appearance, from your account
@@ -142,7 +143,7 @@ async function acctSettingsHtml() {
       ${a.role === 'admin' ? '' : `<div class="mod-ticks acct-rights">${ACCT.rights.map((r) => `<label title="${esc(`${r.label}: ${r.what}`)}"><input type="checkbox" data-right="${r.key}" ${a.rights.includes(r.key) ? 'checked' : ''}> ${r.icon} ${esc(r.label)}</label>`).join('')}</div>`}`;
   };
   const canEdit = (a) => !a.owner && (owner || a.role !== 'admin');
-  const presets = [['Basic pack only', []], ['Production: Basic + Planning', ['planning']], ['Manager: everything', extra.map((m) => m.key)]];
+  const presets = [['Basic pack only', []], ['Production: Basic + Prod Management', ['production']], ['Manager: everything', extra.map((m) => m.key)]];
   const form = (first) => `<form id="acct-form" class="row acct-form">
       <label class="f">Person <span class="muted small">(from the contacts)</span><input type="text" name="person" list="acct-people" required autocomplete="off" placeholder="e.g. Sam Taylor"></label>
       <label class="f">Username<input type="text" name="username" required pattern="[A-Za-z0-9._@\\-]{2,40}" placeholder="e.g. sam.taylor"></label>

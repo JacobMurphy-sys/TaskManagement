@@ -33,30 +33,37 @@ const passwordProblem = (pw) => (String(pw || '').length < 8 ? 'Passwords need a
 // ---- modules: what each account can see and use ------------------------------------------------
 // The basic pack is always there; the rest an admin ticks for each account (admins have them all).
 // An account with none set (made before modules) has them all. Kept as a comma list in accounts.modules.
+// Each module is one or more areas of the app (what pages and API paths check): Management, for one,
+// is Projects and Reporting.
 const MODULES = [
-  { key: 'basic', label: 'Basic pack', icon: '📋', what: 'Dashboard, Tasks, Calendar, Library, 📥 My work, quick notes and search', always: true },
-  { key: 'projects', label: 'Projects', icon: '🗂', what: 'the projects board, project pages and charters, and the projects list in the sidebar' },
-  { key: 'ideas', label: 'Ideas', icon: '💡', what: 'Ideation: the ideas, their notes and the pipeline' },
-  { key: 'kpi', label: 'KPIs', icon: '📊', what: 'the weekly A3, KPI database and sources, and ⏱ production timing' },
-  { key: 'planning', label: 'Planning', icon: '🏭', what: 'production planning: the open work orders, plan, history, 🧠 Learned and 🔍 search' },
-  { key: 'report', label: 'Report', icon: '📰', what: 'the report page' },
-  { key: 'contacts', label: 'Contacts', icon: '📇', what: 'the Contacts page, to edit the lists (names can still be picked as owners without it)' },
+  { key: 'basic', label: 'Basic pack', icon: '📋', what: 'Home, Tasks, Calendar, Library, 📥 My work, quick notes and search', always: true, areas: [] },
+  { key: 'management', label: 'Management', icon: '🗂', what: 'Projects (the board, project pages and charters, the projects list in the sidebar) and Reporting (the weekly ops report, its database and sources, ⏱ timing)', areas: ['projects', 'kpi'] },
+  { key: 'ci', label: 'Continuous Improvement', icon: '💡', what: 'Ideas: the ideas, their notes and the pipeline', areas: ['ideas'] },
+  { key: 'production', label: 'Prod Management', icon: '🏭', what: 'Production: perso, Matching, Insights (🧠 Learned, 📆 D+ due out) and 🔍 search', areas: ['planning'] },
+  { key: 'archive', label: 'Archive', icon: '🗄', what: 'the archived status report', areas: ['report'] },
+  { key: 'admin', label: 'Admin', icon: '📇', what: 'Contacts, to edit the lists (names can still be picked as owners without it)', areas: ['contacts'] },
 ];
 const MODULE_KEYS = MODULES.map((m) => m.key);
-// the API paths each module owns (refused to an account without it)
+const AREAS = MODULES.flatMap((m) => m.areas);
+// modules ticked before they were grouped
+const LEGACY = { projects: 'management', kpi: 'management', ideas: 'ci', planning: 'production', report: 'archive', contacts: 'admin' };
+const keysOf = (list) => new Set((Array.isArray(list) ? list : String(list || '').split(',')).map((k) => String(k).trim()).map((k) => LEGACY[k] || k));
+// the API paths each area owns (refused to an account without it)
 const MODULE_API = { ideas: /^\/(ideas|idea-notes)(\/|$)/, kpi: /^\/(kpi|prod)(\/|$)/, planning: /^\/plan(\/|$)/, report: /^\/report(\/|$)/, contacts: /^\/contacts(\/|$)/ };
 function modulesOf(a) {
-  if (!a || a.role === 'admin' || a.modules === null || a.modules === undefined) return [...MODULE_KEYS];
-  const set = new Set(String(a.modules).split(',').map((k) => k.trim()).filter((k) => MODULE_KEYS.includes(k)));
+  if (!a || a.role === 'admin' || a.owner || a.modules === null || a.modules === undefined) return [...MODULE_KEYS];
+  const set = keysOf(a.modules);
   return MODULE_KEYS.filter((k) => set.has(k) || MODULES.find((m) => m.key === k).always);
 }
-const cleanModules = (list) => { const set = new Set((Array.isArray(list) ? list : String(list || '').split(',')).map((k) => String(k).trim())); return MODULE_KEYS.filter((k) => set.has(k) || MODULES.find((m) => m.key === k).always).join(','); };
-// with accounts on, can this request's account use the module? (accounts off: everyone can)
-const canUse = (req, key) => !req.account || modulesOf(req.account).includes(key);
+const areasOf = (a) => { const mods = modulesOf(a); return MODULES.filter((m) => mods.includes(m.key)).flatMap((m) => m.areas); };
+const cleanModules = (list) => { const set = keysOf(list); return MODULE_KEYS.filter((k) => set.has(k) || MODULES.find((m) => m.key === k).always).join(','); };
+const moduleOfArea = (area) => MODULES.find((m) => m.areas.includes(area));
+// with accounts on, can this request's account use the area (projects, kpi, ideas, planning, report, contacts)? (accounts off: everyone can)
+const canUse = (req, area) => !req.account || areasOf(req.account).includes(area);
 function moduleGate(req, res, next) {
   if (!req.account) return next();
-  for (const [key, re] of Object.entries(MODULE_API)) {
-    if (re.test(req.path) && !canUse(req, key)) return res.status(403).json({ error: `Your account doesn't include ${MODULES.find((m) => m.key === key).label} — ask an admin`, module: key });
+  for (const [area, re] of Object.entries(MODULE_API)) {
+    if (re.test(req.path) && !canUse(req, area)) return res.status(403).json({ error: `Your account doesn't include ${moduleOfArea(area).label} — ask an admin`, module: moduleOfArea(area).key });
   }
   return next();
 }
@@ -114,7 +121,7 @@ function setupGate(req, res, next) {
 // ---- accounts and sessions ---------------------------------------------------------------------
 const enabled = () => !!db.get('SELECT 1 FROM accounts WHERE active = 1 LIMIT 1');
 const publicAccount = (a) => (a ? { id: a.id, username: a.username, person: a.person, role: a.role, must_change: !!a.must_change, active: !!a.active, last_login: a.last_login, created_at: a.created_at,
-  modules: modulesOf(a), modules_set: a.modules !== null && a.modules !== undefined, theme: a.theme || null, rights: rightsOf(a), owner: !!a.owner } : null);
+  modules: modulesOf(a), areas: areasOf(a), modules_set: a.modules !== null && a.modules !== undefined, theme: a.theme || null, rights: rightsOf(a), owner: !!a.owner } : null);
 const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
 function cookieToken(req) {
   const m = String(req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${COOKIE}=([A-Za-z0-9_-]+)`));
@@ -158,7 +165,7 @@ const router = express.Router();
 const h = (fn) => (req, res) => { try { const out = fn(req, res); if (out && out.catch) out.catch((err) => res.status(err.status || 500).json({ error: err.message })); } catch (err) { res.status(err.status || 500).json({ error: err.message }); } };
 const bad = (msg, status = 400) => Object.assign(new Error(msg), { status });
 
-router.get('/auth/me', h((req, res) => res.json({ enabled: enabled(), account: publicAccount(req.account), modules: MODULES, rights: RIGHTS })));
+router.get('/auth/me', h((req, res) => res.json({ enabled: enabled(), account: publicAccount(req.account), modules: MODULES, areas: AREAS, rights: RIGHTS })));
 
 // a few wrong passwords in a row from one address wait a minute
 const attempts = new Map();
