@@ -230,10 +230,11 @@ What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (
 
 **🏭 Production** in the top bar (formerly Planning) has three tabs:
 - **💳 Perso:** the open perso work orders, in the order chosen in the drop-down on the tab (FIFO, BAU, ⚖ Score or 🛟 Mitigation). Views are ☰ List, ▤ Gantt, ▦ Load and 📈 History.
-- **✉️ Matching:** the Matching jobs.
+- **✉️ Matching:** the Matching jobs. Views are ☰ List, ▤ Gantt and ▦ Load (once Matching machines with a speed are set: a bar per job on its planned machine, and the hours booked on each machine per day) and 📈 History (Matching jobs done per day, on time or late, from its own recorded exports).
 - **🚚 Dispatch:** the open dispatch jobs from the Dispatch export (*OpenDespatchWorkorders*), set in ⚙ Setup or tried with 📂 Load file….
   - **What's read:** **WO** (the perso work order plus `DES0001`, so `CCBCS26101956DES0001` belongs to work order `CCBCS26101956`, customer CBC), **QNY**, **Due Out**, **Status**, Prio, LIVE, GROUP, and the customer's name.
   - **Where each one is in the chain:** each dispatch job is linked by its work order to the perso jobs still open and to its Matching jobs. It shows ⏳ *Waiting on perso*, ✉️ *Waiting on Matching* or ✔ *Ready to dispatch*, with roughly when it will be ready (from their projected finishes) and the export's own status beside it.
+  - **Views:** ☰ List; ▦ Load — the pieces due out each day (overdue, the next days with something due, later), split by ⏳ waiting on perso / ✉️ waiting on Matching / ✔ ready; 📈 History — dispatch jobs done per day and the latest ones. There's no ▤ Gantt: the Dispatch export has no machines. Each tab keeps its own view.
   - **Tiles:** open, due today, overdue, waiting on perso, waiting on Matching, ready. Click a stage tile to show only those.
   - **Click a job** for its perso and Matching jobs, and **🔍 Everything about** the work order.
   - **Old ones:** dispatch jobs due long ago are hidden like the rest and are in the hidden export (*Hidden Dispatch*). Despatched ones aren't listed.

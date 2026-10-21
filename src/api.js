@@ -1931,7 +1931,11 @@ router.get('/plan', h((req, res) => {
   const cardsDb = { status: db_.status, file: db_.file || null, name: db_.name || null, modified: db_.modified || null, table: db_.table || null, count: db_.count || 0, error: db_.error || null, columns: db_.columns || null };
   const rules = db.all('SELECT * FROM plan_speeds ORDER BY type, material, sides');
   let sharedSetup = null; try { sharedSetup = JSON.parse(metaGet('shared_setup_info') || 'null'); } catch { /* none */ }
-  if (src.status !== 'ok') { const otto0 = ottoOf(set, [], capacity); return res.json({ shared_setup: sharedSetup, otto: otto0, disp: dispOf(set, [], [...otto0.running, ...otto0.queue]), machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: (['bau', 'score', 'mitigation'].includes(req.query.mode) ? req.query.mode : 'fifo'), running: [], queue: [], slots: [] }); }
+  // working time for the next two weeks (the Gantt's shading; available hours a day)
+  const now = new Date();
+  const windows = planning.workingWindows(now, new Date(now.getTime() + 14 * 86400000), capacity).map((w) => ({ start: w.start.toISOString(), end: w.end.toISOString() }));
+  const available = planning.minutesByDay(now, new Date(now.getTime() + 14 * 86400000), capacity);
+  if (src.status !== 'ok') { const otto0 = ottoOf(set, [], capacity); return res.json({ shared_setup: sharedSetup, windows, available, now: now.toISOString(), otto: otto0, disp: dispOf(set, [], [...otto0.running, ...otto0.queue]), machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: (['bau', 'score', 'mitigation'].includes(req.query.mode) ? req.query.mode : 'fifo'), running: [], queue: [], slots: [] }); }
   const mode = (['bau', 'score', 'mitigation'].includes(req.query.mode) ? req.query.mode : 'fifo');
   const oeeRows = db.all('SELECT customer, oee FROM plan_oee ORDER BY customer');
   const oeeDefault = Number(set.plan_oee_default) > 0 && Number(set.plan_oee_default) <= 100 ? Number(set.plan_oee_default) / 100 : null;
@@ -1978,10 +1982,6 @@ router.get('/plan', h((req, res) => {
   const machineLoad = machines.some((m) => m.active) ? planning.projectMachines(running, queue, machines, capacity, new Date()) : false;
   const projected = machineLoad ? true : planning.project(running, queue, capacity, new Date());
   const types = [...new Set(db_.status === 'ok' ? [...db_.cards.values()].map((c) => c.type).filter(Boolean) : [])].sort();
-  // working time for the next two weeks (the Gantt's shading; available hours a day)
-  const now = new Date();
-  const windows = planning.workingWindows(now, new Date(now.getTime() + 14 * 86400000), capacity).map((w) => ({ start: w.start.toISOString(), end: w.end.toISOString() }));
-  const available = planning.minutesByDay(now, new Date(now.getTime() + 14 * 86400000), capacity);
   const otto = ottoOf(set, [...running, ...queue], capacity);
   const disp = dispOf(set, [...running, ...queue], [...otto.running, ...otto.queue]);
   // the pace from the plan history: jobs done (when they left the export) and all jobs due
@@ -2534,7 +2534,7 @@ router.get('/plan/learn.xlsx', h((req, res) => {
   res.send(buildXlsx(sheets));
 }));
 router.get('/plan/history', h((req, res) => {
-  res.json(planHistory.summary({ days: Math.min(60, Math.max(7, Number(req.query.days) || 14)) }));
+  res.json(planHistory.summary({ days: Math.min(60, Math.max(7, Number(req.query.days) || 14)), half: String(req.query.half || 'perso') }));
 }));
 
 // A copy of the export, to try it out before linking the file itself.

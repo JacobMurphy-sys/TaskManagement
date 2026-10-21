@@ -193,47 +193,55 @@ async function renderPlanning() {
       </tbody></table></div>` : ''}</div>
       <p class="small muted">Max cards a day: the machines able to run the type, for the working day, at the type's speed (the open cards' average). A machine running several types counts for each — the ceiling for that type on its own.</p></div>` : '';
   const cdb = p.cards_db;
-  const withMachines = (p.machines || []).some((m) => m.active) && p.projected;
-  const viewList = [['list', '☰ List'], ...(withMachines ? [['gantt', '▤ Gantt'], ['load', '▦ Load']] : []), ['history', '📈 History']]; // 🔬 Learned: in 🧠 Insights
-  const view = viewList.some(([k]) => k === store.get('planView', 'list')) ? store.get('planView', 'list') : 'list';
-  const hist = view === 'history' ? await api.get('/plan/history?days=14') : null;
+  // ☰ List / ▤ Gantt / ▦ Load / 📈 History on each tab (its own choice kept): Gantt and Load need machines
+  // (perso: ⚙ Setup's machines; Matching: its machines with a speed); 🚚 Dispatch has no machines, so its Load is pieces due a day
+  const withMachines = half === 'otto' ? !!p.otto?.projected : half === 'perso' ? (p.machines || []).some((m) => m.active) && p.projected : false;
+  const noMachines = half === 'disp' ? 'The Dispatch export has no machines to plan on' : half === 'otto' ? 'Add Matching machines with a speed in ⚙ Setup to plan them' : 'Add machines in ⚙ Setup to plan them';
+  const viewKey = half === 'perso' ? 'planView' : `planView_${half}`;
+  const viewList = [['list', '☰ List'], ['gantt', '▤ Gantt', withMachines], ['load', '▦ Load', withMachines || half === 'disp'], ['history', '📈 History']]; // 🔬 Learned: in 🧠 Insights
+  const view = viewList.some(([k, , ok]) => ok !== false && k === store.get(viewKey, 'list')) ? store.get(viewKey, 'list') : 'list';
+  const unitOf = { perso: 'cards', otto: 'items', disp: 'pieces' }[half];
+  const viewsRow = () => `<div class="row pl-views"><div class="seg">${viewList.map(([k, l, ok]) => `<button type="button" data-pl-view="${k}" class="${view === k ? 'on' : ''}" ${ok === false ? `disabled title="${esc(noMachines)}"` : ''}>${l}</button>`).join('')}</div>
+      ${view === 'gantt' ? `<div class="seg">${[[1, '1 day'], [3, '3 days'], [7, '1 week']].map(([d, l]) => `<button type="button" data-pl-span="${d}" class="${Number(store.get('planSpan', 3)) === d ? 'on' : ''}">${l}</button>`).join('')}</div>
+        <span class="small muted">Click a job to see its deadline; green on time · amber within 2 h of its cut-off · red late</span>` : ''}</div>`;
+  const hist = view === 'history' ? await api.get(`/plan/history?days=14&half=${half}`) : null;
   const historyHtml = () => {
     const h = hist; const max = Math.max(1, ...h.daily.map((d) => d.cards));
+    const kfmt = (x) => (x >= 1000 ? `${n(Math.round(x / 100) / 10)}k` : n(x));
     const dshort = (d) => { const dt = new Date(`${d}T12:00`); return `${dt.toLocaleDateString('en-GB', { weekday: 'short' })}<br>${dt.getDate()}/${dt.getMonth() + 1}`; };
     return `<div class="kdb-tiles" style="margin-top:12px">
-        <div class="kdb-tile"><div class="kdb-tile-l">Done — last 7 days</div><div class="kdb-tile-v">${n(h.week.jobs)}</div><div class="kdb-tile-s">${n(h.week.cards)} cards</div></div>
+        <div class="kdb-tile"><div class="kdb-tile-l">Done — last 7 days</div><div class="kdb-tile-v">${n(h.week.jobs)}</div><div class="kdb-tile-s">${n(h.week.cards)} ${unitOf}</div></div>
         <div class="kdb-tile"><div class="kdb-tile-l">On time — last 7 days</div><div class="kdb-tile-v ${h.week.on_time_pct === null ? '' : h.week.on_time_pct >= 98 ? 'kdb-ok' : 'kdb-bad'}">${h.week.on_time_pct === null ? '—' : `${h.week.on_time_pct}%`}</div><div class="kdb-tile-s">done by the cut-off</div></div>
         <div class="kdb-tile"><div class="kdb-tile-l">Lead time</div><div class="kdb-tile-v">${h.week.lead_hours === null ? '—' : fmtSpan(h.week.lead_hours * 60)}</div><div class="kdb-tile-s">first seen → done, average</div></div>
         <div class="kdb-tile"><div class="kdb-tile-l">History</div><div class="kdb-tile-v">${n(h.reads)}</div><div class="kdb-tile-s">${h.since ? `exports since ${esc(fmtDateTime(h.since))}` : 'exports recorded'}</div></div></div>
       ${h.reads < 2 ? '<div class="kc-note">The history builds up from now: each new version of the linked export is recorded (checked every 10 minutes), and a job is counted as done when it\'s gone from the next export — to within the export interval.</div>' : ''}
-      <div class="card"><h3 class="pl-h">Cards done per day <span class="muted small">— last ${h.days} days · green on time · red after the cut-off</span></h3>
-        <div class="pl-hist">${h.daily.map((d) => `<div class="pl-hist-col" title="${esc(d.date)}: ${n(d.jobs)} jobs, ${n(d.cards)} cards (${n(d.on_time_cards)} on time)">
-          <div class="pl-hist-n">${d.cards ? n(Math.round(d.cards / 100) / 10) + 'k' : ''}</div>
+      <div class="card"><h3 class="pl-h">${unitOf[0].toUpperCase()}${unitOf.slice(1)} done per day <span class="muted small">— last ${h.days} days · green on time · red after the cut-off</span></h3>
+        <div class="pl-hist">${h.daily.map((d) => `<div class="pl-hist-col" title="${esc(d.date)}: ${n(d.jobs)} jobs, ${n(d.cards)} ${unitOf} (${n(d.on_time_cards)} on time)">
+          <div class="pl-hist-n">${d.cards ? kfmt(d.cards) : ''}</div>
           <div class="pl-hist-bar" style="height:${Math.round((d.cards / max) * 140)}px"><div class="pl-hist-late" style="height:${d.cards ? Math.round(((d.cards - d.on_time_cards) / d.cards) * 100) : 0}%"></div></div>
           <div class="pl-hist-d">${dshort(d.date)}</div></div>`).join('')}</div></div>
       <div class="card"><h3 class="pl-h">Latest done</h3>
-        <div class="kdb-scroll"><table class="log"><thead><tr><th>Done</th><th>Work order / job</th><th>Customer</th><th class="num">Cards</th><th>Deadline</th><th>Result</th><th>Shipper</th></tr></thead><tbody>
-        ${h.recent.map((j) => `<tr><td>${esc(new Date(j.done_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td><td><b>${esc(j.wo)}</b> <span class="muted">/ ${esc(j.per || '')}</span></td>
+        <div class="kdb-scroll"><table class="log"><thead><tr><th>Done</th><th>Work order / job</th><th>Customer</th><th class="num">${unitOf[0].toUpperCase()}${unitOf.slice(1)}</th><th>Deadline</th><th>Result</th><th>${{ perso: 'Shipper', otto: 'Machine', disp: 'Group' }[half]}</th></tr></thead><tbody>
+        ${h.recent.map((j) => `<tr><td>${esc(new Date(j.done_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td><td><b>${esc(j.wo || j.key)}</b> <span class="muted">${j.per ? `/ ${esc(j.per)}` : esc(j.wo && j.key.startsWith(j.wo) ? j.key.slice(j.wo.length) : '')}</span></td>
           <td>${esc(j.customer || '')}</td><td class="num">${n(j.qty)}</td><td>${esc(j.deadline?.replace('T', ' ') || '—')}</td>
-          <td>${j.late_minutes === null ? '—' : j.late_minutes > 0 ? `<span class="pl-late">${fmtSpan(j.late_minutes)} late</span>` : '<span class="pl-ok">✔ on time</span>'}</td><td class="small">${esc(j.shipper || '')}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">Nothing done yet since the history began.</td></tr>'}
+          <td>${j.late_minutes === null ? '—' : j.late_minutes > 0 ? `<span class="pl-late">${fmtSpan(j.late_minutes)} late</span>` : '<span class="pl-ok">✔ on time</span>'}</td><td class="small">${esc(j.shipper ?? j.machine ?? '')}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">Nothing done yet since the history began.</td></tr>'}
         </tbody></table></div></div>`;
   };
   // ▦ Load: hours booked on each machine per day against its working hours
-  const loadHtml = () => {
+  const loadHtml = (ms = (p.machines || []).filter((m) => m.active), list = p.machine_load, unit = 'cards') => {
     const days = Object.keys(p.available || {}).filter((d) => p.available[d] > 0).sort().slice(0, 10);
     const hrs = (m) => `${(m / 60).toLocaleString('en-GB', { maximumFractionDigits: 1 })} h`;
     const cell = (booked, avail) => {
       const pct = avail ? Math.round((booked / avail) * 100) : 0;
       return `<td class="pl-load-cell" title="${hrs(booked)} booked of ${hrs(avail)}"><div class="pl-load-bar ${pct >= 95 ? 'full' : pct >= 70 ? 'busy' : ''}" style="width:${Math.min(100, pct)}%"></div><span>${booked ? `${pct}%` : ''}</span></td>`;
     };
-    const loads = new Map((p.machine_load || []).map((l) => [l.id, l]));
-    const ms = (p.machines || []).filter((m) => m.active);
+    const loads = new Map((list || []).map((l) => [l.id, l]));
     const dayHead = (d) => { const dt = new Date(`${d}T12:00`); return `${dt.toLocaleDateString('en-GB', { weekday: 'short' })}<div class="small muted">${dt.getDate()} ${dt.toLocaleDateString('en-GB', { month: 'short' })}</div>`; };
     return `<div class="card"><h3 class="pl-h">Load — hours booked on each machine per day <span class="muted small">of its working hours (${days[0] === Object.keys(p.available).sort()[0] ? 'today from now' : ''})</span></h3>
-      <div class="kdb-scroll"><table class="log pl-load"><thead><tr><th>Machine</th>${days.map((d) => `<th class="num">${dayHead(d)}</th>`).join('')}<th class="num">Cards</th><th>Booked until</th></tr></thead><tbody>
-      ${ms.map((m) => { const l = loads.get(m.id) || { days: {} }; return `<tr><td><b>${esc(m.name)}</b><div class="small muted">${esc(m.types || 'any type')}</div></td>
-        ${days.map((d) => cell(l.days?.[d]?.minutes || 0, p.available[d])).join('')}<td class="num">${n(l.cards)}</td><td class="small">${l.until ? esc(PLF.wkHm.format(new Date(l.until))) : '<span class="muted">free</span>'}</td></tr>`; }).join('')}
-      <tr class="pl-load-total"><td>All machines</td>${days.map((d) => cell(ms.reduce((t, m) => t + ((loads.get(m.id) || {}).days?.[d]?.minutes || 0), 0), p.available[d] * ms.length)).join('')}<td class="num">${n(ms.reduce((t, m) => t + ((loads.get(m.id) || {}).cards || 0), 0))}</td><td></td></tr>
+      <div class="kdb-scroll"><table class="log pl-load"><thead><tr><th>Machine</th>${days.map((d) => `<th class="num">${dayHead(d)}</th>`).join('')}<th class="num">${unit[0].toUpperCase()}${unit.slice(1)}</th><th>Booked until</th></tr></thead><tbody>
+      ${ms.map((m) => { const l = loads.get(m.id) || { days: {} }; return `<tr><td><b>${esc(m.name)}</b><div class="small muted">${esc(m.types || m.match || 'any type')}</div></td>
+        ${days.map((d) => cell(l.days?.[d]?.minutes || 0, p.available[d])).join('')}<td class="num">${n(l.cards ?? l.items)}</td><td class="small">${l.until ? esc(PLF.wkHm.format(new Date(l.until))) : '<span class="muted">free</span>'}</td></tr>`; }).join('')}
+      <tr class="pl-load-total"><td>All machines</td>${days.map((d) => cell(ms.reduce((t, m) => t + ((loads.get(m.id) || {}).days?.[d]?.minutes || 0), 0), p.available[d] * ms.length)).join('')}<td class="num">${n(ms.reduce((t, m) => t + (((x) => x.cards ?? x.items)(loads.get(m.id) || {}) || 0), 0))}</td><td></td></tr>
       </tbody></table></div><p class="small muted">Green below 70% · amber from 70% · red from 95% of the working time. The plan books machines from now in the list's order, so the first days fill up first.</p></div>`;
   };
   const speedRows = (p.combos || []).map((c) => {
@@ -362,9 +370,24 @@ async function renderPlanning() {
       <div><b>Perso</b>${d.perso.length ? `<table class="log small"><thead><tr><th>Job</th><th class="num">Cards</th><th>Status</th><th>Projected finish</th></tr></thead><tbody>${d.perso.map((j) => `<tr><td>${esc(j.key)}</td><td class="num">${n(j.qty)}</td><td>${esc(j.status || '')}</td><td>${j.finish_at ? esc(PLF.wkHm.format(new Date(j.finish_at))) : '—'}</td></tr>`).join('')}</tbody></table>` : '<div class="small pl-ok">✔ no perso job open</div>'}</div>
       <div><b>Matching</b>${d.matching.length ? `<table class="log small"><thead><tr><th>Job</th><th class="num">Items</th><th>Status</th><th>Plan date</th><th>Projected finish</th></tr></thead><tbody>${d.matching.map((m) => `<tr><td>${esc(m.name)}</td><td class="num">${n(m.qty)}</td><td>${m.done ? '✔ ' : ''}${esc(m.status || '')}</td><td>${esc(m.due || '')}</td><td>${m.finish_at ? esc(PLF.wkHm.format(new Date(m.finish_at))) : '—'}</td></tr>`).join('')}</tbody></table>` : '<div class="small muted">no Matching job in its export</div>'}</div>
       <div><button class="small" data-pf-wo-open="${esc(d.wo)}">🔍 Everything about ${esc(d.wo)}</button></div></div></td></tr>`;
+    // ▦ Load: pieces due out each day, by where they are in the chain
+    const dLoad = () => {
+      const days = [...new Set(all.map((d) => d.due).filter((d) => d && d >= todayIso))].sort().slice(0, 10);
+      const later = all.filter((d) => d.due && d.due > (days[days.length - 1] || todayIso) && !days.includes(d.due));
+      const cols = [['over', 'Overdue', (d) => d.due && d.due < todayIso], ...days.map((x) => [x, dayLabel(x), (d) => d.due === x]), ...(later.length ? [['later', 'Later', (d) => later.includes(d)]] : []), ['none', 'No date', (d) => !d.due]].filter(([k, , f]) => k !== 'none' || all.some(f));
+      const rows = Object.entries(STAGE).map(([k, [l, cls]]) => [k, l, cls, all.filter((d) => d.stage === k)]);
+      const max = Math.max(1, ...rows.flatMap(([, , , l]) => cols.map(([, , f]) => sum_(l.filter(f)))));
+      const cell = (l, cls) => { const q = sum_(l); return `<td class="pl-load-cell" title="${n(l.length)} job${l.length === 1 ? '' : 's'}, ${n(q)} pieces"><div class="pl-load-bar ${cls}" style="width:${Math.round((q / max) * 100)}%"></div><span>${q ? n(q) : ''}</span></td>`; };
+      const barCls = { perso: 'full', matching: 'busy', ready: '' };
+      return `<div class="card"><h3 class="pl-h">Load — pieces due out each day <span class="muted small">by where they are: red still in perso · amber in Matching · green ready to dispatch</span></h3>
+        <div class="kdb-scroll"><table class="log pl-load"><thead><tr><th>Stage</th>${cols.map(([k, l]) => `<th class="num">${esc(l)}</th>`).join('')}<th class="num">Pieces</th><th class="num">Jobs</th></tr></thead><tbody>
+        ${rows.map(([k, l, cls, list]) => `<tr><td><span class="${cls}"><b>${l}</b></span></td>${cols.map(([, , f]) => cell(list.filter(f), barCls[k])).join('')}<td class="num">${n(sum_(list))}</td><td class="num">${n(list.length)}</td></tr>`).join('')}
+        <tr class="pl-load-total"><td>All dispatch jobs</td>${cols.map(([, , f]) => { const l = all.filter(f); return `<td class="num"><b>${n(sum_(l))}</b><div class="small muted">${n(l.length)} job${l.length === 1 ? '' : 's'}</div></td>`; }).join('')}<td class="num">${n(sum_(all))}</td><td class="num">${n(all.length)}</td></tr>
+        </tbody></table></div><p class="small muted">The Dispatch export has no machines, so there's no Gantt: this shows how much is due out each day and how much of it is still waiting on perso or Matching.</p></div>`;
+    };
     plDetail.disp = (key) => { const d = all.find((x) => `disp:${x.key}` === key); return d ? ddetail(d) : ''; };
     const shown = all.filter(dm);
-    const sum_ = (l) => l.reduce((t, d) => t + d.qty, 0);
+    const sum_ = (l) => l.reduce((t, d) => t + (d.qty || 0), 0);
     const tile = (l, v, sub, cls = '', stage = null) => `<div class="kdb-tile ${stage ? 'pl-tile-click' : ''}" ${stage ? `data-pl-dstage="${stage}" title="Show only these"` : ''}><div class="kdb-tile-l">${l}</div><div class="kdb-tile-v ${cls}">${v}</div><div class="kdb-tile-s">${sub}</div></div>`;
     return `<div class="pl-tiles-row"><div class="kdb-tiles pl-tiles">
         ${tile('Open dispatch jobs', n(all.length), `${n(sum_(all))} pieces${dp.done ? ` · ${n(dp.done)} done not shown` : ''}`)}
@@ -374,6 +397,8 @@ async function renderPlanning() {
         ${tile('Waiting on Matching', n(st('matching').length), `${n(sum_(st('matching')))} pieces`, st('matching').length ? 'kdb-warn' : '', 'matching')}
         ${tile('Ready to dispatch', n(st('ready').length), `${n(sum_(st('ready')))} pieces`, 'kdb-ok', 'ready')}
       </div></div>
+      ${viewsRow()}
+      ${view === 'load' ? dLoad() : view === 'history' ? historyHtml() : `
       ${dp.hidden ? `<p class="small muted">${n(dp.hidden)} dispatch job${dp.hidden === 1 ? '' : 's'} (${n(dp.hidden_qty)} pieces) due more than ${dp.max_age} days ago ${dp.hidden === 1 ? 'isn\'t' : 'aren\'t'} shown — likely errors. <a class="button small" href="/api/plan/hidden.xlsx" download>⬇ Export them to Excel</a></p>` : ''}
       <div class="row pl-filters">
         <input type="search" id="pld-q" placeholder="Search WO, customer, group, status…" value="${esc(df.q || '')}">
@@ -383,7 +408,7 @@ async function renderPlanning() {
       <div class="card"><h3 class="pl-h">🚚 Dispatch — by due date, then priority <span class="muted small">${shown.length} job${shown.length === 1 ? '' : 's'} · ${n(sum_(shown))} pieces · click a job for its perso and Matching jobs</span></h3>
         <div class="kdb-scroll"><table class="log pl-table"><thead><tr><th></th><th>Due out</th><th>Work order</th><th>Customer</th><th class="num">Qty</th><th>Priority</th><th>Status (export)</th><th>Where it is</th></tr></thead>
         <tbody>${shown.map((d) => drow(d, all.indexOf(d))).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>
-      ${dp.source.skipped?.length ? `<p class="small muted">${dp.source.skipped.length} row${dp.source.skipped.length === 1 ? '' : 's'} with a due date not understood.</p>` : ''}`;
+      ${dp.source.skipped?.length ? `<p class="small muted">${dp.source.skipped.length} row${dp.source.skipped.length === 1 ? '' : 's'} with a due date not understood.</p>` : ''}`}`;
   };
   const ottoHtml = () => {
     const os = ot.source; const allO = [...ot.running, ...ot.queue];
@@ -418,7 +443,11 @@ async function renderPlanning() {
       <div class="kdb-tile"><div class="kdb-tile-l">Overdue items</div><div class="kdb-tile-v ${oOver.length ? 'kdb-bad' : 'kdb-ok'}">${n(sum(oOver))}</div><div class="kdb-tile-s">${n(oOver.length)} job${oOver.length === 1 ? '' : 's'}${ot.backlog?.catch_up?.catch_days ? ` · caught up in ~${ot.backlog.catch_up.catch_days} d` : ''}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Projected late</div><div class="kdb-tile-v ${allO.some((o) => o.late_minutes > 0) ? 'kdb-bad' : ot.projected ? 'kdb-ok' : ''}">${ot.projected ? n(allO.filter((o) => o.late_minutes > 0).length) : '—'}</div><div class="kdb-tile-s">${ot.projected ? `${(ot.machines || []).filter((m) => m.active).length} machine${(ot.machines || []).filter((m) => m.active).length === 1 ? '' : 's'} · ${esc(dayText)}` : 'set machines in ⚙ Setup'}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Waiting on perso</div><div class="kdb-tile-v ${allO.some(behind) ? 'kdb-bad' : ''}">${n(waiting.length)}</div><div class="kdb-tile-s">${allO.some(behind) ? `${n(allO.filter(behind).length)} perso ready after the plan date` : `${src.status === 'ok' ? 'perso work order still open' : 'link the perso export to match'}`}</div></div></div><button class="primary pl-generate" data-pl="print" title="A plan of the Matching jobs — Incoming, In Progress and Ready — as a PDF to print and hand out">📄 Generate plan</button></div>
-    ${backlogCard(ot.backlog, 'items', true)}
+    ${viewsRow()}
+    ${view === 'gantt' ? '<div class="card pl-gantt-card"><div id="pl-gantt-info" class="small"></div><div id="pl-gantt"></div></div>' : ''}
+    ${view === 'load' ? loadHtml((ot.machines || []).filter((m) => m.active), ot.load, 'items') : ''}
+    ${view === 'history' ? historyHtml() : ''}
+    ${view !== 'list' ? '' : `${backlogCard(ot.backlog, 'items', true)}
     <div class="row pl-filters">
       <input type="search" id="plo-q" placeholder="Search name, customer, plan group…" value="${esc(of.q || '')}">
       <select id="plo-customer"><option value="">All customers</option>${oCust.map((c) => `<option ${of.customer === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
@@ -433,7 +462,7 @@ async function renderPlanning() {
     ${rs.length ? `<div class="card"><h3 class="pl-h">▶ Running <span class="muted small">${rs.length} job${rs.length === 1 ? '' : 's'} · ${n(sum(rs))} items</span></h3><div class="kdb-scroll"><table class="log pl-table"><thead>${ohead}</thead><tbody>${rs.map((o) => orow(o, null)).join('')}</tbody></table></div></div>` : ''}
     <div class="card"><h3 class="pl-h">Matching — by plan date, then priority <span class="muted small">${qs.length} job${qs.length === 1 ? '' : 's'} · ${n(sum(qs))} items · click a job for its comment and perso jobs</span></h3>
       <div class="kdb-scroll"><table class="log pl-table"><thead>${ohead}</thead><tbody>${qs.map((o) => orow(o, ot.queue.indexOf(o))).join('') || '<tr><td colspan="9" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>
-    ${os.skipped?.length ? `<p class="small muted">${os.skipped.length} row${os.skipped.length === 1 ? '' : 's'} with a plan date not understood.</p>` : ''}`;
+    ${os.skipped?.length ? `<p class="small muted">${os.skipped.length} row${os.skipped.length === 1 ? '' : 's'} with a plan date not understood.</p>` : ''}`}`;
   };
 
   main().innerHTML = `
@@ -522,9 +551,7 @@ ${half === 'otto' ? ottoSetup() : `
       <div class="kdb-tile"><div class="kdb-tile-l">Overdue cards</div><div class="kdb-tile-v ${overdue.length ? 'kdb-bad' : 'kdb-ok'}">${n(sum(overdue))}</div><div class="kdb-tile-s">${n(overdue.length)} job${overdue.length === 1 ? '' : 's'}${p.backlog?.catch_up?.catch_days ? ` · caught up in ~${p.backlog.catch_up.catch_days} d` : ''}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Projected late</div><div class="kdb-tile-v ${late.length ? 'kdb-bad' : p.projected ? 'kdb-ok' : ''}">${p.projected ? n(late.length) : '—'}</div><div class="kdb-tile-s">${esc(capText)}</div></div>
     </div><button class="primary pl-generate" data-pl="print" title="A plan per cell (DOD, Emboss, Laser) of the work orders still open, as a PDF to print and hand out">📄 Generate plan</button></div>
-    ${src.status === 'ok' ? `<div class="row pl-views"><div class="seg">${viewList.map(([k, l]) => `<button type="button" data-pl-view="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-      ${view === 'gantt' ? `<div class="seg">${[[1, '1 day'], [3, '3 days'], [7, '1 week']].map(([d, l]) => `<button type="button" data-pl-span="${d}" class="${Number(store.get('planSpan', 3)) === d ? 'on' : ''}">${l}</button>`).join('')}</div>
-        <span class="small muted">Click a job to see its deadline; green on time · amber within 2 h of its cut-off · red late</span>` : ''}</div>` : ''}
+    ${src.status === 'ok' ? viewsRow() : ''}
     ${view === 'gantt' ? '<div class="card pl-gantt-card"><div id="pl-gantt-info" class="small"></div><div id="pl-gantt"></div></div>' : ''}
     ${view === 'load' ? `${loadHtml()}${capCard}` : ''}
     ${view === 'history' ? historyHtml() : ''}
@@ -545,8 +572,8 @@ ${half === 'otto' ? ottoSetup() : `
       <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${runningShown.map((j) => row(j, null)).join('')}</tbody></table></div></div>` : ''}
     <div class="card"><h3 class="pl-h">Next to start — ${mode === 'fifo' ? 'FIFO: by deadline' : mode === 'mitigation' ? '🛟 Mitigation: what can still be on time first' : mode === 'score' ? '⚖ Score: highest first (deadline + modifiers)' : 'BAU: by due day, then priority, then cut-off'} <span class="muted small">${queueShown.length} job${queueShown.length === 1 ? '' : 's'} · ${n(sum(queueShown))} cards · click a job for its card articles</span></h3>
       <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${queueShown.slice(0, qShown).map(queueRow).join('')}${moreRow()}${queueShown.length ? '' : '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>`}` : ''}`}`;
-  if (half === 'perso' && view === 'gantt' && $('#pl-gantt')) {
-    const draw = () => drawPlanGantt($('#pl-gantt'), $('#pl-gantt-info'), p, match);
+  if (half !== 'disp' && view === 'gantt' && $('#pl-gantt')) {
+    const draw = () => drawPlanGantt($('#pl-gantt'), $('#pl-gantt-info'), p, half === 'otto' ? null : match, half);
     draw();
     window.onresize = () => { if ($('#pl-gantt')) draw(); };
   }
@@ -688,7 +715,7 @@ ${half === 'otto' ? ottoSetup() : `
       return;
     }
     const v = e.target.closest('[data-pl-view]');
-    if (v) { store.set('planView', v.dataset.plView); renderPlanning(); return; }
+    if (v) { store.set(viewKey, v.dataset.plView); renderPlanning(); return; }
     const sp = e.target.closest('[data-pl-span]');
     if (sp) { store.set('planSpan', Number(sp.dataset.plSpan)); renderPlanning(); return; }
     const hf = e.target.closest('[data-pl-half]');
@@ -971,18 +998,20 @@ function fmtSpan(min) {
 // over 1 day / 3 days / a week; non-working time shaded. A click picks a job: its bars stay
 // bright and its deadline is drawn.
 let planSel = null;
-function drawPlanGantt(el, info, p, match) {
+function drawPlanGantt(el, info, p, match, half = 'perso') {
+  const otto = half === 'otto'; const G = otto ? p.otto : p; const unit = otto ? 'items' : 'cards';
+  const label = (j) => (otto ? j.name : `${j.wo} / ${j.per}`);
   const span = Number(store.get('planSpan', 3)) || 3;
   const from = new Date(p.now); const to = new Date(from.getTime() + span * 86400000);
   const LBL = 96; const W = Math.max(400, el.clientWidth - LBL - 4); const ROW = 34;
   const x = (t) => LBL + ((new Date(t) - from) / (to - from)) * W;
-  const machines = (p.machines || []).filter((m) => m.active);
-  const jobs = [...p.running, ...p.queue];
+  const machines = (G.machines || []).filter((m) => m.active);
+  const jobs = [...G.running, ...G.queue];
   const byKey = new Map(jobs.map((j) => [j.key, j]));
   // bars: a job's lines on one machine, merged where they follow on
   const bars = [];
   for (const j of jobs) {
-    const slots = j.articles.filter((a) => a.machine && a.start_at).map((a) => ({ m: a.machine, s: new Date(a.start_at), f: new Date(a.finish_at) }))
+    const slots = otto ? (j.start_at && j.machine_planned ? [{ m: j.machine_planned, s: new Date(j.start_at), f: new Date(j.finish_at) }] : []) : j.articles.filter((a) => a.machine && a.start_at).map((a) => ({ m: a.machine, s: new Date(a.start_at), f: new Date(a.finish_at) }))
       .sort((a, b) => (a.m < b.m ? -1 : a.m > b.m ? 1 : a.s - b.s));
     for (const sl of slots) {
       const last = bars[bars.length - 1];
@@ -1007,24 +1036,24 @@ function drawPlanGantt(el, info, p, match) {
     if (w.e > cur) cur = w.e;
   }
   if (cur < to) shade += `<div class="pg-off" style="left:${x(cur)}px;width:${x(to) - x(cur)}px;height:${H - 22}px"></div>`;
-  const rows = machines.map((m, i) => `<div class="pg-row" style="top:${22 + i * ROW}px;width:${LBL + W}px;height:${ROW}px"><div class="pg-name" style="width:${LBL - 8}px" title="${esc(m.types || 'any type')}">${esc(m.name)}<div class="small muted">${esc(m.types || 'any')}</div></div></div>`).join('');
+  const rows = machines.map((m, i) => `<div class="pg-row" style="top:${22 + i * ROW}px;width:${LBL + W}px;height:${ROW}px"><div class="pg-name" style="width:${LBL - 8}px" title="${esc(m.types || m.match || 'any type')}">${esc(m.name)}<div class="small muted">${esc(m.types || m.match || 'any')}</div></div></div>`).join('');
   const sel = planSel && byKey.get(planSel);
   const barHtml = bars.filter((b) => b.f > from && b.s < to).map((b) => {
     const j = byKey.get(b.key); const i = machines.findIndex((m) => m.name === b.m); if (i < 0) return '';
     const l = Math.max(LBL, x(b.s)); const r = Math.min(LBL + W, x(b.f)); const w = Math.max(2, r - l);
     const dim = (sel && sel.key !== j.key) || (match && !match(j));
     return `<div class="pg-bar pg-${state(j)} ${j.running ? 'pg-run' : ''} ${String(j.prio).toLowerCase() === 'high' ? 'pg-high' : ''} ${dim ? 'pg-dim' : ''} ${sel && sel.key === j.key ? 'pg-sel' : ''}" data-pg-job="${esc(j.key)}"
-      style="left:${l}px;width:${w}px;top:${22 + i * ROW + 5}px;height:${ROW - 10}px" title="${esc(`${j.wo} / ${j.per} · ${j.customer || ''} · ${PLF.num.format(j.qty)} cards\n${b.m}: ${b.s.toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })} – ${b.f.toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}\nDeadline ${j.deadline?.replace('T', ' ')}${j.late_minutes > 0 ? ` — ${fmtSpan(j.late_minutes)} late` : ''}`)}">${w > 70 ? `<span>${j.pinned ? '📌' : ''}${esc(j.customer || '')} ${esc(j.wo.slice(-6))}</span>` : ''}</div>`;
+      style="left:${l}px;width:${w}px;top:${22 + i * ROW + 5}px;height:${ROW - 10}px" title="${esc(`${label(j)} · ${j.customer || ''} · ${PLF.num.format(j.qty)} ${unit}\n${b.m}: ${b.s.toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })} – ${b.f.toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}\nDeadline ${j.deadline?.replace('T', ' ')}${j.late_minutes > 0 ? ` — ${fmtSpan(j.late_minutes)} late` : ''}`)}">${w > 70 ? `<span>${j.pinned ? '📌' : ''}${esc(j.customer || '')} ${esc(j.wo.slice(-6))}</span>` : ''}</div>`;
   }).join('');
   const dl = sel?.deadline ? (() => { const [d, t] = sel.deadline.split('T'); const [y, mo, dd] = d.split('-').map(Number); const [hh, mm] = t.split(':').map(Number); return new Date(y, mo - 1, dd, hh, mm); })() : null;
   const dlHtml = dl && dl > from && dl < to ? `<div class="pg-deadline" style="left:${x(dl)}px;height:${H}px"><span>due ${esc(sel.deadline.slice(11))}</span></div>` : '';
   el.style.height = `${H + 6}px`;
   el.innerHTML = `<div class="pg" style="width:${LBL + W}px;height:${H}px">${rows}${shade}${ticks}<div class="pg-now" style="left:${x(from)}px;height:${H}px"><span>now</span></div>${barHtml}${dlHtml}</div>`;
   const unplanned = jobs.filter((j) => j.unplanned).length;
-  info.innerHTML = sel ? `<b>${esc(sel.wo)} / ${esc(sel.per)}</b> · ${esc(sel.customer || '')} · ${sel.qty.toLocaleString('en-GB')} cards · ${esc(sel.prio || '')} · ${esc(sel.shipper || '')}
+  info.innerHTML = sel ? `<b>${esc(label(sel))}</b> · ${esc(sel.customer || '')} · ${sel.qty.toLocaleString('en-GB')} ${unit} · ${esc(sel.prio || '')} · ${esc(sel.shipper || sel.machine_planned || '')}
       · due <b>${esc(sel.deadline?.replace('T', ' ') || '—')}</b> · finishes ${sel.finish_at ? esc(PLF.wkHm.format(new Date(sel.finish_at))) : '—'}
       ${sel.late_minutes > 0 ? `<span class="pl-late">· ${fmtSpan(sel.late_minutes)} late</span>` : ''}${dl && (dl <= from || dl >= to) ? ` <span class="muted">(deadline outside this view)</span>` : ''} <button class="link small" data-pg-clear>✕</button>`
     : `<span class="muted">${bars.length ? 'Click a bar to pick a job.' : 'Nothing planned.'}${unplanned ? ` ⚠ ${unplanned} job${unplanned === 1 ? '' : 's'} can't be planned — see the list.` : ''}</span>`;
-  el.onclick = (e) => { const b = e.target.closest('[data-pg-job]'); planSel = b ? b.dataset.pgJob : null; drawPlanGantt(el, info, p, match); };
-  info.onclick = (e) => { if (e.target.closest('[data-pg-clear]')) { planSel = null; drawPlanGantt(el, info, p, match); } };
+  el.onclick = (e) => { const b = e.target.closest('[data-pg-job]'); planSel = b ? b.dataset.pgJob : null; drawPlanGantt(el, info, p, match, half); };
+  info.onclick = (e) => { if (e.target.closest('[data-pg-clear]')) { planSel = null; drawPlanGantt(el, info, p, match, half); } };
 }

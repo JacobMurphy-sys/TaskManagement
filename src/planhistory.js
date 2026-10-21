@@ -95,27 +95,29 @@ function ingestOtto(jobs, modifiedIso, file = null, { reads = 'plan_otto_reads',
   return { jobs: list.length, added, done };
 }
 
-// Completions per day, on time or late, and the latest ones.
-function summary({ days = 14 } = {}) {
+// Completions per day, on time or late, and the latest ones (half: perso, otto = Matching, disp = 🚚 Dispatch).
+const HISTORY = { perso: ['plan_history_jobs', 'plan_history_reads'], otto: ['plan_otto_jobs', 'plan_otto_reads'], disp: ['plan_disp_jobs', 'plan_disp_reads'] };
+function summary({ days = 14, half = 'perso' } = {}) {
+  const [jobsT, readsT] = HISTORY[half] || HISTORY.perso;
   const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const since = new Date(); since.setHours(0, 0, 0, 0); since.setDate(since.getDate() - (days - 1));
-  const done = db.all('SELECT * FROM plan_history_jobs WHERE done_at IS NOT NULL AND done_at >= ? ORDER BY done_at DESC', [since.toISOString()]);
+  const done = db.all(`SELECT * FROM ${jobsT} WHERE done_at IS NOT NULL AND done_at >= ? ORDER BY done_at DESC`, [since.toISOString()]);
   const daily = [];
   for (let i = 0; i < days; i++) {
     const d = new Date(since); d.setDate(since.getDate() + i);
     const list = done.filter((j) => ymd(new Date(j.done_at)) === ymd(d));
     const onTime = list.filter((j) => j.late_minutes === null || j.late_minutes <= 0);
-    daily.push({ date: ymd(d), jobs: list.length, cards: list.reduce((t, j) => t + j.qty, 0), on_time_jobs: onTime.length, on_time_cards: onTime.reduce((t, j) => t + j.qty, 0) });
+    daily.push({ date: ymd(d), jobs: list.length, cards: list.reduce((t, j) => t + (j.qty || 0), 0), on_time_jobs: onTime.length, on_time_cards: onTime.reduce((t, j) => t + (j.qty || 0), 0) });
   }
-  const reads = db.get('SELECT COUNT(*) AS n, MIN(file_modified) AS first, MAX(file_modified) AS last FROM plan_history_reads');
+  const reads = db.get(`SELECT COUNT(*) AS n, MIN(file_modified) AS first, MAX(file_modified) AS last FROM ${readsT}`);
   const pct = (list) => (list.length ? Math.round((list.filter((j) => j.late_minutes === null || j.late_minutes <= 0).length / list.length) * 1000) / 10 : null);
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
   const week = done.filter((j) => j.done_at >= weekAgo);
   // lead time: first seen → done (hours), for the week's jobs seen arriving after the history began
   const leads = week.filter((j) => j.first_seen > reads.first).map((j) => (new Date(j.done_at) - new Date(j.first_seen)) / 3600000);
   return {
-    reads: reads.n, since: reads.first, last: reads.last, days, daily,
-    week: { jobs: week.length, cards: week.reduce((t, j) => t + j.qty, 0), on_time_pct: pct(week), lead_hours: leads.length ? Math.round((leads.reduce((a, b) => a + b, 0) / leads.length) * 10) / 10 : null },
+    half: HISTORY[half] ? half : 'perso', reads: reads.n, since: reads.first, last: reads.last, days, daily,
+    week: { jobs: week.length, cards: week.reduce((t, j) => t + (j.qty || 0), 0), on_time_pct: pct(week), lead_hours: leads.length ? Math.round((leads.reduce((a, b) => a + b, 0) / leads.length) * 10) / 10 : null },
     recent: done.slice(0, 60),
   };
 }

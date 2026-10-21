@@ -1600,6 +1600,9 @@ async function waitForServer() {
         save(v1, new Date(2026, 9, 6, 18, 30)); // an older copy: ignored
         await call('GET', '/plan');
         assert.equal((await call('GET', '/plan/history')).reads, base + 2);
+        // Matching's and 🚚 Dispatch's own history, from their own tables
+        for (const half of ['otto', 'disp']) { const oh = await call('GET', `/plan/history?half=${half}`); assert.equal(oh.half, half); assert.equal(oh.daily.length, 14); assert.ok(Array.isArray(oh.recent)); }
+        assert.equal((await call('GET', '/plan/history?half=nope')).half, 'perso');
       }
       await call('PATCH', '/settings', { plan_src: path.join(tmp, 'gone.xlsx') });
       assert.equal((await call('GET', '/plan')).source.status, 'missing');
