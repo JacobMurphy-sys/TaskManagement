@@ -1320,3 +1320,7 @@ body.not-admin .pll-switch button { display: none !important; }
 .place-flash { outline: 3px solid var(--accent); outline-offset: 3px; transition: outline-color 1.5s; }
 #main h2, #main h3, #main .card { scroll-margin-top: 72px; } /* clear of the top bar when a search scrolls to them */
 .pl-tile-click { cursor: pointer; } .pl-tile-click:hover { border-color: var(--accent); }
+
+/* hidden means hidden: a class giving an element its own display (e.g. .pl-changed's flex) must not show
+   it while the hidden attribute is set (it did: an empty notice showed as a thin orange bar) */
+[hidden] { display: none !important; }
