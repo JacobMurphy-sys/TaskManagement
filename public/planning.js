@@ -403,57 +403,72 @@ async function renderPlanning() {
       const byCust = new Map(); for (const [k, l] of [...groups].sort((a, b) => String(a[1][0].customer).localeCompare(String(b[1][0].customer)) || String(a[1][0].due).localeCompare(String(b[1][0].due)))) (byCust.get(l[0].customer) || byCust.set(l[0].customer, []).get(l[0].customer)).push([k, l]);
       for (const k of [...plDelaySel]) if (!groups.has(k)) plDelaySel.delete(k);
       const daysLate = (due) => Math.round((new Date(`${todayIso}T12:00`) - new Date(`${due}T12:00`)) / 86400000);
-      const chips = (l) => Object.entries(STAGE).map(([k, [lb, cls]]) => [l.filter((d) => d.stage === k).length, lb, cls]).filter(([x]) => x).map(([x, lb, cls]) => `<span class="${cls} small" title="${esc(lb)}">${x} ${{ '⏳ Waiting on perso': 'in perso', '✉️ Waiting on Matching': 'in Matching', '✔ Ready to dispatch': 'ready' }[lb] || ''}</span>`).join(' ');
-      const why = (d) => `${daysLate(d.due)} day${daysLate(d.due) === 1 ? '' : 's'} overdue`;
-      const state = (l) => {
-        const g = l[0].delay; const dates = new Set(l.map((d) => d.delay?.new_date || ''));
-        if (l.some(missed)) return '<span class="pl-late">✖ new date passed</span>';
-        if (dates.has('')) return `<span class="pl-warn">⚠ ${dates.size > 1 ? `${l.filter((d) => !d.delay?.new_date).length} not set` : 'not set'}</span>`;
-        return `<span class="pl-ok">✔ planned</span>${dates.size > 1 || l.some((d) => d.delay?.from === 'job') ? ` <span class="small muted">· ${l.filter((d) => d.delay?.from === 'job').length} own date${l.filter((d) => d.delay?.from === 'job').length === 1 ? '' : 's'}</span>` : ''}`;
-      };
-      const gRow = (k, l) => { const d0 = l[0]; const g = d0.delay; const open = plDelayOpen.has(k);
-        return `<tr class="pld-group ${l.some(missed) ? 'pl-over-row' : ''}" data-pld-g="${esc(k)}" data-customer="${esc(d0.customer || '')}" data-due="${esc(d0.due || '')}">
-          <td><input type="checkbox" class="pld-sel" ${plDelaySel.has(k) ? 'checked' : ''} title="Select to set several at once"></td>
-          <td><button class="link" data-pld-open="${esc(k)}" title="${open ? 'Hide' : 'Show'} the work orders">${open ? '▾' : '▸'} <b>${esc(d0.due ? dayLabel(d0.due) : '—')}</b></button><div class="small muted">${esc(d0.due ? why({ ...d0, delay: null }) : '')}</div></td>
-          <td class="num"><b>${n(l.length)}</b></td><td class="num">${n(sum_(l))}</td><td>${chips(l)}</td>
-          <td><input type="date" class="pld-gdate" value="${esc(g?.group_date || '')}" min="${todayIso}"></td>
+      const SHORT = { perso: 'in perso', matching: 'in Matching', ready: 'ready' };
+      const chips = (l) => Object.entries(STAGE).map(([k, [lb, cls]]) => [l.filter((d) => d.stage === k).length, k, lb, cls]).filter(([x]) => x).map(([x, k, lb, cls]) => `<span class="${cls} small" title="${esc(lb)}">${x} ${SHORT[k]}</span>`).join(' · ');
+      const wos = (x) => `${n(x)} work order${x === 1 ? '' : 's'}`;
+      // where a set of work orders stands: ✖ a new date has passed · ⚠ some still need one · ✔ all have one
+      const standing = (l) => { const unset = l.filter((d) => !d.delay?.new_date).length;
+        return l.some(missed) ? ['bad', `✖ ${l.filter(missed).length} past the new date`] : unset ? ['warn', unset === l.length ? '⚠ needs a new date' : `⚠ ${unset} still need a date`] : ['ok', '✔ planned']; };
+      const pill = (l) => { const [cls, t] = standing(l); return `<span class="pld-pill ${cls}">${t}</span>`; };
+      const flash = (k) => (plDelayFlash === k ? 'pld-flash' : '');
+      const gRow = (k, l) => { const d0 = l[0]; const g = d0.delay; const open = plDelayOpen.has(k); const own = l.filter((d) => d.delay?.from === 'job').length;
+        return `<tr class="pld-group ${open ? 'open' : ''} ${flash(`g:${k}`)}" data-pld-g="${esc(k)}" data-customer="${esc(d0.customer || '')}" data-due="${esc(d0.due || '')}">
+          <td class="pld-check"><input type="checkbox" class="pld-sel" ${plDelaySel.has(k) ? 'checked' : ''} title="Select to give several due dates the same new date"></td>
+          <td><b>${esc(d0.due ? dayLabel(d0.due) : '—')}</b> <span class="pld-late">${daysLate(d0.due)} d late</span></td>
+          <td><button class="link pld-toggle" data-pld-open="${esc(k)}" title="${open ? 'Hide' : 'Show'} its work orders, to give one its own date">${open ? '▾' : '▸'} ${wos(l.length)}</button>${own ? `<div class="small muted">${own} with ${own === 1 ? 'its' : 'their'} own date</div>` : ''}</td>
+          <td class="num">${n(sum_(l))}</td><td>${chips(l)}</td>
+          <td><input type="date" class="pld-gdate" value="${esc(g?.group_date || '')}" min="${todayIso}" title="The new expected date for all of these work orders"></td>
           <td><input type="text" class="pld-greason" value="${esc(g?.group_reason || '')}" placeholder="Reason (e.g. waiting on stock)" maxlength="300"></td>
-          <td>${state(l)}</td></tr>
-        ${open ? l.map((d) => `<tr class="pld-job" data-pld-job="${esc(d.key)}" data-customer="${esc(d.customer || '')}" data-due="${esc(d.due || '')}"><td></td>
-          <td class="small"><b>${esc(d.wo)}</b><span class="muted">${esc(d.name.slice(d.wo.length))}</span>${d.status ? `<div class="muted">${esc(d.status)}</div>` : ''}</td>
-          <td></td><td class="num small">${n(d.qty)}</td><td class="small"><span class="${STAGE[d.stage][1]}">${STAGE[d.stage][0]}</span>${d.ready_at ? `<div class="muted">ready about ${esc(PLF.wkHm.format(new Date(d.ready_at)))}</div>` : ''}</td>
-          <td><input type="date" class="pld-jdate" value="${esc(d.delay?.job_date || '')}" min="${todayIso}">${d.delay?.job_date ? '' : `<div class="small muted">${g?.group_date ? `follows the group: ${esc(dayLabel(g.group_date))}` : 'follows the group'}</div>`}</td>
-          <td><input type="text" class="pld-jreason" value="${esc(d.delay?.job_reason || '')}" placeholder="${esc(g?.group_reason ? `Group: ${g.group_reason}` : 'Reason for this work order')}" maxlength="300"></td>
-          <td class="small">${d.delay?.from === 'job' ? `<button class="link small" data-pld-follow="${esc(d.key)}" title="Clear this work order's own date and reason">↺ follow group</button>` : ''}${missed(d) ? '<div class="pl-late">✖ new date passed</div>' : ''}</td></tr>`).join('') : ''}`; };
-      const custHead = (c, gs) => { const l = gs.flatMap(([, x]) => x); const allSel = gs.every(([k]) => plDelaySel.has(k));
-        return `<tr class="pld-cust"><td><input type="checkbox" class="pld-csel" data-keys="${esc(JSON.stringify(gs.map(([k]) => k)))}" ${allSel ? 'checked' : ''} title="Select all of ${esc(c || '')}"></td>
-          <td colspan="7"><b>${esc(c || '—')}</b> <span class="muted">${esc(l[0].customer_name || '')}</span> <span class="small muted">· ${gs.length} due date${gs.length === 1 ? '' : 's'} · ${n(l.length)} work order${l.length === 1 ? '' : 's'} · ${n(sum_(l))} pieces</span></td></tr>`; };
-      const tileD = (lb, v, sub, cls = '', show = null) => `<div class="kdb-tile ${show !== null ? 'pl-tile-click' : ''}" ${show !== null ? `data-pld-show="${show}" title="Show only these"` : ''}><div class="kdb-tile-l">${lb}</div><div class="kdb-tile-v ${cls}">${v}</div><div class="kdb-tile-s">${sub}</div></div>`;
+          <td>${pill(l)}</td></tr>
+        ${open ? l.map((d) => `<tr class="pld-job ${flash(`j:${d.key}`)}" data-pld-job="${esc(d.key)}" data-customer="${esc(d.customer || '')}" data-due="${esc(d.due || '')}"><td></td>
+          <td colspan="2" class="small"><span class="pld-indent">↳</span> <b>${esc(d.wo)}</b><span class="muted">${esc(d.name.slice(d.wo.length))}</span>${d.status ? ` <span class="muted">· ${esc(d.status)}</span>` : ''}</td>
+          <td class="num small">${n(d.qty)}</td><td class="small"><span class="${STAGE[d.stage][1]}">${STAGE[d.stage][0]}</span></td>
+          <td><input type="date" class="pld-jdate" value="${esc(d.delay?.job_date || '')}" min="${todayIso}" title="A date for this work order only">${d.delay?.job_date ? '' : `<div class="small muted">${g?.group_date ? `uses ${esc(dayLabel(g.group_date))} from above` : 'uses the date above'}</div>`}</td>
+          <td><input type="text" class="pld-jreason" value="${esc(d.delay?.job_reason || '')}" placeholder="${esc(g?.group_reason ? `Above: ${g.group_reason}` : 'Reason for this work order')}" maxlength="300"></td>
+          <td class="small">${d.delay?.from === 'job' ? `<button class="link small" data-pld-follow="${esc(d.key)}" title="Clear this work order's own date and reason">↺ use the date above</button>` : ''}${missed(d) ? '<div><span class="pld-pill bad">✖ past the new date</span></div>' : ''}</td></tr>`).join('') : ''}`; };
+      const custCard = (c, gs) => { const l = gs.flatMap(([, x]) => x); const allSel = gs.every(([k]) => plDelaySel.has(k)); const closed = plDelayClosed.has(c);
+        return `<section class="card pld-card ${closed ? 'closed' : ''}" id="pld-c-${esc(c || '')}">
+          <div class="pld-card-head">
+            <input type="checkbox" class="pld-csel" data-keys="${esc(JSON.stringify(gs.map(([k]) => k)))}" ${allSel ? 'checked' : ''} title="Select all of ${esc(c || '')}'s due dates">
+            <button class="link pld-cust-toggle" data-pld-cust="${esc(c || '')}" title="${closed ? 'Show' : 'Hide'} this customer">${closed ? '▸' : '▾'} <b>${esc(c || '—')}</b></button>
+            <span class="muted">${esc(l[0].customer_name || '')}</span>
+            <span class="small muted">${gs.length} due date${gs.length === 1 ? '' : 's'} · ${wos(l.length)} · ${n(sum_(l))} cards</span>
+            <div class="spacer"></div>${pill(l)}</div>
+          ${closed ? '' : `<div class="pld-wrap"><table class="log pld-table"><colgroup><col class="c-check"><col class="c-due"><col class="c-wos"><col class="c-cards"><col class="c-where"><col class="c-date"><col><col class="c-status"></colgroup><thead><tr><th class="pld-check"></th><th>Original due out</th><th>Work orders</th><th class="num">Cards</th><th>Where they are</th><th>New expected date</th><th>Reason</th><th>Status</th></tr></thead>
+            <tbody>${gs.map(([k, x]) => gRow(k, x)).join('')}</tbody></table></div>`}</section>`; };
+      const tileD = (lb, v, sub, cls = '', show = null) => `<div class="kdb-tile ${show !== null ? 'pl-tile-click' : ''} ${show !== null && (pf.show || '') === show ? 'pld-tile-on' : ''}" ${show !== null ? `data-pld-show="${show}" title="Show only these"` : ''}><div class="kdb-tile-l">${lb}</div><div class="kdb-tile-v ${cls}">${v}</div><div class="kdb-tile-s">${sub}</div></div>`;
       const unset = late.filter((d) => !d.delay?.new_date); const gone = late.filter(missed);
       const lCust = [...new Set(late.map((d) => d.customer).filter(Boolean))].sort();
       plDelayCusts = lCust.map((c) => { const l = late.filter((d) => d.customer === c); return { code: c, name: l[0].customer_name || '', wos: l.length }; });
+      const jump = [...byCust].map(([c, gs]) => { const l = gs.flatMap(([, x]) => x); const [cls] = standing(l);
+        return `<button type="button" class="pld-chip ${cls}" data-pld-jump="${esc(c || '')}" title="${esc(`${l[0].customer_name || c}: ${standing(l)[1].replace(/^\S+ /, '')}`)}">${esc(c || '—')} <span>${l.length}</span></button>`; }).join('');
+      const sel = plDelaySel.size;
       return `<div class="kdb-tiles pl-tiles" style="margin-top:12px">
-          ${tileD('Delayed work orders', n(late.length), `${n(sum_(late))} pieces · ${n(new Set(late.map(gk)).size)} customer / due date groups`, late.length ? 'kdb-warn' : 'kdb-ok', '')}
-          ${tileD('Without a new date', n(unset.length), `${n(sum_(unset))} pieces to plan`, unset.length ? 'kdb-bad' : 'kdb-ok', 'unset')}
-          ${tileD('New date passed', n(gone.length), 'still open after their new date', gone.length ? 'kdb-bad' : 'kdb-ok', 'missed')}
-          ${tileD('Customers', n(lCust.length), 'with delayed work orders')}</div>
+          ${tileD('Overdue work orders', n(late.length), `${n(sum_(late))} cards · ${n(new Set(late.map(gk)).size)} customer / due date groups`, late.length ? 'kdb-warn' : 'kdb-ok', '')}
+          ${tileD('Still need a new date', n(unset.length), `${n(sum_(unset))} cards to plan`, unset.length ? 'kdb-bad' : 'kdb-ok', 'unset')}
+          ${tileD('Past their new date', n(gone.length), 'still open after it', gone.length ? 'kdb-bad' : 'kdb-ok', 'missed')}
+          ${tileD('Customers', n(lCust.length), 'with overdue work orders')}</div>
+        <ol class="pld-steps">
+          <li><b>1</b> Give each customer's overdue due date a <b>new expected date</b> — all its work orders take it.</li>
+          <li><b>2</b> One work order different? Click <b>▸ work orders</b> and give it its own.</li>
+          <li><b>3</b> Send it on: <b>⬇ Excel report</b> or <b>📋 Copy summary</b>.</li></ol>
         <div class="row pl-filters">
-          <select id="pldl-show"><option value="">All delayed</option><option value="unset" ${pf.show === 'unset' ? 'selected' : ''}>Without a new date</option><option value="missed" ${pf.show === 'missed' ? 'selected' : ''}>New date passed</option></select>
+          <select id="pldl-show"><option value="">All overdue</option><option value="unset" ${pf.show === 'unset' ? 'selected' : ''}>Still need a new date</option><option value="missed" ${pf.show === 'missed' ? 'selected' : ''}>Past their new date</option></select>
           <select id="pldl-customer"><option value="">All customers</option>${lCust.map((c) => `<option ${pf.customer === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+          ${pf.show || pf.customer ? '<button class="link small" data-pld="fclear">Show all</button>' : ''}
+          <button class="link small" data-pld="expand">Expand all</button><button class="link small" data-pld="collapse">Collapse all</button>
           <div class="spacer"></div>
           <button class="small" data-pld="copy" title="A short summary to paste into an email or report">📋 Copy summary</button>
           <label class="button small" title="Fill in the new expected dates from the delays workbook kept so far (Name, Trigram, Due Date, Expected due date)">⬆ Import from Excel<input type="file" accept=".xlsx,.xlsm" hidden id="pld-import"></label>
-          <button class="small" data-pld="xlsx" title="For all customers or the ones you choose">⬇ Excel report</button></div>
-        <div class="row pld-bulk" style="gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
-          <b class="small">${plDelaySel.size ? `${plDelaySel.size} group${plDelaySel.size === 1 ? '' : 's'} selected` : 'Select groups to set them together'}</b>
-          <input type="date" id="pld-bdate" style="width:160px" min="${todayIso}" ${plDelaySel.size ? '' : 'disabled'}><input type="text" id="pld-breason" style="width:280px" placeholder="Reason" maxlength="300" ${plDelaySel.size ? '' : 'disabled'}>
-          <button class="small primary" data-pld="bulk" ${plDelaySel.size ? '' : 'disabled'}>Set new date</button>
-          <button class="small" data-pld="bulkclear" ${plDelaySel.size ? '' : 'disabled'}>Clear their dates</button>
-          ${plDelaySel.size ? '<button class="link small" data-pld="none">Unselect</button>' : ''}</div>
-        <div class="card"><h3 class="pl-h">⏱ Delays — by customer and original due date <span class="muted small">a new date for a group is used by all its work orders; open a group (▸) to give one work order its own</span></h3>
-          <div class="kdb-scroll"><table class="log pl-table pld-table"><thead><tr><th></th><th>Original due out</th><th class="num">WOs</th><th class="num">Pieces</th><th>Where they are</th><th>New expected date</th><th>Reason</th><th></th></tr></thead>
-          <tbody>${[...byCust].map(([c, gs]) => custHead(c, gs) + gs.map(([k, l]) => gRow(k, l)).join('')).join('') || `<tr><td colspan="8" class="muted">${late.length ? 'Nothing matches.' : '✔ Nothing delayed: no dispatch job is past its due-out day.'}</td></tr>`}</tbody></table></div></div>
-        <p class="small muted">Delayed: past its due-out day and still open (one due today can still go today, so it isn\'t listed until tomorrow). A work order drops off once it\'s gone from the Dispatch export. Dates and reasons are saved as you type them, and kept in the database (and the backups).</p>`;
+          <button class="small primary" data-pld="xlsx" title="For all customers or the ones you choose">⬇ Excel report</button></div>
+        ${byCust.size > 1 ? `<div class="pld-jump"><span class="small muted">Go to</span>${jump}</div>` : ''}
+        ${sel ? `<div class="pld-bulk">
+          <b>${sel} due date${sel === 1 ? '' : 's'} selected</b><span class="small">give ${sel === 1 ? 'it' : 'them all'}</span>
+          <input type="date" id="pld-bdate" min="${todayIso}"><input type="text" id="pld-breason" placeholder="Reason (optional)" maxlength="300">
+          <button class="small primary" data-pld="bulk">Set new date</button><button class="small" data-pld="bulkclear">Clear their dates</button>
+          <div class="spacer"></div><button class="link small" data-pld="none">✕ Unselect</button></div>` : '<p class="small muted pld-hint">Tip: tick several due dates (or a whole customer) to give them the same new date in one go.</p>'}
+        ${[...byCust].map(([c, gs]) => custCard(c, gs)).join('') || `<div class="card lib-empty"><p>${late.length ? 'Nothing matches — <button class="link" data-pld="fclear">show all</button>.' : '✔ Nothing overdue: no dispatch job is past its due-out day.'}</p></div>`}
+        <p class="small muted">Listed: past its due-out day and still open (one due today can still go today, so it isn't listed until tomorrow). A work order drops off once it's gone from the Dispatch export. Dates and reasons save as you leave the field, and are kept in the database (and the backups).</p>`;
     };
     plDelayText = () => {
       const late = all.filter((d) => d.delayed); const groups = new Map();
@@ -465,7 +480,7 @@ async function renderPlanning() {
         const d0 = l[0];
         if (d0.customer !== cust) { cust = d0.customer; lines.push(`${cust}${d0.customer_name ? ` (${d0.customer_name})` : ''}`); }
         const g = d0.delay?.group_date || (new Set(l.map((d) => d.delay?.new_date || '')).size === 1 ? d0.delay?.new_date : null);
-        lines.push(`  Due ${fd(d0.due)}: ${l.length} work order${l.length === 1 ? '' : 's'}, ${n(sum_(l))} pieces → expected ${fd(g)}${d0.delay?.group_reason ? ` — ${d0.delay.group_reason}` : ''}`);
+        lines.push(`  Due ${fd(d0.due)}: ${l.length} work order${l.length === 1 ? '' : 's'}, ${n(sum_(l))} cards → expected ${fd(g)}${d0.delay?.group_reason ? ` — ${d0.delay.group_reason}` : ''}`);
         for (const d of l.filter((x) => x.delay?.from === 'job')) lines.push(`    ${d.wo}: expected ${fd(d.delay.new_date)}${d.delay.job_reason ? ` — ${d.delay.job_reason}` : ''}`);
       }
       return late.length ? lines.join('\n') : 'No dispatch delays.';
@@ -664,6 +679,7 @@ ${half === 'otto' ? ottoSetup() : `
     main().querySelectorAll('.kdb-scroll').forEach((el, i) => { if (scrollBoxes[i]) el.scrollTop = scrollBoxes[i]; });
   }
   if (keepScroll && refocus) main().querySelector(refocus)?.focus({ preventScroll: true });
+  plDelayFlash = null; // highlighted once
   if (half !== 'disp' && view === 'gantt' && $('#pl-gantt')) {
     const draw = () => drawPlanGantt($('#pl-gantt'), $('#pl-gantt-info'), p, half === 'otto' ? null : match, half);
     draw();
@@ -699,11 +715,11 @@ ${half === 'otto' ? ottoSetup() : `
   $$('.pld-csel').forEach((el) => el.addEventListener('change', () => { for (const k of JSON.parse(el.dataset.keys)) { if (el.checked) plDelaySel.add(k); else plDelaySel.delete(k); } renderPlanning(); }));
   $$('.pld-gdate, .pld-greason').forEach((el) => el.addEventListener('change', async () => {
     const tr = el.closest('[data-pld-g]');
-    try { await api.put('/plan/disp/delay', { customer: tr.dataset.customer, due: tr.dataset.due, new_date: tr.querySelector('.pld-gdate').value, reason: tr.querySelector('.pld-greason').value }); toast('Saved'); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+    try { await api.put('/plan/disp/delay', { customer: tr.dataset.customer, due: tr.dataset.due, new_date: tr.querySelector('.pld-gdate').value, reason: tr.querySelector('.pld-greason').value }); plDelayFlash = `g:${tr.dataset.pldG}`; toast('Saved'); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
   }));
   $$('.pld-jdate, .pld-jreason').forEach((el) => el.addEventListener('change', async () => {
     const tr = el.closest('[data-pld-job]');
-    try { await api.put('/plan/disp/delay/job', { key: tr.dataset.pldJob, customer: tr.dataset.customer, due: tr.dataset.due, new_date: tr.querySelector('.pld-jdate').value, reason: tr.querySelector('.pld-jreason').value }); toast('Saved'); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+    try { await api.put('/plan/disp/delay/job', { key: tr.dataset.pldJob, customer: tr.dataset.customer, due: tr.dataset.due, new_date: tr.querySelector('.pld-jdate').value, reason: tr.querySelector('.pld-jreason').value }); plDelayFlash = `j:${tr.dataset.pldJob}`; toast('Saved'); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
   }));
   $('#pld-customer')?.addEventListener('change', (e) => setD('customer', e.target.value));
   $('#pld-stage')?.addEventListener('change', (e) => setD('stage', e.target.value));
@@ -843,6 +859,11 @@ ${half === 'otto' ? ottoSetup() : `
     const hf = e.target.closest('[data-pl-half]');
     if (hf) { store.set('planHalf', hf.dataset.plHalf); renderPlanning(); return; }
     if (e.target.closest('[data-pl="oclear"]')) { store.set('planOttoFilter', {}); renderPlanning(); return; }
+    const pldCust = e.target.closest('[data-pld-cust]');
+    if (pldCust) { const c = pldCust.dataset.pldCust; if (plDelayClosed.has(c)) plDelayClosed.delete(c); else plDelayClosed.add(c); renderPlanning(); return; }
+    const pldJump = e.target.closest('[data-pld-jump]');
+    if (pldJump) { const c = pldJump.dataset.pldJump; const go = () => { const el = document.getElementById(`pld-c-${c}`); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.classList.add('pld-flash'); } };
+      if (plDelayClosed.delete(c)) await renderPlanning(); go(); return; }
     const pldOpen = e.target.closest('[data-pld-open]');
     if (pldOpen) { const k = pldOpen.dataset.pldOpen; if (plDelayOpen.has(k)) plDelayOpen.delete(k); else plDelayOpen.add(k); renderPlanning(); return; }
     const pldShow = e.target.closest('[data-pld-show]');
@@ -871,6 +892,8 @@ ${half === 'otto' ? ottoSetup() : `
       });
       return;
     }
+    if (pld === 'fclear') { store.set('planDelayFilter', {}); renderPlanning(); return; }
+    if (pld === 'expand' || pld === 'collapse') { plDelayClosed.clear(); if (pld === 'collapse') for (const c of plDelayCusts) plDelayClosed.add(c.code); renderPlanning(); return; }
     if (pld === 'none') { plDelaySel.clear(); renderPlanning(); return; }
     if (pld === 'bulk' || pld === 'bulkclear') {
       const groups = [...plDelaySel].map((k) => { const [customer, due] = k.split('|'); return { customer, due }; });
@@ -1160,6 +1183,8 @@ let planSel = null;
 let plLastTab = null; // the tab and view drawn last (a redraw of the same one keeps its scroll)
 const plDelaySel = new Set(); const plDelayOpen = new Set(); // ⏱ Delays: groups selected / opened (customer|due)
 let plDelayText = () => '';
+const plDelayClosed = new Set(); // ⏱ Delays: customers folded away
+let plDelayFlash = null; // the row just saved (g:customer|due or j:key), highlighted once
 let plDelayCusts = []; // the customers with delayed work orders: [{ code, name, wos }]
 function drawPlanGantt(el, info, p, match, half = 'perso') {
   const otto = half === 'otto'; const G = otto ? p.otto : p; const unit = otto ? 'items' : 'cards';
