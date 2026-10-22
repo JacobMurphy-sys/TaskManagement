@@ -2707,10 +2707,10 @@ router.get('/plan/disp/delays.xlsx', h((req, res) => {
     return [l[0].customer || '', l[0].due || null, l.length, l.reduce((t, j) => t + (j.qty || 0), 0), dates.every(Boolean) ? dates.sort().pop() : null,
       g?.group_reason || '', Object.entries(STAGE).map(([k, v]) => [v, l.filter((j) => j.stage === k).length]).filter(([, n]) => n).map(([v, n]) => `${n} ${v.toLowerCase()}`).join(', ')]; });
   const jRows = delayed.sort((a, b) => String(a.customer).localeCompare(String(b.customer)) || String(a.due).localeCompare(String(b.due)) || a.name.localeCompare(b.name)).map((j) => [
-    j.name, j.customer || '', j.qty, j.due || null, j.delay?.new_date || null, j.delay?.reason || '', STAGE[j.stage] || '', j.status || '']);
+    j.name, j.customer || '', j.qty, j.due || null, j.delay?.new_date || null, j.delay?.reason || '']);
   const sheets = [
     { name: 'Delays', columns: [c('Customer', 10), c('Original due out', 13, 'date'), c('Work orders', 11, 'number'), c('Cards', 9, 'number'), c('New expected date', 14, 'date'), c('Reason', 40), c('Where they are', 40)], rows: gRows },
-    { name: 'Work orders', columns: [c('Name', 24), c('Customer', 10), c('Cards', 8, 'number'), c('Original due out', 13, 'date'), c('New expected date', 14, 'date'), c('Reason', 40), c('Where it is', 20), c('Status (export)', 20)], rows: jRows },
+    { name: 'Work orders', columns: [c('Name', 24), c('Customer', 10), c('Cards', 8, 'number'), c('Original due out', 13, 'date'), c('New expected date', 14, 'date'), c('Reason', 40)], rows: jRows },
   ];
   res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.set('Content-Disposition', `attachment; filename="dispatch-delays-${today}.xlsx"`);
