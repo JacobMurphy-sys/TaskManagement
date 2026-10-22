@@ -431,6 +431,7 @@ async function renderPlanning() {
       const tileD = (lb, v, sub, cls = '', show = null) => `<div class="kdb-tile ${show !== null ? 'pl-tile-click' : ''}" ${show !== null ? `data-pld-show="${show}" title="Show only these"` : ''}><div class="kdb-tile-l">${lb}</div><div class="kdb-tile-v ${cls}">${v}</div><div class="kdb-tile-s">${sub}</div></div>`;
       const unset = late.filter((d) => !d.delay?.new_date); const gone = late.filter(missed);
       const lCust = [...new Set(late.map((d) => d.customer).filter(Boolean))].sort();
+      plDelayCusts = lCust.map((c) => { const l = late.filter((d) => d.customer === c); return { code: c, name: l[0].customer_name || '', wos: l.length }; });
       return `<div class="kdb-tiles pl-tiles" style="margin-top:12px">
           ${tileD('Delayed work orders', n(late.length), `${n(sum_(late))} pieces · ${n(new Set(late.map(gk)).size)} customer / due date groups`, late.length ? 'kdb-warn' : 'kdb-ok', '')}
           ${tileD('Without a new date', n(unset.length), `${n(sum_(unset))} pieces to plan`, unset.length ? 'kdb-bad' : 'kdb-ok', 'unset')}
@@ -442,7 +443,7 @@ async function renderPlanning() {
           <div class="spacer"></div>
           <button class="small" data-pld="copy" title="A short summary to paste into an email or report">📋 Copy summary</button>
           <label class="button small" title="Fill in the new expected dates from the delays workbook kept so far (Name, Trigram, Due Date, Expected due date)">⬆ Import from Excel<input type="file" accept=".xlsx,.xlsm" hidden id="pld-import"></label>
-          <a class="button small" href="/api/plan/disp/delays.xlsx" download>⬇ Excel report</a></div>
+          <button class="small" data-pld="xlsx" title="For all customers or the ones you choose">⬇ Excel report</button></div>
         <div class="row pld-bulk" style="gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
           <b class="small">${plDelaySel.size ? `${plDelaySel.size} group${plDelaySel.size === 1 ? '' : 's'} selected` : 'Select groups to set them together'}</b>
           <input type="date" id="pld-bdate" style="width:160px" min="${todayIso}" ${plDelaySel.size ? '' : 'disabled'}><input type="text" id="pld-breason" style="width:280px" placeholder="Reason" maxlength="300" ${plDelaySel.size ? '' : 'disabled'}>
@@ -850,6 +851,26 @@ ${half === 'otto' ? ottoSetup() : `
     if (pldFollow) { try { await api.put('/plan/disp/delay/job', { key: pldFollow.dataset.pldFollow, new_date: '', reason: '' }); toast('Follows its group again'); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
     const pld = e.target.closest('[data-pld]')?.dataset.pld;
     if (pld === 'copy') { const t = plDelayText(); try { await navigator.clipboard.writeText(t); toast('Summary copied — paste it into your email or report'); } catch { prompt('Copy the summary:', t); } return; }
+    if (pld === 'xlsx') {
+      const pre = (store.get('planDelayFilter', {}) || {}).customer;
+      openModal(`<div class="modal-head"><h2 style="margin:0">⬇ Delays report</h2><button class="icon" data-action="close-modal">✕</button></div>
+        <form id="pld-xlsx" class="form-grid">
+          <div class="f full"><label class="row"><input type="radio" name="who" value="all" ${pre ? '' : 'checked'}> All customers</label>
+            <label class="row"><input type="radio" name="who" value="some" ${pre ? 'checked' : ''}> Only these customers:</label>
+            <div class="row" style="flex-wrap:wrap;gap:6px 16px;margin:6px 0 0 24px">${plDelayCusts.map((c) => `<label class="row small"><input type="checkbox" name="cust" value="${esc(c.code)}" ${pre === c.code ? 'checked' : ''}> <b>${esc(c.code)}</b> <span class="muted">${esc(c.name)} · ${c.wos}</span></label>`).join('') || '<span class="muted small">No customer has delayed work orders.</span>'}</div></div>
+          <div class="full row"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button><button class="primary" type="submit">⬇ Download</button></div>
+        </form>`);
+      const form = $('#pld-xlsx');
+      form.querySelectorAll('[name=cust]').forEach((x) => x.addEventListener('change', () => { if (x.checked) form.querySelector('[name=who][value=some]').checked = true; }));
+      form.addEventListener('submit', (ev) => {
+        ev.preventDefault();
+        const some = form.querySelector('[name=who][value=some]').checked; const picked = [...form.querySelectorAll('[name=cust]:checked')].map((x) => x.value);
+        if (some && !picked.length) { toast('Choose at least one customer', 'error'); return; }
+        const a = document.createElement('a'); a.href = `/api/plan/disp/delays.xlsx${some ? `?customers=${encodeURIComponent(picked.join(','))}` : ''}`; a.download = ''; document.body.append(a); a.click(); a.remove();
+        closeModal();
+      });
+      return;
+    }
     if (pld === 'none') { plDelaySel.clear(); renderPlanning(); return; }
     if (pld === 'bulk' || pld === 'bulkclear') {
       const groups = [...plDelaySel].map((k) => { const [customer, due] = k.split('|'); return { customer, due }; });
@@ -1139,6 +1160,7 @@ let planSel = null;
 let plLastTab = null; // the tab and view drawn last (a redraw of the same one keeps its scroll)
 const plDelaySel = new Set(); const plDelayOpen = new Set(); // ⏱ Delays: groups selected / opened (customer|due)
 let plDelayText = () => '';
+let plDelayCusts = []; // the customers with delayed work orders: [{ code, name, wos }]
 function drawPlanGantt(el, info, p, match, half = 'perso') {
   const otto = half === 'otto'; const G = otto ? p.otto : p; const unit = otto ? 'items' : 'cards';
   const label = (j) => (otto ? j.name : `${j.wo} / ${j.per}`);

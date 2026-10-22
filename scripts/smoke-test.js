@@ -1427,6 +1427,8 @@ async function waitForServer() {
         const dlx = await fetch(`${BASE}/plan/disp/delays.xlsx`); assert.equal(dlx.status, 200);
         const dlBook = require('../src/xlsxread').readBook(Buffer.from(await dlx.arrayBuffer()));
         assert.deepEqual(dlBook.sheets.map((x) => x.name), ['Delays', 'Work orders']);
+        const dlOne = require('../src/xlsxread').readBook(Buffer.from(await (await fetch(`${BASE}/plan/disp/delays.xlsx?customers=nob`)).arrayBuffer()));
+        assert.deepEqual([...dlOne.sheet('Work orders').cells.values()].filter((x) => x.col === 1 && x.row > 1).map((x) => x.v), ['CNOBS26100777DES0001'], 'one customer only');
         const heads = (sh) => [...dlBook.sheet(sh).cells.values()].filter((x) => x.row === 1).sort((a, b) => a.col - b.col).map((x) => x.v);
         assert.deepEqual(heads('Delays'), ['Customer', 'Original due out', 'Work orders', 'Cards', 'New expected date', 'Reason', 'Where they are'], 'for customer service: no internal columns');
         assert.deepEqual(heads('Work orders'), ['Name', 'Customer', 'Cards', 'Original due out', 'New expected date', 'Reason']);

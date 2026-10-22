@@ -2695,7 +2695,9 @@ router.get('/plan/disp/delays.xlsx', h((req, res) => {
   const now = new Date(); const ymdL = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const today = ymdL(now);
   const jobs = attachDelays((lastDisp?.jobs || dispOf(set, [], []).jobs).map((j) => ({ ...j })));
-  const delayed = jobs.filter((j) => isDelayed(j, today));
+  // ?customers=ADX,KBC: only theirs (none: all customers)
+  const only = new Set(String(req.query.customers || '').split(',').map((x) => x.trim().toUpperCase()).filter(Boolean));
+  const delayed = jobs.filter((j) => isDelayed(j, today) && (!only.size || only.has(String(j.customer || '').toUpperCase())));
   const STAGE = { perso: 'Waiting on perso', matching: 'Waiting on Matching', ready: 'Ready to dispatch' };
   const groups = new Map();
   for (const j of delayed) { const k = `${j.customer}|${j.due}`; (groups.get(k) || groups.set(k, []).get(k)).push(j); }
@@ -2713,7 +2715,7 @@ router.get('/plan/disp/delays.xlsx', h((req, res) => {
     { name: 'Work orders', columns: [c('Name', 24), c('Customer', 10), c('Cards', 8, 'number'), c('Original due out', 13, 'date'), c('New expected date', 14, 'date'), c('Reason', 40)], rows: jRows },
   ];
   res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.set('Content-Disposition', `attachment; filename="dispatch-delays-${today}.xlsx"`);
+  res.set('Content-Disposition', `attachment; filename="dispatch-delays-${only.size && only.size <= 3 ? `${[...only].sort().join('-').replace(/[^A-Z0-9-]/g, '')}-` : ''}${today}.xlsx"`);
   res.send(buildXlsx(sheets));
 }));
 // ⬆ The delays list kept so far in Excel (Name, Trigram, Due Date, Expected due date — other columns, its Comments
