@@ -441,7 +441,7 @@ async function renderPlanning() {
           <select id="pldl-customer"><option value="">All customers</option>${lCust.map((c) => `<option ${pf.customer === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
           <div class="spacer"></div>
           <button class="small" data-pld="copy" title="A short summary to paste into an email or report">📋 Copy summary</button>
-          <label class="button small" title="Fill in the dates and comments from the delays workbook kept so far (Name, Trigram, Due Date, Expected due date, Comments)">⬆ Import from Excel<input type="file" accept=".xlsx,.xlsm" hidden id="pld-import"></label>
+          <label class="button small" title="Fill in the new expected dates from the delays workbook kept so far (Name, Trigram, Due Date, Expected due date)">⬆ Import from Excel<input type="file" accept=".xlsx,.xlsm" hidden id="pld-import"></label>
           <a class="button small" href="/api/plan/disp/delays.xlsx" download>⬇ Excel report</a></div>
         <div class="row pld-bulk" style="gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
           <b class="small">${plDelaySel.size ? `${plDelaySel.size} group${plDelaySel.size === 1 ? '' : 's'} selected` : 'Select groups to set them together'}</b>
@@ -684,10 +684,10 @@ ${half === 'otto' ? ottoSetup() : `
     };
     try {
       const d = await send(false);
-      if (!d.rows) { toast(`Nothing to import: ${d.read} row${d.read === 1 ? '' : 's'} read, none with a new expected date or comment`, 'error'); e.target.value = ''; return; }
-      const msg = `From "${d.sheet}": ${d.rows} of ${d.read} work orders have a new expected date or comment (${d.open} still open in the Dispatch export).\n\n`
+      if (!d.rows) { toast(`Nothing to import: ${d.read} row${d.read === 1 ? '' : 's'} read, none with a new expected date`, 'error'); e.target.value = ''; return; }
+      const msg = `From "${d.sheet}": ${d.rows} of ${d.read} work orders have a new expected date (${d.open} still open in the Dispatch export).\n\n`
         + `• ${d.groups} customer + due date group${d.groups === 1 ? '' : 's'} (${d.group_rows} work orders) get one date together\n• ${d.jobs} work order${d.jobs === 1 ? '' : 's'} get their own date\n`
-        + `${d.skipped ? `• ${d.skipped} row${d.skipped === 1 ? '' : 's'} with nothing to bring in are skipped\n` : ''}\nDates already set for these are replaced. Import?`;
+        + `${d.skipped ? `• ${d.skipped} row${d.skipped === 1 ? '' : 's'} with nothing to bring in are skipped\n` : ''}\nDates already set for these are replaced; reasons are left as they are. Import?`;
       if (!confirm(msg)) { e.target.value = ''; return; }
       await send(true); toast('Delays imported'); renderPlanning();
     } catch (err) { toast(err.message, 'error'); e.target.value = ''; }

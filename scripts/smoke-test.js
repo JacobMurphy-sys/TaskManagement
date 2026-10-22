@@ -1440,11 +1440,11 @@ async function waitForServer() {
         const imp = (q) => fetch(`${BASE}/plan/disp/delays/import${q}`, { method: 'POST', body: dlIn, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } }).then((r) => r.json());
         const sq = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); const db_ = { get: (q) => ({ ...sq.prepare(q).get() }), all: (q) => sq.prepare(q).all().map((r) => ({ ...r })) };
         const dry = await imp('');
-        assert.deepEqual([dry.read, dry.rows, dry.skipped, dry.groups, dry.group_rows, dry.jobs, dry.applied], [6, 5, 1, 2, 3, 2, false], 'agreeing rows become a group; differing ones their own; a row with nothing is skipped');
+        assert.deepEqual([dry.read, dry.rows, dry.skipped, dry.groups, dry.group_rows, dry.jobs, dry.applied], [6, 4, 2, 1, 2, 2, false], 'agreeing rows become a group; differing ones their own; a row with no new date is skipped');
         assert.equal((await imp('?apply=1')).applied, true);
-        assert.deepEqual(db_.get("SELECT new_date, reason FROM plan_disp_delays WHERE customer = 'XYZ' AND due = '2026-10-01'"), { new_date: '2026-10-30', reason: 'Stock' });
-        assert.deepEqual(db_.get("SELECT new_date, reason FROM plan_disp_delays WHERE customer = 'ABC' AND due = '2026-10-03'"), { new_date: null, reason: '2)Cardholder_PostNL' }, 'expected = due: only the comment');
-        assert.deepEqual(db_.all("SELECT key, new_date, reason FROM plan_disp_delay_jobs WHERE customer = 'QRS' ORDER BY key"), [{ key: 'CQRSS26100103DES0001', new_date: '2026-10-28', reason: 'A' }, { key: 'CQRSS26100104DES0001', new_date: '2026-10-29', reason: 'B' }]);
+        assert.deepEqual(db_.get("SELECT new_date, reason FROM plan_disp_delays WHERE customer = 'XYZ' AND due = '2026-10-01'"), { new_date: '2026-10-30', reason: null }, 'the Comments column isn\'t brought in');
+        assert.equal(db_.all("SELECT id FROM plan_disp_delays WHERE customer = 'ABC'").length, 0, 'expected = due: nothing brought in');
+        assert.deepEqual(db_.all("SELECT key, new_date, reason FROM plan_disp_delay_jobs WHERE customer = 'QRS' ORDER BY key"), [{ key: 'CQRSS26100103DES0001', new_date: '2026-10-28', reason: null }, { key: 'CQRSS26100104DES0001', new_date: '2026-10-29', reason: null }]);
         sq.close();
         assert.equal((await fetch(`${BASE}/plan/disp/delays/import`, { method: 'POST', body: exp, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } })).status, 400, 'not a delays workbook');
         assert.equal((await fetch(`${BASE}/plan/upload?half=disp`, { method: 'POST', body: exp, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } })).status, 400, 'a perso export isn\'t a Dispatch export');
