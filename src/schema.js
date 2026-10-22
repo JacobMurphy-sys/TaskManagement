@@ -535,6 +535,27 @@ const TABLES = {
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
 
+  // 🚚 Dispatch delays: the new expected dispatch date for late work orders, set for a customer and
+  // original due date together (plan_disp_delays) or for one dispatch job (plan_disp_delay_jobs, wins).
+  plan_disp_delays: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer    TEXT    NOT NULL COLLATE NOCASE,
+    due         TEXT    NOT NULL,
+    new_date    TEXT,
+    reason      TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    UNIQUE (customer, due)`,
+  plan_disp_delay_jobs: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    key         TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    customer    TEXT,
+    due         TEXT,
+    new_date    TEXT,
+    reason      TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
   // 🏭 Planning: estimated OEE per customer (the work order's trigram), as a fraction (0.85).
   plan_oee: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -727,7 +748,7 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_overrides', 'kpi_rows_added', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_overrides', 'kpi_rows_added', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags', 'plan_disp_delays', 'plan_disp_delay_jobs'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');

@@ -1883,8 +1883,25 @@ function dispOf(set, persoJobs, ottoOpen) {
   const o = planning.readSource({ file: cleanPath(set.plan_otto_src) || null, uploaded: OTTO_UPLOAD, parser: planning.parseOtto });
   const ottoDone = o.status === 'ok' ? o.jobs.filter((j) => j.done && !j.test) : [];
   planning.linkDisp(open, persoJobs, [...ottoOpen, ...ottoDone]);
+  attachDelays(open);
   open.sort((a, b) => ((a.due || '9') !== (b.due || '9') ? ((a.due || '9') < (b.due || '9') ? -1 : 1) : DISP_PRIO(a.prio) - DISP_PRIO(b.prio) || a.name.localeCompare(b.name)));
+  lastDisp = { at: new Date().toISOString(), jobs: open };
   return { source, jobs: open, done: d.jobs.filter((j) => j.done).length, hidden: hidden.length, hidden_qty: hidden.reduce((t, j) => t + j.qty, 0), max_age: maxAge };
+}
+// ⏱ Dispatch delays: each job's new expected date — its own (set on the job) or its customer's and original
+// due date's together: delay { new_date, reason, from: 'job' | 'group', group_date, group_reason }.
+let lastDisp = null; // the open dispatch jobs as last worked out (for the delay report)
+function attachDelays(jobs) {
+  const groups = new Map(db.all('SELECT * FROM plan_disp_delays').map((r) => [`${String(r.customer).toUpperCase()}|${r.due}`, r]));
+  const own = new Map(db.all('SELECT * FROM plan_disp_delay_jobs').map((r) => [String(r.key).toUpperCase(), r]));
+  for (const j of jobs) {
+    const g = groups.get(`${String(j.customer || '').toUpperCase()}|${j.due}`); const o = own.get(String(j.key).toUpperCase());
+    j.delay = g || o ? { new_date: o?.new_date || g?.new_date || null, reason: (o?.new_date || o?.reason ? o?.reason : null) || g?.reason || null, from: o?.new_date ? 'job' : g?.new_date ? 'group' : null,
+      group_date: g?.new_date || null, group_reason: g?.reason || null, job_date: o?.new_date || null, job_reason: o?.reason || null } : null;
+  }
+  const n = new Date(); const today = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+  for (const j of jobs) j.delayed = isDelayed(j, today);
+  return jobs;
 }
 function recordDisp(d) {
   if (d.status !== 'ok' || d.uploaded) return;
@@ -2637,6 +2654,79 @@ router.get('/prod', h((req, res) => {
 // than … days ago"), to investigate: each with what's known about it — when it first appeared in the
 // export, whether it ran (the ⏱ timing runs) and how much, its Matching jobs — and a hint: ran in full
 // (likely done but not closed), partly run, or never run. Perso by work order and card line; Matching jobs.
+// ⏱ Dispatch delays: a new expected date (and reason) for a customer's work orders due out on one day,
+// or for one dispatch job (it wins over its group's). An empty date and reason clears it.
+const okDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
+const delayFields = (b) => {
+  const nd = String(b.new_date ?? '').trim(); if (nd && !okDay(nd)) throw new HttpError(400, 'The new date should be a date');
+  return { new_date: nd || null, reason: String(b.reason ?? '').trim().slice(0, 300) || null };
+};
+router.put('/plan/disp/delay', h((req, res) => {
+  const customer = String(req.body.customer || '').trim().toUpperCase(); const due = String(req.body.due || '');
+  if (!customer || !okDay(due)) throw new HttpError(400, 'Choose a customer and original due date');
+  const f = delayFields(req.body);
+  const old = db.get('SELECT id FROM plan_disp_delays WHERE customer = ? AND due = ?', [customer, due]);
+  if (!f.new_date && !f.reason) { if (old) db.run('DELETE FROM plan_disp_delays WHERE id = ?', [old.id]); return res.json(null); }
+  res.json(old ? fresh('plan_disp_delays', updateRow('plan_disp_delays', old.id, f)) : fresh('plan_disp_delays', insertRow('plan_disp_delays', { customer, due, ...f })));
+}));
+// several groups at once: { groups: [{ customer, due }], new_date, reason }
+router.put('/plan/disp/delays', h((req, res) => {
+  const f = delayFields(req.body); const list = Array.isArray(req.body.groups) ? req.body.groups : [];
+  if (!list.length) throw new HttpError(400, 'Choose the groups to change');
+  db.tx(() => { for (const g of list) {
+    const customer = String(g.customer || '').trim().toUpperCase(); const due = String(g.due || ''); if (!customer || !okDay(due)) continue;
+    const old = db.get('SELECT id FROM plan_disp_delays WHERE customer = ? AND due = ?', [customer, due]);
+    if (!f.new_date && !f.reason) { if (old) db.run('DELETE FROM plan_disp_delays WHERE id = ?', [old.id]); continue; }
+    if (old) updateRow('plan_disp_delays', old.id, f); else insertRow('plan_disp_delays', { customer, due, ...f });
+  } });
+  res.json({ changed: list.length });
+}));
+router.put('/plan/disp/delay/job', h((req, res) => {
+  const key = String(req.body.key || '').trim(); if (!key) throw new HttpError(400, 'Choose a dispatch job');
+  const f = delayFields(req.body);
+  const old = db.get('SELECT id FROM plan_disp_delay_jobs WHERE key = ?', [key]);
+  if (!f.new_date && !f.reason) { if (old) db.run('DELETE FROM plan_disp_delay_jobs WHERE id = ?', [old.id]); return res.json(null); }
+  const due = okDay(req.body.due) ? req.body.due : null; const customer = String(req.body.customer || '').trim().toUpperCase() || null;
+  res.json(old ? fresh('plan_disp_delay_jobs', updateRow('plan_disp_delay_jobs', old.id, f)) : fresh('plan_disp_delay_jobs', insertRow('plan_disp_delay_jobs', { key, customer, due, ...f })));
+}));
+// The delay plan as a workbook to send on: by customer and original due date, and work order by work order.
+router.get('/plan/disp/delays.xlsx', h((req, res) => {
+  const set = getSettings();
+  const now = new Date(); const ymdL = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const today = ymdL(now);
+  const jobs = attachDelays((lastDisp?.jobs || dispOf(set, [], []).jobs).map((j) => ({ ...j })));
+  const delayed = jobs.filter((j) => isDelayed(j, today));
+  const STAGE = { perso: 'Waiting on perso', matching: 'Waiting on Matching', ready: 'Ready to dispatch' };
+  const late = (d) => (d ? Math.round((new Date(`${d}T12:00:00`) - new Date(`${today}T12:00:00`)) / 86400000) : null);
+  const groups = new Map();
+  for (const j of delayed) { const k = `${j.customer}|${j.due}`; (groups.get(k) || groups.set(k, []).get(k)).push(j); }
+  const c = (header, width = 12, type) => ({ header, width, ...(type ? { type } : {}) });
+  const gRows = [...groups.values()].sort((a, b) => String(a[0].customer).localeCompare(String(b[0].customer)) || String(a[0].due).localeCompare(String(b[0].due))).map((l) => {
+    const dates = [...new Set(l.map((j) => j.delay?.new_date || ''))]; const g = l[0].delay;
+    return [l[0].customer || '', l[0].customer_name || '', l[0].due || null, l.length, l.reduce((t, j) => t + (j.qty || 0), 0), dates.length === 1 ? (dates[0] || 'not set') : `${g?.group_date || 'not set'} (some work orders differ)`,
+      g?.group_reason || '', Object.entries(STAGE).map(([k, v]) => [v, l.filter((j) => j.stage === k).length]).filter(([, n]) => n).map(([v, n]) => `${n} ${v.toLowerCase()}`).join(', ')]; });
+  const jRows = delayed.sort((a, b) => String(a.customer).localeCompare(String(b.customer)) || String(a.due).localeCompare(String(b.due)) || a.name.localeCompare(b.name)).map((j) => [
+    j.name, j.wo, j.customer || '', j.customer_name || '', j.qty, j.due || null, -late(j.due) > 0 ? -late(j.due) : 0, j.delay?.new_date || null, j.delay?.from === 'job' ? 'this work order' : j.delay?.from === 'group' ? 'customer + due date' : 'not set',
+    j.delay?.reason || '', STAGE[j.stage] || '', j.ready_at ? new Date(j.ready_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '', j.status || '', j.prio || '', j.group || '']);
+  const sheets = [
+    { name: 'Delays', columns: [c('Customer', 10), c('Customer name', 24), c('Original due out', 13, 'date'), c('Work orders', 11, 'number'), c('Qty', 9, 'number'), c('New expected date', 26), c('Reason', 40), c('Where they are', 40)], rows: gRows },
+    { name: 'Work orders', columns: [c('Name', 24), c('Work order', 16), c('Customer', 10), c('Customer name', 22), c('Qty', 8, 'number'), c('Original due out', 13, 'date'), c('Days overdue', 10, 'number'), c('New expected date', 14, 'date'),
+      c('Date set for', 18), c('Reason', 40), c('Where it is', 20), c('Ready about', 18), c('Status (export)', 20), c('Priority', 9), c('Group', 18)], rows: jRows },
+  ];
+  res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.set('Content-Disposition', `attachment; filename="dispatch-delays-${today}.xlsx"`);
+  res.send(buildXlsx(sheets));
+}));
+// Late or about to be: overdue, due today and not ready, expected ready after its due-out day, or given a new date.
+function isDelayed(j, today) {
+  if (j.delay?.new_date) return true;
+  if (!j.due) return false;
+  if (j.due < today) return true;
+  if (j.due === today && j.stage !== 'ready') return true;
+  if (j.ready_at) { const r = new Date(j.ready_at); const rd = `${r.getFullYear()}-${String(r.getMonth() + 1).padStart(2, '0')}-${String(r.getDate()).padStart(2, '0')}`; if (rd > j.due) return true; }
+  return false;
+}
+
 router.get('/plan/hidden.xlsx', h((req, res) => {
   const set = getSettings();
   const maxAge = Number(req.query.days) > 0 ? Number(req.query.days) : planMaxAge(set);

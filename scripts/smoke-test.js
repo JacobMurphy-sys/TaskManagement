@@ -1411,6 +1411,24 @@ async function waitForServer() {
         const indD = pdp.jobs[0];
         assert.deepEqual([indD.perso.map((x) => x.key), indD.matching.map((x) => x.name)], [['CINDS26100602/0001'], ['CINDS26100602MAT0001']], 'its perso and Matching jobs');
         assert.ok((await call('GET', '/plan/find/wo/CINDS26100602')).dispatch.some((x) => x.name === 'CINDS26100602DES0001'), 'the work order window shows its dispatch job');
+        // ⏱ Dispatch delays: a new date for a customer + original due date, one work order's own date wins
+        assert.ok(pdp.jobs.every((j) => j.delayed), 'overdue dispatch jobs are delayed');
+        const nd = new Date(Date.now() + 3 * 86400000); const ndIso = `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}-${String(nd.getDate()).padStart(2, '0')}`;
+        await call('PUT', '/plan/disp/delay', { customer: 'ind', due: '2026-10-08', new_date: ndIso, reason: 'Waiting on stock' });
+        let dj = (await call('GET', '/plan')).disp.jobs;
+        assert.deepEqual(dj[0].delay && [dj[0].delay.new_date, dj[0].delay.reason, dj[0].delay.from], [ndIso, 'Waiting on stock', 'group'], 'the group date applies to its work orders');
+        assert.equal(dj[1].delay, null, 'another customer is untouched');
+        await call('PUT', '/plan/disp/delay/job', { key: 'CINDS26100602DES0001', new_date: '2026-12-01', reason: 'Card reprint' });
+        dj = (await call('GET', '/plan')).disp.jobs;
+        assert.deepEqual([dj[0].delay.new_date, dj[0].delay.reason, dj[0].delay.from, dj[0].delay.group_date], ['2026-12-01', 'Card reprint', 'job', ndIso], 'a work order\'s own date wins');
+        await call('PUT', '/plan/disp/delays', { groups: [{ customer: 'NOB', due: '2026-10-09' }], new_date: ndIso, reason: '' });
+        assert.equal((await call('GET', '/plan')).disp.jobs[1].delay.new_date, ndIso, 'several groups at once');
+        await assert.rejects(call('PUT', '/plan/disp/delay', { customer: 'IND', due: '2026-10-08', new_date: 'soon' }));
+        const dlx = await fetch(`${BASE}/plan/disp/delays.xlsx`); assert.equal(dlx.status, 200);
+        const dlBook = require('../src/xlsxread').readBook(Buffer.from(await dlx.arrayBuffer()));
+        assert.deepEqual(dlBook.sheets.map((x) => x.name), ['Delays', 'Work orders']);
+        await call('PUT', '/plan/disp/delay/job', { key: 'CINDS26100602DES0001', new_date: '', reason: '' });
+        assert.equal((await call('GET', '/plan')).disp.jobs[0].delay.from, 'group', 'cleared: follows its group again');
         assert.equal((await fetch(`${BASE}/plan/upload?half=disp`, { method: 'POST', body: exp, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } })).status, 400, 'a perso export isn\'t a Dispatch export');
         assert.equal((await fetch(`${BASE}/plan/upload?half=otto`, { method: 'POST', body: exp, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } })).status, 400, 'a perso export isn\'t an Otto export');
         // Otto machines and speeds: each job on the machine where it finishes first, never before its perso work
