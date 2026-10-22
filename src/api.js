@@ -2781,14 +2781,9 @@ router.post('/plan/disp/delays/import', express.raw({ type: '*/*', limit: '30mb'
   res.json({ ...summary, applied: true });
 }));
 
-// Late or about to be: overdue, due today and not ready, expected ready after its due-out day, or given a new date.
+// Delayed: actively overdue — its due-out day has passed and it's still open (one due today can still go today).
 function isDelayed(j, today) {
-  if (j.delay?.new_date) return true;
-  if (!j.due) return false;
-  if (j.due < today) return true;
-  if (j.due === today && j.stage !== 'ready') return true;
-  if (j.ready_at) { const r = new Date(j.ready_at); const rd = `${r.getFullYear()}-${String(r.getMonth() + 1).padStart(2, '0')}-${String(r.getDate()).padStart(2, '0')}`; if (rd > j.due) return true; }
-  return false;
+  return !!j.due && j.due < today;
 }
 
 router.get('/plan/hidden.xlsx', h((req, res) => {

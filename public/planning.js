@@ -404,7 +404,7 @@ async function renderPlanning() {
       for (const k of [...plDelaySel]) if (!groups.has(k)) plDelaySel.delete(k);
       const daysLate = (due) => Math.round((new Date(`${todayIso}T12:00`) - new Date(`${due}T12:00`)) / 86400000);
       const chips = (l) => Object.entries(STAGE).map(([k, [lb, cls]]) => [l.filter((d) => d.stage === k).length, lb, cls]).filter(([x]) => x).map(([x, lb, cls]) => `<span class="${cls} small" title="${esc(lb)}">${x} ${{ '⏳ Waiting on perso': 'in perso', '✉️ Waiting on Matching': 'in Matching', '✔ Ready to dispatch': 'ready' }[lb] || ''}</span>`).join(' ');
-      const why = (d) => (d.due < todayIso ? `${daysLate(d.due)} day${daysLate(d.due) === 1 ? '' : 's'} overdue` : d.due === todayIso ? 'due today, not ready' : d.ready_at && ymd(new Date(d.ready_at)) > d.due ? `ready about ${PLF.wkHm.format(new Date(d.ready_at))}` : 'new date set');
+      const why = (d) => `${daysLate(d.due)} day${daysLate(d.due) === 1 ? '' : 's'} overdue`;
       const state = (l) => {
         const g = l[0].delay; const dates = new Set(l.map((d) => d.delay?.new_date || ''));
         if (l.some(missed)) return '<span class="pl-late">✖ new date passed</span>';
@@ -451,8 +451,8 @@ async function renderPlanning() {
           ${plDelaySel.size ? '<button class="link small" data-pld="none">Unselect</button>' : ''}</div>
         <div class="card"><h3 class="pl-h">⏱ Delays — by customer and original due date <span class="muted small">a new date for a group is used by all its work orders; open a group (▸) to give one work order its own</span></h3>
           <div class="kdb-scroll"><table class="log pl-table pld-table"><thead><tr><th></th><th>Original due out</th><th class="num">WOs</th><th class="num">Pieces</th><th>Where they are</th><th>New expected date</th><th>Reason</th><th></th></tr></thead>
-          <tbody>${[...byCust].map(([c, gs]) => custHead(c, gs) + gs.map(([k, l]) => gRow(k, l)).join('')).join('') || `<tr><td colspan="8" class="muted">${late.length ? 'Nothing matches.' : '✔ Nothing delayed: no dispatch job is overdue, due today and not ready, or expected ready after its due-out day.'}</td></tr>`}</tbody></table></div></div>
-        <p class="small muted">Delayed: overdue, due today and not ready to dispatch, expected ready after its due-out day, or given a new date. A work order drops off once it's gone from the Dispatch export. Dates and reasons are saved as you type them, and kept in the database (and the backups).</p>`;
+          <tbody>${[...byCust].map(([c, gs]) => custHead(c, gs) + gs.map(([k, l]) => gRow(k, l)).join('')).join('') || `<tr><td colspan="8" class="muted">${late.length ? 'Nothing matches.' : '✔ Nothing delayed: no dispatch job is past its due-out day.'}</td></tr>`}</tbody></table></div></div>
+        <p class="small muted">Delayed: past its due-out day and still open (one due today can still go today, so it isn\'t listed until tomorrow). A work order drops off once it\'s gone from the Dispatch export. Dates and reasons are saved as you type them, and kept in the database (and the backups).</p>`;
     };
     plDelayText = () => {
       const late = all.filter((d) => d.delayed); const groups = new Map();
