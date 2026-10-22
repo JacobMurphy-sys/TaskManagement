@@ -1427,6 +1427,12 @@ async function waitForServer() {
         const dlx = await fetch(`${BASE}/plan/disp/delays.xlsx`); assert.equal(dlx.status, 200);
         const dlBook = require('../src/xlsxread').readBook(Buffer.from(await dlx.arrayBuffer()));
         assert.deepEqual(dlBook.sheets.map((x) => x.name), ['Delays', 'Work orders']);
+        const heads = (sh) => [...dlBook.sheet(sh).cells.values()].filter((x) => x.row === 1).sort((a, b) => a.col - b.col).map((x) => x.v);
+        assert.deepEqual(heads('Delays'), ['Customer', 'Original due out', 'Work orders', 'Cards', 'New expected date', 'Reason', 'Where they are'], 'for customer service: no internal columns');
+        assert.deepEqual(heads('Work orders'), ['Name', 'Customer', 'Cards', 'Original due out', 'New expected date', 'Reason', 'Where it is', 'Status (export)']);
+        const dlD = dlBook.sheet('Delays'); const ndCell = [...dlD.cells.values()].find((x) => x.row === 2 && x.col === 5); const odCell = [...dlD.cells.values()].find((x) => x.row === 2 && x.col === 2);
+        assert.equal(typeof ndCell.v, 'number', 'the new date is a date, like the original');
+        assert.equal(ndCell.s?.numFmt ?? ndCell.fmt ?? ndCell.z, odCell.s?.numFmt ?? odCell.fmt ?? odCell.z, 'in the same format');
         await call('PUT', '/plan/disp/delay/job', { key: 'CINDS26100602DES0001', new_date: '', reason: '' });
         assert.equal((await call('GET', '/plan')).disp.jobs[0].delay.from, 'group', 'cleared: follows its group again');
         // ⬆ import of the delays workbook kept in Excel: only Name, Trigram, Due Date, Expected due date and Comments are used

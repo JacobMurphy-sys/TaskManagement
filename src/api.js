@@ -2697,21 +2697,20 @@ router.get('/plan/disp/delays.xlsx', h((req, res) => {
   const jobs = attachDelays((lastDisp?.jobs || dispOf(set, [], []).jobs).map((j) => ({ ...j })));
   const delayed = jobs.filter((j) => isDelayed(j, today));
   const STAGE = { perso: 'Waiting on perso', matching: 'Waiting on Matching', ready: 'Ready to dispatch' };
-  const late = (d) => (d ? Math.round((new Date(`${d}T12:00:00`) - new Date(`${today}T12:00:00`)) / 86400000) : null);
   const groups = new Map();
   for (const j of delayed) { const k = `${j.customer}|${j.due}`; (groups.get(k) || groups.set(k, []).get(k)).push(j); }
   const c = (header, width = 12, type) => ({ header, width, ...(type ? { type } : {}) });
+  // sent on to customer service as it is: what they need, the dates as dates
   const gRows = [...groups.values()].sort((a, b) => String(a[0].customer).localeCompare(String(b[0].customer)) || String(a[0].due).localeCompare(String(b[0].due))).map((l) => {
-    const dates = [...new Set(l.map((j) => j.delay?.new_date || ''))]; const g = l[0].delay;
-    return [l[0].customer || '', l[0].customer_name || '', l[0].due || null, l.length, l.reduce((t, j) => t + (j.qty || 0), 0), dates.length === 1 ? (dates[0] || 'not set') : `${g?.group_date || 'not set'} (some work orders differ)`,
+    // its work orders' dates differ (some have their own): the group is out by the latest of them
+    const dates = l.map((j) => j.delay?.new_date || null); const g = l[0].delay;
+    return [l[0].customer || '', l[0].due || null, l.length, l.reduce((t, j) => t + (j.qty || 0), 0), dates.every(Boolean) ? dates.sort().pop() : null,
       g?.group_reason || '', Object.entries(STAGE).map(([k, v]) => [v, l.filter((j) => j.stage === k).length]).filter(([, n]) => n).map(([v, n]) => `${n} ${v.toLowerCase()}`).join(', ')]; });
   const jRows = delayed.sort((a, b) => String(a.customer).localeCompare(String(b.customer)) || String(a.due).localeCompare(String(b.due)) || a.name.localeCompare(b.name)).map((j) => [
-    j.name, j.wo, j.customer || '', j.customer_name || '', j.qty, j.due || null, -late(j.due) > 0 ? -late(j.due) : 0, j.delay?.new_date || null, j.delay?.from === 'job' ? 'this work order' : j.delay?.from === 'group' ? 'customer + due date' : 'not set',
-    j.delay?.reason || '', STAGE[j.stage] || '', j.ready_at ? new Date(j.ready_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '', j.status || '', j.prio || '', j.group || '']);
+    j.name, j.customer || '', j.qty, j.due || null, j.delay?.new_date || null, j.delay?.reason || '', STAGE[j.stage] || '', j.status || '']);
   const sheets = [
-    { name: 'Delays', columns: [c('Customer', 10), c('Customer name', 24), c('Original due out', 13, 'date'), c('Work orders', 11, 'number'), c('Qty', 9, 'number'), c('New expected date', 26), c('Reason', 40), c('Where they are', 40)], rows: gRows },
-    { name: 'Work orders', columns: [c('Name', 24), c('Work order', 16), c('Customer', 10), c('Customer name', 22), c('Qty', 8, 'number'), c('Original due out', 13, 'date'), c('Days overdue', 10, 'number'), c('New expected date', 14, 'date'),
-      c('Date set for', 18), c('Reason', 40), c('Where it is', 20), c('Ready about', 18), c('Status (export)', 20), c('Priority', 9), c('Group', 18)], rows: jRows },
+    { name: 'Delays', columns: [c('Customer', 10), c('Original due out', 13, 'date'), c('Work orders', 11, 'number'), c('Cards', 9, 'number'), c('New expected date', 14, 'date'), c('Reason', 40), c('Where they are', 40)], rows: gRows },
+    { name: 'Work orders', columns: [c('Name', 24), c('Customer', 10), c('Cards', 8, 'number'), c('Original due out', 13, 'date'), c('New expected date', 14, 'date'), c('Reason', 40), c('Where it is', 20), c('Status (export)', 20)], rows: jRows },
   ];
   res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.set('Content-Disposition', `attachment; filename="dispatch-delays-${today}.xlsx"`);
