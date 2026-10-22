@@ -92,6 +92,12 @@ async function renderPlanning() {
   if (['insights', 'dplus'].includes(store.get('planHalf', 'perso'))) return renderPlanInsights(); // 🧠 Insights (dplus.js)
   const mode = ['bau', 'score', 'mitigation'].includes(store.get('planMode', 'fifo')) ? store.get('planMode') : 'fifo';
   const half = ['otto', 'disp'].includes(store.get('planHalf', 'perso')) ? store.get('planHalf') : 'perso';
+  // redrawn after a change on the same tab: stay where you were (the page and each scrolling table)
+  const scrollY = main().querySelector('.pl-halves') ? main().scrollTop : null;
+  const scrollBoxes = scrollY === null ? [] : [...main().querySelectorAll('.kdb-scroll')].map((el) => el.scrollTop);
+  // …and in the field you'd moved on to (⏱ Delays: its row and kind of field)
+  const act = document.activeElement; const actRow = act?.closest?.('[data-pld-g], [data-pld-job]');
+  const refocus = actRow && act.className ? `[${actRow.dataset.pldG !== undefined ? 'data-pld-g' : 'data-pld-job'}="${CSS.escape(actRow.dataset.pldG ?? actRow.dataset.pldJob)}"] .${act.className.split(' ')[0]}` : null;
   const [p, settings] = await Promise.all([api.get(`/plan?mode=${mode}`), api.get('/settings')]);
   const f = store.get('planFilter', {}) || {};
   const all = [...p.running, ...p.queue];
@@ -435,6 +441,7 @@ async function renderPlanning() {
           <select id="pldl-customer"><option value="">All customers</option>${lCust.map((c) => `<option ${pf.customer === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
           <div class="spacer"></div>
           <button class="small" data-pld="copy" title="A short summary to paste into an email or report">📋 Copy summary</button>
+          <label class="button small" title="Fill in the dates and comments from the delays workbook kept so far (Name, Trigram, Due Date, Expected due date, Comments)">⬆ Import from Excel<input type="file" accept=".xlsx,.xlsm" hidden id="pld-import"></label>
           <a class="button small" href="/api/plan/disp/delays.xlsx" download>⬇ Excel report</a></div>
         <div class="row pld-bulk" style="gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap">
           <b class="small">${plDelaySel.size ? `${plDelaySel.size} group${plDelaySel.size === 1 ? '' : 's'} selected` : 'Select groups to set them together'}</b>
@@ -649,6 +656,13 @@ ${half === 'otto' ? ottoSetup() : `
       <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${runningShown.map((j) => row(j, null)).join('')}</tbody></table></div></div>` : ''}
     <div class="card"><h3 class="pl-h">Next to start — ${mode === 'fifo' ? 'FIFO: by deadline' : mode === 'mitigation' ? '🛟 Mitigation: what can still be on time first' : mode === 'score' ? '⚖ Score: highest first (deadline + modifiers)' : 'BAU: by due day, then priority, then cut-off'} <span class="muted small">${queueShown.length} job${queueShown.length === 1 ? '' : 's'} · ${n(sum(queueShown))} cards · click a job for its card articles</span></h3>
       <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${queueShown.slice(0, qShown).map(queueRow).join('')}${moreRow()}${queueShown.length ? '' : '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>`}` : ''}`}`;
+  const keepScroll = plLastTab === `${half}|${store.get(half === 'perso' ? 'planView' : `planView_${half}`, 'list')}`;
+  plLastTab = `${half}|${store.get(half === 'perso' ? 'planView' : `planView_${half}`, 'list')}`;
+  if (keepScroll && scrollY !== null) {
+    main().scrollTop = scrollY;
+    main().querySelectorAll('.kdb-scroll').forEach((el, i) => { if (scrollBoxes[i]) el.scrollTop = scrollBoxes[i]; });
+  }
+  if (keepScroll && refocus) main().querySelector(refocus)?.focus({ preventScroll: true });
   if (half !== 'disp' && view === 'gantt' && $('#pl-gantt')) {
     const draw = () => drawPlanGantt($('#pl-gantt'), $('#pl-gantt-info'), p, half === 'otto' ? null : match, half);
     draw();
@@ -662,6 +676,22 @@ ${half === 'otto' ? ottoSetup() : `
   $('#pld-q')?.addEventListener('change', (e) => setD('q', e.target.value.trim()));
   // ⏱ Delays
   const setDl = (k, v) => { const f = store.get('planDelayFilter', {}) || {}; f[k] = v || ''; store.set('planDelayFilter', f); renderPlanning(); };
+  $('#pld-import')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const send = async (apply) => {
+      const r = await fetch(`/api/plan/disp/delays/import${apply ? '?apply=1' : ''}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
+      const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || r.statusText); return d;
+    };
+    try {
+      const d = await send(false);
+      if (!d.rows) { toast(`Nothing to import: ${d.read} row${d.read === 1 ? '' : 's'} read, none with a new expected date or comment`, 'error'); e.target.value = ''; return; }
+      const msg = `From "${d.sheet}": ${d.rows} of ${d.read} work orders have a new expected date or comment (${d.open} still open in the Dispatch export).\n\n`
+        + `• ${d.groups} customer + due date group${d.groups === 1 ? '' : 's'} (${d.group_rows} work orders) get one date together\n• ${d.jobs} work order${d.jobs === 1 ? '' : 's'} get their own date\n`
+        + `${d.skipped ? `• ${d.skipped} row${d.skipped === 1 ? '' : 's'} with nothing to bring in are skipped\n` : ''}\nDates already set for these are replaced. Import?`;
+      if (!confirm(msg)) { e.target.value = ''; return; }
+      await send(true); toast('Delays imported'); renderPlanning();
+    } catch (err) { toast(err.message, 'error'); e.target.value = ''; }
+  });
   $('#pldl-show')?.addEventListener('change', (e) => setDl('show', e.target.value));
   $('#pldl-customer')?.addEventListener('change', (e) => setDl('customer', e.target.value));
   $$('.pld-sel').forEach((el) => el.addEventListener('change', () => { const k = el.closest('[data-pld-g]').dataset.pldG; if (el.checked) plDelaySel.add(k); else plDelaySel.delete(k); renderPlanning(); }));
@@ -1106,6 +1136,7 @@ function fmtSpan(min) {
 // over 1 day / 3 days / a week; non-working time shaded. A click picks a job: its bars stay
 // bright and its deadline is drawn.
 let planSel = null;
+let plLastTab = null; // the tab and view drawn last (a redraw of the same one keeps its scroll)
 const plDelaySel = new Set(); const plDelayOpen = new Set(); // ⏱ Delays: groups selected / opened (customer|due)
 let plDelayText = () => '';
 function drawPlanGantt(el, info, p, match, half = 'perso') {

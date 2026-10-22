@@ -2717,6 +2717,70 @@ router.get('/plan/disp/delays.xlsx', h((req, res) => {
   res.set('Content-Disposition', `attachment; filename="dispatch-delays-${today}.xlsx"`);
   res.send(buildXlsx(sheets));
 }));
+// ⬆ The delays list kept so far in Excel (Name, Trigram, Due Date, Expected due date, Comments — other columns are
+// ignored): only our fields are filled in. A customer and due date whose rows all agree get the date as a group;
+// otherwise each work order gets its own. A row whose expected date is its due date only brings its comment.
+// ?apply=1 saves it; without, it only says what it would do.
+const DELAY_IMPORT = { name: ['name', 'wo', 'work order'], customer: ['trigram', 'customer'], due: ['due date', 'due out', 'due', 'original due date'],
+  new_date: ['expected due date', 'expected date', 'new date', 'new expected date', 'expected'], reason: ['comments', 'comment', 'reason'] };
+router.post('/plan/disp/delays/import', express.raw({ type: '*/*', limit: '30mb' }), h((req, res) => {
+  if (!req.body?.length) throw new HttpError(400, 'Choose the delays workbook');
+  let book; try { book = require('./xlsxread').readBook(req.body); } catch { throw new HttpError(400, 'That isn\'t an Excel workbook (.xlsx)'); }
+  const L = (n) => { let t = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) t = String.fromCharCode(65 + ((n - 1) % 26)) + t; return t; };
+  const norm = (v) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  let sh = null; let headRow = 0; let col = null;
+  for (const info of book.sheets) {
+    const x = book.sheet(info.name);
+    for (let r = 1; r <= Math.min(x.maxRow, 20) && !headRow; r++) {
+      const found = {};
+      for (const c of [...x.cells.values()].filter((y) => y.row === r)) for (const [k, names] of Object.entries(DELAY_IMPORT)) if (!found[k] && names.includes(norm(c.v))) found[k] = c.col;
+      if (found.name && found.new_date) { sh = x; headRow = r; col = found; }
+    }
+    if (sh) break;
+  }
+  if (!sh) throw new HttpError(400, 'Can\'t find the Name and Expected due date columns');
+  const day = (v) => { const d = planning.parseDay(v); return d ? `${d.y}-${String(d.m + 1).padStart(2, '0')}-${String(d.d).padStart(2, '0')}` : null; };
+  const openJobs = new Map((lastDisp?.jobs || []).map((j) => [String(j.key).toUpperCase(), j]));
+  const rows = []; let skipped = 0; let read = 0;
+  for (let r = headRow + 1; r <= sh.maxRow; r++) {
+    const g = (k) => (col[k] ? sh.cells.get(`${L(col[k])}${r}`)?.v ?? null : null);
+    const name = String(g('name') ?? '').trim().toUpperCase();
+    if (!name) continue;
+    read++;
+    const open = openJobs.get(name);
+    const customer = (String(g('customer') ?? '').trim() || open?.customer || name.slice(1, 4)).toUpperCase();
+    const due = day(g('due')) || open?.due || null;
+    const expected = day(g('new_date'));
+    const reason = String(g('reason') ?? '').trim().slice(0, 300) || null;
+    const newDate = expected && expected !== due ? expected : null;
+    if (!newDate && !reason) { skipped++; continue; }
+    rows.push({ key: name, customer, due, new_date: newDate, reason, open: !!open });
+  }
+  // a customer and due date whose rows all agree: one group date
+  const byGroup = new Map();
+  for (const x of rows) if (x.due) { const k = `${x.customer}|${x.due}`; (byGroup.get(k) || byGroup.set(k, []).get(k)).push(x); }
+  const groups = []; const jobs = [];
+  for (const [k, l] of byGroup) {
+    if (l.every((x) => x.new_date === l[0].new_date && x.reason === l[0].reason)) { const [customer, due] = k.split('|'); groups.push({ customer, due, new_date: l[0].new_date, reason: l[0].reason, keys: l.map((x) => x.key) }); } else jobs.push(...l);
+  }
+  jobs.push(...rows.filter((x) => !x.due));
+  const summary = { read, rows: rows.length, skipped, groups: groups.length, group_rows: groups.reduce((t, g) => t + g.keys.length, 0), jobs: jobs.length, open: rows.filter((x) => x.open).length, sheet: sh.name };
+  if (String(req.query.apply) !== '1') return res.json({ ...summary, applied: false });
+  db.tx(() => {
+    for (const g of groups) {
+      const old = db.get('SELECT id FROM plan_disp_delays WHERE customer = ? AND due = ?', [g.customer, g.due]);
+      if (old) updateRow('plan_disp_delays', old.id, { new_date: g.new_date, reason: g.reason }); else insertRow('plan_disp_delays', { customer: g.customer, due: g.due, new_date: g.new_date, reason: g.reason });
+      for (const k of g.keys) db.run('DELETE FROM plan_disp_delay_jobs WHERE key = ?', [k]); // they follow their group
+    }
+    for (const x of jobs) {
+      const old = db.get('SELECT id FROM plan_disp_delay_jobs WHERE key = ?', [x.key]);
+      if (old) updateRow('plan_disp_delay_jobs', old.id, { new_date: x.new_date, reason: x.reason, customer: x.customer, due: x.due });
+      else insertRow('plan_disp_delay_jobs', { key: x.key, customer: x.customer, due: x.due, new_date: x.new_date, reason: x.reason });
+    }
+  });
+  res.json({ ...summary, applied: true });
+}));
+
 // Late or about to be: overdue, due today and not ready, expected ready after its due-out day, or given a new date.
 function isDelayed(j, today) {
   if (j.delay?.new_date) return true;
