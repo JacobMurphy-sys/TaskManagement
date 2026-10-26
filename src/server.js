@@ -29,7 +29,10 @@ const app = express();
 // Vault imports send attachments in batches, and an A3 export sends chart pictures, so they get a larger limit.
 const jsonSmall = express.json({ limit: '1mb' });
 const jsonLarge = express.json({ limit: '80mb' });
-app.use((req, res, next) => (req.path.startsWith('/api/library/import') || /^\/api\/kpi\/snapshots\/\d+\/export$/.test(req.path) ? jsonLarge : jsonSmall)(req, res, next));
+// Routes that read their own (larger) body — the planning setup + history, a plan sheet, the team
+// pack — are left alone here: once a body is read, their own limit would never get a say.
+const OWN_BODY = /^\/api\/(plan\/setup|plan\/sheet|team-pack)$/;
+app.use((req, res, next) => (OWN_BODY.test(req.path) ? next() : (req.path.startsWith('/api/library/import') || /^\/api\/kpi\/snapshots\/\d+\/export$/.test(req.path) ? jsonLarge : jsonSmall)(req, res, next)));
 
 // Large answers (the planning list runs to megabytes) go compressed: a fraction of the data to
 // move, which matters most for the shared planner over the network.
@@ -118,6 +121,12 @@ const PLANNER_API = /^\/(plan|settings|presence|audit|backups|info|health)(\/|$|
 if (config.mode === 'planner') app.use('/api', (req, res, next) => (PLANNER_API.test(req.path) ? next() : res.status(404).json({ error: 'Not part of the planner' })));
 app.use('/api', api);
 app.use(express.static(path.join(config.ROOT, 'public')));
+// A request the app couldn't read (too large, or not valid JSON): a plain message, not an HTML page.
+app.use((err, req, res, next) => {
+  if (!err || res.headersSent || !(err.type === 'entity.too.large' || err.type === 'entity.parse.failed')) return next(err);
+  const mb = (b) => `${Math.round(b / 1048576)} MB`;
+  res.status(err.status || 400).json({ error: err.type === 'entity.too.large' ? `Too large to send (${mb(err.length || 0)}; the limit here is ${mb(err.limit || 0)})` : 'That wasn\'t valid JSON' });
+});
 
 const server = app.listen(config.port, config.host, () => {
   log.info(`${config.mode === 'planner' ? 'CI Planner' : 'CI Manager'} running at http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);

@@ -2057,6 +2057,11 @@ async function waitForServer() {
         assert.equal((await pc('GET', '/plan/history')).reads, myReads, 'the new install has the same history');
         const again = await pc('POST', '/plan/setup', withHist);
         assert.deepEqual([again.history.reads, again.history.jobs, again.history.prod_runs], [0, 0, 0], 'imported twice: nothing added twice');
+        // a big setup + history file (tens of MB in real use) isn't turned away by the 1 MB limit on other requests
+        const big = { ...withHist, history: { ...withHist.history, prod_runs: [...withHist.history.prod_runs, ...Array.from({ length: 6000 }, (_, i) => ({ ...withHist.history.prod_runs[0], job: `BIGJOB${i}`, file: 'x'.repeat(200) }))] } };
+        assert.ok(JSON.stringify(big).length > 1.5e6, 'the test file is over the 1 MB limit');
+        const bi = await pc('POST', '/plan/setup', big);
+        assert.ok(bi.history.prod_runs >= 1, 'a setup + history over 1 MB imports');
         // handed out on the network: a planning-setup file next to the installer is applied by itself
         {
           const sdir = fs.mkdtempSync(path.join(os.tmpdir(), 'shared-')); const ndir = fs.mkdtempSync(path.join(os.tmpdir(), 'newinstall-'));
