@@ -1582,7 +1582,8 @@ async function waitForServer() {
       assert.ok(Object.keys(l0).every((k) => l0[k] === null || Math.abs(l1[k] - (l0[k] + 90)) <= 1), 'ready 90 min before the cut-off: every job 90 min "later"');
       await call('PATCH', '/settings', { plan_buffer: '0', plan_changeover: '30' });
       pp = await call('GET', '/plan');
-      assert.ok(pp.machine_load.some((l) => l.setups > 0), 'switching kind of card costs a change-over');
+      assert.ok(pp.machine_load.some((l) => l.setups > 0), 'moving on to another work order costs a change-over');
+      assert.ok(pp.machine_load.every((l) => l.setups >= l.wos - 1), 'at least one between each work order on a machine');
       assert.ok(pp.machine_load.reduce((t, l) => t + l.minutes, 0) > before.machine_load.reduce((t, l) => t + l.minutes, 0), '… adding to the machines\' work');
       await call('PATCH', '/settings', { plan_changeover: '0' });
       // ⚖ modifiers through the API: the workbook's pages imported, then the score order

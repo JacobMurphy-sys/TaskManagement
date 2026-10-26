@@ -587,6 +587,8 @@ function lineStepper(running, queue, { rate, lines = 1, start = 360, end = 1320,
   for (const j of running) step(j);
   return { step, save: () => t, restore: (x) => { t = x; } };
 }
+// What a machine changes over between: each work order (its jobs and card lines run together).
+const woKey = (j) => String(j.wo ?? j.key ?? '').toUpperCase();
 function machineStepper(running, queue, machines, { start = 360, end = 1320, days = [1, 2, 3, 4, 5], buffer = 0, changeover = 0 }, now = new Date()) {
   const active = machines.filter((m) => m.active !== 0 && m.active !== false);
   if (!active.length) return null;
@@ -602,7 +604,7 @@ function machineStepper(running, queue, machines, { start = 360, end = 1320, day
       const ms = able(type);
       if (a.minutes === null || !ms.length) { unplanned++; continue; }
       const m = ms.reduce((best, x) => (free.get(x.id) < free.get(best.id) ? x : best));
-      const kind = `${String(type || '').toLowerCase()}|${String(a.card?.material || '').toLowerCase()}`;
+      const kind = woKey(j); // a change-over between work orders, whatever the cards
       const setup = changeover > 0 && lastKind.has(m.id) && lastKind.get(m.id) !== kind ? Number(changeover) : 0;
       const f = addWorking(free.get(m.id), a.minutes + setup, cal);
       if (!f) { unplanned++; continue; }
@@ -627,8 +629,8 @@ function projectMachines(running, queue, machines, { start = 360, end = 1320, da
   if (!active.length) return false;
   const cal = { start, end, days };
   const free = new Map(active.map((m) => [m.id, now]));
-  const lastKind = new Map(); // what each machine ran last: a change of type or material costs a change-over
-  const load = new Map(active.map((m) => [m.id, { id: m.id, name: m.name, types: m.types, cards: 0, minutes: 0, lines: 0, setups: 0, until: null, days: {} }]));
+  const lastKind = new Map(); // the work order each machine ran last: moving to another costs a change-over
+  const load = new Map(active.map((m) => [m.id, { id: m.id, name: m.name, types: m.types, cards: 0, minutes: 0, lines: 0, setups: 0, wos: new Set(), until: null, days: {} }]));
   for (const j of [...running, ...queue]) {
     let last = null; let first = null; let unplanned = 0; let minutes = 0;
     for (const a of j.articles) {
@@ -639,7 +641,7 @@ function projectMachines(running, queue, machines, { start = 360, end = 1320, da
       if (a.minutes === null) { a.unplanned = 'speed'; unplanned++; continue; }
       if (!able.length) { a.unplanned = 'machine'; unplanned++; continue; }
       const m = able.reduce((best, x) => (free.get(x.id) < free.get(best.id) ? x : best));
-      const kind = `${String(type || '').toLowerCase()}|${String(a.card?.material || '').toLowerCase()}`;
+      const kind = woKey(j); // a change-over between work orders, whatever the cards
       const setup = changeover > 0 && lastKind.has(m.id) && lastKind.get(m.id) !== kind ? Number(changeover) : 0;
       const s = addWorking(free.get(m.id), 0, cal) || free.get(m.id);
       const f = addWorking(free.get(m.id), a.minutes + setup, cal);
@@ -647,7 +649,7 @@ function projectMachines(running, queue, machines, { start = 360, end = 1320, da
       free.set(m.id, f);
       lastKind.set(m.id, kind);
       a.setup = setup;
-      const l = load.get(m.id); l.cards += a.qty; l.minutes += a.minutes + setup; l.lines++; if (setup) l.setups++; l.until = f.toISOString();
+      const l = load.get(m.id); l.cards += a.qty; l.minutes += a.minutes + setup; l.lines++; if (setup) l.setups++; l.wos.add(kind); l.until = f.toISOString();
       for (const [day, min] of Object.entries(minutesByDay(s, f, cal))) { // booked per day (cards in proportion)
         const d = l.days[day] || (l.days[day] = { minutes: 0, cards: 0 });
         d.minutes += min; d.cards += a.minutes + setup ? (a.qty * min) / (a.minutes + setup) : 0;
@@ -666,7 +668,7 @@ function projectMachines(running, queue, machines, { start = 360, end = 1320, da
     // late when it finishes after the deadline less the buffer (packing, dispatch)
     j.late_minutes = j.finish_at && j.deadline ? Math.round((last - localDate(j.deadline)) / 60000 + (Number(buffer) || 0)) : null;
   }
-  return [...load.values()];
+  return [...load.values()].map((l) => ({ ...l, wos: l.wos.size })); // wos: the work orders planned on it
 }
 
 // The most a day's work can make, per product type: each machine able to run it, for the
