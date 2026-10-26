@@ -2006,11 +2006,14 @@ router.get('/plan', h((req, res) => {
   // the pace from the plan history: jobs done (when they left the export) and all jobs due
   const since = new Date(Date.now() - 10 * 86400000);
   const histFirst = db.get('SELECT MIN(file_modified) AS f FROM plan_history_reads')?.f || null;
-  const backlog = backlogOf([...running, ...queue], hiddenJobs, {
-    // done: when each job's last run ended (timing reports), not when a copy of the app noticed it gone
+  // the pace: from the timing report (cards persoed, and the jobs due, by day) — the same on every PC; until
+  // there is one, from this PC's own plan history
+  const pace = planHistory.persoPace(localYmd(since), [...running, ...queue]);
+  const backlog = backlogOf([...running, ...queue], hiddenJobs, pace.any ? { done: pace.done, due: pace.due, from: pace.from } : {
     done: planHistory.donePerDay(since.toISOString(), localYmd),
     due: db.all('SELECT due, qty FROM plan_history_jobs WHERE due >= ?', [localYmd(since)]).map((r) => ({ date: r.due, qty: r.qty })),
     from: histFirst }, capacity, maxAge);
+  backlog.pace_from = pace.any ? 'runs' : 'history';
   delete modifiers.tagBy;
   res.json({ shared_setup: sharedSetup, mitigation, modifiers, backlog, otto, disp, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
     source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length,
@@ -2377,7 +2380,7 @@ function mergeHistory(h) {
     for (const j of Array.isArray(h.otto_jobs) ? h.otto_jobs : []) if (j?.key && j.first_seen && j.last_seen) db.run(`INSERT OR IGNORE INTO plan_otto_jobs (${ocols.join(', ')}) VALUES (${ocols.map(() => '?').join(', ')})`, ocols.map((c) => j[c] ?? null));
     for (const r of Array.isArray(h.disp_reads) ? h.disp_reads : []) if (r?.file_modified) db.run('INSERT OR IGNORE INTO plan_disp_reads (file_modified, file, read_at, jobs) VALUES (?, ?, ?, ?)', [r.file_modified, r.file || null, r.read_at || new Date().toISOString(), r.jobs || 0]);
     for (const j of Array.isArray(h.disp_jobs) ? h.disp_jobs : []) if (j?.key && j.first_seen && j.last_seen) db.run(`INSERT OR IGNORE INTO plan_disp_jobs (${ocols.join(', ')}) VALUES (${ocols.map(() => '?').join(', ')})`, ocols.map((c) => j[c] ?? null));
-    const pcols = ['source', 'job', 'machine', 'station', 'start_at', 'end_at', 'qty', 'job_qty', 'remake', 'mode', 'product', 'item', 'item_name', 'customer', 'trigram', 'due', 'file', 'read_at'];
+    const pcols = ['source', 'job', 'machine', 'station', 'start_at', 'end_at', 'qty', 'job_qty', 'remake', 'mode', 'product', 'item', 'item_name', 'customer', 'trigram', 'due', 'imported', 'file', 'read_at'];
     for (const r of Array.isArray(h.prod_runs) ? h.prod_runs : []) {
       if (!r?.source || !r.job || !r.start_at || !prod.counted(r.job)) continue;
       const ch = db.run(`INSERT OR IGNORE INTO prod_runs (${pcols.join(', ')}) VALUES (${pcols.map(() => '?').join(', ')})`, pcols.map((c) => (c === 'machine' ? r.machine ?? '' : c === 'remake' ? (r.remake ? 1 : 0) : c === 'read_at' ? r.read_at || new Date().toISOString() : r[c] ?? null)));
@@ -2943,7 +2946,9 @@ router.post('/prod/upload', express.raw({ type: '*/*', limit: '100mb' }), h((req
 // still the built-in default, or still what the last shared file said: anything someone set
 // for themselves is left alone.
 const SHARED_KEYS = Object.keys(SETTING_DEFAULTS).filter((k) => k.startsWith('kpi_')
-  || ['plan_src', 'plan_otto_src', 'plan_disp_src', 'plan_db', 'plan_db_table', 'planner_url'].includes(k));
+  || ['plan_src', 'plan_otto_src', 'plan_disp_src', 'plan_db', 'plan_db_table', 'planner_url',
+    // …and the planning settings every figure depends on, so every PC works them out alike
+    'plan_days', 'plan_day_start', 'plan_day_end', 'plan_max_age', 'plan_buffer', 'plan_changeover'].includes(k));
 const metaGet = (key) => db.get('SELECT value FROM settings WHERE key = ?', [key])?.value;
 const metaSet = (key, value) => db.run(`INSERT INTO settings (key, value) VALUES (?, ?)
   ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [key, value]);

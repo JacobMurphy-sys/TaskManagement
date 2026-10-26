@@ -34,6 +34,7 @@ const FIELDS = {
   customer: ['customer name', 'customer'],
   trigram: ['co ref', 'trigram'],
   due: ['due date', 'plan date'],
+  imported: ['import date', 'imported', 'created'], // when the work order came into the system (lead time)
 };
 const norm = (h) => String(h ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const pad = (n) => String(n).padStart(2, '0');
@@ -117,6 +118,7 @@ function parse(buf) {
       customer: String(at(row, 'customer') ?? '').trim() || null,
       trigram: trigramOf(at(row, 'job'), at(row, 'trigram')),
       due: dayOf(at(row, 'due')),
+      imported: at(row, 'imported') === null || at(row, 'imported') === undefined || at(row, 'imported') === '' ? null : dateTime(at(row, 'imported'), at(row, 'imported')),
     });
   }
   return { sheet: sheetInfo.name, rows, skipped };
@@ -129,12 +131,12 @@ function store(source, rows, file) {
   db.tx(() => {
     for (const r of rows) {
       const had = db.get('SELECT id FROM prod_runs WHERE source = ? AND job = ? AND machine = ? AND start_at = ?', [source, r.job, r.machine, r.start_at]);
-      db.run(`INSERT INTO prod_runs (source, job, machine, station, start_at, end_at, qty, job_qty, remake, mode, product, item, item_name, customer, trigram, due, file, read_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      db.run(`INSERT INTO prod_runs (source, job, machine, station, start_at, end_at, qty, job_qty, remake, mode, product, item, item_name, customer, trigram, due, imported, file, read_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (source, job, machine, start_at) DO UPDATE SET end_at = excluded.end_at, qty = excluded.qty, job_qty = excluded.job_qty, station = excluded.station,
           remake = excluded.remake, mode = excluded.mode, product = excluded.product, item = excluded.item, item_name = excluded.item_name, customer = excluded.customer,
-          trigram = excluded.trigram, due = excluded.due, file = excluded.file, read_at = excluded.read_at`,
-      [source, r.job, r.machine, r.station, r.start_at, r.end_at, r.qty, r.job_qty, r.remake, r.mode, r.product, r.item, r.item_name, r.customer, r.trigram, r.due, file, now]);
+          trigram = excluded.trigram, due = excluded.due, imported = COALESCE(excluded.imported, imported), file = excluded.file, read_at = excluded.read_at`,
+      [source, r.job, r.machine, r.station, r.start_at, r.end_at, r.qty, r.job_qty, r.remake, r.mode, r.product, r.item, r.item_name, r.customer, r.trigram, r.due, r.imported ?? null, file, now]);
       if (had) updated++; else added++;
     }
   });

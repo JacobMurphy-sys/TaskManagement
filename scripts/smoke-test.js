@@ -1686,13 +1686,14 @@ async function waitForServer() {
           save([r('CDDDS26100604', '0001', 'A1', 10, 'Oct 12 2026 ', 'Low', 'Ready To Be Started', 'DHL', '17:00')], new Date(2026, 9, 8, 12, 0)); // read again 41 h later
           await call('GET', '/plan');
           hs = await call('GET', '/plan/history?days=60');
-          const by = Object.fromEntries(hs.recent.map((j) => [j.wo, [j.done_by, j.late_minutes, j.late_unknown || false]]));
-          assert.deepEqual(by.CAAAS26100601, ['runs', 18 * 60, false], 'done when its last run ended (7 Oct 10:00), not at the read two days later');
-          assert.deepEqual(by.CBBBS26100602, ['gap', 3 * 60, false], 'no runs, gone over a gap that began after its cut-off: late for sure (at least 3 h)');
-          assert.equal(by.CCCCS26100603[0], 'gap'); assert.ok(by.CCCCS26100603[1] < 0, 'cut-off after the gap: on time for sure');
-          assert.deepEqual(hs.done_by, { runs: 1, export: 0, gap: 2 });
+          // with a timing report, Perso's history comes from it alone — the same on every PC, whatever each one recorded
+          assert.equal(hs.from, 'runs');
           const day7 = hs.daily.find((d) => d.date === '2026-10-07');
-          assert.ok(day7 && day7.cards === 100 && day7.on_time_cards === 0, 'counted on the day the run ended');
+          assert.ok(day7 && day7.cards === 100 && day7.on_time_cards === 100, 'cards on the day the run ended; on time: persoed by the due date in the report');
+          assert.deepEqual(hs.recent.map((x) => [x.wo, x.per, x.qty, x.late_days]), [['CAAAS26100601', '0001', 100, 0]], 'a job finished when its runs reach its quantity');
+          assert.ok(!hs.daily.some((d) => d.date === '2026-10-08' && d.cards), 'nothing put on the day the export was read again');
+          const bl = (await call('GET', '/plan')).backlog;
+          assert.equal(bl.pace_from, 'runs', 'the backlog pace from the timing report too');
         }
         // Matching's and 🚚 Dispatch's own history, from their own tables
         for (const half of ['otto', 'disp']) { const oh = await call('GET', `/plan/history?half=${half}`); assert.equal(oh.half, half); assert.equal(oh.daily.length, 14); assert.ok(Array.isArray(oh.recent)); }

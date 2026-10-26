@@ -215,6 +215,7 @@ async function renderPlanning() {
     const h = hist; const max = Math.max(1, ...h.daily.map((d) => d.cards));
     const kfmt = (x) => (x >= 1000 ? `${n(Math.round(x / 100) / 10)}k` : n(x));
     const dshort = (d) => { const dt = new Date(`${d}T12:00`); return `${dt.toLocaleDateString('en-GB', { weekday: 'short' })}<br>${dt.getDate()}/${dt.getMonth() + 1}`; };
+    if (h.from === 'runs') return runsHistoryHtml(h, max, kfmt, dshort);
     return `<div class="kdb-tiles" style="margin-top:12px">
         <div class="kdb-tile"><div class="kdb-tile-l">Done — last 7 days</div><div class="kdb-tile-v">${n(h.week.jobs)}</div><div class="kdb-tile-s">${n(h.week.cards)} ${unitOf}</div></div>
         <div class="kdb-tile"><div class="kdb-tile-l">On time — last 7 days</div><div class="kdb-tile-v ${h.week.on_time_pct === null ? '' : h.week.on_time_pct >= 98 ? 'kdb-ok' : 'kdb-bad'}">${h.week.on_time_pct === null ? '—' : `${h.week.on_time_pct}%`}</div><div class="kdb-tile-s">done by the cut-off</div></div>
@@ -232,6 +233,27 @@ async function renderPlanning() {
         ${h.recent.map((j) => `<tr><td>${esc(new Date(j.done_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td><td><b>${esc(j.wo || j.key)}</b> <span class="muted">${j.per ? `/ ${esc(j.per)}` : esc(j.wo && j.key.startsWith(j.wo) ? j.key.slice(j.wo.length) : '')}</span></td>
           <td>${esc(j.customer || '')}</td><td class="num">${n(j.qty)}</td><td>${esc(j.deadline?.replace('T', ' ') || '—')}</td>
           <td>${j.late_minutes === null ? '—' : j.late_minutes > 0 ? `<span class="pl-late">${fmtSpan(j.late_minutes)} late</span>` : '<span class="pl-ok">✔ on time</span>'}</td><td class="small">${esc(j.shipper ?? j.machine ?? '')}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">Nothing done yet since the history began.</td></tr>'}
+        </tbody></table></div></div>`;
+  };
+  // 📈 Perso from the ⏱ timing report alone: the same on every PC that has read it
+  const runsHistoryHtml = (h, max, kfmt, dshort) => {
+    const when = (iso) => (iso ? new Date(iso).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
+    return `<div class="kdb-tiles" style="margin-top:12px">
+        <div class="kdb-tile"><div class="kdb-tile-l">Persoed — last 7 days</div><div class="kdb-tile-v">${n(h.week.cards)}</div><div class="kdb-tile-s">cards · ${n(h.week.jobs)} job${h.week.jobs === 1 ? '' : 's'} finished</div></div>
+        <div class="kdb-tile"><div class="kdb-tile-l">On time — last 7 days</div><div class="kdb-tile-v ${h.week.on_time_pct === null ? '' : h.week.on_time_pct >= 98 ? 'kdb-ok' : 'kdb-bad'}">${h.week.on_time_pct === null ? '—' : `${h.week.on_time_pct}%`}</div><div class="kdb-tile-s">of the cards, persoed by their due date</div></div>
+        <div class="kdb-tile"><div class="kdb-tile-l">Lead time</div><div class="kdb-tile-v">${h.week.lead_hours === null ? '—' : fmtSpan(h.week.lead_hours * 60)}</div><div class="kdb-tile-s">imported → last run, average</div></div>
+        <div class="kdb-tile"><div class="kdb-tile-l">⏱ Timing report</div><div class="kdb-tile-v">${n(h.reads)}</div><div class="kdb-tile-s">runs · newest ended ${esc(when(h.last))}</div></div></div>
+      <p class="small muted pl-same">🟰 Built only from the ⏱ timing report (every run since 1 January), so it's the same on every PC that has read it — compare the newest run above to check you're on the same report. Last read here ${esc(when(h.read_at))}.</p>
+      <div class="card"><h3 class="pl-h">Cards persoed per day <span class="muted small">— last ${h.days} days, by the day each run ended · green by the due date · red after it${h.daily.some((d) => d.unknown_cards) ? ' · grey: no due date in the report' : ''}</span></h3>
+        <div class="pl-hist">${h.daily.map((d) => `<div class="pl-hist-col" title="${esc(d.date)}: ${n(d.cards)} cards persoed (${n(d.on_time_cards)} by their due date), ${n(d.jobs)} jobs">
+          <div class="pl-hist-n">${d.cards ? kfmt(d.cards) : ''}</div>
+          <div class="pl-hist-bar" style="height:${Math.round((d.cards / max) * 140)}px"><div class="pl-hist-unknown" style="height:${d.cards ? Math.round(((d.unknown_cards || 0) / d.cards) * 100) : 0}%"></div><div class="pl-hist-late" style="height:${d.cards ? Math.round(((d.cards - d.on_time_cards - (d.unknown_cards || 0)) / d.cards) * 100) : 0}%"></div></div>
+          <div class="pl-hist-d">${dshort(d.date)}</div></div>`).join('')}</div></div>
+      <div class="card"><h3 class="pl-h">Latest finished <span class="muted small">— jobs whose runs reached their quantity</span></h3>
+        <div class="kdb-scroll"><table class="log"><thead><tr><th>Last run ended</th><th>Work order / job</th><th>Customer</th><th class="num">Cards</th><th>Due</th><th>Result</th><th>Machines</th></tr></thead><tbody>
+        ${h.recent.map((j) => `<tr><td>${esc(when(j.done_at))}</td><td><button class="link" data-pf-wo-open="${esc(j.wo)}" title="Everything about this work order"><b>${esc(j.wo)}</b></button> <span class="muted">${j.per ? `/ ${esc(j.per)}` : ''}</span></td>
+          <td>${esc(j.customer || '')}</td><td class="num">${n(j.qty)}</td><td>${esc(j.deadline ? dayLabel(j.deadline) : '—')}</td>
+          <td>${j.late_days === null ? '—' : j.late_days > 0 ? `<span class="pl-late">${j.late_days} day${j.late_days === 1 ? '' : 's'} late</span>` : '<span class="pl-ok">✔ on time</span>'}</td><td class="small">${esc(j.machines || '')}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No job finished in these days.</td></tr>'}
         </tbody></table></div></div>`;
   };
   // ▦ Load: hours booked on each machine per day against its working hours
@@ -273,7 +295,7 @@ async function renderPlanning() {
       block('Overdue', b.overdue_qty ? `${n(b.overdue_qty)} <span>${unit}</span>` : '✔ none', b.overdue_qty
         ? `${n(b.overdue_jobs)} job${b.overdue_jobs === 1 ? '' : 's'} past ${otto ? 'the plan date' : 'the cut-off'}${b.oldest_due ? ` · oldest due <b>${esc(dd(b.oldest_due))}</b>` : ''}` : 'nothing past its deadline', b.overdue_qty ? 'pl-late' : 'pl-ok'),
       c.basis_days ? block(`Pace · last ${c.basis_days} working day${c.basis_days === 1 ? '' : 's'}`, `${n(c.rate)} <span>${unit} done a day</span>`,
-        `${n(c.demand)} due a day · <b class="${net >= 0 ? 'pl-ok' : 'pl-late'}">${net >= 0 ? '+' : '−'}${n(Math.abs(net))}</b> a day<br><span class="muted">${esc(dd(c.from))} – ${esc(dd(c.to))}</span>`) : '',
+        `${n(c.demand)} due a day · <b class="${net >= 0 ? 'pl-ok' : 'pl-late'}">${net >= 0 ? '+' : '−'}${n(Math.abs(net))}</b> a day<br><span class="muted">${esc(dd(c.from))} – ${esc(dd(c.to))}${b.pace_from === 'runs' ? ' · from the ⏱ timing report' : ''}</span>`) : '',
       b.overdue_qty && c.clear_days !== null && c.clear_days !== undefined && ['ok', 'not_catching_up'].includes(c.status)
         ? block('Clear the overdue', wd(c.clear_days), 'of output, if nothing new came in') : '',
       !b.overdue_qty ? '' : c.status === 'ok' ? block('Catch up', wd(c.catch_days), `with new work still coming · caught up by <b>${c.catch_date ? esc(dd(c.catch_date)) : '—'}</b>`, c.catch_days > 20 ? 'pl-warn' : '')

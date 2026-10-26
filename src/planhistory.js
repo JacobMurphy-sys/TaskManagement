@@ -147,10 +147,85 @@ function donePerDay(sinceIso, ymd) {
     .filter((j) => j.done_by !== 'gap' && j.done_at >= sinceIso).map((j) => ({ date: ymd(j.done_at), qty: j.qty }));
 }
 
+// ⏱ Perso, the same on every PC: built only from the timing report (every run since 1 January, read
+// whole each time), never from what one copy of the app happened to record. Cards persoed on the day
+// their run ended (remakes and M work orders left out); on time when that day isn't after the job's
+// due date in the report (no due date: not known). A job is done when its runs reach its quantity —
+// on the day its last run ended. Lead time: the report's import date → that last run.
+const runKey = (job) => { const J = String(job || '').trim().toUpperCase(); const wo = J.match(/^[A-Z]{5}\d{8}/)?.[0]; if (!wo) return { key: J, wo: J, per: null };
+  const per = J.slice(wo.length).match(/^\D*(\d+)/)?.[1]; return { key: per ? `${wo}/${per.padStart(4, '0')}` : wo, wo, per: per ? per.padStart(4, '0') : null }; };
+function persoRuns(fromDay) {
+  try {
+    return db.all(`SELECT job, machine, end_at, qty, job_qty, due, imported, trigram, customer FROM prod_runs
+      WHERE source = 'perso' AND remake = 0 AND end_at IS NOT NULL AND job NOT LIKE 'M%' AND end_at >= ? ORDER BY end_at`, [fromDay]);
+  } catch { return []; }
+}
+// The jobs in a set of runs: { key → { key, wo, per, customer, cards, job_qty, due, imported, last, machines, complete } }
+function jobsOfRuns(runs) {
+  const m = new Map();
+  for (const r of runs) {
+    const k = runKey(r.job);
+    const j = m.get(k.key) || m.set(k.key, { ...k, customer: r.trigram || r.customer || null, cards: 0, job_qty: 0, due: null, imported: null, last: null, machines: new Set() }).get(k.key);
+    j.cards += r.qty || 0; j.job_qty = Math.max(j.job_qty, r.job_qty || 0);
+    if (r.due && (!j.due || r.due > j.due)) j.due = r.due;
+    if (r.imported && (!j.imported || r.imported < j.imported)) j.imported = r.imported;
+    if (!j.last || r.end_at > j.last) j.last = r.end_at;
+    if (r.machine) j.machines.add(r.machine);
+  }
+  for (const j of m.values()) { j.complete = !j.job_qty || j.cards >= j.job_qty; j.machines = [...j.machines].join(', '); }
+  return m;
+}
+function persoRunsSummary(days) {
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const since = new Date(); since.setHours(0, 0, 0, 0); since.setDate(since.getDate() - (days - 1));
+  const sinceDay = ymd(since);
+  // a job's earlier runs may be before the window: look back a month for them
+  const back = new Date(since); back.setDate(back.getDate() - 31);
+  const runs = persoRuns(ymd(back));
+  const inWin = runs.filter((r) => r.end_at.slice(0, 10) >= sinceDay);
+  const onTime = (r) => (r.due ? r.end_at.slice(0, 10) <= r.due : null);
+  const daily = [];
+  for (let i = 0; i < days; i++) {
+    const d = new Date(since); d.setDate(since.getDate() + i); const day = ymd(d);
+    const list = inWin.filter((r) => r.end_at.slice(0, 10) === day);
+    const sum = (l) => l.reduce((t, r) => t + (r.qty || 0), 0);
+    daily.push({ date: day, jobs: new Set(list.map((r) => runKey(r.job).key)).size, cards: sum(list), on_time_cards: sum(list.filter((r) => onTime(r) === true)), unknown_cards: sum(list.filter((r) => onTime(r) === null)), gap_cards: 0 });
+  }
+  // jobs done: complete, last run in the window
+  const jobs = [...jobsOfRuns(runs).values()].filter((j) => j.complete && j.last.slice(0, 10) >= sinceDay).sort((a, b) => (a.last < b.last ? 1 : -1));
+  const lateDays = (j) => (j.due ? Math.round((new Date(`${j.last.slice(0, 10)}T12:00`) - new Date(`${j.due}T12:00`)) / 86400000) : null);
+  const weekFrom = new Date(); weekFrom.setDate(weekFrom.getDate() - 7); const wf = ymd(weekFrom);
+  const weekRuns = inWin.filter((r) => r.end_at.slice(0, 10) > wf);
+  const known = weekRuns.filter((r) => onTime(r) !== null);
+  const weekJobs = jobs.filter((j) => j.last.slice(0, 10) > wf);
+  const leads = weekJobs.filter((j) => j.imported).map((j) => (new Date(j.last) - new Date(j.imported)) / 3600000).filter((x) => x >= 0);
+  const stamp = (() => { try { return db.get("SELECT COUNT(*) AS n, MIN(start_at) AS first, MAX(end_at) AS last, MAX(read_at) AS read_at FROM prod_runs WHERE source = 'perso'"); } catch { return {}; } })();
+  return {
+    half: 'perso', from: 'runs', days, daily, reads: stamp.n || 0, since: stamp.first || null, last: stamp.last || null, read_at: stamp.read_at || null,
+    week: { jobs: weekJobs.length, cards: weekRuns.reduce((t, r) => t + (r.qty || 0), 0),
+      on_time_pct: known.length ? Math.round((known.filter((r) => onTime(r)).reduce((t, r) => t + (r.qty || 0), 0) / known.reduce((t, r) => t + (r.qty || 0), 0)) * 1000) / 10 : null,
+      lead_hours: leads.length ? Math.round((leads.reduce((a, b) => a + b, 0) / leads.length) * 10) / 10 : null },
+    recent: jobs.slice(0, 60).map((j) => ({ done_at: j.last, wo: j.wo, per: j.per, key: j.key, customer: j.customer, qty: j.job_qty || j.cards, deadline: j.due, late_days: lateDays(j), machines: j.machines, done_by: 'runs' })),
+  };
+}
+// The backlog's pace from the same: cards persoed per day ({ date, qty }), cards due per day — the jobs
+// in the timing report by their due date, plus the open jobs not run yet — and the first day on record.
+function persoPace(sinceDay, openJobs = []) {
+  const runs = persoRuns(sinceDay);
+  const done = runs.map((r) => ({ date: r.end_at.slice(0, 10), qty: r.qty || 0 }));
+  const byJob = jobsOfRuns(persoRuns((() => { const d = new Date(`${sinceDay}T12:00`); d.setDate(d.getDate() - 60); return d.toISOString().slice(0, 10); })()));
+  const due = [...byJob.values()].filter((j) => j.due && j.due >= sinceDay).map((j) => ({ date: j.due, qty: j.job_qty || j.cards }));
+  for (const o of openJobs) if (o.due && o.due >= sinceDay && !byJob.has(String(o.key).toUpperCase())) due.push({ date: o.due, qty: o.qty || 0 });
+  let first = null; try { first = db.get("SELECT MIN(start_at) AS f FROM prod_runs WHERE source = 'perso'")?.f || null; } catch { /* none */ }
+  return { done, due, from: first, any: runs.length > 0 || !!first };
+}
+
 // Completions per day, on time or late, and the latest ones (half: perso, otto = Matching, disp = 🚚 Dispatch).
 // Perso uses the real done times (withFinish); Matching and Dispatch when they left their export.
 const HISTORY = { perso: ['plan_history_jobs', 'plan_history_reads'], otto: ['plan_otto_jobs', 'plan_otto_reads'], disp: ['plan_disp_jobs', 'plan_disp_reads'] };
 function summary({ days = 14, half = 'perso' } = {}) {
+  // Perso: from the timing report alone, once there is one — the same figures on every PC
+  if ((!HISTORY[half] || half === 'perso') && (() => { try { return !!db.get("SELECT 1 FROM prod_runs WHERE source = 'perso' LIMIT 1"); } catch { return false; } })()) return persoRunsSummary(days);
   const [jobsT, readsT] = HISTORY[half] || HISTORY.perso;
   const perso = !HISTORY[half] || half === 'perso';
   const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -184,4 +259,4 @@ function summary({ days = 14, half = 'perso' } = {}) {
 }
 
 const ingestDisp = (jobs, modifiedIso, file) => ingestOtto(jobs, modifiedIso, file, { reads: 'plan_disp_reads', table: 'plan_disp_jobs', via: (j) => j.group });
-module.exports = { ingest, ingestOtto, ingestDisp, summary, withFinish, donePerDay, GAP_HOURS };
+module.exports = { ingest, ingestOtto, ingestDisp, summary, withFinish, donePerDay, persoPace, runKey, GAP_HOURS };

@@ -472,6 +472,7 @@ const TABLES = {
     customer    TEXT,
     trigram     TEXT,
     due         TEXT,
+    imported    TEXT,
     file        TEXT,
     read_at     TEXT    NOT NULL,
     UNIQUE (source, job, machine, start_at)`,
