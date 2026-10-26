@@ -1034,6 +1034,33 @@ async function waitForServer() {
         assert.deepEqual([ds.kind, ds.total, ds.by_machine[0].name, ds.by_wo.map((x) => x.name)], ['scrap', 2, 'MX#3', ['WO1', 'WO2']]);
         await assert.rejects(call('GET', '/kpi/calc/detail?week=nope&col=scrap'), /Which week/);
       }
+      // ♻ remakes from goods consumption: a reason code ending in Err is a remake, linked by its CPS job
+      {
+        const consF = src('Consumption.xlsx', [['Item number'], ['Item name'], ['Item group'], ['Physical date', 'date'], ['Type of transaction'], ['Order number'], ['Quantity', 'number'], ['Customer name'], ['Reason name'], ['Reason code'], ['CPS job']], [
+          ['2121723', 'Amex Gold', 'Dual Card', '2026-03-31', 'PICKING', 'PC1', -3, 'American Express', 'Encoding error', 'EncodingErr', 'CAESS26033101'],
+          ['2121723', 'Amex Gold', 'Dual Card', '2026-03-31', 'PICKING', 'PC1', -1, 'American Express', 'Encoding error', 'EncodingErr', 'CAESS26033101'],
+          ['2121724', 'BNP Visa', 'Contact', '2026-03-31', 'PICKING', 'PC2', -2, 'BNP', 'Print error', 'PrintErr', 'CBNPS26033102'],
+          ['2121723', 'Amex Gold', 'Dual Card', '2026-03-31', 'PICKING', 'PC3', -100, 'American Express', 'Daily', 'Daily', 'CAESS26033101'],
+          ['2121723', 'Amex Gold', 'Dual Card', '2026-03-31', 'PICKING', 'PC4', -50, 'American Express', 'Daily', 'Daily', 'CAESS26033103'],
+          ['2121723', 'Amex Gold', 'Dual Card', null, 'PICKING', 'PC5', -1, 'American Express', 'Daily', 'Daily', 'CAESS26033103']]);
+        await call('PATCH', '/settings', { kpi_src_consumption: consF });
+        const ci = (await call('POST', '/kpi/calc/import', {})).find((r) => r.source === 'consumption');
+        assert.deepEqual([ci.status, ci.rows, ci.remakes, ci.skipped], ['imported', 5, 3, 1], 'all rows read; three …Err transactions; one undated');
+        let cc = await call('GET', '/kpi/calc?year=2026');
+        assert.deepEqual([cc.scrap_from, cc.weeks.find((w) => w.week === 'W2614_1').scrap], ['consumption', 6], 'scrap = cards taken with an …Err code, once consumption is read');
+        const dc = await call('GET', '/kpi/calc/detail?week=W2614_1&col=scrap');
+        assert.deepEqual([dc.from, dc.total, dc.used, dc.rows], ['consumption', 6, 156, 2], 'remade of all cards used; the same card, job, reason and order summed');
+        assert.deepEqual(dc.by_customer.map((x) => [x.name, x.qty, x.used, x.label]), [['AES', 4, 154, 'American Express'], ['BNP', 2, 2, 'BNP']], 'customer from the CPS job, with its share of cards used');
+        assert.deepEqual(dc.by_reason.map((x) => x.name), ['EncodingErr — Encoding error', 'PrintErr — Print error']);
+        assert.deepEqual([dc.by_item[0].name, dc.by_item[0].label, dc.by_wo[0].name, dc.list.length], ['2121723', 'Amex Gold', 'CAESS26033101', 2]);
+        const fw = await call('GET', '/plan/find/wo/CAESS26033101');
+        assert.deepEqual(fw.remakes.map((r) => [r.reason, r.qty, r.item]), [['EncodingErr', 4, '2121723']], 'the work order window shows its remakes');
+        assert.equal((await call('GET', '/plan/find/item/2121724')).remakes[0].wo, 'CBNPS26033102', '…and the card window');
+        await call('PATCH', '/settings', { kpi_scrap_from: 'remakes' });
+        cc = await call('GET', '/kpi/calc?year=2026');
+        assert.deepEqual([cc.scrap_from, cc.weeks.find((w) => w.week === 'W2614_1').scrap], ['remakes', 2], 'machine rejections when chosen');
+        await call('PATCH', '/settings', { kpi_scrap_from: 'auto', kpi_src_consumption: '' });
+      }
       // OTD from Production's report: typed weeks (dates often missing or day/month swapped)
       const otdF = src('OTD Report.xlsx', [['Customer'], ['Quantity', 'number'], ['Type'], ['Date', 'date'], ['Week'], ['Month'], ['Reason']], [
         ['ADY', 50, 'Internal', '2026-03-30', 'W2614_1', 'Mar', 'Card stock out'], ['BEL', 400, 'Internal', '2026-02-04', 'W2614_2', 'Apr', 'Machine Issues'],

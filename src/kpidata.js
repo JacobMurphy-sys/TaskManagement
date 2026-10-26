@@ -26,7 +26,7 @@ const SOURCES = {
     columns: { customer: 'Customer', type: 'Type', due: 'duedate', day: 'shipping Date', qty: 'QtyShipped' },
   },
   remakes: {
-    label: 'Remakes (scrap)', file: 'KPI_2_remakes.xlsx', sheet: 'KPI_2_remakes', workbook: 'Scrap2.0',
+    label: 'Remakes (machine rejections)', file: 'KPI_2_remakes.xlsx', sheet: 'KPI_2_remakes', workbook: 'Scrap2.0',
     columns: { customer: 'Customer', type: 'Type', mode: 'Mode', perso_day: 'Perso Date', wo: 'PersoWO', qty: '#remakes', machine: 'Machine', day: 'Date', time: 'Time', vault_wo: 'VaultWO' },
   },
   // Kept by Production (Table1 of their OTD report); the week is typed in, the date often isn't.
@@ -43,6 +43,16 @@ const SOURCES = {
       closed: 'Closed Date', status: 'Status', type: 'Severity', category: 'Product category', summary: 'Summary of the issue', defect: 'Defect Type', failure: 'Failure / No failure',
       origin: 'Failure Origin', cause: 'Root cause for occurrence', non_detection: 'Root cause for non detection', parts: 'How many parts are confirmed defective?',
       recurrence: 'Re-occurence', failure_type: 'FAILURE TYPE', cost: 'Total cost (Euros)' },
+  },
+  // ♻ Remakes from goods consumption (AX consumption transactions): every card taken from stock, with its
+  // reason code — a code ending in "Err" is a remake. Linked to the work order by its CPS job. No workbook
+  // sheet stands in for it: it's read only once its path is set.
+  consumption: {
+    label: 'Remakes (goods consumption)', file: 'Consumption transactions.xlsx', sheet: 'Sheet1', workbook: null,
+    optional: ['customer_name', 'item_name', 'item_group', 'reason_name', 'transaction', 'order', 'forecast_customer', 'cust_ref', 'serial', 'version', 'warehouse', 'priority', 'ax_warehouse'],
+    columns: { item: 'Item number', day: 'Physical date', reason: 'Reason code', wo: 'CPS job', qty: 'Quantity', customer_name: 'Customer name', item_name: 'Item name', item_group: 'Item group',
+      reason_name: 'Reason name', transaction: 'Type of transaction', order: 'Order number', forecast_customer: 'Forecasted customer', cust_ref: 'Customer item reference',
+      serial: 'Serial number', version: 'Version description', warehouse: 'Warehouse in OTIMS', priority: 'CPS Priority', ax_warehouse: 'Warehouse in AX' },
   },
 };
 // Customer forecasts: read when an A3 is built, into the workbook sheet its query fills
@@ -238,6 +248,7 @@ function readSource(name, bufOrBook, { fromWorkbook = false } = {}) {
 // Replaces a source's rows. Rows without a usable date are counted as skipped.
 function storeSource(name, rows, meta = {}) {
   ensure();
+  if (name === 'consumption') return storeConsumption(rows, meta);
   const splitWeekends = meta.splitWeekends ?? false;
   let skipped = 0; let first = null; let last = null;
   const ins = db.conn.prepare('INSERT INTO kpi_rows (source, day, week, customer, type, qty, scrap, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
@@ -270,6 +281,67 @@ function storeSource(name, rows, meta = {}) {
   return { source: name, rows: rows.length - skipped, skipped, first_day: first, last_day: last };
 }
 
+// ♻ The consumption export: a reason code ending in "Err" is a remake (scrap = the cards taken for it);
+// the rest is ordinary use, kept summed by day, customer and card so remakes can be set against all
+// that was used. Quantities are taken as cards used (AX books them negative; a file of positives is
+// read as it is, and a reversal nets off). The customer is the work order's trigram (CAESS… → AES).
+const isRemakeCode = (code) => /err$/i.test(String(code ?? '').trim());
+const trigramOfWo = (wo) => String(wo ?? '').trim().toUpperCase().match(/^[A-Z]([A-Z]{3})[A-Z]{1,2}\d{6}/)?.[1] || null;
+const timeOf = (v) => { if (typeof v !== 'number') { const m = String(v ?? '').match(/(\d{1,2}):(\d{2})/); return m ? `${m[1].padStart(2, '0')}:${m[2]}` : null; }
+  const min = Math.round((v - Math.floor(v)) * 1440); return min ? `${String(Math.floor(min / 60) % 24).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}` : null; };
+function storeConsumption(rows, meta = {}) {
+  const splitWeekends = meta.splitWeekends ?? false;
+  const raw = rows.reduce((t, r) => t + (Number(r.qty) || 0), 0);
+  const sign = raw > 0 ? 1 : -1; // cards used = −quantity, as AX books them
+  const str = (v) => (v === null || v === undefined || String(v).trim() === '' ? null : String(v).trim());
+  let skipped = 0; let first = null; let last = null; let remakeRows = 0;
+  const remakes = new Map(); const use = new Map();
+  for (const r of rows) {
+    const day = dayOf(r.day);
+    if (!day) { skipped++; continue; }
+    if (!first || day < first) first = day;
+    if (!last || day > last) last = day;
+    const q = (Number(r.qty) || 0) * sign;
+    const wo = str(r.wo)?.toUpperCase() || null; const item = str(r.item); const customer = trigramOfWo(wo) || str(r.customer_name);
+    if (isRemakeCode(r.reason)) {
+      remakeRows++;
+      const k = [day, wo, item, str(r.reason), str(r.order)].join('|');
+      const x = remakes.get(k);
+      if (x) { x.qty += q; continue; }
+      remakes.set(k, { day, customer, type: str(r.reason), qty: q, extra: { wo, item, item_name: str(r.item_name), item_group: str(r.item_group), reason_name: str(r.reason_name),
+        customer_name: str(r.customer_name), forecast_customer: str(r.forecast_customer), order: str(r.order), transaction: str(r.transaction), warehouse: str(r.warehouse),
+        priority: str(r.priority), cust_ref: str(r.cust_ref), time: timeOf(r.day) } });
+    } else {
+      const k = [day, customer, item].join('|');
+      const x = use.get(k);
+      if (x) { x.qty += q; continue; }
+      use.set(k, { day, customer, qty: q, extra: { item, item_name: str(r.item_name), item_group: str(r.item_group), customer_name: str(r.customer_name) } });
+    }
+  }
+  const ins = db.conn.prepare('INSERT INTO kpi_rows (source, day, week, customer, type, qty, scrap, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  db.tx(() => {
+    db.run("DELETE FROM kpi_rows WHERE source = 'consumption'");
+    for (const x of remakes.values()) ins.run('consumption', x.day, weekCode(x.day, { splitWeekends }), x.customer, x.type, x.qty, x.qty, JSON.stringify({ remake: 1, ...x.extra }));
+    for (const x of use.values()) ins.run('consumption', x.day, weekCode(x.day, { splitWeekends }), x.customer, null, x.qty, 0, JSON.stringify(x.extra));
+    db.run(`INSERT INTO kpi_sources (source, file, modified, imported_at, rows, skipped, first_day, last_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(source) DO UPDATE SET file = excluded.file, modified = excluded.modified, imported_at = excluded.imported_at,
+      rows = excluded.rows, skipped = excluded.skipped, first_day = excluded.first_day, last_day = excluded.last_day`,
+    ['consumption', meta.file || null, meta.modified || null, new Date().toISOString(), rows.length - skipped, skipped, first, last]);
+  });
+  return { source: 'consumption', rows: rows.length - skipped, remakes: remakeRows, skipped, first_day: first, last_day: last };
+}
+
+// Where the scrap (remakes) figure comes from: 'consumption' (goods used with an …Err reason) or 'remakes'
+// (the machine rejections export). The setting can say; 'auto' takes consumption once it's been read.
+let scrapPref = () => 'auto';
+const useScrapPref = (fn) => { scrapPref = fn; };
+function scrapSource() {
+  ensure();
+  const p = scrapPref();
+  if (p === 'remakes' || p === 'consumption') return p;
+  return db.get("SELECT 1 AS x FROM kpi_sources WHERE source = 'consumption' AND rows > 0") ? 'consumption' : 'remakes';
+}
+
 // Re-labels stored rows when the weekend setting changes (no need to read the files again).
 function rewriteWeeks(splitWeekends) {
   ensure();
@@ -289,6 +361,7 @@ function importSources({ paths = {}, workbook = null, force = false, splitWeeken
   for (const name of Object.keys(SOURCES)) {
     const file = String(paths[name] || '').trim().replace(/^"|"$/g, '');
     const useWorkbook = !file;
+    if (useWorkbook && !SOURCES[name].workbook) { results.push({ source: name, status: 'not set up' }); continue; }
     const target = file || workbook;
     if (!target) { results.push({ source: name, status: 'not set up' }); continue; }
     let stat;
@@ -320,16 +393,17 @@ function weeklyVolumes(year) {
       SUM(CASE WHEN lower(type) LIKE '%card%' AND customer <> ? THEN qty ELSE 0 END) AS ps,
       SUM(CASE WHEN lower(type) LIKE '%card%' AND customer = ? THEN qty ELSE 0 END) AS isi,
       SUM(CASE WHEN lower(type) LIKE '%pin%' THEN qty ELSE 0 END) AS pin,
-      SUM(qty) AS qty
+      SUM(qty) AS qty, SUM(scrap) AS scrap_sum
     FROM kpi_rows WHERE week LIKE ? GROUP BY source, week`, [ISI_CUSTOMER, ISI_CUSTOMER, `W${String(year).slice(2)}%`]);
   const at = new Map(sums.map((r) => [`${r.source}|${r.week}`, r]));
   const k = (v) => (v || 0) / 1000;
+  const ss = scrapSource();
   const weeks = weeksOf(year).map((w) => {
-    const p = at.get(`perso|${w.week}`); const s = at.get(`shipped|${w.week}`); const r = at.get(`remakes|${w.week}`);
+    const p = at.get(`perso|${w.week}`); const s = at.get(`shipped|${w.week}`); const r = at.get(`${ss}|${w.week}`);
     return {
       ...w,
       perso_ps: k(p?.ps), perso_isi: k(p?.isi), perso_pin: k(p?.pin), perso_total: k((p?.ps || 0) + (p?.isi || 0)),
-      scrap: r?.qty || 0,
+      scrap: (ss === 'consumption' ? r?.scrap_sum : r?.qty) || 0,
       shipped_ps: k(s?.ps), shipped_isi: k(s?.isi), shipped_pin: k(s?.pin), shipped_total: k((s?.ps || 0) + (s?.isi || 0)),
     };
   });
@@ -369,7 +443,9 @@ function weeklyVolumes(year) {
   }
   // activity filed under a week code the report doesn't list (weekends in split weeks)
   const listed = new Set(weeks.map((w) => w.week));
-  const unlisted = sums.filter((r) => r.source !== 'otd' && r.source !== 'salesforce' && !listed.has(r.week) && r.qty).map((r) => ({ source: r.source, week: r.week, ps: r.ps, isi: r.isi, pin: r.pin, qty: r.qty }));
+  const scrapLike = ['remakes', 'consumption'];
+  const unlisted = sums.filter((r) => r.source !== 'otd' && r.source !== 'salesforce' && (!scrapLike.includes(r.source) || r.source === ss) && !listed.has(r.week))
+    .map((r) => ({ source: scrapLike.includes(r.source) ? 'remakes' : r.source, week: r.week, ps: r.ps, isi: r.isi, pin: r.pin, qty: r.source === 'consumption' ? r.scrap_sum : r.qty })).filter((r) => r.qty);
   // OTD rows whose date and typed week disagree (dates read as month/day, usually)
   const otdRows = db.all("SELECT customer, qty, type, day, week, extra FROM kpi_rows WHERE source = 'otd'").map((r) => ({ ...r, ...JSON.parse(r.extra || '{}') }));
   // not counted: no usable week typed, or a split week without telling which part
@@ -381,7 +457,7 @@ function weeklyVolumes(year) {
   const otdChecks = otdRows.filter((r) => r.day && r.week && r.typed_week && r.date_week && r.typed_week !== r.date_week)
     .map((r) => ({ customer: r.customer, qty: r.qty, type: r.type, date: r.day, typed_week: r.typed_week, date_week: r.date_week,
       swapped: (() => { const [y, mo, d] = r.day.split('-'); return Number(d) <= 12 && weekCode(`${y}-${d}-${mo}`) === r.typed_week; })() }));
-  return { weeks, unlisted, otd_checks: otdChecks, otd_uncounted: otdUncounted };
+  return { weeks, unlisted, otd_checks: otdChecks, otd_uncounted: otdUncounted, scrap_from: ss };
 }
 
 // The figures worked out from others (totals and KPIs), from a week's inputs.
@@ -414,6 +490,11 @@ const ADJUSTABLE = [...ADJUSTABLE_INPUTS, ...ADJUSTABLE_DERIVED];
 // week from the perso date.
 function topScrap(week, n = 5) {
   ensure();
+  if (scrapSource() === 'consumption') { // by the day the cards were taken for the remake
+    const rows = db.all("SELECT customer, scrap, extra FROM kpi_rows WHERE source = 'consumption' AND scrap <> 0 AND week = ?", [week]).map((r) => ({ customer: r.customer, qty: r.scrap, ...JSON.parse(r.extra || '{}') }));
+    const top = (key) => { const m = new Map(); for (const r of rows) { const k = key(r); if (!k) continue; m.set(k, (m.get(k) || 0) + (r.qty || 0)); } return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, n); };
+    return { customers: top((r) => r.customer), orders: top((r) => r.wo) };
+  }
   const rows = db.all("SELECT qty, extra FROM kpi_rows WHERE source = 'remakes'").map((r) => ({ qty: r.qty, ...JSON.parse(r.extra || '{}') }))
     .filter((r) => r.perso_day && weekCode(r.perso_day) === week);
   const top = (key) => {
@@ -477,6 +558,7 @@ function figureDetail(week, col) {
     return { kind: 'volume', week, col, source: vm[1], total: rows.reduce((t, r) => t + r.qty, 0), rows: rows.length,
       by_customer: group(rows, (r) => r.customer), by_day: days(rows), by_type: group(rows, (r) => r.type) };
   }
+  if (col === 'scrap' && scrapSource() === 'consumption') return consumptionDetail(week, group, days);
   if (col === 'scrap') {
     const rows = db.all("SELECT day, customer, type, qty, extra FROM kpi_rows WHERE source = 'remakes' AND week = ?", [week]).map((r) => ({ ...r, ...JSON.parse(r.extra || '{}') }));
     return { kind: 'scrap', week, col, total: rows.reduce((t, r) => t + r.qty, 0), rows: rows.length,
@@ -494,6 +576,25 @@ function figureDetail(week, col) {
     contract: m.contract, temps: m.temps, cc_critical: m.cc_critical, cc_major: m.cc_major, cc_minor: m.cc_minor, created_at: m.created_at, updated_at: m.updated_at } : null };
 }
 
+// ♻ A week's remakes from the consumption export: by customer (with the share of all their cards used),
+// reason, card, card group, work order and day, and the transactions themselves.
+function consumptionDetail(week, group, days) {
+  const all = db.all("SELECT day, customer, type, qty, scrap, extra FROM kpi_rows WHERE source = 'consumption' AND week = ?", [week]).map((r) => ({ ...r, ...JSON.parse(r.extra || '{}') }));
+  const rows = all.filter((r) => r.remake).map((r) => ({ ...r, qty: r.scrap }));
+  const usedBy = new Map(); for (const r of all) usedBy.set(r.customer || '(blank)', (usedBy.get(r.customer || '(blank)') || 0) + r.qty);
+  const names = new Map(); for (const r of all) if (r.customer && r.customer_name && !names.has(r.customer)) names.set(r.customer, r.customer_name);
+  const itemNames = new Map(); for (const r of all) if (r.item && r.item_name && !itemNames.has(r.item)) itemNames.set(r.item, r.item_name);
+  const used = all.reduce((t, r) => t + r.qty, 0); const total = rows.reduce((t, r) => t + r.qty, 0);
+  const pct = (a, b) => (b ? Math.round((a / b) * 10000) / 100 : null);
+  return { kind: 'scrap', from: 'consumption', week, col: 'scrap', total, rows: rows.length, used, rate: pct(total, used),
+    by_customer: group(rows, (r) => r.customer).map((x) => ({ ...x, label: names.get(x.name) || null, used: usedBy.get(x.name) || 0, pct: pct(x.qty, usedBy.get(x.name)) })),
+    by_reason: group(rows, (r) => (r.reason_name && r.reason_name !== r.type ? `${r.type} — ${r.reason_name}` : r.type)),
+    by_item: group(rows, (r) => r.item, 15).map((x) => ({ ...x, label: itemNames.get(x.name) || null })),
+    by_group: group(rows, (r) => r.item_group), by_wo: group(rows, (r) => r.wo, 10), by_day: days(rows),
+    list: rows.slice().sort((a, b) => (a.day + (a.time || '')).localeCompare(b.day + (b.time || '')) || b.qty - a.qty).slice(0, 500)
+      .map((r) => ({ day: r.day, time: r.time || null, wo: r.wo, customer: r.customer, item: r.item, item_name: r.item_name, reason: r.type, reason_name: r.reason_name, qty: r.qty, order: r.order, transaction: r.transaction })) };
+}
+
 // The Salesforce cases opened in a week, in the order opened: [{ customer, summary, severity, ref }],
 // or null when the Salesforce export hasn't been read.
 function complaintsOf(week) {
@@ -506,7 +607,9 @@ function complaintsOf(week) {
 function sourcesStatus() {
   ensure();
   const have = Object.fromEntries(db.all('SELECT * FROM kpi_sources').map((r) => [r.source, r]));
-  return Object.entries(SOURCES).map(([name, s]) => ({ source: name, label: s.label, default_file: s.file, sheet: s.sheet, workbook_sheet: s.workbook, ...(have[name] || {}) }));
+  const remakes = db.get("SELECT COUNT(*) AS n, COALESCE(SUM(scrap), 0) AS cards FROM kpi_rows WHERE source = 'consumption' AND scrap <> 0");
+  return Object.entries(SOURCES).map(([name, s]) => ({ source: name, label: s.label, default_file: s.file, sheet: s.sheet, workbook_sheet: s.workbook, ...(have[name] || {}),
+    ...(name === 'consumption' ? { remake_rows: remakes.n, remake_cards: remakes.cards } : {}) }));
 }
 
 // Columns of the Database sheet's weekly block (rows 63+, week code in B) these match.
@@ -528,4 +631,4 @@ const hoursFromProtime = (days) => {
   return Math.round((all.reduce((a, b) => a + b, 0) * 7.5 + weekdays * 7.5) * 100) / 100;
 };
 
-module.exports = { complaintsOf, ADJUSTABLE, derive, figureDetail, SOURCES, FORECASTS, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, typedWeekCode, monthIndex, otdRows, topScrap, shippedFor, weekEnd, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };
+module.exports = { scrapSource, useScrapPref, isRemakeCode, trigramOfWo, complaintsOf, ADJUSTABLE, derive, figureDetail, SOURCES, FORECASTS, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, typedWeekCode, monthIndex, otdRows, topScrap, shippedFor, weekEnd, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };

@@ -535,10 +535,10 @@ async function renderKpiSources() {
   const unlisted = calc.unlisted.filter((u) => u.qty);
   const srcRow = (s) => `<tr data-src="${s.source}">
       <td><b>${esc(s.label)}</b><div class="small muted">${esc(s.default_file)}</div></td>
-      <td><input type="text" name="kpi_src_${s.source}" value="${esc(settings[`kpi_src_${s.source}`] || '')}" placeholder="Blank: the workbook's ${esc(s.workbook_sheet)} sheet" title="Full path, e.g. S:\\…\\Source Data\\${esc(s.default_file)}"></td>
+      <td><input type="text" name="kpi_src_${s.source}" value="${esc(settings[`kpi_src_${s.source}`] || '')}" placeholder="${s.workbook_sheet ? `Blank: the workbook's ${esc(s.workbook_sheet)} sheet` : 'Full path to the export — not read until it\'s set'}" title="Full path, e.g. S:\\…\\Source Data\\${esc(s.default_file)}"></td>
       <td class="small">${s.imported_at ? `${esc(fmtDateTime(s.imported_at))}<div class="muted">${s.file && /\.xlsm$/i.test(s.file) && !settings[`kpi_src_${s.source}`] ? `from the workbook's ${esc(s.workbook_sheet)}` : 'from the file'}</div>` : '<span class="muted">not read yet</span>'}</td>
       <td class="small">${s.modified ? esc(fmtDateTime(s.modified)) : ''}</td>
-      <td class="num">${s.rows ? s.rows.toLocaleString('en-GB') : ''}${s.skipped ? `<div class="small muted" title="Rows without a date">${s.skipped.toLocaleString('en-GB')} undated</div>` : ''}</td>
+      <td class="num">${s.rows ? s.rows.toLocaleString('en-GB') : ''}${s.remake_rows ? `<div class="small muted" title="Transactions with a reason code ending in Err">♻ ${s.remake_cards.toLocaleString('en-GB')} cards remade</div>` : ''}${s.skipped ? `<div class="small muted" title="Rows without a date">${s.skipped.toLocaleString('en-GB')} undated</div>` : ''}</td>
       <td class="small">${s.first_day ? `${esc(s.first_day)} → ${esc(s.last_day)}` : ''}</td></tr>`;
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
@@ -552,6 +552,11 @@ async function renderKpiSources() {
       <h2 style="margin-top:0">Source files <span class="muted small">— the hourly exports the KPIs are worked out from</span></h2>
       <table class="log"><thead><tr><th>Source</th><th>File</th><th>Last read</th><th>File saved</th><th class="num">Rows</th><th>Dates</th></tr></thead>
         <tbody>${calc.sources.map(srcRow).join('')}</tbody></table>
+      <div class="row small kc-scrap-from" style="gap:8px;align-items:center;margin:8px 0">
+        <b>♻ Scrap (remakes) counted from</b>
+        <select id="kc-scrap-from" style="width:auto;max-width:100%">${[['auto', `Automatic — goods consumption once its file is set and read (now: ${calc.scrap_from === 'consumption' ? 'consumption' : 'machine rejections'})`], ['consumption', 'Goods consumption — cards taken with an …Err reason code'], ['remakes', 'Machine rejections (KPI_2_remakes, as Excel)']]
+          .map(([v, l]) => `<option value="${v}" ${(settings.kpi_scrap_from || 'auto') === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+        ${calc.scrap_from === 'consumption' ? '<span class="muted">Excel\'s scrap comes from machine rejections, so the scrap figures and scrap % won\'t match its Database sheet.</span>' : ''}</div>
       <p class="small muted">Leave a file blank to use the matching import sheet of the CI workbook — handy until the paths are set.
         Only files saved since the last read are read again. Nothing is changed in any file.</p>
       <label class="row small"><input type="checkbox" id="kc-weekends" ${calc.split_weekends ? 'checked' : ''}>
@@ -568,6 +573,10 @@ async function renderKpiSources() {
     ${calc.otd_uncounted?.length || calc.otd_checks?.length ? `<div class="card" style="margin-top:12px"><h2 style="margin-top:0">OTD report checks <span class="muted small">— rows to fix in Production's OTD report</span></h2>${kpiOtdChecksHtml(calc)}</div>` : ''}`;
   wireKpiSetup();
   wireKpiShared();
+  $('#kc-scrap-from').addEventListener('change', async (e) => {
+    try { await api.patch('/settings', { kpi_scrap_from: e.target.value }); toast('Scrap source changed — built A3s show as out of date until rebuilt'); } catch (err) { toast(err.message, 'error'); }
+    route();
+  });
   $('#kc-weekends').addEventListener('change', async (e) => {
     try { await api.post('/kpi/calc/weekends', { split: e.target.checked }); toast(e.target.checked ? 'Weekend days now counted in their month\'s part' : 'Weekend days of split weeks left out, as in Excel'); } catch (err) { toast(err.message, 'error'); }
     route();
@@ -935,7 +944,21 @@ async function kpiFigureDetail(col, week, calc) {
     body = `${head(esc(kpiFmt(col, w[col]) || '—'))}<p>${esc(formulas[col]())}</p><p class="small muted">Click the figures on the Source tab for what's behind each of them.</p>`;
   } else {
     let d; try { d = await api.get(`/kpi/calc/detail?week=${encodeURIComponent(week)}&col=${encodeURIComponent(col)}`); } catch (err) { toast(err.message, 'error'); return; }
-    if (d.kind === 'volume' || d.kind === 'scrap') {
+    if (d.kind === 'scrap' && d.from === 'consumption') {
+      const lbl = (list) => (x) => { const f = list.find((y) => y.name === x); return f?.label ? `${x} — ${f.label}` : x; };
+      const custRows = (d.by_customer || []).map((x) => `<tr><td><b>${esc(x.name)}</b> <span class="muted">${esc(x.label || '')}</span></td><td class="num"><b>${n(x.qty)}</b></td><td class="num">${n(x.used)}</td>
+        <td class="num ${x.pct >= 1 ? 'pl-late' : ''}">${x.pct === null ? '—' : `${x.pct.toLocaleString('en-GB', { maximumFractionDigits: 2 })}%`}</td></tr>`).join('');
+      body = `${head(`${n(d.total)} <span class="small muted">cards remade</span>`)}
+        <p class="small muted">From the goods consumption export: cards taken from stock with a reason code ending in <b>Err</b> in ${esc(week)} (by the day they were taken) — ${n(d.rows)} transaction${d.rows === 1 ? '' : 's'}${d.used ? `, ${d.rate?.toLocaleString('en-GB', { maximumFractionDigits: 2 }) ?? '—'}% of the ${n(d.used)} cards used that week` : ''}. Excel's figure comes from machine rejections, so it differs.</p>
+        ${d.rows ? `<div class="kfd-block"><h4>By customer <span class="muted small">— remade, of all cards used</span></h4><table class="log small kfd"><thead><tr><th>Customer</th><th class="num">Remade</th><th class="num">Cards used</th><th class="num">Remade %</th></tr></thead><tbody>${custRows}</tbody></table></div>
+          <div class="kfd-grid">${bars('By reason code', d.by_reason)}${bars('By card (AX)', d.by_item, { name: lbl(d.by_item), limit: 10 })}${bars('By card group', d.by_group)}
+          ${bars('Top work orders', d.by_wo, { name: (x) => x })}${bars('By day', d.by_day, { name: dayName })}</div>
+          <details class="kfd-block"><summary><b>The transactions</b> <span class="muted small">(${n(d.list.length)}${d.rows > d.list.length ? ` of ${n(d.rows)}` : ''}) — click a work order for everything about it</span></summary>
+            <div class="kdb-scroll"><table class="log small"><thead><tr><th>Date</th><th>Work order (CPS job)</th><th>Customer</th><th>Card (AX)</th><th>Card name</th><th>Reason</th><th class="num">Cards</th><th>Order</th></tr></thead><tbody>
+            ${d.list.map((r) => `<tr><td>${esc(dayName(r.day))}${r.time ? ` <span class="muted">${esc(r.time)}</span>` : ''}</td><td>${r.wo ? `<button class="link" data-kfd-wo="${esc(r.wo)}" title="Everything about this work order">${esc(r.wo)}</button>` : '—'}</td>
+              <td>${esc(r.customer || '')}</td><td>${esc(r.item || '')}</td><td>${esc(r.item_name || '')}</td><td title="${esc(r.reason_name || '')}">${esc(r.reason || '')}</td><td class="num">${n(r.qty)}</td><td class="small muted">${esc(r.order || '')}</td></tr>`).join('')}</tbody></table></div></details>`
+          : '<p class="muted">No remakes in the consumption export for this week.</p>'}`;
+    } else if (d.kind === 'volume' || d.kind === 'scrap') {
       const unit = d.kind === 'scrap' ? 'cards scrapped' : 'cards';
       body = `${head(`${n(d.total)} <span class="small muted">${unit}${d.kind === 'volume' ? ` (${esc(kpiFmt(col, d.total / 1000))} kU)` : ''}</span>`)}
         <p class="small muted">${n(d.rows)} row${d.rows === 1 ? '' : 's'} of the ${esc(d.kind === 'scrap' ? 'remakes' : d.source)} export in ${esc(week)}.${col.endsWith('_ps') ? ' PS = every customer but Techniker Krankenkasse (ISI).' : ''}</p>
@@ -965,6 +988,8 @@ async function kpiFigureDetail(col, week, calc) {
   openModal(`<div class="modal-head"><h2 style="margin:0">${esc(label)} <span class="muted">· ${esc(week)}</span></h2><button class="icon" data-action="close-modal">✕</button></div>
     ${kpiAdjustHtml(col, w)}${body}<div class="row" style="margin-top:12px"><div class="spacer"></div><button onclick="closeModal()">Close</button></div>`, { wide: true });
   wireKpiAdjust(col, week, w);
+  // ♻ a remake's work order: everything about it (Production's 🔍 window)
+  $$('[data-kfd-wo]').forEach((b) => b.addEventListener('click', () => { closeModal(); pfBack.length = 0; pfOpen('wo', b.dataset.kfdWo); }));
 }
 
 // ✎ Adjusting a worked-out figure by hand: the value used instead, and why (required). Shown in

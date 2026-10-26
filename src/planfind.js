@@ -117,10 +117,20 @@ function workorder(woIn, { lines = [], otto = [], disp = [], cards = null } = {}
   const customer = first?.customer || (/^C[A-Z]{3}/i.test(wo) ? wo.slice(1, 4) : null);
   const cust = customer && cards ? [...cards.values()].find((c) => String(c.trigram || '').toUpperCase() === customer)?.customer || null : null;
   const dispatch = disp.filter((j) => String(j.wo).toUpperCase() === wo).map((j) => ({ name: j.name, qty: j.qty, status: j.status, due: j.due, done: !!j.done, prio: j.prio, live: j.live, group: j.group }));
-  const found = open.length || matching.length || dispatch.length || history.length || runs.length;
-  return { wo, found: !!found, customer, customer_name: cust, open, matching, dispatch, history, runs: runs.map(runRow),
+  const remakes = consumptionRemakes("upper(json_extract(extra, '$.wo')) = ?", [wo]);
+  const found = open.length || matching.length || dispatch.length || history.length || runs.length || remakes.length;
+  return { wo, found: !!found, customer, customer_name: cust, open, matching, dispatch, history, runs: runs.map(runRow), remakes,
     makeup: makeup(wo, { open, history, perso, cards }),
     perso: totals(perso), otto: totals(matchRuns), items: [...new Set([...open.map((l) => l.article), ...perso.map((r) => r.item)].filter(Boolean))] };
+}
+
+// ♻ Remakes from the goods consumption export (Reporting's source): the cards taken with an …Err reason
+// code, for a work order (its CPS job) or a card (AX). [] until that export has been read.
+function consumptionRemakes(where, args) {
+  try {
+    return db.all(`SELECT day, customer, type AS reason, scrap AS qty, extra FROM kpi_rows WHERE source = 'consumption' AND scrap <> 0 AND ${where} ORDER BY day DESC LIMIT 200`, args)
+      .map((r) => { const e = JSON.parse(r.extra || '{}'); return { day: r.day, time: e.time || null, customer: r.customer, reason: r.reason, reason_name: e.reason_name || null, qty: r.qty, wo: e.wo || null, item: e.item || null, item_name: e.item_name || null, order: e.order || null }; });
+  } catch { return []; } // no consumption read yet
 }
 
 /** Everything about a card (AX). ctx as suggest(), plus model (planlearn's, for the learned time). */
@@ -142,8 +152,9 @@ function item(axIn, { lines = [], cards = null, model = null, predict = null } =
     const p = predict(model, { article: ax, qty: 1000, customer: customer ? String(customer).toUpperCase() : null, kindKey });
     if (p) learned = { per_hour: Math.round(p.rate), setup: r1(p.setup), from: p.from, runs: p.runs, minutes_1000: Math.round(p.minutes) };
   }
-  const found = !!(card || open.length || runs.length);
-  return { ax, found, label: String(axIn).trim(), name, card, open, runs: runs.slice(-40).reverse().map(runRow), total: totals(runs),
+  const remakes = consumptionRemakes("ltrim(upper(json_extract(extra, '$.item')), '0') = ltrim(?, '0')", [ax]);
+  const found = !!(card || open.length || runs.length || remakes.length);
+  return { ax, found, remakes, label: String(axIn).trim(), name, card, open, runs: runs.slice(-40).reverse().map(runRow), total: totals(runs),
     median_per_hour: rates.length ? Math.round(median(rates)) : null, by_machine: byMachine, by_customer: byCustomer, learned,
     jobs: [...new Set(runs.map((r) => planning.woOfName(r.job)))].slice(-30).reverse() };
 }

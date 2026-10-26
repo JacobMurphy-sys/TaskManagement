@@ -1505,6 +1505,8 @@ router.post('/kpi/load-path', h((req, res) => {
 // ---- KPIs worked out from the source files ------------------------------------------------
 
 const kpiData = require('./kpidata');
+// ♻ scrap from consumption or machine rejections: automatic only takes consumption while its export is linked
+kpiData.useScrapPref(() => { const s = getSettings(); const p = s.kpi_scrap_from || 'auto'; return p === 'auto' && !String(s.kpi_src_consumption || '').trim() ? 'remakes' : p; });
 const splitWeekends = () => getSettings().kpi_split_weekends === '1';
 
 // Excel's figures for each week, from the newest loaded week that has the Database values.
@@ -1534,7 +1536,7 @@ router.get('/kpi/calc', h((req, res) => {
 router.post('/kpi/calc/import', h((req, res) => {
   const set = getSettings();
   const results = kpiData.importSources({
-    paths: { perso: set.kpi_src_perso, shipped: set.kpi_src_shipped, remakes: set.kpi_src_remakes, otd: set.kpi_src_otd, salesforce: set.kpi_src_salesforce },
+    paths: { perso: set.kpi_src_perso, shipped: set.kpi_src_shipped, remakes: set.kpi_src_remakes, consumption: set.kpi_src_consumption, otd: set.kpi_src_otd, salesforce: set.kpi_src_salesforce },
     workbook: set.kpi_workbook_path || null, force: !!req.body.force, splitWeekends: splitWeekends(),
   });
   log.info('KPI sources imported', results.map((r) => `${r.source}: ${r.status}${r.rows !== undefined ? ` (${r.rows})` : ''}`).join(', '));
@@ -2575,7 +2577,7 @@ const SETTING_DEFAULTS = {
   kpi_export_dir: '', kpi_export_sub: 'WK{wk}', kpi_export_name: 'A3 {year} WK{wk}.xlsx',
   // The source files the KPIs are worked out from (blank: use the workbook's import sheets),
   // and whether weekend days in a week split across two months count in their month's part.
-  kpi_src_perso: '', kpi_src_shipped: '', kpi_src_remakes: '', kpi_src_otd: '', kpi_src_salesforce: '', kpi_split_weekends: '0',
+  kpi_src_perso: '', kpi_src_shipped: '', kpi_src_remakes: '', kpi_src_consumption: '', kpi_scrap_from: 'auto', kpi_src_otd: '', kpi_src_salesforce: '', kpi_split_weekends: '0',
   // The customer forecast files (blank: the workbook's copy of them).
   kpi_fc_benelux: '', kpi_fc_amex: '',
   // ⏱ The daily timing reports (each job's start and end on its machine), perso and Matching.

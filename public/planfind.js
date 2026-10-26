@@ -107,6 +107,18 @@ function pfMakeupHtml(m) {
     </tbody></table></div>`;
 }
 
+// ♻ Remakes from the goods consumption export (Reporting): totals by reason, and the transactions.
+function pfRemakesHtml(list, { wo = true, item = true } = {}) {
+  if (!list?.length) return '';
+  const total = list.reduce((t, r) => t + r.qty, 0);
+  const byReason = [...list.reduce((m, r) => m.set(r.reason, (m.get(r.reason) || 0) + r.qty), new Map())].sort((a, b) => b[1] - a[1]);
+  return `<h3 class="pl-h">♻ Remakes <span class="muted small">— ${pfN(total)} card${total === 1 ? '' : 's'} taken from stock again (goods consumption, …Err reason codes): ${byReason.map(([k, q]) => `${esc(k)} ${pfN(q)}`).join(' · ')}</span></h3>
+    <div class="kdb-scroll pf-scroll"><table class="log pll-t"><thead><tr><th>Date</th>${wo ? '<th>Work order</th>' : ''}${item ? '<th>Card (AX)</th><th>Card</th>' : ''}<th>Reason</th><th class="num">Cards</th><th>Order</th></tr></thead><tbody>
+    ${list.map((r) => `<tr><td class="small">${esc(fmtShortDate(`${r.day}T12:00`))}${r.time ? ` <span class="muted">${esc(r.time)}</span>` : ''}</td>${wo ? `<td>${r.wo ? pfWoLink(r.wo) : '—'}</td>` : ''}
+      ${item ? `<td>${r.item ? pfItemLink(r.item) : '—'}</td><td class="small">${esc(r.item_name || '')}</td>` : ''}<td class="small" title="${esc(r.reason_name || '')}">${esc(r.reason || '')}</td><td class="num">${pfN(r.qty)}</td><td class="small muted">${esc(r.order || '')}</td></tr>`).join('')}
+    </tbody></table></div>`;
+}
+
 function pfWoHtml(d) {
   if (!d.found) return `${pfHead(`🔍 ${esc(d.wo)}`)}<p>No work order <b>${esc(d.wo)}</b> in the open work orders, the Matching export, the plan history or the production runs.</p>`;
   // where it is in the plan drawn on the page (open work orders only)
@@ -139,6 +151,7 @@ function pfWoHtml(d) {
       ${d.history.map((h) => `<tr><td>${esc(h.per || h.key)}</td><td class="num">${pfN(h.qty)}</td><td class="small">${esc(pfWhen(h.first_seen))}</td><td class="small">${esc(pfWhen(h.started_at))}</td><td class="small">${esc(h.done_at ? fmtDateTime(h.done_at) : 'not yet')}</td>
         <td class="small">${esc(h.deadline ? fmtDateTime(h.deadline) : '—')}</td><td>${h.done_at ? lateText(h.late_minutes) : '—'}</td></tr>`).join('')}
     </tbody></table></div>` : ''}
+    ${pfRemakesHtml(d.remakes, { wo: false })}
     <h3 class="pl-h">Production runs</h3>
     ${P.runs || O.runs ? `<div class="kdb-tiles">${pfTile('Perso runs', pfN(P.runs), P.machines.join(', '))}${pfTile('Cards run', pfN(P.cards), P.remade ? `${pfN(P.remade)} remade` : '')}${pfTile('Time', P.minutes ? fmtSpan(P.minutes) : '—', P.per_hour ? `${pfN(P.per_hour)} cards/h` : '')}
       ${pfTile('First → last', P.first ? esc(fmtShortDate(P.first)) : '—', P.last ? `to ${esc(fmtDateTime(P.last))}` : '')}${O.runs ? pfTile('Matching runs', pfN(O.runs), `${pfN(O.cards)} items · ${O.minutes ? fmtSpan(O.minutes) : '—'}`) : ''}</div>` : ''}
@@ -164,6 +177,7 @@ function pfItemHtml(d) {
       ${d.open.map((l) => `<tr><td>${pfWoLink(l.wo)}</td><td>${esc(l.per)}</td><td class="num">${pfN(l.qty)}</td><td class="small">${esc(l.status || '')}</td><td class="small">${esc(l.due || '')}</td><td class="small">${esc(l.prio || '')}</td><td class="small">${esc(l.shipper || '')}</td></tr>`).join('')}
     </tbody></table></div>` : ''}
     ${d.by_machine.length || d.by_customer.length ? `<div class="grid pll-grid">${group(d.by_machine, 'By machine')}${group(d.by_customer, 'By customer')}</div>` : ''}
+    ${pfRemakesHtml(d.remakes, { item: false })}
     <h3 class="pl-h">Latest runs ${d.runs.length ? `<span class="muted small">${d.runs.length < T.runs ? `the last ${d.runs.length} of ${pfN(T.runs)}` : ''}</span>` : ''}</h3>
     ${pfRunsTable(d.runs, { item: false, job: true })}`;
 }
