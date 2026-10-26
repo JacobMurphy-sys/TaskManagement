@@ -1087,26 +1087,26 @@ function orderSpec(p, mode, { split = false } = {}, now = new Date()) {
     ...(byMode[mode] || []),
     { h2: 'The sheet' }, { ul: ['Colours: **red** = past its deadline when printed (LATE); **amber** = due today; **blue** = due tomorrow; otherwise the date is shown.', '**!** = High / Urgent priority; **PIN** = pinned; the number is the place in the order.'] }];
 }
-// Matching: Incoming (its perso work order still open), In Progress (started at Matching), Ready (perso
-// done, not started at Matching) — each in the Matching list's order (plan date, then Urgent / High first).
+// Matching, in the order the work moves: Incoming (its perso work order still open), Ready (perso done,
+// not started at Matching), In Progress (started at Matching) — each in the Matching list's order (plan date, then Urgent / High first).
 function ottoGroups(ot) {
   const fmt = (iso) => PLF.wkHm.format(new Date(iso));
   const row = (o, extra = {}) => ({ job: { ...o, is_otto: true, running: false, pinned: false, ...extra }, qty: o.qty });
   const all = [...ot.running, ...ot.queue];
   return [
     { type: 'Incoming', rows: ot.queue.filter((o) => o.perso_open).map((o) => ({ ...row(o), note: o.perso_finish_at ? `perso ready ~ ${fmt(o.perso_finish_at)}` : `${o.perso.length} perso job${o.perso.length === 1 ? '' : 's'} open` })) },
-    { type: 'In Progress', noOverdue: true, rows: all.filter((o) => o.running).map((o) => row(o, { keep: true })) },
     { type: 'Ready', rows: ot.queue.filter((o) => !o.perso_open).map((o) => row(o)) },
+    { type: 'In Progress', noOverdue: true, rows: all.filter((o) => o.running).map((o) => row(o, { keep: true })) },
   ];
 }
 function ottoSpec({ split = false } = {}, now = new Date()) {
   return [{ h1: 'How this list was ordered' }, { note: `Testing mode · printed ${now.toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` },
-    { h2: 'The three lists' }, { ul: ['**Incoming** — Matching jobs whose perso work order is still being made. They can\'t start yet; the note shows when perso is expected to be ready.', '**In Progress** — Matching jobs already started.',
-      '**Ready** — Matching jobs whose perso work is finished and that haven\'t been started yet: these can be picked up now.', ...(split ? ['Overdue Incoming and Ready jobs (past their plan date) are put on a separate **Overdue** sheet for that list.'] : [])] },
+    { h2: 'The three lists' }, { ul: ['**Incoming** — Matching jobs whose perso work order is still being made. They can\'t start yet; the note shows when perso is expected to be ready.', '**Ready** — Matching jobs whose perso work is finished and that haven\'t been started yet: these can be picked up now.',
+      '**In Progress** — Matching jobs already started.', ...(split ? ['Overdue Incoming and Ready jobs (past their plan date) are put on a separate **Overdue** sheet for that list.'] : [])] },
     { h2: 'Order — in every list' }, { ol: ['Earliest plan date and time first.', 'Same time: Urgent, then High, then the rest.', 'Still the same: by name.'] },
     { h2: 'The sheet' }, { ul: ['Colours: **red** = past its plan date when printed (LATE); **amber** = due today; **blue** = due tomorrow; otherwise the date is shown.', '**!** = Urgent / High priority; the number is the place in the list.'] }];
 }
-// 📄 Generate plan — Perso (a sheet per cell) or Matching (Incoming / In Progress / Ready): as a PDF to
+// 📄 Generate plan — Perso (a sheet per cell) or Matching (Incoming / Ready / In Progress): as a PDF to
 // print, or as a web page.
 const SIDE_ROWS = 20; // rows per sheet side by side that keep it to one page
 function printDialog(p, mode, settings = {}, half = 'perso') {
