@@ -523,8 +523,9 @@ async function renderPlanning() {
     const oOver = allO.filter((o) => deadlineAt(o) && deadlineAt(o) < today);
     const oToday = allO.filter((o) => o.due === todayIso);
     const waiting = allO.filter((o) => o.perso_open);
-    const persoCell = (o) => (!o.perso_open ? `<span class="pl-ok" title="No perso job open for ${esc(o.wo)} in the open work orders">✔ perso done</span>`
-      : `<span class="${behind(o) ? 'pl-late' : 'pl-warn'}">⏳ ${o.perso.length} perso job${o.perso.length === 1 ? '' : 's'} open</span>${o.perso_finish_at ? `<div class="small ${behind(o) ? 'pl-late' : 'muted'}">ready ${esc(PLF.wkHm.format(new Date(o.perso_finish_at)))}${behind(o) ? ' — after the plan date' : ''}</div>` : ''}`);
+    const carriersLine = (o) => { const c = ottoReadiness(o).carriers; return c ? `<div class="small ${c === 'ready' ? 'pl-ok' : c === 'not ready' ? 'pl-warn' : 'muted'}" title="From the CPS status: ${esc(o.status || '')}">✉️ carriers ${esc(c)}</div>` : ''; };
+    const persoCell = (o) => (!o.perso_open ? `<span class="pl-ok" title="No perso job open for ${esc(o.wo)} in the open work orders">✔ perso done</span>${carriersLine(o)}`
+      : `<span class="${behind(o) ? 'pl-late' : 'pl-warn'}">⏳ ${ottoReadiness(o).cards === 'in progress' ? 'cards in progress' : `${o.perso.length} perso job${o.perso.length === 1 ? '' : 's'} open`}</span>${o.perso_finish_at ? `<div class="small ${behind(o) ? 'pl-late' : 'muted'}">ready ${esc(PLF.wkHm.format(new Date(o.perso_finish_at)))}${behind(o) ? ' — after the plan date' : ''}</div>` : ''}${carriersLine(o)}`);
     const orow = (o, i) => { const l = left(o); return `<tr class="pl-job ${l.cls ? `${l.cls}-row` : ''} ${behind(o) ? 'pl-late-row' : ''}" data-pl-job="otto:${esc(o.key)}">
       <td class="num muted pl-n">${i === null ? '▶' : i + 1}</td>
       <td><b>${esc(o.due ? dayLabel(o.due) : '—')}</b> <span ${o.time_from ? 'title="The cut-off of the perso work order\'s shipper — the matching export has no time of its own"' : ''}>${esc(o.deadline?.slice(11) || '')}</span><div class="small ${l.cls}">${esc(l.text)}</div></td>
@@ -1089,19 +1090,38 @@ function orderSpec(p, mode, { split = false } = {}, now = new Date()) {
 }
 // Matching, in the order the work moves: Incoming (its perso work order still open), Ready (perso done,
 // not started at Matching), In Progress (started at Matching) — each in the Matching list's order (plan date, then Urgent / High first).
+// 💳 Cards and ✉️ carriers of a Matching job. The cards from its perso work order (done when none is
+// open; in progress when one is being made); the carriers from the CPS status in the Matching export:
+//   Waiting — both not ready, or both in progress · Waiting carrier — cards ready or in progress, carriers not
+//   Waiting cards — carriers ready or in progress, cards not · Ready — both ready
+// { cards: 'ready' | 'in progress' | 'not started', carriers: 'ready' | 'in progress' | 'not ready' | 'ready or in progress' | null }
+function ottoReadiness(o) {
+  const cards = !o.perso_open ? 'ready' : (o.perso || []).some((p) => /progress|running|started/i.test(p.status || '')) ? 'in progress' : 'not started';
+  const st = String(o.status || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const carriers = /^waiting (for )?carriers?$/.test(st) ? 'not ready' : /^waiting (for )?cards?$/.test(st) ? 'ready or in progress'
+    : st === 'waiting' ? (cards === 'in progress' ? 'in progress' : 'not ready') : st === 'ready' ? 'ready' : null;
+  return { cards, carriers };
+}
+// The Incoming note: where the cards and carriers are, and when perso expects the cards to be ready.
+function ottoIncomingNote(o) {
+  const r = ottoReadiness(o);
+  const when = r.cards !== 'ready' && o.perso_finish_at ? ` (ready ~ ${PLF.wkHm.format(new Date(o.perso_finish_at))})` : '';
+  const cards = r.cards === 'not started' ? `cards not started — ${o.perso.length} perso job${o.perso.length === 1 ? '' : 's'} open` : `cards ${r.cards}`;
+  return `${cards[0].toUpperCase()}${cards.slice(1)}${when}${r.carriers ? ` · carriers ${r.carriers}` : ''}`;
+}
+
 function ottoGroups(ot) {
-  const fmt = (iso) => PLF.wkHm.format(new Date(iso));
   const row = (o, extra = {}) => ({ job: { ...o, is_otto: true, running: false, pinned: false, ...extra }, qty: o.qty });
   const all = [...ot.running, ...ot.queue];
   return [
-    { type: 'Incoming', rows: ot.queue.filter((o) => o.perso_open).map((o) => ({ ...row(o), note: o.perso_finish_at ? `perso ready ~ ${fmt(o.perso_finish_at)}` : `${o.perso.length} perso job${o.perso.length === 1 ? '' : 's'} open` })) },
+    { type: 'Incoming', rows: ot.queue.filter((o) => o.perso_open).map((o) => ({ ...row(o), note: ottoIncomingNote(o) })) },
     { type: 'Ready', rows: ot.queue.filter((o) => !o.perso_open).map((o) => row(o)) },
     { type: 'In Progress', noOverdue: true, rows: all.filter((o) => o.running).map((o) => row(o, { keep: true })) },
   ];
 }
 function ottoSpec({ split = false } = {}, now = new Date()) {
   return [{ h1: 'How this list was ordered' }, { note: `Testing mode · printed ${now.toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` },
-    { h2: 'The three lists' }, { ul: ['**Incoming** — Matching jobs whose perso work order is still being made. They can\'t start yet; the note shows when perso is expected to be ready.', '**Ready** — Matching jobs whose perso work is finished and that haven\'t been started yet: these can be picked up now.',
+    { h2: 'The three lists' }, { ul: ['**Incoming** — Matching jobs whose perso work order is still being made. They can\'t start yet; the note says where the **cards** are (not started / in progress, and when perso expects them ready) and the **carriers** (from the CPS status: Waiting carrier → not ready, Waiting cards → ready or in progress, Waiting → as the cards).', '**Ready** — Matching jobs whose perso work is finished and that haven\'t been started yet: these can be picked up now.',
       '**In Progress** — Matching jobs already started.', ...(split ? ['Overdue Incoming and Ready jobs (past their plan date) are put on a separate **Overdue** sheet for that list.'] : [])] },
     { h2: 'Order — in every list' }, { ol: ['Earliest plan date and time first.', 'Same time: Urgent, then High, then the rest.', 'Still the same: by name.'] },
     { h2: 'The sheet' }, { ul: ['Colours: **red** = past its plan date when printed (LATE); **amber** = due today; **blue** = due tomorrow; otherwise the date is shown.', '**!** = Urgent / High priority; the number is the place in the list.'] }];
