@@ -2007,7 +2007,8 @@ router.get('/plan', h((req, res) => {
   const since = new Date(Date.now() - 10 * 86400000);
   const histFirst = db.get('SELECT MIN(file_modified) AS f FROM plan_history_reads')?.f || null;
   const backlog = backlogOf([...running, ...queue], hiddenJobs, {
-    done: db.all('SELECT done_at, qty FROM plan_history_jobs WHERE done_at >= ?', [since.toISOString()]).map((r) => ({ date: localYmd(r.done_at), qty: r.qty })),
+    // done: when each job's last run ended (timing reports), not when a copy of the app noticed it gone
+    done: planHistory.donePerDay(since.toISOString(), localYmd),
     due: db.all('SELECT due, qty FROM plan_history_jobs WHERE due >= ?', [localYmd(since)]).map((r) => ({ date: r.due, qty: r.qty })),
     from: histFirst }, capacity, maxAge);
   delete modifiers.tagBy;

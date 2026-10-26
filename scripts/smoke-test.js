@@ -1674,6 +1674,26 @@ async function waitForServer() {
         save(v1, new Date(2026, 9, 6, 18, 30)); // an older copy: ignored
         await call('GET', '/plan');
         assert.equal((await call('GET', '/plan/history')).reads, base + 2);
+        // ⏱ the real done time: the end of the job's last run in the timing report, not when the export was read;
+        // without runs, a job gone over a gap in the record is on time or late only where that's certain
+        {
+          const th = ['Import Date', 'Due Date', 'job', 'Product Type', 'Job Qty', 'Qty Persoed', 'Start Date', 'Start Time', 'End Date', 'End Time', 'Remake', 'Machine WS Name', 'Machine  Name', 'Production Mode', 'Item AXRef', 'Item Name', 'Customer Name', 'CO Ref'];
+          const d7 = 46302; // Wed 7 Oct 2026
+          const tx = require('../src/xlsx').buildXlsx([{ name: 'DailyPersoTiming', columns: th.map((h, i) => ({ header: h, type: [0, 1, 4, 5, 6, 7, 8, 9].includes(i) ? 'number' : undefined })),
+            rows: [[d7, d7, 'CAAAS26100601PER0001', 'Card', 100, 100, d7 + 8 / 24, d7 + 8 / 24, d7 + 10 / 24, d7 + 10 / 24, 'No', 'WS9', 'MX#9', 'LIVE', '2260001', 'A card', 'A Bank', 'AAA']] }]);
+          const tu = await fetch(`${BASE}/prod/upload?source=perso`, { method: 'POST', body: tx, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': 'runs.xlsx' } }).then((x) => x.json());
+          assert.equal(tu.rows, 1);
+          save([r('CDDDS26100604', '0001', 'A1', 10, 'Oct 12 2026 ', 'Low', 'Ready To Be Started', 'DHL', '17:00')], new Date(2026, 9, 8, 12, 0)); // read again 41 h later
+          await call('GET', '/plan');
+          hs = await call('GET', '/plan/history?days=60');
+          const by = Object.fromEntries(hs.recent.map((j) => [j.wo, [j.done_by, j.late_minutes, j.late_unknown || false]]));
+          assert.deepEqual(by.CAAAS26100601, ['runs', 18 * 60, false], 'done when its last run ended (7 Oct 10:00), not at the read two days later');
+          assert.deepEqual(by.CBBBS26100602, ['gap', 3 * 60, false], 'no runs, gone over a gap that began after its cut-off: late for sure (at least 3 h)');
+          assert.equal(by.CCCCS26100603[0], 'gap'); assert.ok(by.CCCCS26100603[1] < 0, 'cut-off after the gap: on time for sure');
+          assert.deepEqual(hs.done_by, { runs: 1, export: 0, gap: 2 });
+          const day7 = hs.daily.find((d) => d.date === '2026-10-07');
+          assert.ok(day7 && day7.cards === 100 && day7.on_time_cards === 0, 'counted on the day the run ended');
+        }
         // Matching's and 🚚 Dispatch's own history, from their own tables
         for (const half of ['otto', 'disp']) { const oh = await call('GET', `/plan/history?half=${half}`); assert.equal(oh.half, half); assert.equal(oh.daily.length, 14); assert.ok(Array.isArray(oh.recent)); }
         assert.equal((await call('GET', '/plan/history?half=nope')).half, 'perso');
@@ -1741,7 +1761,7 @@ async function waitForServer() {
       assert.ok(effs.every((e) => e > 0.8 && e < 1.25), `ordinary runs come out near 100% efficient: ${effs.map((e) => Math.round(e * 100)).join(' ')}`);
       assert.ok(v.runs.find((x) => x.job === 'SLOW').efficiency < 0.2 && v.runs.find((x) => x.job === 'QUICK').efficiency > 5, 'far too slow: low; far too quick: very high');
       assert.ok(!v.runs.some((x) => /^M/.test(x.job)));
-      assert.deepEqual(v.history.days.map((d) => d.day), ['2026-10-08', '2026-10-09'], 'every day kept, for the history strip');
+      assert.deepEqual(v.history.days.map((d) => d.day), ['2026-10-07', '2026-10-08', '2026-10-09'], 'every day kept, for the history strip (7 Oct: the plan history test\'s run)');
       assert.equal((await call('GET', '/prod?source=perso&from=2026-10-08&days=1')).runs.length, 1, 'the earlier day is shown when it\'s picked');
       const flagged = Object.fromEntries(v.runs.filter((x) => x.anomaly).map((x) => [x.job, x.anomaly.kind]));
       assert.deepEqual(flagged, { QUICK: 'quick', SLOW: 'slow', BACKWARDS: 'invalid' }, 'far too quick, far too long and backwards are set aside; the ordinary runs are not');
