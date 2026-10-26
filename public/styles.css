@@ -1357,3 +1357,8 @@ body.not-admin .pll-switch button { display: none !important; }
 .pld-tile-on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 @keyframes pld-flash { from { background: var(--accent-soft); } to { background: transparent; } }
 tr.pld-flash > td, section.pld-flash .pld-card-head { animation: pld-flash 1.6s ease-out; }
+
+/* ♻ scrap by customer: click a customer for its reason codes */
+tr.kfd-cust { cursor: pointer; } tr.kfd-cust:hover > td { background: var(--accent-soft); }
+.kfd-caret { color: var(--accent); }
+tr.kfd-cust-detail > td { background: var(--panel-2); padding: 8px 12px; }

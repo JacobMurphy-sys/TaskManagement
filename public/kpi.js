@@ -946,11 +946,13 @@ async function kpiFigureDetail(col, week, calc) {
     let d; try { d = await api.get(`/kpi/calc/detail?week=${encodeURIComponent(week)}&col=${encodeURIComponent(col)}`); } catch (err) { toast(err.message, 'error'); return; }
     if (d.kind === 'scrap' && d.from === 'consumption') {
       const lbl = (list) => (x) => { const f = list.find((y) => y.name === x); return f?.label ? `${x} — ${f.label}` : x; };
-      const custRows = (d.by_customer || []).map((x) => `<tr><td><b>${esc(x.name)}</b> <span class="muted">${esc(x.label || '')}</span></td><td class="num"><b>${n(x.qty)}</b></td><td class="num">${n(x.used)}</td>
-        <td class="num ${x.pct >= 1 ? 'pl-late' : ''}">${x.pct === null ? '—' : `${x.pct.toLocaleString('en-GB', { maximumFractionDigits: 2 })}%`}</td></tr>`).join('');
+      // click a customer for its reason codes (and the cards and work orders behind them)
+      const custRows = (d.by_customer || []).map((x, i) => `<tr class="kfd-cust" data-kfd-cust="${i}" title="Click for ${esc(x.name)}'s reason codes"><td><span class="kfd-caret">▸</span> <b>${esc(x.name)}</b> <span class="muted">${esc(x.label || '')}</span></td><td class="num"><b>${n(x.qty)}</b></td><td class="num">${n(x.used)}</td>
+        <td class="num ${x.pct >= 1 ? 'pl-late' : ''}">${x.pct === null ? '—' : `${x.pct.toLocaleString('en-GB', { maximumFractionDigits: 2 })}%`}</td></tr>
+        <tr class="kfd-cust-detail" data-kfd-cust-detail="${i}" hidden><td colspan="4"><div class="kfd-grid">${bars(`${x.name} — by reason code`, x.reasons)}${bars('By card (AX)', x.items, { name: lbl(x.items) })}${bars('Work orders', x.wos)}</div></td></tr>`).join('');
       body = `${head(`${n(d.total)} <span class="small muted">cards remade</span>`)}
         <p class="small muted">From the goods consumption export: cards taken from stock with a reason code ending in <b>Err</b> in ${esc(week)} (by the day they were taken) — ${n(d.rows)} transaction${d.rows === 1 ? '' : 's'}${d.used ? `, ${d.rate?.toLocaleString('en-GB', { maximumFractionDigits: 2 }) ?? '—'}% of the ${n(d.used)} cards used that week` : ''}. Excel's figure comes from machine rejections, so it differs.</p>
-        ${d.rows ? `<div class="kfd-block"><h4>By customer <span class="muted small">— remade, of all cards used</span></h4><table class="log small kfd"><thead><tr><th>Customer</th><th class="num">Remade</th><th class="num">Cards used</th><th class="num">Remade %</th></tr></thead><tbody>${custRows}</tbody></table></div>
+        ${d.rows ? `<div class="kfd-block"><h4>By customer <span class="muted small">— remade, of all cards used · click a customer for its reason codes</span> <button class="link small" data-kfd-cust-all>open all</button></h4><table class="log small kfd"><thead><tr><th>Customer</th><th class="num">Remade</th><th class="num">Cards used</th><th class="num">Remade %</th></tr></thead><tbody>${custRows}</tbody></table></div>
           <div class="kfd-grid">${bars('By reason code', d.by_reason)}${bars('By card (AX)', d.by_item, { name: lbl(d.by_item), limit: 10 })}${bars('By card group', d.by_group)}
           ${bars('Top work orders', d.by_wo, { name: (x) => x })}${bars('By day', d.by_day, { name: dayName })}</div>
           <details class="kfd-block"><summary><b>The transactions</b> <span class="muted small">(${n(d.list.length)}${d.rows > d.list.length ? ` of ${n(d.rows)}` : ''}) — click a work order for everything about it</span></summary>
@@ -988,6 +990,10 @@ async function kpiFigureDetail(col, week, calc) {
   openModal(`<div class="modal-head"><h2 style="margin:0">${esc(label)} <span class="muted">· ${esc(week)}</span></h2><button class="icon" data-action="close-modal">✕</button></div>
     ${kpiAdjustHtml(col, w)}${body}<div class="row" style="margin-top:12px"><div class="spacer"></div><button onclick="closeModal()">Close</button></div>`, { wide: true });
   wireKpiAdjust(col, week, w);
+  // ♻ a customer opened up: its reason codes
+  const custToggle = (i, open) => { const r = $(`[data-kfd-cust-detail="${i}"]`); if (!r) return; r.hidden = !open; const c = $(`[data-kfd-cust="${i}"] .kfd-caret`); if (c) c.textContent = open ? '▾' : '▸'; };
+  $$('[data-kfd-cust]').forEach((tr) => tr.addEventListener('click', () => custToggle(tr.dataset.kfdCust, $(`[data-kfd-cust-detail="${tr.dataset.kfdCust}"]`).hidden)));
+  $('[data-kfd-cust-all]')?.addEventListener('click', (e) => { const open = e.target.textContent === 'open all'; $$('[data-kfd-cust]').forEach((tr) => custToggle(tr.dataset.kfdCust, open)); e.target.textContent = open ? 'close all' : 'open all'; });
   // ♻ a remake's work order: everything about it (Production's 🔍 window)
   $$('[data-kfd-wo]').forEach((b) => b.addEventListener('click', () => { closeModal(); pfBack.length = 0; pfOpen('wo', b.dataset.kfdWo); }));
 }

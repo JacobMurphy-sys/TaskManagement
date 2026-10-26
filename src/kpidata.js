@@ -586,9 +586,13 @@ function consumptionDetail(week, group, days) {
   const itemNames = new Map(); for (const r of all) if (r.item && r.item_name && !itemNames.has(r.item)) itemNames.set(r.item, r.item_name);
   const used = all.reduce((t, r) => t + r.qty, 0); const total = rows.reduce((t, r) => t + r.qty, 0);
   const pct = (a, b) => (b ? Math.round((a / b) * 10000) / 100 : null);
+  const reasonOf = (r) => (r.reason_name && r.reason_name !== r.type ? `${r.type} — ${r.reason_name}` : r.type);
   return { kind: 'scrap', from: 'consumption', week, col: 'scrap', total, rows: rows.length, used, rate: pct(total, used),
-    by_customer: group(rows, (r) => r.customer).map((x) => ({ ...x, label: names.get(x.name) || null, used: usedBy.get(x.name) || 0, pct: pct(x.qty, usedBy.get(x.name)) })),
-    by_reason: group(rows, (r) => (r.reason_name && r.reason_name !== r.type ? `${r.type} — ${r.reason_name}` : r.type)),
+    // each customer opened up: its reason codes, cards and work orders
+    by_customer: group(rows, (r) => r.customer).map((x) => { const mine = rows.filter((r) => (r.customer || '(blank)') === x.name);
+      return { ...x, label: names.get(x.name) || null, used: usedBy.get(x.name) || 0, pct: pct(x.qty, usedBy.get(x.name)),
+        reasons: group(mine, reasonOf), items: group(mine, (r) => r.item, 8).map((y) => ({ ...y, label: itemNames.get(y.name) || null })), wos: group(mine, (r) => r.wo, 8) }; }),
+    by_reason: group(rows, reasonOf),
     by_item: group(rows, (r) => r.item, 15).map((x) => ({ ...x, label: itemNames.get(x.name) || null })),
     by_group: group(rows, (r) => r.item_group), by_wo: group(rows, (r) => r.wo, 10), by_day: days(rows),
     list: rows.slice().sort((a, b) => (a.day + (a.time || '')).localeCompare(b.day + (b.time || '')) || b.qty - a.qty).slice(0, 500)

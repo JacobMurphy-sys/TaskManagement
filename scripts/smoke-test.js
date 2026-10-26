@@ -1052,6 +1052,8 @@ async function waitForServer() {
         assert.deepEqual([dc.from, dc.total, dc.used, dc.rows], ['consumption', 6, 156, 2], 'remade of all cards used; the same card, job, reason and order summed');
         assert.deepEqual(dc.by_customer.map((x) => [x.name, x.qty, x.used, x.label]), [['AES', 4, 154, 'American Express'], ['BNP', 2, 2, 'BNP']], 'customer from the CPS job, with its share of cards used');
         assert.deepEqual(dc.by_reason.map((x) => x.name), ['EncodingErr — Encoding error', 'PrintErr — Print error']);
+        assert.deepEqual(dc.by_customer.map((x) => x.reasons.map((y) => [y.name, y.qty])), [[['EncodingErr — Encoding error', 4]], [['PrintErr — Print error', 2]]], 'each customer\'s reason codes');
+        assert.deepEqual([dc.by_customer[0].items[0].label, dc.by_customer[0].wos[0].name], ['Amex Gold', 'CAESS26033101']);
         assert.deepEqual([dc.by_item[0].name, dc.by_item[0].label, dc.by_wo[0].name, dc.list.length], ['2121723', 'Amex Gold', 'CAESS26033101', 2]);
         const fw = await call('GET', '/plan/find/wo/CAESS26033101');
         assert.deepEqual(fw.remakes.map((r) => [r.reason, r.qty, r.item]), [['EncodingErr', 4, '2121723']], 'the work order window shows its remakes');
