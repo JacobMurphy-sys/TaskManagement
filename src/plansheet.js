@@ -57,7 +57,7 @@ function renderPlanPdf(model) {
       const max = (fn) => rows.reduce((m, r) => Math.max(m, fn(r)), 0);
       return {
         box: f * 1.25 + 3, no: Math.max(tw('Helvetica-Bold', f, '00'), max((r) => tw('Helvetica-Bold', f, r.no))) + 4,
-        wo: max((r) => Math.max(tw('Courier-Bold', f, r.wo) + tw('Courier', f * sfx, r.suffix), r.note ? tw('Helvetica', f * 0.66, r.note) : 0)) + 5,
+        wo: max((r) => tw('Courier-Bold', f, r.wo) + tw('Courier', f * sfx, r.suffix)) + 5, // a note goes on its own line, across the row
         cust: max((r) => tw('Helvetica-Bold', f, r.customer) + (r.hot ? f + 2 : 0) + (r.pinned ? tw('Helvetica-Bold', f * 0.6, 'PIN') + 6 : 0)) + 5,
         qty: max((r) => tw('Helvetica-Bold', f, r.qty)) + 6,
         tag: max((r) => tw('Helvetica-Bold', f * 0.85, pillText(r))) + 8, time: 0, gap: 0,
@@ -67,7 +67,7 @@ function renderPlanPdf(model) {
     return {
       box: f * 1.25 + 5,
       no: Math.max(tw('Helvetica-Bold', f, '00'), max((r) => tw('Helvetica-Bold', f, r.no))) + 6,
-      wo: max((r) => Math.max(tw('Courier-Bold', f, r.wo) + tw('Courier', f, r.suffix), r.note ? tw('Helvetica', f * 0.66, r.note) : 0)) + 8,
+      wo: max((r) => tw('Courier-Bold', f, r.wo) + tw('Courier', f, r.suffix)) + 8, // a note goes on its own line, across the row
       cust: max((r) => tw('Helvetica-Bold', f, r.customer) + (r.hot ? f + 3 : 0) + (r.pinned ? tw('Helvetica-Bold', f * 0.6, 'PIN') + 7 : 0)) + 8,
       qty: max((r) => tw('Helvetica-Bold', f, r.qty)) + 8,
       tag: max((r) => tw('Helvetica-Bold', tagF, r.tag)) + 10,
@@ -123,7 +123,13 @@ function renderPlanPdf(model) {
     cx += w.no + 3;
     doc.fillColor(C.ink).font('Courier-Bold').fontSize(f).text(clean(r.wo), cx, ty(f), { lineBreak: false, continued: !!r.suffix });
     if (r.suffix) doc.fillColor(C.grey).font('Courier').fontSize(f * sfx).text(clean(r.suffix), { lineBreak: false });
-    if (r.note) doc.fillColor(C.grey).font('Helvetica').fontSize(f * 0.66).text(clean(r.note), cx, ty(f) + f * 1.1, { lineBreak: false });
+    // the note (extra information) under the work order, across the rest of the row: only it gets smaller to fit
+    if (r.note) {
+      const room = x + colW - cx - 2; let nt = clean(r.note); let nf = f * 0.66;
+      while (nf > 5 && tw('Helvetica', nf, nt) > room) nf -= 0.25;
+      if (tw('Helvetica', nf, nt) > room) { while (nt.length > 1 && tw('Helvetica', nf, `${nt}…`) > room) nt = nt.slice(0, -1); nt = `${nt.trimEnd()}…`; }
+      doc.fillColor(C.grey).font('Helvetica').fontSize(nf).text(nt, cx, ty(f) + f * 1.1, { lineBreak: false });
+    }
     cx += w.wo - 3;
     doc.fillColor(C.ink).font('Helvetica-Bold').fontSize(f).text(clean(r.customer), cx, ty(f), { lineBreak: false });
     let px = cx + tw('Helvetica-Bold', f, r.customer) + 3;

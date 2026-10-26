@@ -1025,12 +1025,13 @@ function planSheetHtml(m) {
   const sheet = (s, cont) => `<section class="cell${s.overdue ? ' over' : ''}">
       <header><div><div class="name">${esc(s.name)}</div>${s.overdue ? '<div class="od">Overdue</div>' : ''}</div>${m.method ? `<div class="method">${esc(m.method)}${m.test ? ' · TEST' : ''}</div>` : ''}</header>
       ${s.rows.length ? '' : `<p class="none">${esc(s.empty)}</p>`}
-      <table><tbody>${s.rows.map((r) => `<tr class="${r.cls}${r.running ? ' run' : ''}">
+      <table>${s.rows.map((r) => `<tbody class="it ${r.cls}${r.running ? ' run' : ''}"><tr>
         <td class="box"></td><td class="no">${r.running ? '▶' : esc(r.no)}</td>
-        <td class="wo">${esc(r.wo)}<span>${esc(r.suffix)}</span>${r.note ? `<div class="nt">${esc(r.note)}</div>` : ''}</td>
+        <td class="wo">${esc(r.wo)}<span>${esc(r.suffix)}</span></td>
         <td class="cu">${esc(r.customer)}${r.hot ? ' <span class="hot">!</span>' : ''}${r.pinned ? ' <span class="pin">📌</span>' : ''}</td>
         <td class="qty">${esc(r.qty)}</td>
-        <td class="due"><span class="tag">${esc(r.tag)}</span> ${esc(r.time)}</td></tr>`).join('')}</tbody></table>
+        <td class="due"><span class="tag">${esc(r.tag)}</span> ${esc(r.time)}</td></tr>
+        ${r.note ? `<tr class="ntr"><td></td><td></td><td colspan="4" class="nt">${esc(r.note)}</td></tr>` : ''}</tbody>`).join('')}</table>
       ${side ? '' : legend}
     </section>`;
   const legend = `<footer><span><span class="sw late"></span> late</span><span><span class="sw today"></span> due today</span><span><span class="sw tomorrow"></span> tomorrow</span>${m.running_legend ? '<span>▶ running</span>' : ''}<span><span class="hot">!</span> high priority</span><span>☐ tick when done</span><span class="st">Printed ${esc(m.stamp)}</span></footer>`;
@@ -1045,20 +1046,20 @@ function planSheetHtml(m) {
     .cell:last-child { page-break-after: auto; break-after: auto; }
     header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; border-bottom: 2px solid #111; padding-bottom: 2mm; margin-bottom: 2mm; }
     .name { font-size: ${side ? 28 : 44}px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: #7382e6; white-space: nowrap; }
-    .nt { font-family: Arial, sans-serif; font-weight: 400; font-size: .7em; color: #555; }
+    .nt { font-family: Arial, sans-serif; font-weight: 400; font-size: .7em; color: #444; white-space: normal; padding-top: 0 !important; line-height: 1.25; }
     .od { display: inline-block; margin-top: 1mm; font-size: ${side ? 11 : 15}px; font-weight: 800; text-transform: uppercase; background: #c62828; color: #fff; border-radius: 4px; padding: 2px 8px; letter-spacing: 1px; }
     .none { font-size: 18px; color: #555; padding: 4mm 0; }
     .method { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #555; border: 1px solid #999; border-radius: 3px; padding: 1px 6px; white-space: nowrap; align-self: flex-start; }
     table { width: 100%; border-collapse: collapse; font-size: ${side ? 12 : 17}px; }
-    tr { border-bottom: 1px solid #bbb; page-break-inside: avoid; } td { padding: ${side ? '3px 3px' : '5px 6px'}; vertical-align: middle; }
+    tbody.it { border-bottom: 1px solid #bbb; page-break-inside: avoid; break-inside: avoid; } td { padding: ${side ? '3px 3px' : '5px 6px'}; vertical-align: middle; }
     .box { width: 26px; } .box::before { content: ''; display: inline-block; width: ${side ? 14 : 20}px; height: ${side ? 14 : 20}px; border: 2px solid #111; border-radius: 3px; }
     .no { width: 28px; color: #666; text-align: right; font-weight: 700; }
     .wo { font-family: Consolas, 'Courier New', monospace; font-weight: 800; white-space: nowrap; } .wo span { font-weight: 400; color: #555; }
     .cu { font-weight: 700; white-space: nowrap; } .qty { text-align: right; font-weight: 700; white-space: nowrap; }
     .due { white-space: nowrap; text-align: right; } .tag { display: inline-block; min-width: ${side ? 44 : 76}px; text-align: center; font-weight: 800; font-size: .8em; padding: 2px 6px; border-radius: 4px; border: 2px solid #999; }
-    tr.late { background: #fde2e2; } tr.late .tag { background: #c62828; border-color: #c62828; color: #fff; }
-    tr.today { background: #fff4d6; } tr.today .tag { background: #f9a825; border-color: #f9a825; color: #111; }
-    tr.tomorrow .tag { border-color: #1f6feb; color: #1f6feb; } tr.run .no { color: #111; }
+    tbody.late { background: #fde2e2; } tbody.late .tag { background: #c62828; border-color: #c62828; color: #fff; }
+    tbody.today { background: #fff4d6; } tbody.today .tag { background: #f9a825; border-color: #f9a825; color: #111; }
+    tbody.tomorrow .tag { border-color: #1f6feb; color: #1f6feb; } tbody.run .no { color: #111; }
     .hot { display: inline-block; background: #111; color: #fff; border-radius: 50%; width: 1.2em; height: 1.2em; line-height: 1.2em; text-align: center; font-size: .8em; }
     footer { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4mm; font-size: 11px; color: #333; align-items: center; } footer .st { margin-left: auto; color: #777; }
     .sw { display: inline-block; width: 12px; height: 12px; border: 1px solid #999; vertical-align: middle; } .sw.late { background: #fde2e2; } .sw.today { background: #fff4d6; } .sw.tomorrow { border: 2px solid #1f6feb; }
