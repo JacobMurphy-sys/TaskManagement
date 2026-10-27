@@ -107,6 +107,16 @@ function tx(fn) {
 // One-off data changes, each recorded in settings so it runs only once. Triggers are
 // dropped while they run so they don't bump updated_at or flood the audit log.
 const DATA_MIGRATIONS = {
+  // ⏱ Production runs were kept one per job, machine and start: report rows sharing those were folded into
+  // one (losing their cards). The table is rebuilt without that, and every report read again in full.
+  prod_runs_every_row() {
+    const cols = all('PRAGMA table_info(prod_runs)').map((c) => c.name).filter((c) => c !== 'id');
+    conn.exec(createTableSql('prod_runs', 'prod_runs__new'));
+    conn.exec(`INSERT INTO prod_runs__new (${cols.join(', ')}) SELECT ${cols.join(', ')} FROM prod_runs`);
+    conn.exec('DROP TABLE prod_runs');
+    conn.exec('ALTER TABLE prod_runs__new RENAME TO prod_runs');
+    run("DELETE FROM settings WHERE key LIKE 'prod\\_seen\\_%' ESCAPE '\\'");
+  },
   // Existing projects get a default project ID (new ones get it by trigger).
   project_codes() {
     run("UPDATE projects SET project_code = 'PRJ-' || printf('%04d', id) WHERE project_code IS NULL");

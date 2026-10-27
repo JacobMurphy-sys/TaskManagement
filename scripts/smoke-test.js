@@ -1680,16 +1680,21 @@ async function waitForServer() {
           const th = ['Import Date', 'Due Date', 'job', 'Product Type', 'Job Qty', 'Qty Persoed', 'Start Date', 'Start Time', 'End Date', 'End Time', 'Remake', 'Machine WS Name', 'Machine  Name', 'Production Mode', 'Item AXRef', 'Item Name', 'Customer Name', 'CO Ref'];
           const d7 = 46302; // Wed 7 Oct 2026
           const tx = require('../src/xlsx').buildXlsx([{ name: 'DailyPersoTiming', columns: th.map((h, i) => ({ header: h, type: [0, 1, 4, 5, 6, 7, 8, 9].includes(i) ? 'number' : undefined })),
-            rows: [[d7, d7, 'CAAAS26100601PER0001', 'Card', 100, 100, d7 + 8 / 24, d7 + 8 / 24, d7 + 10 / 24, d7 + 10 / 24, 'No', 'WS9', 'MX#9', 'LIVE', '2260001', 'A card', 'A Bank', 'AAA']] }]);
+            // two rows with the same job, machine and start (two stations / card lines): both count — they used to fold into one
+            rows: [[d7, d7, 'CAAAS26100601PER0001', 'Card', 100, 60, d7 + 8 / 24, d7 + 8 / 24, d7 + 10 / 24, d7 + 10 / 24, 'No', 'WS9', 'MX#9', 'LIVE', '2260001', 'A card', 'A Bank', 'AAA'],
+              [d7, d7, 'CAAAS26100601PER0001', 'Card', 100, 40, d7 + 8 / 24, d7 + 8 / 24, d7 + 9 / 24, d7 + 9 / 24, 'No', 'WS8', 'MX#9', 'LIVE', '2260002', 'A card 2', 'A Bank', 'AAA']] }]);
           const tu = await fetch(`${BASE}/prod/upload?source=perso`, { method: 'POST', body: tx, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': 'runs.xlsx' } }).then((x) => x.json());
-          assert.equal(tu.rows, 1);
+          assert.equal(tu.rows, 2);
           save([r('CDDDS26100604', '0001', 'A1', 10, 'Oct 12 2026 ', 'Low', 'Ready To Be Started', 'DHL', '17:00')], new Date(2026, 9, 8, 12, 0)); // read again 41 h later
           await call('GET', '/plan');
           hs = await call('GET', '/plan/history?days=60');
           // with a timing report, Perso's history comes from it alone — the same on every PC, whatever each one recorded
           assert.equal(hs.from, 'runs');
           const day7 = hs.daily.find((d) => d.date === '2026-10-07');
-          assert.ok(day7 && day7.cards === 100 && day7.on_time_cards === 100, 'cards on the day the run ended; on time: persoed by the due date in the report');
+          assert.ok(day7 && day7.cards === 100 && day7.on_time_cards === 100, `every row's cards (60 + 40), on the day the run ended; on time: by the due date in the report — got ${day7?.cards}`);
+          const again = await fetch(`${BASE}/prod/upload?source=perso`, { method: 'POST', body: tx, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': 'runs.xlsx' } }).then((x) => x.json());
+          assert.deepEqual([again.added, again.replaced], [0, 2], 'read again: the same rows replace themselves, nothing doubled');
+          assert.equal((await call('GET', '/plan/history?days=60')).daily.find((d) => d.date === '2026-10-07').cards, 100);
           assert.deepEqual(hs.recent.map((x) => [x.wo, x.per, x.qty, x.late_days]), [['CAAAS26100601', '0001', 100, 0]], 'a job finished when its runs reach its quantity');
           assert.ok(!hs.daily.some((d) => d.date === '2026-10-08' && d.cards), 'nothing put on the day the export was read again');
           const bl = (await call('GET', '/plan')).backlog;
@@ -2079,7 +2084,7 @@ async function waitForServer() {
         const again = await pc('POST', '/plan/setup', withHist);
         assert.deepEqual([again.history.reads, again.history.jobs, again.history.prod_runs], [0, 0, 0], 'imported twice: nothing added twice');
         // a big setup + history file (tens of MB in real use) isn't turned away by the 1 MB limit on other requests
-        const big = { ...withHist, history: { ...withHist.history, prod_runs: [...withHist.history.prod_runs, ...Array.from({ length: 6000 }, (_, i) => ({ ...withHist.history.prod_runs[0], job: `BIGJOB${i}`, file: 'x'.repeat(200) }))] } };
+        const big = { ...withHist, history: { ...withHist.history, prod_runs: [...withHist.history.prod_runs, ...Array.from({ length: 6000 }, (_, i) => ({ ...withHist.history.prod_runs[0], job: `BIGJOB${i}`, start_at: '2025-01-15T08:00:00', end_at: '2025-01-15T08:30:00', file: 'x'.repeat(200) }))] } };
         assert.ok(JSON.stringify(big).length > 1.5e6, 'the test file is over the 1 MB limit');
         const bi = await pc('POST', '/plan/setup', big);
         assert.ok(bi.history.prod_runs >= 1, 'a setup + history over 1 MB imports');

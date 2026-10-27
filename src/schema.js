@@ -474,8 +474,7 @@ const TABLES = {
     due         TEXT,
     imported    TEXT,
     file        TEXT,
-    read_at     TEXT    NOT NULL,
-    UNIQUE (source, job, machine, start_at)`,
+    read_at     TEXT    NOT NULL`, // every row of the report, as it is (a report replaces the days it covers)
 
   // 🏭 Planning: jobs pinned to the front of the queue (work order / job key), in pin order.
   plan_pins: `
@@ -665,6 +664,7 @@ const INDEXES = `
   CREATE INDEX IF NOT EXISTS meetings_task_idx ON meetings(task_id);
   CREATE INDEX IF NOT EXISTS meetings_held_idx ON meetings(held_at);
   CREATE INDEX IF NOT EXISTS prod_runs_time_idx ON prod_runs(source, start_at);
+  CREATE INDEX IF NOT EXISTS prod_runs_job_idx ON prod_runs(source, job);
 
   -- Default project ID (editable), like ideas' references.
   DROP TRIGGER IF EXISTS projects_code;

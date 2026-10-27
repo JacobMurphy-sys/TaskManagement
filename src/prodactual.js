@@ -124,23 +124,27 @@ function parse(buf) {
   return { sheet: sheetInfo.name, rows, skipped };
 }
 
-// Adds the runs (a run seen again is updated: its end or count may have been filled in since).
+// Stores a report's runs: every row exactly as the report has it. The report is the record for the days
+// it covers (the hourly DailyPersoTiming holds every run since 1 January), so the runs kept for those days
+// are replaced by its rows — none merged, none lost, the same on every PC that reads it. (Runs used to be
+// kept one per job, machine and start, which folded rows sharing those into one.)
 function store(source, rows, file) {
   const now = new Date().toISOString();
-  let added = 0; let updated = 0;
+  const days = rows.map((r) => r.start_at.slice(0, 10)).sort();
+  if (!days.length) return { added: 0, updated: 0, replaced: 0 };
+  const from = days[0]; const to = days[days.length - 1];
+  const next = (d) => { const t = new Date(`${d}T12:00:00Z`); t.setUTCDate(t.getUTCDate() + 1); return t.toISOString().slice(0, 10); };
+  let had = 0;
   db.tx(() => {
+    had = db.get('SELECT COUNT(*) AS n FROM prod_runs WHERE source = ? AND start_at >= ? AND start_at < ?', [source, from, next(to)]).n;
+    db.run('DELETE FROM prod_runs WHERE source = ? AND start_at >= ? AND start_at < ?', [source, from, next(to)]);
     for (const r of rows) {
-      const had = db.get('SELECT id FROM prod_runs WHERE source = ? AND job = ? AND machine = ? AND start_at = ?', [source, r.job, r.machine, r.start_at]);
       db.run(`INSERT INTO prod_runs (source, job, machine, station, start_at, end_at, qty, job_qty, remake, mode, product, item, item_name, customer, trigram, due, imported, file, read_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (source, job, machine, start_at) DO UPDATE SET end_at = excluded.end_at, qty = excluded.qty, job_qty = excluded.job_qty, station = excluded.station,
-          remake = excluded.remake, mode = excluded.mode, product = excluded.product, item = excluded.item, item_name = excluded.item_name, customer = excluded.customer,
-          trigram = excluded.trigram, due = excluded.due, imported = COALESCE(excluded.imported, imported), file = excluded.file, read_at = excluded.read_at`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [source, r.job, r.machine, r.station, r.start_at, r.end_at, r.qty, r.job_qty, r.remake, r.mode, r.product, r.item, r.item_name, r.customer, r.trigram, r.due, r.imported ?? null, file, now]);
-      if (had) updated++; else added++;
     }
   });
-  return { added, updated };
+  return { added: Math.max(0, rows.length - had), updated: Math.min(rows.length, had), replaced: had, from, to };
 }
 
 const seenKey = (source) => `prod_seen_${source}`;

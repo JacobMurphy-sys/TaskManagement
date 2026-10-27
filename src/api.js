@@ -2381,9 +2381,12 @@ function mergeHistory(h) {
     for (const r of Array.isArray(h.disp_reads) ? h.disp_reads : []) if (r?.file_modified) db.run('INSERT OR IGNORE INTO plan_disp_reads (file_modified, file, read_at, jobs) VALUES (?, ?, ?, ?)', [r.file_modified, r.file || null, r.read_at || new Date().toISOString(), r.jobs || 0]);
     for (const j of Array.isArray(h.disp_jobs) ? h.disp_jobs : []) if (j?.key && j.first_seen && j.last_seen) db.run(`INSERT OR IGNORE INTO plan_disp_jobs (${ocols.join(', ')}) VALUES (${ocols.map(() => '?').join(', ')})`, ocols.map((c) => j[c] ?? null));
     const pcols = ['source', 'job', 'machine', 'station', 'start_at', 'end_at', 'qty', 'job_qty', 'remake', 'mode', 'product', 'item', 'item_name', 'customer', 'trigram', 'due', 'imported', 'file', 'read_at'];
+    // runs only for the days this PC has none of (its own report reads are the record for theirs)
+    const haveDay = new Set(db.all("SELECT DISTINCT source || '|' || substr(start_at, 1, 10) AS k FROM prod_runs").map((x) => x.k));
     for (const r of Array.isArray(h.prod_runs) ? h.prod_runs : []) {
       if (!r?.source || !r.job || !r.start_at || !prod.counted(r.job)) continue;
-      const ch = db.run(`INSERT OR IGNORE INTO prod_runs (${pcols.join(', ')}) VALUES (${pcols.map(() => '?').join(', ')})`, pcols.map((c) => (c === 'machine' ? r.machine ?? '' : c === 'remake' ? (r.remake ? 1 : 0) : c === 'read_at' ? r.read_at || new Date().toISOString() : r[c] ?? null)));
+      if (haveDay.has(`${r.source}|${String(r.start_at).slice(0, 10)}`)) continue;
+      const ch = db.run(`INSERT INTO prod_runs (${pcols.join(', ')}) VALUES (${pcols.map(() => '?').join(', ')})`, pcols.map((c) => (c === 'machine' ? r.machine ?? '' : c === 'remake' ? (r.remake ? 1 : 0) : c === 'read_at' ? r.read_at || new Date().toISOString() : r[c] ?? null)));
       if (ch?.changes) out.prod_runs++;
     }
   });
