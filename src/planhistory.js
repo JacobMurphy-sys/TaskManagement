@@ -154,7 +154,10 @@ function donePerDay(sinceIso, ymd) {
 // on the day its last run ended. Lead time: the report's import date → that last run.
 const runKey = (job) => { const J = String(job || '').trim().toUpperCase(); const wo = J.match(/^[A-Z]{5}\d{8}/)?.[0]; if (!wo) return { key: J, wo: J, per: null };
   const per = J.slice(wo.length).match(/^\D*(\d+)/)?.[1]; return { key: per ? `${wo}/${per.padStart(4, '0')}` : wo, wo, per: per ? per.padStart(4, '0') : null }; };
+// 📊 With DailyPersoData linked (Power BI's source), its rows instead: Qty Persoed by Production Date.
+const pdata = require('./persodata');
 function persoRuns(fromDay) {
+  if (pdata.has()) return pdata.rowsSince(fromDay);
   try {
     return db.all(`SELECT job, machine, end_at, qty, job_qty, due, imported, trigram, customer FROM prod_runs
       WHERE source = 'perso' AND remake = 0 AND end_at IS NOT NULL AND job NOT LIKE 'M%' AND end_at >= ? ORDER BY end_at`, [fromDay]);
@@ -199,9 +202,10 @@ function persoRunsSummary(days) {
   const known = weekRuns.filter((r) => onTime(r) !== null);
   const weekJobs = jobs.filter((j) => j.last.slice(0, 10) > wf);
   const leads = weekJobs.filter((j) => j.imported).map((j) => (new Date(j.last) - new Date(j.imported)) / 3600000).filter((x) => x >= 0);
-  const stamp = (() => { try { return db.get("SELECT COUNT(*) AS n, MIN(start_at) AS first, MAX(end_at) AS last, MAX(read_at) AS read_at FROM prod_runs WHERE source = 'perso'"); } catch { return {}; } })();
+  const fromData = pdata.has();
+  const stamp = fromData ? pdata.stamp() : (() => { try { return db.get("SELECT COUNT(*) AS n, MIN(start_at) AS first, MAX(end_at) AS last, MAX(read_at) AS read_at FROM prod_runs WHERE source = 'perso'"); } catch { return {}; } })();
   return {
-    half: 'perso', from: 'runs', days, daily, reads: stamp.n || 0, since: stamp.first || null, last: stamp.last || null, read_at: stamp.read_at || null,
+    half: 'perso', from: 'runs', report: fromData ? 'data' : 'timing', date_only: fromData, check: fromData ? pdata.check(sinceDay, ymd(new Date())) : null, days, daily, reads: stamp.n || 0, since: stamp.first || null, last: stamp.last || null, read_at: stamp.read_at || null,
     week: { jobs: weekJobs.length, cards: weekRuns.reduce((t, r) => t + (r.qty || 0), 0),
       on_time_pct: known.length ? Math.round((known.filter((r) => onTime(r)).reduce((t, r) => t + (r.qty || 0), 0) / known.reduce((t, r) => t + (r.qty || 0), 0)) * 1000) / 10 : null,
       lead_hours: leads.length ? Math.round((leads.reduce((a, b) => a + b, 0) / leads.length) * 10) / 10 : null },
@@ -216,7 +220,7 @@ function persoPace(sinceDay, openJobs = []) {
   const byJob = jobsOfRuns(persoRuns((() => { const d = new Date(`${sinceDay}T12:00`); d.setDate(d.getDate() - 60); return d.toISOString().slice(0, 10); })()));
   const due = [...byJob.values()].filter((j) => j.due && j.due >= sinceDay).map((j) => ({ date: j.due, qty: j.job_qty || j.cards }));
   for (const o of openJobs) if (o.due && o.due >= sinceDay && !byJob.has(String(o.key).toUpperCase())) due.push({ date: o.due, qty: o.qty || 0 });
-  let first = null; try { first = db.get("SELECT MIN(start_at) AS f FROM prod_runs WHERE source = 'perso'")?.f || null; } catch { /* none */ }
+  let first = null; try { first = pdata.has() ? pdata.stamp().first : db.get("SELECT MIN(start_at) AS f FROM prod_runs WHERE source = 'perso'")?.f || null; } catch { /* none */ }
   return { done, due, from: first, any: runs.length > 0 || !!first };
 }
 
@@ -225,7 +229,7 @@ function persoPace(sinceDay, openJobs = []) {
 const HISTORY = { perso: ['plan_history_jobs', 'plan_history_reads'], otto: ['plan_otto_jobs', 'plan_otto_reads'], disp: ['plan_disp_jobs', 'plan_disp_reads'] };
 function summary({ days = 14, half = 'perso' } = {}) {
   // Perso: from the timing report alone, once there is one — the same figures on every PC
-  if ((!HISTORY[half] || half === 'perso') && (() => { try { return !!db.get("SELECT 1 FROM prod_runs WHERE source = 'perso' LIMIT 1"); } catch { return false; } })()) return persoRunsSummary(days);
+  if ((!HISTORY[half] || half === 'perso') && (pdata.has() || (() => { try { return !!db.get("SELECT 1 FROM prod_runs WHERE source = 'perso' LIMIT 1"); } catch { return false; } })())) return persoRunsSummary(days);
   const [jobsT, readsT] = HISTORY[half] || HISTORY.perso;
   const perso = !HISTORY[half] || half === 'perso';
   const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

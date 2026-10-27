@@ -46,7 +46,9 @@ async function renderKpiProduction() {
 
   const fileHtml = (s) => `<div class="row small admin-only" style="gap:8px;flex-wrap:wrap">
       <label class="f" style="flex:1;min-width:320px">${s === 'otto' ? 'Matching' : 'Perso'} timing report (where it's saved)
-        <input type="text" data-prod-path="${s}" value="${esc(settings[`kpi_time_${s}`] || '')}" placeholder="e.g. S:\\…\\Daily${s === 'otto' ? 'Matching' : 'Perso'}Timing.xlsx"></label></div>`;
+        <input type="text" data-prod-path="${s}" value="${esc(settings[`kpi_time_${s}`] || '')}" placeholder="e.g. S:\\…\\Daily${s === 'otto' ? 'Matching' : 'Perso'}Timing.xlsx"></label>
+      ${s === 'otto' ? '' : `<label class="f" style="flex:1;min-width:320px" title="The report Power BI's cards-persoed figures come from: Production › Perso › 📈 History and the backlog pace add up its Qty Persoed by Production Date">📊 DailyPersoData (the Power BI report)
+        <input type="text" data-pdata-path value="${esc(settings.kpi_perso_data || '')}" placeholder="e.g. S:\\…\\DailyPersoData.xlsx"></label>`}</div>`;
   const tiles = `<div class="kdb-tiles pl-tiles">
       <div class="kdb-tile"><div class="kdb-tile-l">${label} ${unit} made</div><div class="kdb-tile-v">${n(t.cards)}</div><div class="kdb-tile-s">${n(t.jobs)} job${t.jobs === 1 ? '' : 's'} · ${n(t.runs)} run${t.runs === 1 ? '' : 's'}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Machine time busy</div><div class="kdb-tile-v">${PLF.one.format(t.busy_minutes / 60)} h</div><div class="kdb-tile-s">${capacity ? `${Math.round((t.busy_minutes / capacity) * 100)}% of ${p.machines.length} machine${p.machines.length === 1 ? '' : 's'} × ${wStart}–${wEnd}` : 'no working days in view'}</div></div>
@@ -146,6 +148,14 @@ async function renderKpiProduction() {
   $('#prod-span')?.addEventListener('change', (e) => set('prodSpan', Number(e.target.value)));
   $('#prod-sens')?.addEventListener('change', (e) => set('prodSens', e.target.value));
   $('#prod-with')?.addEventListener('change', (e) => set('prodWithAnom', e.target.checked));
+  $('[data-pdata-path]')?.addEventListener('change', async (e) => {
+    const v = e.target.value.trim().replace(/^"|"$/g, '');
+    try {
+      await api.patch('/settings', { kpi_perso_data: v });
+      const r = v ? await api.post('/prod/read', { source: 'pdata' }) : null;
+      toast(!r ? 'Saved' : r.status === 'read' ? `Read ${r.rows.toLocaleString('en-GB')} rows of DailyPersoData` : r.status === 'missing' ? 'Saved — but the file can\'t be found there' : r.error || 'Saved', r && r.status !== 'read' ? 'error' : '');
+    } catch (err) { toast(err.message, 'error'); }
+  });
   $$('[data-prod-path]').forEach((el) => el.addEventListener('change', async () => {
     try {
       await api.patch('/settings', { [`kpi_time_${el.dataset.prodPath}`]: el.value.trim().replace(/^"|"$/g, '') });

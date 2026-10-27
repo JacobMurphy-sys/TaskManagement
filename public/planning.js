@@ -238,20 +238,33 @@ async function renderPlanning() {
   // 📈 Perso from the ⏱ timing report alone: the same on every PC that has read it
   const runsHistoryHtml = (h, max, kfmt, dshort) => {
     const when = (iso) => (iso ? new Date(iso).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
+    const dayOnly = (iso) => (iso ? new Date(`${iso.slice(0, 10)}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '—');
+    const data = h.report === 'data'; const at = data ? dayOnly : when;
+    const rep = data ? '📊 DailyPersoData' : '⏱ timing report';
+    // 🔎 every way of counting the cards, day by day, to set the count to match Power BI's
+    const chk = h.check?.length ? (() => { const counted = new Map(h.daily.map((d) => [d.date, d.cards]));
+      return `<details class="card pl-check"><summary><b>🔎 Compare with Power BI</b> <span class="muted small">— each day's cards, counted every way the report allows</span></summary>
+        <div class="kdb-scroll"><table class="log small"><thead><tr><th>Production date</th><th class="num">All rows</th><th class="num">of which remakes</th><th class="num">not LIVE</th><th class="num">M work orders</th><th class="num">Job waste</th><th class="num"><b>Counted here</b></th></tr></thead><tbody>
+        ${h.check.map((c) => `<tr><td>${esc(dayOnly(c.day))}</td><td class="num">${n(c.all_rows)}</td><td class="num">${n(c.remakes)}</td><td class="num">${n(c.not_live)}</td><td class="num">${n(c.m_jobs)}</td><td class="num">${n(c.waste)}</td><td class="num"><b>${n(counted.get(c.day) ?? 0)}</b></td></tr>`).join('')}</tbody></table></div>
+        <div class="row small admin-only" style="gap:16px;flex-wrap:wrap;margin-top:6px"><span class="muted">Count as Power BI does:</span>
+          <label class="row"><input type="checkbox" data-pdata-set="kpi_pdata_remakes" ${settings.kpi_pdata_remakes === '0' ? '' : 'checked'}> remakes</label>
+          <label class="row"><input type="checkbox" data-pdata-set="kpi_pdata_live" data-inv ${settings.kpi_pdata_live === '1' ? '' : 'checked'}> other production modes than LIVE</label>
+          <label class="row"><input type="checkbox" data-pdata-set="kpi_pdata_m" ${settings.kpi_pdata_m === '0' ? '' : 'checked'}> M work orders</label></div></details>`; })() : '';
     return `<div class="kdb-tiles" style="margin-top:12px">
         <div class="kdb-tile"><div class="kdb-tile-l">Persoed — last 7 days</div><div class="kdb-tile-v">${n(h.week.cards)}</div><div class="kdb-tile-s">cards · ${n(h.week.jobs)} job${h.week.jobs === 1 ? '' : 's'} finished</div></div>
         <div class="kdb-tile"><div class="kdb-tile-l">On time — last 7 days</div><div class="kdb-tile-v ${h.week.on_time_pct === null ? '' : h.week.on_time_pct >= 98 ? 'kdb-ok' : 'kdb-bad'}">${h.week.on_time_pct === null ? '—' : `${h.week.on_time_pct}%`}</div><div class="kdb-tile-s">of the cards, persoed by their due date</div></div>
-        <div class="kdb-tile"><div class="kdb-tile-l">Lead time</div><div class="kdb-tile-v">${h.week.lead_hours === null ? '—' : fmtSpan(h.week.lead_hours * 60)}</div><div class="kdb-tile-s">imported → last run, average</div></div>
-        <div class="kdb-tile"><div class="kdb-tile-l">⏱ Timing report</div><div class="kdb-tile-v">${n(h.reads)}</div><div class="kdb-tile-s">runs · newest ended ${esc(when(h.last))}</div></div></div>
-      <p class="small muted pl-same">🟰 Built only from the ⏱ timing report (every run since 1 January), so it's the same on every PC that has read it — compare the newest run above to check you're on the same report. Last read here ${esc(when(h.read_at))}.</p>
-      <div class="card"><h3 class="pl-h">Cards persoed per day <span class="muted small">— last ${h.days} days, by the day each run ended · green by the due date · red after it${h.daily.some((d) => d.unknown_cards) ? ' · grey: no due date in the report' : ''}</span></h3>
+        <div class="kdb-tile"><div class="kdb-tile-l">Lead time</div><div class="kdb-tile-v">${h.week.lead_hours === null ? '—' : fmtSpan(h.week.lead_hours * 60)}</div><div class="kdb-tile-s">imported → last ${data ? 'produced' : 'run'}, average</div></div>
+        <div class="kdb-tile"><div class="kdb-tile-l">${rep}</div><div class="kdb-tile-v">${n(h.reads)}</div><div class="kdb-tile-s">${data ? `rows · newest production date ${esc(dayOnly(h.last))}` : `runs · newest ended ${esc(when(h.last))}`}</div></div></div>
+      <p class="small muted pl-same">🟰 Built only from the ${rep}${data ? ' — the report Power BI uses' : ' (every run since 1 January)'}, so it's the same on every PC that has read it — compare the newest ${data ? 'production date' : 'run'} above to check you're on the same report. Last read here ${esc(when(h.read_at))}.</p>
+      ${chk}
+      <div class="card"><h3 class="pl-h">Cards persoed per day <span class="muted small">— last ${h.days} days, by ${data ? 'Production Date' : 'the day each run ended'} · green by the due date · red after it${h.daily.some((d) => d.unknown_cards) ? ' · grey: no due date in the report' : ''}</span></h3>
         <div class="pl-hist">${h.daily.map((d) => `<div class="pl-hist-col" title="${esc(d.date)}: ${n(d.cards)} cards persoed (${n(d.on_time_cards)} by their due date), ${n(d.jobs)} jobs">
           <div class="pl-hist-n">${d.cards ? kfmt(d.cards) : ''}</div>
           <div class="pl-hist-bar" style="height:${Math.round((d.cards / max) * 140)}px"><div class="pl-hist-unknown" style="height:${d.cards ? Math.round(((d.unknown_cards || 0) / d.cards) * 100) : 0}%"></div><div class="pl-hist-late" style="height:${d.cards ? Math.round(((d.cards - d.on_time_cards - (d.unknown_cards || 0)) / d.cards) * 100) : 0}%"></div></div>
           <div class="pl-hist-d">${dshort(d.date)}</div></div>`).join('')}</div></div>
       <div class="card"><h3 class="pl-h">Latest finished <span class="muted small">— jobs whose runs reached their quantity</span></h3>
-        <div class="kdb-scroll"><table class="log"><thead><tr><th>Last run ended</th><th>Work order / job</th><th>Customer</th><th class="num">Cards</th><th>Due</th><th>Result</th><th>Machines</th></tr></thead><tbody>
-        ${h.recent.map((j) => `<tr><td>${esc(when(j.done_at))}</td><td><button class="link" data-pf-wo-open="${esc(j.wo)}" title="Everything about this work order"><b>${esc(j.wo)}</b></button> <span class="muted">${j.per ? `/ ${esc(j.per)}` : ''}</span></td>
+        <div class="kdb-scroll"><table class="log"><thead><tr><th>${data ? 'Last produced' : 'Last run ended'}</th><th>Work order / job</th><th>Customer</th><th class="num">Cards</th><th>Due</th><th>Result</th><th>Machines</th></tr></thead><tbody>
+        ${h.recent.map((j) => `<tr><td>${esc(at(j.done_at))}</td><td><button class="link" data-pf-wo-open="${esc(j.wo)}" title="Everything about this work order"><b>${esc(j.wo)}</b></button> <span class="muted">${j.per ? `/ ${esc(j.per)}` : ''}</span></td>
           <td>${esc(j.customer || '')}</td><td class="num">${n(j.qty)}</td><td>${esc(j.deadline ? dayLabel(j.deadline) : '—')}</td>
           <td>${j.late_days === null ? '—' : j.late_days > 0 ? `<span class="pl-late">${j.late_days} day${j.late_days === 1 ? '' : 's'} late</span>` : '<span class="pl-ok">✔ on time</span>'}</td><td class="small">${esc(j.machines || '')}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No job finished in these days.</td></tr>'}
         </tbody></table></div></div>`;
@@ -711,6 +724,10 @@ ${half === 'otto' ? ottoSetup() : `
   }
 
   const setO = (k, v) => { const of = store.get('planOttoFilter', {}) || {}; of[k] = v || ''; store.set('planOttoFilter', of); renderPlanning(); };
+  $$('[data-pdata-set]').forEach((el) => el.addEventListener('change', async () => {
+    const k = el.dataset.pdataSet; const v = el.hasAttribute('data-inv') ? (el.checked ? '0' : '1') : (el.checked ? '1' : '0');
+    try { await api.patch('/settings', { [k]: v }); toast('Counting changed'); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+  }));
   $('#pl-mode')?.addEventListener('change', (e) => { store.set('planMode', e.target.value); renderPlanning(); });
   $('#plo-q')?.addEventListener('change', (e) => setO('q', e.target.value.trim()));
   const setD = (k, v) => { const df = store.get('planDispFilter', {}) || {}; df[k] = v || ''; store.set('planDispFilter', df); renderPlanning(); };

@@ -476,6 +476,31 @@ const TABLES = {
     file        TEXT,
     read_at     TEXT    NOT NULL`, // every row of the report, as it is (a report replaces the days it covers)
 
+  // 📊 DailyPersoData (the Power BI source): one row per job, machine and shift, by Production Date.
+  // A read replaces the rows for the days the report covers.
+  perso_output: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    day         TEXT    NOT NULL,
+    shift       TEXT,
+    job         TEXT    NOT NULL,
+    product     TEXT,
+    job_qty     INTEGER,
+    waste       INTEGER,
+    qty         INTEGER NOT NULL DEFAULT 0,
+    remake      INTEGER NOT NULL DEFAULT 0,
+    station     TEXT,
+    machine     TEXT,
+    mode        TEXT,
+    item        TEXT,
+    item_name   TEXT,
+    customer    TEXT,
+    trigram     TEXT,
+    due         TEXT,
+    imported    TEXT,
+    operator    TEXT,
+    file        TEXT,
+    read_at     TEXT    NOT NULL`,
+
   // 🏭 Planning: jobs pinned to the front of the queue (work order / job key), in pin order.
   plan_pins: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -665,6 +690,8 @@ const INDEXES = `
   CREATE INDEX IF NOT EXISTS meetings_held_idx ON meetings(held_at);
   CREATE INDEX IF NOT EXISTS prod_runs_time_idx ON prod_runs(source, start_at);
   CREATE INDEX IF NOT EXISTS prod_runs_job_idx ON prod_runs(source, job);
+  CREATE INDEX IF NOT EXISTS perso_output_day_idx ON perso_output(day);
+  CREATE INDEX IF NOT EXISTS perso_output_job_idx ON perso_output(job);
 
   -- Default project ID (editable), like ideas' references.
   DROP TRIGGER IF EXISTS projects_code;

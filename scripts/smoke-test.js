@@ -1699,6 +1699,29 @@ async function waitForServer() {
           assert.ok(!hs.daily.some((d) => d.date === '2026-10-08' && d.cards), 'nothing put on the day the export was read again');
           const bl = (await call('GET', '/plan')).backlog;
           assert.equal(bl.pace_from, 'runs', 'the backlog pace from the timing report too');
+          // 📊 DailyPersoData — Power BI's source: its Qty Persoed by Production Date wins once linked
+          const pdHead = ['Import Date', 'Production Date', 'Due Date', 'Production Time', 'job', 'Product Type', 'Job Qty', 'Job Waste', 'Qty Persoed', 'Remake', 'Machine WS Name', 'Machine  Name', 'Production Mode', 'Item Name', 'AXRef', 'Customer Name', 'CO Ref', 'Operator'];
+          const pdRow = (prod, due, job, jq, q, remake, mode, machine) => [d7 - 2, prod, due, '06:00 - 14:00', job, 'Card', jq, 0, q, remake, 'NLSIRQ03', machine, mode, 'A card', '2260001', 'A Bank', 'AAA', 'op'];
+          const pdF = path.join(tmp, 'DailyPersoData.xlsx');
+          fs.writeFileSync(pdF, require('../src/xlsx').buildXlsx([{ name: 'DailyPersoData', columns: pdHead.map((h, i) => ({ header: h, type: [0, 1, 2, 6, 7, 8].includes(i) ? 'number' : undefined })), rows: [
+            pdRow(d7, d7, 'CEEES26100701PER0001', 500, 300, 'No', 'LIVE', 'MX#1'), pdRow(d7, d7, 'CEEES26100701PER0001', 500, 200, 'No', 'LIVE', 'MX#2'), // two machines, one job: 500
+            pdRow(d7, d7 - 1, 'CFFFS26100702PER0001', 50, 50, 'No', 'LIVE', 'MX#1'), // after its due date
+            pdRow(d7, d7, 'CGGGS26100703PER0001', 20, 20, 'Yes', 'LIVE', 'MX#1'), // a remake
+            pdRow(d7 + 1, d7 + 1, 'CHHHS26100704PER0001', 10, 10, 'No', 'TEST', 'MX#1')] }])); // not LIVE
+          await call('PATCH', '/settings', { kpi_perso_data: pdF });
+          const pr = await call('POST', '/prod/read', { source: 'pdata' });
+          assert.deepEqual([pr.status, pr.rows], ['read', 5]);
+          let ph = await call('GET', '/plan/history?days=60');
+          const pday = (d) => ph.daily.find((x) => x.date === d);
+          assert.deepEqual([ph.report, pday('2026-10-07').cards, pday('2026-10-07').on_time_cards, pday('2026-10-08').cards], ['data', 570, 520, 10], 'Qty Persoed by Production Date, every row; on time by the due date');
+          assert.ok(ph.recent.some((j) => j.wo === 'CEEES26100701' && j.qty === 500 && j.late_days === 0), 'a job finished across two machines');
+          assert.deepEqual(ph.check.find((c) => c.day === '2026-10-07'), { day: '2026-10-07', all_rows: 570, remakes: 20, not_live: 0, m_jobs: 0, waste: 0 }, 'the breakdown to compare with Power BI');
+          await call('PATCH', '/settings', { kpi_pdata_remakes: '0', kpi_pdata_live: '1' });
+          ph = await call('GET', '/plan/history?days=60');
+          assert.deepEqual([pday('2026-10-07').cards, pday('2026-10-08')?.cards || 0], [550, 0], 'remakes and non-LIVE left out when set so');
+          assert.equal((await call('GET', '/plan')).backlog.pace_from, 'runs');
+          await call('PATCH', '/settings', { kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0' });
+          assert.equal((await call('GET', '/plan/history?days=60')).report, 'timing', 'unlinked: back to the timing report');
         }
         // Matching's and 🚚 Dispatch's own history, from their own tables
         for (const half of ['otto', 'disp']) { const oh = await call('GET', `/plan/history?half=${half}`); assert.equal(oh.half, half); assert.equal(oh.daily.length, 14); assert.ok(Array.isArray(oh.recent)); }

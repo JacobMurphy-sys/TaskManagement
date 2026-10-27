@@ -2588,7 +2588,7 @@ const SETTING_DEFAULTS = {
   // The customer forecast files (blank: the workbook's copy of them).
   kpi_fc_benelux: '', kpi_fc_amex: '',
   // ⏱ The daily timing reports (each job's start and end on its machine), perso and Matching.
-  kpi_time_perso: '', kpi_time_otto: '',
+  kpi_time_perso: '', kpi_time_otto: '', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
   plan_src: '', planner_url: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_learned_times: '0', plan_oee_default: '', plan_otto_src: '', plan_disp_src: '', plan_max_age: '30', plan_miti_days: '5', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
@@ -2616,7 +2616,10 @@ router.patch('/settings', h((req, res) => {
 const prodFile = (source) => cleanPath(getSettings()[`kpi_time_${source}`]) || null;
 const prodSource = (v) => (v === 'otto' ? 'otto' : 'perso');
 // Read every 10 minutes (and at start-up) so no day is missed even with the page closed.
+const pdataFile = () => cleanPath(getSettings().kpi_perso_data) || null;
 function readProdReports() {
+  const pd = require('./persodata').readLinked(pdataFile());
+  if (pd.status === 'read') log.info(`DailyPersoData: read ${pd.rows} rows`); else if (pd.status === 'error') log.warn(`DailyPersoData: ${pd.error}`);
   for (const source of Object.keys(prod.SOURCES)) {
     const r = prod.readLinked(source, prodFile(source));
     if (r.status === 'read') log.info(`Production ${source}: read ${r.rows} runs (${r.added} new)`);
@@ -2926,6 +2929,11 @@ router.get('/prod/anomalies.xlsx', h((req, res) => {
 }));
 // Read the linked report now (even if it looks unchanged).
 router.post('/prod/read', h((req, res) => {
+  if (req.body?.source === 'pdata') {
+    const r = require('./persodata').readLinked(pdataFile(), { force: true });
+    if (r.status === 'none') throw new HttpError(400, 'Set where the DailyPersoData report is saved first');
+    return res.json(r);
+  }
   const source = prodSource(req.body?.source);
   const r = prod.readLinked(source, prodFile(source), { force: true });
   if (r.status === 'none') throw new HttpError(400, `Set where the ${prod.SOURCES[source]} timing report is saved first`);
