@@ -1538,6 +1538,17 @@ async function waitForServer() {
           await call('PUT', `/cpm/scenarios/${sc.id}`, { shared: true, changes: [{ type: 'shifts', shifts: 2 }] });
           await call('DELETE', `/cpm/scenarios/${sc.id}`);
           await call('DELETE', `/cpm/history?year=${Y - 1}&kind=forecast`); await call('DELETE', `/cpm/history?year=${Y - 1}&kind=actual`);
+          // a BeNeLux file laid out as SITHUB expects, its quantity heading renamed and its months as text:
+          // read as Reporting does (the LIVE_EU_PAY_CARDS sheet; a column not found by name, where SITHUB has it)
+          const hdr = Array.from({ length: 40 }, (_, i) => `Col${i}`); Object.assign(hdr, { 0: 'Line_Year', 3: 'Line_Month', 8: 'Man_SubArea_Nm', 12: 'Cust_Nm', 22: 'Item_Nm', 38: 'Qty (cards)' });
+          const rowOf = (m, cust, q) => { const r = Array(40).fill(''); Object.assign(r, { 0: Y, 3: m, 8: 'Benelux', 12: cust, 22: 'Basic card', 38: q }); return r; };
+          const bn2 = path.join(tmp, 'Benelux Forecast 2.xlsx');
+          fs.writeFileSync(bn2, bx([{ name: 'Notes', columns: [{ header: 'x' }], rows: [['y']] }, { name: 'LIVE_EU_PAY_CARDS', columns: hdr.map((header, i) => ({ header, type: [0, 38].includes(i) ? 'number' : undefined })), rows: [rowOf(`${Y}-01`, 'KBC Bank NV', 4000), rowOf('2', 'KBC Bank NV', 100)] }]));
+          await call('PATCH', '/settings', { kpi_fc_benelux: bn2 });
+          const ovR = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&reread=1`);
+          assert.deepEqual([ovR.forecast_sources.benelux[0], ovR.forecast_sources.benelux[1], ovR.forecast_status.benelux.by_position.length, ovR.forecast_status.benelux.sheet], [4000, 100, 1, 'LIVE_EU_PAY_CARDS'], 'BeNeLux read as Reporting reads it');
+          await call('PATCH', '/settings', { kpi_fc_benelux: path.join(tmp, 'nope.xlsx') });
+          assert.match((await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0`)).forecast_status.benelux.error, /can't find/, 'a file that can\'t be read says so');
           await call('DELETE', '/cpm/customers/KBC'); await call('DELETE', '/cpm/customers/AES');
           await call('PUT', '/cpm/settings', { cpm_machines: '{}' }); await call('PATCH', '/settings', { kpi_fc_benelux: '', kpi_fc_amex: '' });
         }

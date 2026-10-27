@@ -25,12 +25,13 @@ async function renderCpm(tab) {
 }
 
 // ---- 📊 Overview: demand against capacity, per technology --------------------------------------------
+let cpmReread = false; // the next Overview reads the forecast files again
 async function cpmOverview(body) {
   const year = Number(store.get('cpmYear', new Date().getFullYear()));
   const period = store.get('cpmPeriod', 'month');
   const flex = store.get('cpmFlex', true);
   const scen = (store.get('cpmCompare', []) || []).slice(0, 2);
-  const [d, all] = await Promise.all([api.get(`/cpm/overview?year=${year}&period=${period}&flex=${flex ? 1 : 0}&scenarios=${scen.join(',')}`), api.get('/cpm/scenarios')]);
+  const [d, all] = await Promise.all([api.get(`/cpm/overview?year=${year}&period=${period}&flex=${flex ? 1 : 0}&scenarios=${scen.join(',')}${cpmReread ? '&reread=1' : ''}`), api.get('/cpm/scenarios')]);
   const now = new Date().toISOString().slice(0, 10);
   const SC_COL = ['#7a5cff', '#e0861a'];
   const chart = (t) => {
@@ -83,6 +84,8 @@ async function cpmOverview(body) {
     ${cpmFcTotals(d)}
     ${d.techs.map((t) => `<div class="card cpm-tech"><h3 class="pl-h">${CPM_TECH_ICON[t] || ''} ${esc(t)} <span class="muted small">— bars: capacity needed (forecast${flex ? ' × flex' : ''} ÷ OEE), green / amber from 85% / red over · inner bar: the forecast · line: capacity${d.scenarios.length ? ' (dashed: scenarios)' : ''} · dots: actual</span></h3>
       ${chart(t)}${table(t)}</div>`).join('')}`;
+  if (cpmReread) { cpmReread = false; const bad = Object.values(d.forecast_status || {}).filter((x) => x.error); toast(bad.length ? `Couldn't read: ${bad.map((x) => x.error).join(' · ')}` : 'Forecasts read again', bad.length ? 'error' : ''); }
+  const rr = $('#cpm-reread'); if (rr) rr.onclick = () => { cpmReread = true; rr.disabled = true; rr.textContent = 'Reading…'; renderCpm('overview'); };
   $('#cpm-year').onchange = (e) => { store.set('cpmYear', Number(e.target.value)); renderCpm('overview'); };
   $$('[data-cpm-period]').forEach((b) => { b.onclick = () => { store.set('cpmPeriod', b.dataset.cpmPeriod); renderCpm('overview'); }; });
   $('#cpm-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('overview'); };
@@ -273,7 +276,13 @@ async function cpmScenarios(body) {
 // The forecast's total per month, as Reporting's Database adds it up (BeNeLux + Amex), against what the
 // technology charts count — so the two can be checked against each other
 function cpmFcTotals(d) {
-  const src = d.forecast_sources || {}; if (!Object.keys(src).length) return '';
+  const src = d.forecast_sources || {}; const st = d.forecast_status || {};
+  const LBL = { benelux: 'BeNeLux', amex: 'Amex' };
+  const status = ['benelux', 'amex'].map((k) => { const x = st[k] || {}; return `<div class="small ${x.error ? 'pl-late' : 'muted'}"><b>${LBL[k]}</b>: ${x.error
+    ? `${x.file ? `${esc(x.file.split(/[\\/]/).pop())} — ` : ''}couldn't be read: ${esc(x.error)}`
+    : x.file ? `${esc(x.file.split(/[\\/]/).pop())}${x.modified ? ` (saved ${esc(fmtDateTime(x.modified))})` : ''} — read ${esc(fmtDateTime(x.at))}${k === 'benelux' && x.lines !== undefined ? `: ${cpmN(x.lines)} lines, ${cpmN(x.kept)} Benelux “basic” ones` : ''}${x.years?.length ? `, years ${x.years.join(', ')}` : ''}${x.by_position?.length ? ` · <span class="pl-warn" title="${esc(x.by_position.join('\n'))}">${x.by_position.length} column${x.by_position.length === 1 ? '' : 's'} not found by name — taken where SITHUB expects ${x.by_position.length === 1 ? 'it' : 'them'}</span>` : ''}` : 'not read yet'}</div>`; }).join('');
+  const head = `<div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h3 class="pl-h" style="margin:0">Forecast ${d.year} <span class="muted small">— the files linked in Reporting › Sources, by SITHUB's rules (BeNeLux: Benelux + “basic” lines; Amex: TOTAL BAU)</span></h3><button class="small" id="cpm-reread" title="Read the linked forecast files again now">↻ Read the forecasts again</button></div>${status}`;
+  if (!Object.keys(src).length) return `<div class="card">${head}</div>`;
   const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const bn = src.benelux || Array(12).fill(0); const ax = src.amex || Array(12).fill(0);
   const tot = bn.map((q, i) => q + ax[i]);
@@ -282,7 +291,7 @@ function cpmFcTotals(d) {
   const sum = (a) => a.reduce((t, x) => t + x, 0);
   const tr = (label, a, cls = '', title = '') => `<tr class="${cls}"><th title="${esc(title)}">${label}</th>${a.map((x) => `<td class="num">${cpmN(Math.round(x))}</td>`).join('')}<td class="num"><b>${cpmN(Math.round(sum(a)))}</b></td></tr>`;
   const off = counted.map((x, i) => x - tot[i]);
-  return `<div class="card"><h3 class="pl-h">Forecast ${d.year} <span class="muted small">— the files linked in Reporting › Sources, by SITHUB's rules (BeNeLux: Benelux + “basic” lines; Amex: TOTAL BAU)</span></h3>
+  return `<div class="card">${head}
     <div class="kdb-scroll"><table class="log small cpm-tbl"><thead><tr><th></th>${M.map((m) => `<th class="num">${m}</th>`).join('')}<th class="num">Year</th></tr></thead><tbody>
       ${tr('BeNeLux', bn)}${tr('Amex', ax)}${tr('<b>Total</b>', tot)}
       ${tr('Counted in the charts', counted, '', 'The forecast split over DOD / Emboss / Laser below — less than the total when a customer has no split to go by (see the notes above)')}

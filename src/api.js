@@ -2635,11 +2635,12 @@ setInterval(readProdReports, 10 * 60 * 1000).unref();
 // 📐 CPM — capacity planning (Prod Management): forecasts against actuals, flex, capacity and scenarios (cpm.js).
 const cpm = require('./cpm');
 function cpmCards() { const set = getSettings(); const c = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' }); return c.status === 'ok' ? c.cards : null; }
-function cpmRefresh() {
+function cpmRefresh(force = false) {
   const set = getSettings();
   const files = Object.keys(kpiData.FORECASTS).map((key) => { const file = cleanPath(set[`kpi_fc_${key}`]); if (!file) return { key };
-    try { const st = fs.statSync(file); return { key, file, modified: st.mtime.toISOString(), buf: fs.readFileSync(file) }; } catch (err) { return { key, file, error: err.message }; } });
-  let read = null; try { read = cpm.refreshForecasts(files); } catch (err) { log.warn('CPM forecasts', err.message); }
+    try { const st = fs.statSync(file); return { key, file, modified: st.mtime.toISOString(), buf: fs.readFileSync(file) }; } catch (err) {
+      return { key, file, error: err.code === 'ENOENT' ? `can't find ${file}` : err.code === 'EBUSY' ? 'the file is locked (open in Excel?) — try again in a moment' : err.message }; } });
+  let read = null; try { read = cpm.refreshForecasts(files, force); } catch (err) { log.warn('CPM forecasts', err.message); }
   return { files: files.map(({ buf, ...f }) => f), read };
 }
 const cpmOwner = (req) => (req.account ? String(req.account.id) : 'local');
@@ -2651,13 +2652,13 @@ const cpmScenario = (req, id) => {
 };
 const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines'];
 router.get('/cpm/overview', h((req, res) => {
-  const files = cpmRefresh();
+  const files = cpmRefresh(req.query.reread === '1');
   const year = Number(req.query.year) || new Date().getFullYear();
   const period = req.query.period === 'week' ? 'week' : 'month';
   const useFlex = req.query.flex !== '0'; const cards = cpmCards();
   const base = cpm.compute({ year, period, useFlex, cards });
   const scenarios = String(req.query.scenarios || '').split(',').filter(Boolean).slice(0, 2).map((id) => cpmScenario(req, Number(id)));
-  res.json({ ...base, files: files.files, cards: !!cards, settings: Object.fromEntries(CPM_SETTINGS.map((k) => [k, getSettings()[k]])),
+  res.json({ ...base, files: files.files, forecast_status: cpm.forecastStatus(), cards: !!cards, settings: Object.fromEntries(CPM_SETTINGS.map((k) => [k, getSettings()[k]])),
     scenarios: scenarios.map((sc) => ({ id: sc.id, name: sc.name, ...cpm.compute({ year, period, useFlex, cards, changes: sc.changes }) })) });
 }));
 router.put('/cpm/settings', h((req, res) => {

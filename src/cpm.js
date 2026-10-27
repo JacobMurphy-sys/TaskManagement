@@ -28,7 +28,14 @@ const ym = (y, m) => `${y}-${String(m).padStart(2, '0')}`;
 const pad = (n) => String(n).padStart(2, '0');
 const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-const monthOf = (v) => { const t = String(v ?? '').trim().toLowerCase(); if (/^\d{1,2}$/.test(t) && +t >= 1 && +t <= 12) return +t; const i = MONTHS.findIndex((m) => t.startsWith(m)); return i >= 0 ? i + 1 : null; };
+// a month: 1–12, a month's name, 2026-01 / 01/2026, or a date
+const monthOf = (v) => {
+  if (typeof v === 'number' && v > 30000 && v < 80000) return new Date(Math.round((v - 25569) * 86400000)).getUTCMonth() + 1;
+  const t = String(v ?? '').trim().toLowerCase(); if (/^\d{1,2}(\.0+)?$/.test(t) && +t >= 1 && +t <= 12) return +t;
+  let m = t.match(/^\d{4}[-/.](\d{1,2})\b/) || t.match(/^(\d{1,2})[-/.]\d{4}$/); if (m && +m[1] >= 1 && +m[1] <= 12) return +m[1];
+  m = t.match(/^\d{1,2}[/.-](\d{1,2})[/.-]\d{4}$/); if (m && +m[1] >= 1 && +m[1] <= 12) return +m[1];
+  const i = MONTHS.findIndex((x) => t.startsWith(x)); return i >= 0 ? i + 1 : null;
+};
 const setting = (k, d) => db.get('SELECT value FROM settings WHERE key = ?', [k])?.value ?? d;
 const json = (s, d) => { try { return s ? JSON.parse(s) : d; } catch { return d; } };
 
@@ -45,21 +52,34 @@ function nameMap() {
 }
 
 // ---- forecasts (SITHUB rules) ----------------------------------------------------------------------
-function parseBenelux(buf) {
+// As Reporting reads it into SITHUB: the LIVE_EU_PAY_CARDS sheet (else the first), its headings in its
+// first filled row; a column found by its heading, else where SITHUB's formulas expect it (they use
+// fixed columns: year A, month D, sub-area I, customer M, item W, quantity AM).
+const BNL_COLS = { year: ['Line_Year', 0], month: ['Line_Month', 3], area: ['Man_SubArea_Nm', 8], cust: ['Cust_Nm', 12], item: ['Item_Nm', 22], qty: ['Line_Qty', 38] };
+function parseBenelux(buf, info = {}) {
   const book = readBook(buf);
-  const cols = { year: 'Line_Year', month: 'Line_Month', area: 'Man_SubArea_Nm', item: 'Item_Nm', cust: 'Cust_Nm', qty: 'Line_Qty' };
-  let rows = null; let err = null;
-  for (const info of book.sheets) { try { rows = sheetRows(book.sheet(info.name), cols); break; } catch (e) { err = err || e; } }
-  if (!rows) throw err || new Error('No sheets');
-  const sum = new Map();
-  for (const r of rows) {
-    if (String(r.area || '').trim().toLowerCase() !== 'benelux' || !/basic/i.test(String(r.item || ''))) continue;
-    const y = Number(r.year); const m = monthOf(r.month); const q = Number(r.qty) || 0;
-    if (!y || !m || !q) continue;
-    const k = `${y}|${m}|${String(r.cust || '').trim()}`;
+  const name = (book.sheets.find((x) => /^live_eu_pay_cards$/i.test(x.name)) || book.sheets[0])?.name;
+  if (!name) throw new Error('The file has no sheets');
+  const sh = book.sheet(name);
+  let top = Infinity; let left = Infinity;
+  for (const c of sh.cells.values()) if (c.v !== null && c.v !== undefined && c.v !== '') { if (c.row < top) top = c.row; if (c.col < left) left = c.col; }
+  if (top === Infinity) throw new Error(`The "${name}" sheet is empty`);
+  const norm = (x) => String(x ?? '').trim().toLowerCase().replace(/[\s_]+/g, '');
+  const heads = new Map(); for (let c = left; c <= sh.maxCol; c++) { const h = norm(sh.cells.get(`${colLetters(c)}${top}`)?.v); if (h && !heads.has(h)) heads.set(h, c); }
+  const col = {}; const byPos = [];
+  for (const [k, [h, off]] of Object.entries(BNL_COLS)) { col[k] = heads.get(norm(h)); if (!col[k]) { col[k] = left + off; byPos.push(`${h} → column ${colLetters(left + off)} (“${sh.cells.get(`${colLetters(left + off)}${top}`)?.v ?? ''}”)`); } }
+  const v = (k, r) => sh.cells.get(`${colLetters(col[k])}${r}`)?.v;
+  const sum = new Map(); let lines = 0; let kept = 0;
+  for (let r = top + 1; r <= sh.maxRow; r++) {
+    const q = Number(v('qty', r)) || 0; if (!q) continue; lines++;
+    if (String(v('area', r) ?? '').trim().toLowerCase() !== 'benelux' || !/basic/i.test(String(v('item', r) ?? ''))) continue;
+    const y = Number(v('year', r)) || dateOf(v('month', r))?.y; const m = monthOf(v('month', r));
+    if (!y || !m) continue; kept++;
+    const k = `${y}|${m}|${String(v('cust', r) ?? '').trim()}`;
     sum.set(k, (sum.get(k) || 0) + q);
   }
-  return [...sum].map(([k, qty]) => { const [y, m, name] = k.split('|'); return { year: +y, month: +m, name, tech: null, qty }; });
+  Object.assign(info, { sheet: name, lines, kept, by_position: byPos });
+  return [...sum].map(([k, qty]) => { const [y, m, nm] = k.split('|'); return { year: +y, month: +m, name: nm, tech: null, qty }; });
 }
 // Amex (Sittard): months across row 1 (01/MM/YYYY), sections down column A, New / Rep / Rew / Total in B
 function parseAmex(buf) {
@@ -84,27 +104,35 @@ function dateOf(x) {
   if (typeof x === 'number' && x > 30000 && x < 80000) { const d = new Date(Math.round((x - 25569) * 86400000)); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 }; }
   const m = String(x ?? '').match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/); return m ? { y: +m[3], m: +m[2] } : null;
 }
-// Reads the linked forecast files into this month's snapshot when they changed. files: [{ key, file, modified, buf }]
-function refreshForecasts(files) {
+// Reads the linked forecast files into this month's snapshot when they changed (a file that couldn't be
+// read is tried again next time). files: [{ key, file, modified, buf, error }]. force: read them anyway.
+// What each read gave (or why not) is kept for the Overview: status().
+function refreshForecasts(files, force = false) {
   const asOf = ymd(new Date()).slice(0, 7);
-  const sig = files.filter((f) => f.buf).map((f) => `${f.key}|${f.file}|${f.modified}`).join(';');
-  if (!sig || (setting('cpm_fc_sig', '') === `${asOf}#${sig}`)) return null;
+  const okSig = (f) => `${f.key}|${f.file}|${f.modified}`;
+  const done = String(setting('cpm_fc_sig', '')); const doneOf = done.startsWith(`${asOf}#`) ? done.slice(asOf.length + 1).split(';') : [];
+  const todo = files.filter((f) => f.buf && (force || !doneOf.includes(okSig(f))));
+  const status = json(setting('cpm_fc_status', '{}'), {});
+  for (const f of files) if (!f.buf) status[f.key] = f.file ? { file: f.file, error: f.error || 'can\'t be opened', at: new Date().toISOString() } : { error: 'not linked in Reporting › Sources' };
   const names = nameMap(); const now = new Date().toISOString(); const got = {};
   db.tx(() => {
-    for (const f of files) {
-      if (!f.buf) continue;
-      let rows; try { rows = f.key === 'amex' ? parseAmex(f.buf) : parseBenelux(f.buf); } catch (err) { got[f.key] = { error: err.message }; continue; }
+    for (const f of todo) {
+      const info = {};
+      let rows; try { rows = f.key === 'amex' ? parseAmex(f.buf) : parseBenelux(f.buf, info); } catch (err) { got[f.key] = status[f.key] = { file: f.file, modified: f.modified, error: err.message, at: now }; continue; }
       db.run('DELETE FROM cpm_forecast WHERE as_of = ? AND source = ?', [asOf, f.key]);
       for (const r of rows) {
         const tri = f.key === 'amex' ? (names.get('amex') || 'AES') : names.get(r.name.toLowerCase()) || null;
         db.run('INSERT INTO cpm_forecast (as_of, source, year, month, trigram, name, tech, qty, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [asOf, f.key, r.year, r.month, tri, r.name, r.tech, r.qty, now]);
       }
-      got[f.key] = { rows: rows.length };
+      got[f.key] = status[f.key] = { file: f.file, modified: f.modified, rows: rows.length, years: [...new Set(rows.map((r) => r.year))].sort(), ...info, at: now };
     }
-    db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', ['cpm_fc_sig', `${asOf}#${sig}`]);
+    const ok = files.filter((f) => f.buf && !status[f.key]?.error).map(okSig);
+    const put = (k, val) => db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, val]);
+    put('cpm_fc_sig', `${asOf}#${ok.join(';')}`); put('cpm_fc_status', JSON.stringify(status));
   });
   return got;
 }
+const forecastStatus = () => json(setting('cpm_fc_status', '{}'), {});
 // Customers mapped again: forecast rows read before a name was mapped
 function remapForecasts() {
   const names = nameMap();
@@ -431,4 +459,4 @@ function parseConfig(buf) {
   throw new Error('No Config sheet with a Trigram column');
 }
 
-module.exports = { TECHS, oeeFallback, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf };
+module.exports = { TECHS, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf };
