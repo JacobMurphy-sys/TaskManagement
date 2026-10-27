@@ -2673,7 +2673,7 @@ router.get('/cpm/customers', h((req, res) => {
   // customers persoed or forecast but not set up yet
   const known = new Set(list.map((c) => c.trigram));
   const seen = [...new Set([...learned.keys(), ...fcTot.keys()])].filter((t) => !known.has(t) && !/^[~*]/.test(t)).map((t) => ({ trigram: t, learned: learned.get(t) || null, forecast_year: fcTot.get(t) || 0 }));
-  res.json({ customers: list, not_set_up: seen, unmapped: fc.unmapped, forecast_as_of: fc.as_of, techs: cpm.TECHS, oee_default: Number(getSettings().cpm_oee_default) || 0.35 });
+  res.json({ customers: list, not_set_up: seen, unmapped: fc.unmapped, forecast_as_of: fc.as_of, techs: cpm.TECHS, oee_default: cpm.oeeFallback(), oee_default_from: Number(getSettings().plan_oee_default) > 0 ? 'production' : 'cpm' });
 }));
 router.put('/cpm/customers/:trigram', h((req, res) => {
   const tri = String(req.params.trigram || '').trim().toUpperCase(); if (!/^[A-Z0-9]{2,6}$/.test(tri)) throw new HttpError(400, 'Not a customer code');

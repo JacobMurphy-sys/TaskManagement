@@ -1382,3 +1382,5 @@ tr.kfd-cust-detail > td { background: var(--panel-2); padding: 8px 12px; }
 .cpm-scen-item { padding: 8px 10px; border-radius: var(--radius); cursor: pointer; border: 1px solid transparent; }
 .cpm-scen-item:hover { background: var(--panel-2); } .cpm-scen-item.on { border-color: var(--accent); background: var(--accent-soft); }
 .cpm-change { margin-bottom: 8px; }
+
+.cpm-manual { border-color: var(--accent, #2563eb) !important; font-weight: 600; }

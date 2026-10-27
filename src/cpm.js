@@ -238,16 +238,29 @@ function flex({ cards = null, upTo = null } = {}) {
 }
 
 // ---- capacity: the calendar, the machines and speeds, the demand, and a scenario over them ----------
-function speeds() {
-  const rules = db.all('SELECT * FROM plan_speeds');
+// Each technology's speed from Production's speeds (⚙ Setup): its own rule (type only), else the average
+// of its rules for a material or print sides, else a rule for any type, else Production's flat rate.
+// withFrom: { DOD: { speed, from } } — where it came from, to show.
+function speeds(withFrom = false) {
+  const rules = db.all('SELECT * FROM plan_speeds').filter((r) => Number(r.speed) > 0);
+  const avg = (a) => Math.round(a.reduce((t, r) => t + Number(r.speed), 0) / a.length);
+  const any = rules.filter((r) => !r.type && !r.material && !r.sides); const rate = Number(setting('plan_rate', '')) || null;
   const out = {};
   for (const t of TECHS) {
-    const own = rules.filter((r) => normTech(r.type) === t && Number(r.speed) > 0);
+    const own = rules.filter((r) => normTech(r.type) === t);
     const plain = own.filter((r) => !r.material && !r.sides);
-    const pick = plain.length ? plain : own;
-    out[t] = pick.length ? Math.round(pick.reduce((a, r) => a + Number(r.speed), 0) / pick.length) : (Number(setting('plan_rate', '')) || null);
+    out[t] = plain.length ? { speed: avg(plain), from: `Production's ${t} speed` }
+      : own.length ? { speed: avg(own), from: `average of Production's ${own.length} ${t} speeds (by material / sides)` }
+      : any.length ? { speed: avg(any), from: 'Production\'s speed for any type' }
+      : rate ? { speed: rate, from: 'Production\'s flat rate' } : { speed: null, from: null };
   }
-  return out;
+  return withFrom ? out : Object.fromEntries(Object.entries(out).map(([t, x]) => [t, x.speed]));
+}
+// OEE for a customer with none of its own here or in Production: Production's (⚙ Setup › OEE, when a
+// customer has none), else capacity planning's default
+function oeeFallback() {
+  const p = Number(setting('plan_oee_default', '')); if (p > 0 && p <= 100) return p / 100;
+  return Number(setting('cpm_oee_default', '0.35')) || 0.35;
 }
 const inRange = (month, c) => (!c.from || month >= c.from) && (!c.to || month <= c.to);
 function calendarOf(year) {
@@ -273,7 +286,7 @@ function weekOf(day) {
 function compute({ year, period = 'month', changes = [], useFlex = true, cards = null }) {
   const cal = calendarOf(year);
   const shifts0 = Number(setting('cpm_shifts', '3')) || 3; const hours0 = Number(setting('cpm_hours', '6')) || 6;
-  const oeeDefault = Number(setting('cpm_oee_default', '0.35')) || 0.35;
+  const oeeDefault = oeeFallback();
   const sp = speeds();
   const prodOee = new Map(db.all('SELECT customer, oee FROM plan_oee').map((r) => [String(r.customer).toUpperCase(), r.oee]));
   const all = customers(); const custs = all.filter((c) => c.active);
@@ -380,7 +393,7 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
     tot.gap = tot.capacity - tot.need; tot.util = tot.capacity ? tot.need / tot.capacity : null;
     return { key: P.key, label: P.label, start: P.start, end: P.end, workdays: P.workdays, techs: T, total: tot, machines: Object.entries(P.machines).map(([name, x]) => ({ name, hours: x.hours, techs: x.techs, alloc: alloc[name] || {} })) };
   });
-  return { year, period, techs: TECHS, speeds: sp, shifts: shifts0, hours: hours0, forecast_as_of: fc.as_of, unmapped: fc.unmapped.slice(0, 30), unmapped_count: fc.unmapped.length, unmapped_qty: unlinkedQty,
+  return { year, period, techs: TECHS, speeds: sp, speed_from: Object.fromEntries(Object.entries(speeds(true)).map(([t, x]) => [t, x.from])), oee_fallback: oeeDefault, oee_fallback_from: Number(setting('plan_oee_default', '')) > 0 ? 'production' : 'cpm', shifts: shifts0, hours: hours0, forecast_as_of: fc.as_of, unmapped: fc.unmapped.slice(0, 30), unmapped_count: fc.unmapped.length, unmapped_qty: unlinkedQty,
     forecast_sources: fc.sources, forecast_counted: Object.fromEntries(Object.entries(monthDemand).map(([k, md]) => [k, TECHS.reduce((t, x) => t + md[x].fc, 0)])),
     forecast_total: [...fc.by.values()].reduce((t, f) => t + (f.total || Object.values(f.tech).reduce((a, b) => a + b, 0)), 0),
     machines: machines.map((m) => ({ name: m.name, techs: m.techs, added: !!m.added, ...(opts[m.name] || {}) })), periods: out, warnings: [...new Set(warnings)], flex: fx ? { overall: fx.overall.year, pairs: fx.pairs } : null };
@@ -418,4 +431,4 @@ function parseConfig(buf) {
   throw new Error('No Config sheet with a Trigram column');
 }
 
-module.exports = { TECHS, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf };
+module.exports = { TECHS, oeeFallback, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf };

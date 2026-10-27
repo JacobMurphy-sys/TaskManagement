@@ -1502,6 +1502,11 @@ async function waitForServer() {
           assert.equal(Math.round(fcOf(ov0.periods[1])), 2000 + 1000, 'a forecast name not linked to a customer counts too (with the mix of everything persoed)');
           assert.equal(ov0.unmapped_count, 2);
           await call('DELETE', `/plan/machines/${pm.id}`);
+          assert.equal(ov0.oee_fallback, 0.35, 'no OEE anywhere: capacity planning\'s default');
+          await call('PATCH', '/settings', { plan_oee_default: '50' });
+          const ovO = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0`);
+          assert.deepEqual([ovO.oee_fallback, ovO.oee_fallback_from], [0.5, 'production'], 'a customer without an OEE takes Production\'s default before capacity planning\'s');
+          await call('PATCH', '/settings', { plan_oee_default: '' });
           await call('PUT', '/cpm/customers/KBC', { name: 'KBC Bank NV', fc_names: ['KBC Bank NV'], split: { DOD: 0.5, EMB: 0.5 }, oee: { DOD: 0.5, Emboss: 0.5 } });
           await call('PUT', '/cpm/customers/AES', { name: 'AMEX', oee: { DOD: 0.5, Laser: 0.5 } }); // split: from the Amex forecast's own rows
           await call('PUT', '/cpm/settings', { cpm_machines: JSON.stringify({ 'CPM X': { speed: { DOD: 1000 } } }) });
