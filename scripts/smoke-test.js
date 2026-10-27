@@ -1534,6 +1534,7 @@ async function waitForServer() {
           assert.deepEqual([s0.periods[0].techs.DOD.capacity - ov.periods[0].techs.DOD.capacity, s0.periods[1].techs.DOD.capacity - ov.periods[1].techs.DOD.capacity], [0, 1000 * ov.periods[1].workdays * 3 * 6], 'from its month on');
           const wk = await call('GET', `/cpm/overview?year=${Y}&period=week&flex=0`);
           assert.ok(wk.periods.length >= 52 && Math.abs(wk.periods.reduce((t, p) => t + p.techs.DOD.need, 0) - ov.periods.reduce((t, p) => t + p.techs.DOD.need, 0)) < 1, 'by week: the same year, spread over its working days');
+          const base0Techs = (o) => o.techs.length;
           // a machine that may only run KBC: Amex's DOD work has nowhere to go
           const rs = await call('POST', '/cpm/scenarios', { name: 'KBC only', changes: [{ type: 'add_machine', name: 'CPM X', techs: ['DOD'] }, { type: 'restrict', machine: 'CPM X', customers: ['KBC'] }] });
           const ovR2 = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${rs.id}`);
@@ -1542,6 +1543,17 @@ async function waitForServer() {
           assert.ok(rj.util > 1 && rj.gap < -1399, 'work that can\'t be placed shows as over');
           assert.equal(ovR2.periods[0].techs.DOD.unplaced, undefined, 'the base plan (no restrictions) is worked out as before');
           assert.equal((await call('GET', '/cpm/card-values?field=material')).linked, false);
+          // the overview as Excel: a plan sheet per plan, formulas over the inputs, charts
+          const xr = await fetch(`${BASE}/cpm/export?year=${Y}&period=month&flex=0&scenarios=${rs.id}`, { headers: { 'X-Requested-With': 'TaskManager' } });
+          assert.equal(xr.status, 200);
+          const xb = require('../src/xlsxread').readBook(Buffer.from(await xr.arrayBuffer()));
+          assert.deepEqual(xb.sheets.map((x) => x.name), [`CPM ${Y}`, 'S1 KBC only', 'Charts', 'Forecast check', 'Scenarios & notes']);
+          const xs = xb.sheet('S1 KBC only'); const cellsOf = [...xs.cells.values()];
+          const loadRow = cellsOf.find((c) => c.v === 'Load (needed ÷ capacity)' && cellsOf.some((d) => d.row === c.row && d.v === 'DOD'));
+          const loadJan = xs.cells.get(`G${loadRow.row}`);
+          assert.ok(loadJan.f && Math.abs(loadJan.v - 2.4) < 0.01, 'the load is a formula, saved with the app\'s figure');
+          assert.ok(cellsOf.some((c) => c.f && /^SUMIF\(/.test(c.f)), 'the summary adds up the rows above');
+          assert.equal(xb.drawing(xb.sheet('Charts')).anchors.length, base0Techs(ovR2) + 2, 'a chart per technology, forecast vs actual and load');
           await call('DELETE', `/cpm/scenarios/${rs.id}`);
           assert.equal((await call('GET', '/cpm/scenarios')).length, 1);
           await call('PUT', `/cpm/scenarios/${sc.id}`, { shared: true, changes: [{ type: 'shifts', shifts: 2 }] });

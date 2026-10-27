@@ -379,6 +379,7 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
   // demand per customer and month: forecast × flex (× the scenario's volume change), split, ÷ OEE
   const wdm = {}; for (const d of cal) if (d.work) wdm[d.month] = (wdm[d.month] || 0) + 1;
   const monthDemand = {}; // month → tech → { fc, demand, need }
+  const detail = new Map(); // 'TRI|tech' → { trigram, name, tech, oee, months: { m: { fc, raw, split, oee } } }
   const custSplit = (c, m) => {
     const f = fc.by.get(`${c.trigram}|${m}`); const ft = f && Object.keys(f.tech).length ? f.tech : null;
     const s = c.split && Object.keys(c.split).length ? c.split : ft ? Object.fromEntries(Object.entries(ft).map(([t, q]) => [t, q / Object.values(ft).reduce((a, b) => a + b, 0)])) : learned.get(c.trigram) || learned.get('*') || parkMix;
@@ -397,11 +398,14 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
   if (rFields.length && !cards) warnings.push('A machine is restricted to some cards, but the card database isn\'t linked — its cards can\'t be told apart, so it gets none of that work');
   for (let m = 1; m <= 12; m++) {
     const month = ym(year, m); const md = monthDemand[month] = Object.fromEntries(TECHS.map((t) => [t, { fc: 0, demand: 0, need: 0, buckets: new Map() }]));
-    const add = (tri, qty, split, oeeOf) => {
+    const add = (tri, qty, split, oeeOf, name = tri, raw = qty) => {
       for (const [t0, share] of Object.entries(split)) { const t = normTech(t0); if (!md[t] || !share) continue;
-        let oee = oeeOf(t); for (const c of changes) if (c.type === 'oee' && (!c.customer || c.customer === tri) && (!c.tech || normTech(c.tech) === t) && inRange(month, c)) oee += (Number(c.points) || 0) / 100;
+        const oee0 = Math.max(0.05, Math.min(1, oeeOf(t))); let oee = oeeOf(t); for (const c of changes) if (c.type === 'oee' && (!c.customer || c.customer === tri) && (!c.tech || normTech(c.tech) === t) && inRange(month, c)) oee += (Number(c.points) || 0) / 100;
         oee = Math.max(0.05, Math.min(1, oee));
         md[t].demand += qty * share; md[t].need += (qty * share) / oee;
+        // each customer and technology, for the export: the customer's forecast (× flex, scenario), its split and OEE
+        const dk = `${tri}|${t}`; const D = detail.get(dk) || detail.set(dk, { trigram: tri.startsWith('~') ? '' : tri, name, tech: t, oee: oee0, months: {} }).get(dk);
+        D.months[m] = { fc: qty, raw, split: share, oee };
         if (restricts.length) { // by customer and card, for the machines that may only run some
           const mix = mixOf.get(`${tri}|${t}`) || mixOf.get(`*|${t}`) || new Map([['{}', 1]]);
           for (const [sig, f] of mix) { const k = `${tri}\u0001${sig}`; md[t].buckets.set(k, (md[t].buckets.get(k) || 0) + ((qty * share) / oee) * f); }
@@ -417,9 +421,9 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
       if (fx) qty *= fx.factor(c.trigram, m);
       for (const ch of changes) if (ch.type === 'volume' && (!ch.customer || ch.customer === c.trigram) && inRange(month, ch)) qty *= 1 + (Number(ch.pct) || 0) / 100;
       const oeeOf = (t) => Number(c.oee?.[t]) || Number(prodOee.get(c.trigram)) || oeeDefault;
-      add(c.trigram, qty, split, oeeOf);
+      add(c.trigram, qty, split, oeeOf, c.name || c.trigram, f.total || Object.values(f.tech).reduce((a, b) => a + b, 0));
     }
-    for (const nc of extra) if (inRange(month, nc)) add(nc.name || 'New', Number(nc.qty) || 0, nc.split || { DOD: 1 }, () => Number(nc.oee) || oeeDefault);
+    for (const nc of extra) if (inRange(month, nc)) add(nc.name || 'New', Number(nc.qty) || 0, nc.split || { DOD: 1 }, () => Number(nc.oee) || oeeDefault, `${nc.name || 'New'} (new)`);
   }
   // per day: demand spread over the month's working days; machine hours; then by period
   const keyOf = (d) => (period === 'week' ? weekOf(d.day).key : d.month);
@@ -435,10 +439,12 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
     if (!d.work) continue;
     P.workdays++;
     const share = 1 / (wdm[d.month] || 1);
+    P.share = P.share || {}; P.share[d.month] = (P.share[d.month] || 0) + share;
     for (const t of TECHS) { const md = monthDemand[d.month][t]; P.techs[t].fc += md.fc * share; P.techs[t].demand += md.demand * share; P.techs[t].need += md.need * share;
       if (md.buckets.size) { const B = P.buckets || (P.buckets = new Map()); for (const [k, q] of md.buckets) { const kk = `${t}\u0001${k}`; B.set(kk, (B.get(kk) || 0) + q * share); } } }
     const { s, h } = shiftAt(d.month);
-    for (const m of machines) { const at = machineAt(m, d.month); if (!at) continue; const x = P.machines[m.name] || (P.machines[m.name] = { hours: 0, techs: at.techs, speed: at.speed }); x.hours += s * h * at.avail; x.techs = at.techs; x.speed = at.speed; x.only = at.only; }
+    P.hours = (P.hours || 0) + s * h; P.shifts = s; P.hph = h;
+    for (const m of machines) { const at = machineAt(m, d.month); if (!at) continue; const x = P.machines[m.name] || (P.machines[m.name] = { hours: 0, techs: at.techs, speed: at.speed }); x.hours += s * h * at.avail; x.techs = at.techs; x.speed = at.speed; x.only = at.only; x.avail = at.avail; }
   }
   // capacity: one-technology machines first; a machine running several gives its hours where they're short
   const out = [...periods.values()].map((P) => {
@@ -461,12 +467,13 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
       if (x.unplaced > 0.005 * x.need) { x.gap = Math.min(x.gap, -x.unplaced); x.util = Math.max(x.util || 0, x.need / Math.max(1, x.need - x.unplaced)); } }
     const tot = { fc: 0, demand: 0, need: 0, capacity: 0, actual: 0 }; for (const t of TECHS) for (const k of Object.keys(tot)) tot[k] += T[t][k];
     tot.gap = tot.capacity - tot.need; tot.util = tot.capacity ? tot.need / tot.capacity : null;
-    return { key: P.key, label: P.label, start: P.start, end: P.end, workdays: P.workdays, techs: T, total: tot, machines: Object.entries(P.machines).map(([name, x]) => ({ name, hours: x.hours, techs: x.techs, alloc: alloc[name] || {} })) };
+    return { key: P.key, label: P.label, start: P.start, end: P.end, workdays: P.workdays, hours: P.hours || 0, shifts: P.shifts ?? null, hph: P.hph ?? null, share: P.share || {}, techs: T, total: tot,
+      machines: Object.entries(P.machines).map(([name, x]) => ({ name, hours: x.hours, avail: x.avail, techs: x.techs, speed: x.speed, alloc: alloc[name] || {} })) };
   });
   return { year, period, techs: TECHS, speeds: sp, speed_from: Object.fromEntries(Object.entries(speeds(true)).map(([t, x]) => [t, x.from])), oee_fallback: oeeDefault, oee_fallback_from: Number(setting('plan_oee_default', '')) > 0 ? 'production' : 'cpm', shifts: shifts0, hours: hours0, forecast_as_of: fc.as_of, unmapped: fc.unmapped.slice(0, 30), unmapped_count: fc.unmapped.length, unmapped_qty: unlinkedQty,
     forecast_sources: fc.sources, forecast_counted: Object.fromEntries(Object.entries(monthDemand).map(([k, md]) => [k, TECHS.reduce((t, x) => t + md[x].fc, 0)])),
     forecast_total: [...fc.by.values()].reduce((t, f) => t + (f.total || Object.values(f.tech).reduce((a, b) => a + b, 0)), 0),
-    machines: machines.map((m) => ({ name: m.name, techs: m.techs, added: !!m.added, ...(opts[m.name] || {}) })), periods: out, warnings: [...new Set(warnings)], flex: fx ? { overall: fx.overall.year, pairs: fx.pairs } : null };
+    machines: machines.map((m) => ({ name: m.name, techs: m.techs, added: !!m.added, ...(opts[m.name] || {}) })), detail: [...detail.values()], periods: out, warnings: [...new Set(warnings)], flex: fx ? { overall: fx.overall.year, pairs: fx.pairs } : null };
 }
 // With machines that may only run some customers / cards: each piece of work (technology, customer,
 // card) goes to the machines allowed it — the most restricted first, then those running one technology,

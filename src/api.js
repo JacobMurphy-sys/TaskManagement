@@ -2702,6 +2702,22 @@ router.post('/cpm/customers/import', express.raw({ type: '*/*', limit: '60mb' })
   cpm.remapForecasts();
   res.json({ sheet: cfg.sheet, customers: byTri.size });
 }));
+// 📐 the Overview as an Excel workbook laid out like the CPM workbook: the base plan and each scenario
+// compared, as formulas over their inputs, with charts, the forecast check and the scenarios' changes
+router.get('/cpm/export', h((req, res) => {
+  cpmRefresh();
+  const year = Number(req.query.year) || new Date().getFullYear();
+  const period = req.query.period === 'week' ? 'week' : 'month';
+  const useFlex = req.query.flex !== '0'; const cards = cpmCards();
+  const base = cpm.compute({ year, period, useFlex, cards });
+  const scenarios = String(req.query.scenarios || '').split(',').filter(Boolean).slice(0, 2).map((id) => cpmScenario(req, Number(id)))
+    .map((sc) => ({ ...cpm.compute({ year, period, useFlex, cards, changes: sc.changes }), id: sc.id, name: sc.name, notes: sc.notes, owner_name: sc.owner_name, shared: sc.shared, changes: sc.changes }));
+  const buf = require('./cpmexport').buildCpmWorkbook({ base, scenarios, period, flex: useFlex, sources: base.forecast_sources, CARD_FIELDS: cpm.CARD_FIELDS });
+  const name = `CPM ${year}${period === 'week' ? ' by week' : ''}${scenarios.length ? ` - ${scenarios.map((s) => s.name).join(' vs ')}` : ''}`.replace(/[\\/:*?"<>|]/g, ' ').slice(0, 120);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '')}.xlsx"; filename*=UTF-8''${encodeURIComponent(name)}.xlsx`);
+  res.send(buf);
+}));
 // a card database column's values, for restricting a machine to some cards
 router.get('/cpm/card-values', h((req, res) => { const cards = cpmCards(); res.json({ fields: cpm.CARD_FIELDS, linked: !!cards, values: cpm.cardValues(cards, String(req.query.field || '')).slice(0, 500) }); }));
 router.get('/cpm/flex', h((req, res) => { cpmRefresh(); const f = cpm.flex({ cards: cpmCards() }); res.json({ customers: f.customers, overall: f.overall, pairs: f.pairs, history: cpm.historyCoverage() }); }));
