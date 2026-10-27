@@ -256,7 +256,7 @@ async function renderPlanning() {
         <div class="kdb-tile"><div class="kdb-tile-l">Lead time</div><div class="kdb-tile-v">${h.week.lead_hours === null ? '—' : fmtSpan(h.week.lead_hours * 60)}</div><div class="kdb-tile-s">imported → last ${data ? 'produced' : 'run'}, average</div></div>
         <div class="kdb-tile"><div class="kdb-tile-l">${rep}</div><div class="kdb-tile-v">${n(h.reads)}</div><div class="kdb-tile-s">${data ? `rows · newest production date ${esc(dayOnly(h.last))}` : `runs · newest ended ${esc(when(h.last))}`}</div></div></div>
       <p class="small muted pl-same">🟰 Built only from the ${rep}${data ? ' — the report Power BI uses' : ' (every run since 1 January)'}, so it's the same on every PC that has read it — compare the newest ${data ? 'production date' : 'run'} above to check you're on the same report. Last read here ${esc(when(h.read_at))}.</p>
-      ${chk}
+      ${chk}${data ? '' : `<div class="kc-note admin-only">📊 For the same cards persoed as Power BI, link <b>DailyPersoData</b> (the report it uses) in <button class="link" data-pl="setup-pdata">⚙ Setup</button>.</div>`}
       <div class="card"><h3 class="pl-h">Cards persoed per day <span class="muted small">— last ${h.days} days, by ${data ? 'Production Date' : 'the day each run ended'} · green by the due date · red after it${h.daily.some((d) => d.unknown_cards) ? ' · grey: no due date in the report' : ''}</span></h3>
         <div class="pl-hist">${h.daily.map((d) => `<div class="pl-hist-col" title="${esc(d.date)}: ${n(d.cards)} cards persoed (${n(d.on_time_cards)} by their due date), ${n(d.jobs)} jobs">
           <div class="pl-hist-n">${d.cards ? kfmt(d.cards) : ''}</div>
@@ -633,6 +633,9 @@ async function renderPlanning() {
           <span class="small ${ot.source.status === 'missing' || ot.source.status === 'error' ? 'pl-late' : 'muted'}">${ot.source.status === 'ok' ? `✔ ${n(ot.running.length + ot.queue.length)} open Matching jobs · saved ${esc(fmtDateTime(ot.source.modified))}` : ot.source.status === 'missing' ? '⚠ Can\'t find this file' : ot.source.status === 'error' ? `⚠ ${esc(ot.source.error)}` : 'Each Matching job is matched to its perso work order by the start of its Name.'}</span></label>
         <label class="f full">Dispatch export (where it's saved) — WO, QNY, Due Out, Status<input type="text" name="plan_disp_src" value="${esc(settings.plan_disp_src || '')}" placeholder="e.g. S:\\…\\Source Data\\OpenDespatchWorkorders.xlsx">
           <span class="small ${dp.source.status === 'missing' || dp.source.status === 'error' ? 'pl-late' : 'muted'}">${dp.source.status === 'ok' ? `✔ ${n(dp.jobs.length)} open dispatch jobs · saved ${esc(fmtDateTime(dp.source.modified))}` : dp.source.status === 'missing' ? '⚠ Can\'t find the file there' : dp.source.status === 'error' ? `⚠ ${esc(dp.source.error)}` : 'Each dispatch job is linked to its perso and Matching jobs by its work order (the start of its WO).'}</span></label>
+        <label class="f full">📊 DailyPersoData (the report Power BI uses) — Production Date, job, Qty Persoed<input type="text" name="kpi_perso_data" value="${esc(settings.kpi_perso_data || '')}" placeholder="e.g. S:\\…\\DailyPersoData.xlsx">
+          <span class="small ${p.pdata?.status === 'missing' || p.pdata?.status === 'error' ? 'pl-late' : 'muted'}">${p.pdata?.rows ? `✔ ${n(p.pdata.rows)} rows, ${esc(p.pdata.first)} to ${esc(p.pdata.last)} — 📈 History and the backlog pace add up its Qty Persoed by Production Date, as Power BI does` : p.pdata?.status === 'missing' ? '⚠ Can\'t find the file there' : p.pdata?.status === 'error' ? `⚠ ${esc(p.pdata.error)}` : 'Link it so 📈 History and the backlog pace show the same cards persoed as Power BI. Read every 10 minutes; nothing in it is changed.'}</span></label>
+        <label class="f full">⏱ Perso timing report (DailyPersoTiming) — each run's start and end, for the ⏱ Gantt, speeds and anomalies<input type="text" name="kpi_time_perso" value="${esc(settings.kpi_time_perso || '')}" placeholder="e.g. S:\\…\\DailyPersoTiming.xlsx"></label>
         <label class="f full">Card database (Access) — the Cards table gives each card article's type, material and print sides<input type="text" name="plan_db" value="${esc(settings.plan_db || '')}" placeholder="e.g. S:\\…\\Cards.accdb">
           <span class="small ${cdb.status === 'error' || cdb.status === 'missing' ? 'pl-late' : 'muted'}">${cdb.status === 'ok' ? `✔ ${n(cdb.count)} cards in the ${esc(cdb.table)} table · saved ${esc(fmtDateTime(cdb.modified))} — read again whenever it's saved` : cdb.status === 'missing' ? '⚠ Can\'t find this file' : cdb.status === 'error' ? `⚠ ${esc(cdb.error)}` : 'Read only — nothing in the database is changed. It can stay open in Access.'}</span></label>
         <label class="f">Table<input type="text" name="plan_db_table" value="${esc(settings.plan_db_table || 'Cards')}"></label>
@@ -792,6 +795,16 @@ ${half === 'otto' ? ottoSetup() : `
   });
   if (state.mode === 'planner') startPlanPresence();
   $$('#pl-setup input[name]').forEach((el) => el.addEventListener('change', async () => {
+    // the production reports: read straight away
+    const report = { kpi_perso_data: 'pdata', kpi_time_perso: 'perso' }[el.name];
+    if (report) {
+      try {
+        await api.patch('/settings', { [el.name]: el.value.trim().replace(/^"|"$/g, '') });
+        const r = el.value.trim() ? await api.post('/prod/read', { source: report }) : null;
+        toast(!r ? 'Saved' : r.status === 'read' ? `Read ${n(r.rows)} ${report === 'pdata' ? 'rows' : 'runs'}` : r.status === 'missing' ? 'Saved — but the file can\'t be found there' : r.error || 'Saved', r && r.status !== 'read' ? 'error' : '');
+      } catch (err) { toast(err.message, 'error'); }
+      store.set('planSetupOpen', true); renderPlanning(); return;
+    }
     try { state.settings = await api.patch('/settings', { [el.name]: el.value.trim().replace(/^"|"$/g, '') }); toast('Saved'); if (el.name === 'planner_url' && typeof plannerLink === 'function') plannerLink(); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
   }));
   $$('[data-pl-learned]').forEach((el) => el.addEventListener('change', async () => {
@@ -953,6 +966,7 @@ ${half === 'otto' ? ottoSetup() : `
     if (m) { store.set('planMode', m.dataset.plMode); renderPlanning(); return; }
     const b = e.target.closest('[data-pl]');
     if (b?.dataset.pl === 'nospeed') { plNoSpeed(); return; }
+    if (b?.dataset.pl === 'setup-pdata') { const st = $('#pl-setup'); st.hidden = false; store.set('planSetupOpen', true); const inp = st.querySelector('[name="kpi_perso_data"]'); inp?.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(() => inp?.focus(), 300); return; }
     if (b?.dataset.pl === 'setup') { const s = $('#pl-setup'); s.hidden = !s.hidden; store.set('planSetupOpen', !s.hidden); if (!s.hidden) s.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (b?.dataset.pl === 'refresh') { renderPlanning(); return; }
     if (b?.dataset.pl === 'clear') { store.set('planFilter', {}); renderPlanning(); return; }

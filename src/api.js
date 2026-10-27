@@ -2015,7 +2015,9 @@ router.get('/plan', h((req, res) => {
     from: histFirst }, capacity, maxAge);
   backlog.pace_from = pace.any ? 'runs' : 'history';
   delete modifiers.tagBy;
-  res.json({ shared_setup: sharedSetup, mitigation, modifiers, backlog, otto, disp, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
+  const pdataStatus = (() => { const f = cleanPath(set.kpi_perso_data) || null; if (!f) return null; let st; try { st = require('./persodata').stamp(); } catch { st = {}; }
+    return { status: fs.existsSync(f) ? 'ok' : 'missing', rows: st.n || 0, first: st.first || null, last: st.last || null }; })();
+  res.json({ pdata: pdataStatus, shared_setup: sharedSetup, mitigation, modifiers, backlog, otto, disp, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
     source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length,
     learned_times: { on: learnOn, runs: model?.runs || 0, setup: model ? Math.round(model.setup * 10) / 10 : null, lines: lines.length,
       card: lines.filter((l) => l.speed_from === 'learned:card').length, kind: lines.filter((l) => l.speed_from === 'learned:kind').length, all: lines.filter((l) => l.speed_from === 'learned:all').length }, averaged: lines.some((l) => l.speed_from === 'average'),
