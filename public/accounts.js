@@ -3,7 +3,7 @@
 const ACCT = { enabled: false, account: null, newCount: 0, modules: [], areas: [], rights: [] };
 
 // 🧩 Modules: the parts of the app an account can see (admins and no-accounts: all of them).
-const MOD_OF_VIEW = { kanban: 'projects', project: 'projects', ideas: 'ideas', idea: 'ideas', kpi: 'kpi', planning: 'planning', report: 'report', contacts: 'contacts' };
+const MOD_OF_VIEW = { kanban: 'projects', project: 'projects', ideas: 'ideas', idea: 'ideas', kpi: 'kpi', planning: 'planning', cpm: 'cpm', report: 'report', contacts: 'contacts' };
 // areas (projects, kpi, ideas, planning, report, contacts), each part of a module (Management: projects and kpi)
 const modOk = (area) => !ACCT.account || (ACCT.account.areas || []).includes(area);
 // 🔒 admin rights (src/accounts.js RIGHTS): setup, accounts, backups, server. Admins and the host have

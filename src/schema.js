@@ -476,6 +476,56 @@ const TABLES = {
     file        TEXT,
     read_at     TEXT    NOT NULL`, // every row of the report, as it is (a report replaces the days it covers)
 
+  // 📐 CPM (capacity planning, Prod Management): a customer's technology split and OEE, and the names its
+  // lines carry in the forecast exports (Cust_Nm, | between several). Blank split / OEE: worked out.
+  cpm_customers: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    trigram     TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    name        TEXT,
+    fc_names    TEXT,
+    split       TEXT,
+    oee         TEXT,
+    active      INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+  // The forecast as it stood each month (as_of YYYY-MM), from the linked forecast files: what flex is
+  // measured against later. tech: only when the forecast gives it (Amex).
+  cpm_forecast: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    as_of       TEXT    NOT NULL,
+    source      TEXT    NOT NULL,
+    year        INTEGER NOT NULL,
+    month       INTEGER NOT NULL,
+    trigram     TEXT,
+    name        TEXT,
+    tech        TEXT,
+    qty         REAL    NOT NULL DEFAULT 0,
+    read_at     TEXT    NOT NULL`,
+  // Previous years, uploaded: forecast and actual per customer and month (tech when the file has it).
+  cpm_history: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    year        INTEGER NOT NULL,
+    month       INTEGER NOT NULL,
+    trigram     TEXT,
+    name        TEXT,
+    tech        TEXT,
+    kind        TEXT    NOT NULL,
+    qty         REAL    NOT NULL DEFAULT 0,
+    file        TEXT,
+    uploaded_at TEXT    NOT NULL`,
+  // Scenarios: changes laid over the base (machines, speeds, shifts, OEE, volumes), each person's own
+  // (owner = account id), optionally shown to the rest of Prod Management.
+  cpm_scenarios: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner       TEXT    NOT NULL,
+    owner_name  TEXT,
+    name        TEXT    NOT NULL,
+    notes       TEXT,
+    changes     TEXT    NOT NULL DEFAULT '[]',
+    shared      INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
   // 📊 DailyPersoData (the Power BI source): one row per job, machine and shift, by Production Date.
   // A read replaces the rows for the days the report covers.
   perso_output: `
@@ -691,6 +741,8 @@ const INDEXES = `
   CREATE INDEX IF NOT EXISTS prod_runs_time_idx ON prod_runs(source, start_at);
   CREATE INDEX IF NOT EXISTS prod_runs_job_idx ON prod_runs(source, job);
   CREATE INDEX IF NOT EXISTS perso_output_day_idx ON perso_output(day);
+  CREATE INDEX IF NOT EXISTS cpm_forecast_idx ON cpm_forecast(as_of, year, month);
+  CREATE INDEX IF NOT EXISTS cpm_history_idx ON cpm_history(year, month);
   CREATE INDEX IF NOT EXISTS perso_output_job_idx ON perso_output(job);
 
   -- Default project ID (editable), like ideas' references.
@@ -776,7 +828,7 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_overrides', 'kpi_rows_added', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags', 'plan_disp_delays', 'plan_disp_delay_jobs'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_overrides', 'kpi_rows_added', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags', 'plan_disp_delays', 'plan_disp_delay_jobs', 'cpm_customers', 'cpm_scenarios'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');

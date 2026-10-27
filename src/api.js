@@ -2590,7 +2590,7 @@ const SETTING_DEFAULTS = {
   // The customer forecast files (blank: the workbook's copy of them).
   kpi_fc_benelux: '', kpi_fc_amex: '',
   // ⏱ The daily timing reports (each job's start and end on its machine), perso and Matching.
-  kpi_time_perso: '', kpi_time_otto: '', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
+  kpi_time_perso: '', kpi_time_otto: '', cpm_shifts: '3', cpm_hours: '6', cpm_holidays: '', cpm_oee_default: '0.35', cpm_machines: '{}', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
   plan_src: '', planner_url: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_learned_times: '0', plan_oee_default: '', plan_otto_src: '', plan_disp_src: '', plan_max_age: '30', plan_miti_days: '5', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
@@ -2632,6 +2632,102 @@ setTimeout(() => { try { prod.purgeUncounted(); } catch (err) { log.warn('Produc
 setInterval(readProdReports, 10 * 60 * 1000).unref();
 
 // The runs from a day (from=YYYY-MM-DD, days=1..31): Gantt, load, totals and anomalies.
+// 📐 CPM — capacity planning (Prod Management): forecasts against actuals, flex, capacity and scenarios (cpm.js).
+const cpm = require('./cpm');
+function cpmCards() { const set = getSettings(); const c = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' }); return c.status === 'ok' ? c.cards : null; }
+function cpmRefresh() {
+  const set = getSettings();
+  const files = Object.keys(kpiData.FORECASTS).map((key) => { const file = cleanPath(set[`kpi_fc_${key}`]); if (!file) return { key };
+    try { const st = fs.statSync(file); return { key, file, modified: st.mtime.toISOString(), buf: fs.readFileSync(file) }; } catch (err) { return { key, file, error: err.message }; } });
+  let read = null; try { read = cpm.refreshForecasts(files); } catch (err) { log.warn('CPM forecasts', err.message); }
+  return { files: files.map(({ buf, ...f }) => f), read };
+}
+const cpmOwner = (req) => (req.account ? String(req.account.id) : 'local');
+const cpmScenario = (req, id) => {
+  if (!id) return null;
+  const sc = db.get('SELECT * FROM cpm_scenarios WHERE id = ?', [id]);
+  if (!sc || (sc.owner !== cpmOwner(req) && !sc.shared)) throw new HttpError(404, 'No such scenario');
+  return { ...sc, changes: JSON.parse(sc.changes || '[]'), shared: !!sc.shared, mine: sc.owner === cpmOwner(req) };
+};
+const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines'];
+router.get('/cpm/overview', h((req, res) => {
+  const files = cpmRefresh();
+  const year = Number(req.query.year) || new Date().getFullYear();
+  const period = req.query.period === 'week' ? 'week' : 'month';
+  const useFlex = req.query.flex !== '0'; const cards = cpmCards();
+  const base = cpm.compute({ year, period, useFlex, cards });
+  const scenarios = String(req.query.scenarios || '').split(',').filter(Boolean).slice(0, 2).map((id) => cpmScenario(req, Number(id)));
+  res.json({ ...base, files: files.files, cards: !!cards, settings: Object.fromEntries(CPM_SETTINGS.map((k) => [k, getSettings()[k]])),
+    scenarios: scenarios.map((sc) => ({ id: sc.id, name: sc.name, ...cpm.compute({ year, period, useFlex, cards, changes: sc.changes }) })) });
+}));
+router.put('/cpm/settings', h((req, res) => {
+  for (const k of CPM_SETTINGS) if (req.body[k] !== undefined) db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, String(req.body[k]).trim()]);
+  res.json(Object.fromEntries(CPM_SETTINGS.map((k) => [k, getSettings()[k]])));
+}));
+router.get('/cpm/customers', h((req, res) => {
+  cpmRefresh(); const cards = cpmCards();
+  const learned = cpm.learnedSplit(cards); const prodOee = new Map(db.all('SELECT customer, oee FROM plan_oee').map((r) => [String(r.customer).toUpperCase(), r.oee]));
+  const year = new Date().getFullYear(); const fc = cpm.forecastOf(year);
+  const fcTot = new Map(); for (const [k, x] of fc.by) { const tri = k.split('|')[0]; fcTot.set(tri, (fcTot.get(tri) || 0) + (x.total || Object.values(x.tech).reduce((a, b) => a + b, 0))); }
+  const list = cpm.customers().map((c) => ({ ...c, learned: learned.get(c.trigram) || null, prod_oee: prodOee.get(c.trigram) ?? null, forecast_year: fcTot.get(c.trigram) || 0 }));
+  // customers persoed or forecast but not set up yet
+  const known = new Set(list.map((c) => c.trigram));
+  const seen = [...new Set([...learned.keys(), ...fcTot.keys()])].filter((t) => !known.has(t)).map((t) => ({ trigram: t, learned: learned.get(t) || null, forecast_year: fcTot.get(t) || 0 }));
+  res.json({ customers: list, not_set_up: seen, unmapped: fc.unmapped, forecast_as_of: fc.as_of, techs: cpm.TECHS, oee_default: Number(getSettings().cpm_oee_default) || 0.35 });
+}));
+router.put('/cpm/customers/:trigram', h((req, res) => {
+  const tri = String(req.params.trigram || '').trim().toUpperCase(); if (!/^[A-Z0-9]{2,6}$/.test(tri)) throw new HttpError(400, 'Not a customer code');
+  const b = req.body || {}; const num = (o) => (o && typeof o === 'object' ? Object.fromEntries(Object.entries(o).map(([k, v]) => [cpm.normTech(k), Number(v)]).filter(([k, v]) => k && v > 0)) : null);
+  const f = { name: b.name !== undefined ? String(b.name || '').trim() || null : undefined, fc_names: b.fc_names !== undefined ? (Array.isArray(b.fc_names) ? b.fc_names : String(b.fc_names || '').split('|')).map((x) => String(x).trim()).filter(Boolean).join('|') || null : undefined,
+    split: b.split !== undefined ? (Object.keys(num(b.split) || {}).length ? JSON.stringify(num(b.split)) : null) : undefined, oee: b.oee !== undefined ? (Object.keys(num(b.oee) || {}).length ? JSON.stringify(num(b.oee)) : null) : undefined,
+    active: b.active !== undefined ? (b.active ? 1 : 0) : undefined };
+  const fields = Object.fromEntries(Object.entries(f).filter(([, v]) => v !== undefined));
+  const old = db.get('SELECT id FROM cpm_customers WHERE trigram = ?', [tri]);
+  if (old) updateRow('cpm_customers', old.id, fields); else insertRow('cpm_customers', { trigram: tri, ...fields });
+  if (fields.fc_names !== undefined || fields.name !== undefined) cpm.remapForecasts();
+  res.json(cpm.customers().find((c) => c.trigram === tri));
+}));
+router.delete('/cpm/customers/:trigram', h((req, res) => { db.run('DELETE FROM cpm_customers WHERE trigram = ?', [String(req.params.trigram).toUpperCase()]); cpm.remapForecasts(); res.status(204).end(); }));
+// the CPM workbook's Config sheet: customers, splits, OEE (forecast names: the customer's name in it)
+router.post('/cpm/customers/import', express.raw({ type: '*/*', limit: '60mb' }), h((req, res) => {
+  let cfg; try { cfg = cpm.parseConfig(req.body); } catch (err) { throw new HttpError(400, err.message); }
+  const byTri = new Map(); for (const c of cfg.customers) { const x = byTri.get(c.trigram); if (!x) byTri.set(c.trigram, { ...c, names: [c.name] }); else x.names.push(c.name); }
+  db.tx(() => { for (const c of byTri.values()) {
+    const old = db.get('SELECT * FROM cpm_customers WHERE trigram = ?', [c.trigram]);
+    const names = [...new Set([...String(old?.fc_names || '').split('|').filter(Boolean), ...c.names])].join('|');
+    const f = { name: old?.name || c.names[0], fc_names: names, split: Object.keys(c.split).length ? JSON.stringify(c.split) : old?.split ?? null, oee: Object.keys(c.oee).length ? JSON.stringify(c.oee) : old?.oee ?? null };
+    if (old) updateRow('cpm_customers', old.id, f); else insertRow('cpm_customers', { trigram: c.trigram, ...f });
+  } });
+  cpm.remapForecasts();
+  res.json({ sheet: cfg.sheet, customers: byTri.size });
+}));
+router.get('/cpm/flex', h((req, res) => { cpmRefresh(); const f = cpm.flex({ cards: cpmCards() }); res.json({ customers: f.customers, overall: f.overall, pairs: f.pairs, history: cpm.historyCoverage() }); }));
+router.post('/cpm/history', express.raw({ type: '*/*', limit: '60mb' }), h((req, res) => {
+  const name = String(req.get('X-File-Name') || 'upload.xlsx');
+  let rows; try { rows = cpm.parseHistory(req.body, { kind: ['forecast', 'actual'].includes(req.query.kind) ? req.query.kind : null, year: Number(req.query.year) || null }); } catch (err) { throw new HttpError(400, `${name}: ${err.message}`); }
+  if (!rows.length) throw new HttpError(400, `${name}: no months found — a row of months (JAN … DEC) with customers down the side, and the year and FORECAST / ACTUAL above them (or chosen when uploading)`);
+  res.status(201).json({ file: name, ...cpm.storeHistory(rows, name) });
+}));
+router.delete('/cpm/history', h((req, res) => { const y = Number(req.query.year); const k = String(req.query.kind || ''); db.run('DELETE FROM cpm_history WHERE year = ? AND kind = ?', [y, k]); res.status(204).end(); }));
+router.get('/cpm/scenarios', h((req, res) => {
+  res.json(db.all('SELECT * FROM cpm_scenarios WHERE owner = ? OR shared = 1 ORDER BY owner = ? DESC, updated_at DESC', [cpmOwner(req), cpmOwner(req)])
+    .map((sc) => ({ ...sc, changes: JSON.parse(sc.changes || '[]'), shared: !!sc.shared, mine: sc.owner === cpmOwner(req) })));
+}));
+const cpmChanges = (c) => (Array.isArray(c) ? c : []).filter((x) => x && typeof x === 'object' && /^(speed|add_machine|remove_machine|capabilities|shifts|oee|volume|new_customer)$/.test(x.type)).slice(0, 60);
+router.post('/cpm/scenarios', h((req, res) => {
+  const b = req.body || {}; const name = String(b.name || '').trim(); if (!name) throw new HttpError(400, 'Give the scenario a name');
+  const row = insertRow('cpm_scenarios', { owner: cpmOwner(req), owner_name: req.account?.person || null, name, notes: b.notes || null, changes: JSON.stringify(cpmChanges(b.changes)), shared: b.shared ? 1 : 0 });
+  res.status(201).json(cpmScenario(req, row.id));
+}));
+router.put('/cpm/scenarios/:id', h((req, res) => {
+  const sc = cpmScenario(req, Number(req.params.id)); if (!sc.mine) throw new HttpError(403, 'Only its owner can change a scenario — copy it to make your own');
+  const b = req.body || {}; const f = {};
+  if (b.name !== undefined) { f.name = String(b.name).trim(); if (!f.name) throw new HttpError(400, 'Give the scenario a name'); }
+  if (b.notes !== undefined) f.notes = b.notes || null; if (b.changes !== undefined) f.changes = JSON.stringify(cpmChanges(b.changes)); if (b.shared !== undefined) f.shared = b.shared ? 1 : 0;
+  updateRow('cpm_scenarios', sc.id, f); res.json(cpmScenario(req, sc.id));
+}));
+router.delete('/cpm/scenarios/:id', h((req, res) => { const sc = cpmScenario(req, Number(req.params.id)); if (!sc.mine) throw new HttpError(403, 'Only its owner can delete a scenario'); db.run('DELETE FROM cpm_scenarios WHERE id = ?', [sc.id]); res.status(204).end(); }));
+
 // 📆 D+ (due out): how much notice work orders come with, from the plan histories (dplus.js).
 router.get('/plan/dplus', h((req, res) => {
   const set = getSettings();

@@ -39,6 +39,10 @@ const PLACES = [
   { label: 'Speeds (setting)', where: 'Production › ⚙ Setup', keys: 'speed rules cards per hour setting', area: 'planning', right: 'setup', hash: '#/planning', prep: () => { store.set('planHalf', 'perso'); store.set('planSetupOpen', true); }, find: 'Speeds — cards per hour' },
   { label: 'Machines (setting)', where: 'Production › ⚙ Setup', keys: 'machines lines capacity setting', area: 'planning', right: 'setup', hash: '#/planning', prep: () => { store.set('planHalf', 'perso'); store.set('planSetupOpen', true); }, find: 'Machines' },
   { label: 'Exports and card database (setting)', where: 'Production › ⚙ Setup', keys: 'export file path card database access shifts working hours days run times learned', area: 'planning', right: 'setup', hash: '#/planning', prep: () => { store.set('planHalf', 'perso'); store.set('planSetupOpen', true); }, find: '#pl-setup' },
+  { label: 'Capacity planning (CPM): forecast vs capacity by month or week', where: 'Production › 📐 Capacity', keys: 'cpm capacity forecast macro year load machines scenarios', area: 'cpm', hash: '#/cpm/overview' },
+  { label: 'Flex: forecast against actual, history uploads', where: 'Production › 📐 Capacity › Forecast vs actual', keys: 'flex forecast actual history previous years upload', area: 'cpm', hash: '#/cpm/flex' },
+  { label: 'Capacity scenarios', where: 'Production › 📐 Capacity › Scenarios', keys: 'scenario what if add remove machine speed shifts oee', area: 'cpm', hash: '#/cpm/scenarios' },
+  { label: 'Customer split and OEE for capacity planning', where: 'Production › 📐 Capacity › Customers', keys: 'split laser emboss dod oee trigram customer forecast names', area: 'cpm', hash: '#/cpm/customers' },
   { label: 'Priority modifiers', where: 'Production › ⚖ Modifiers', keys: 'modifiers priority score customers tags shifts', area: 'planning', right: 'setup', hash: '#/planning', prep: () => { store.set('planHalf', 'perso'); store.set('planModsOpen', true); }, find: '⚖ Priority modifiers' },
   // 📊 Reporting
   { label: 'Weekly Ops Report (A3)', where: 'Reporting', keys: 'a3 weekly report ops kpi', area: 'kpi', hash: '#/kpi' },

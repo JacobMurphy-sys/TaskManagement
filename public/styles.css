@@ -1362,3 +1362,23 @@ tr.pld-flash > td, section.pld-flash .pld-card-head { animation: pld-flash 1.6s 
 tr.kfd-cust { cursor: pointer; } tr.kfd-cust:hover > td { background: var(--accent-soft); }
 .kfd-caret { color: var(--accent); }
 tr.kfd-cust-detail > td { background: var(--panel-2); padding: 8px 12px; }
+
+/* 📐 CPM — capacity planning */
+.cpm-tabs .pl-half a.button { border: 0; background: transparent; font-weight: 600; }
+.cpm-tabs .pl-half.on a.button { color: var(--accent); }
+.cpm-chart { width: 100%; height: auto; display: block; margin: 6px 0 4px; }
+.cpm-grid { stroke: var(--border); stroke-width: 1; }
+.cpm-ax { fill: var(--muted); font-size: 11px; }
+.cpm-bar.ok { fill: #3c9a5f; } .cpm-bar.warn { fill: #d9962b; } .cpm-bar.bad { fill: #c93636; } .cpm-bar { fill: #8a94a6; opacity: .85; }
+.cpm-bar-fc { fill: var(--panel); opacity: .55; }
+.cpm-act { fill: var(--accent); stroke: var(--panel); stroke-width: 1.5; }
+.cpm-t th:first-child, .cpm-t td:first-child { position: sticky; left: 0; background: var(--panel); white-space: nowrap; }
+.cpm-t td.num { white-space: nowrap; }
+.cpm-u.ok { color: var(--ok); } .cpm-u.warn { color: var(--warn); font-weight: 600; } .cpm-u.bad { color: var(--danger); font-weight: 700; }
+.cpm-flex.up { color: var(--ok); } .cpm-flex.down { color: var(--danger); }
+.cpm-cust input[type=number] { width: 64px; } .cpm-cust input[type=text] { min-width: 150px; }
+.cpm-scen { display: grid; grid-template-columns: minmax(220px, 280px) 1fr; gap: 12px; align-items: start; }
+@media (max-width: 800px) { .cpm-scen { grid-template-columns: 1fr; } }
+.cpm-scen-item { padding: 8px 10px; border-radius: var(--radius); cursor: pointer; border: 1px solid transparent; }
+.cpm-scen-item:hover { background: var(--panel-2); } .cpm-scen-item.on { border-color: var(--accent); background: var(--accent-soft); }
+.cpm-change { margin-bottom: 8px; }

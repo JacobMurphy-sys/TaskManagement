@@ -1484,6 +1484,49 @@ async function waitForServer() {
         assert.deepEqual(db_.all("SELECT key, new_date, reason FROM plan_disp_delay_jobs WHERE customer = 'QRS' ORDER BY key"), [{ key: 'CQRSS26100103DES0001', new_date: '2026-10-28', reason: null }, { key: 'CQRSS26100104DES0001', new_date: '2026-10-29', reason: null }]);
         sq.close();
         assert.equal((await fetch(`${BASE}/plan/disp/delays/import`, { method: 'POST', body: exp, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } })).status, 400, 'not a delays workbook');
+        // 📐 CPM — capacity planning: the forecasts by SITHUB's rules, flex from earlier years, demand ÷ OEE, scenarios
+        {
+          const Y = 2031;
+          const bnF = path.join(tmp, 'Benelux Forecast.xlsx'); const axF = path.join(tmp, 'Amex Forecast.xlsx');
+          fs.writeFileSync(bnF, bx([{ name: 'LIVE_EU_PAY_CARDS', columns: ['Line_Year', 'Line_Month', 'Man_SubArea_Nm', 'Item_Nm', 'Cust_Nm', 'Line_Qty'].map((header, i) => ({ header, type: [0, 1, 5].includes(i) ? 'number' : undefined })), rows: [
+            [Y, 1, 'Benelux', 'Basic card KBC', 'KBC Bank NV', 1000], [Y, 1, 'Benelux', 'DRP Monthly Fee', 'KBC Bank NV', 999], [Y, 1, 'Germany & Austria', 'Basic card', 'KBC Bank NV', 500],
+            [Y, 2, 'Benelux', 'basic', 'KBC Bank NV', 2000], [Y, 1, 'Benelux', 'Basic', 'Unknown Bank', 300]] }]));
+          fs.writeFileSync(axF, bx([{ name: 'Sittard', columns: ['Column1', 'Column2', `01/01/${Y}`, `01/02/${Y}`].map((header) => ({ header })), rows: [
+            ['LASER', 'Total', 300, 300], ['DOD Total', 'Total', 700, 700], ['TOTAL BAU', 'Total', 1000, 1000]] }]));
+          await call('PATCH', '/settings', { kpi_fc_benelux: bnF, kpi_fc_amex: axF });
+          await call('PUT', '/cpm/customers/KBC', { name: 'KBC Bank NV', fc_names: ['KBC Bank NV'], split: { DOD: 0.5, EMB: 0.5 }, oee: { DOD: 0.5, Emboss: 0.5 } });
+          await call('PUT', '/cpm/customers/AES', { name: 'AMEX', oee: { DOD: 0.5, Laser: 0.5 } }); // split: from the Amex forecast's own rows
+          await call('PUT', '/cpm/settings', { cpm_machines: JSON.stringify({ 'CPM X': { speed: { DOD: 1000 } } }) });
+          let ov = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0`);
+          const jan = ov.periods[0].techs;
+          assert.deepEqual([jan.DOD.fc, jan.Emboss.fc, jan.Laser.fc].map(Math.round), [500 + 700, 500, 300], 'BeNeLux: Benelux + "basic" only; Amex: TOTAL BAU, split by its own technology rows');
+          assert.deepEqual([jan.DOD.need, jan.Emboss.need, jan.Laser.need].map(Math.round), [1000 + 1400, 1000, 600], 'needed = forecast × split ÷ OEE');
+          assert.deepEqual(ov.unmapped.map((u) => [u.name, u.qty]), [['Unknown Bank', 300]], 'a forecast name not linked to a customer: listed, not counted');
+          // flex from an earlier year: KBC did 20% more than forecast in January
+          const hx = (rows) => bx([{ name: 'CPM', columns: ['Trigram', 'Customer', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'].map((header, i) => ({ header, type: i > 1 ? 'number' : undefined })), rows }]);
+          const up = (kind, body) => fetch(`${BASE}/cpm/history?kind=${kind}&year=${Y - 1}`, { method: 'POST', body, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': `${kind}.xlsx` } }).then((r) => r.json());
+          assert.equal((await up('forecast', hx([['KBC', 'KBC Bank NV', 1000, 1000]]))).rows, 2);
+          await up('actual', hx([['', 'KBC Bank NV', 1200, 900]])); // matched by name
+          const fl = await call('GET', '/cpm/flex');
+          const kbc = fl.customers.find((c) => c.trigram === 'KBC');
+          assert.deepEqual([kbc.months[0], kbc.months[1], kbc.year].map((x) => Math.round(x * 100) / 100), [1.2, 0.9, 1.05], 'flex = actual ÷ forecast, by month and for the year');
+          ov = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=1`);
+          assert.equal(Math.round(ov.periods[0].techs.DOD.need), Math.round((1000 + 1400) * 1.2), 'flex applied (Amex has none of its own: everyone\'s January)');
+          // a scenario: a DOD machine from February — capacity up by its speed × working days × shifts × hours
+          const sc = await call('POST', '/cpm/scenarios', { name: 'Extra DOD', changes: [{ type: 'add_machine', name: 'CPM X', techs: ['DOD'], from: `${Y}-02` }, { type: 'bogus' }] });
+          assert.equal(sc.changes.length, 1, 'unknown changes dropped');
+          ov = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${sc.id}`);
+          const s0 = ov.scenarios[0];
+          assert.deepEqual([s0.periods[0].techs.DOD.capacity - ov.periods[0].techs.DOD.capacity, s0.periods[1].techs.DOD.capacity - ov.periods[1].techs.DOD.capacity], [0, 1000 * ov.periods[1].workdays * 3 * 6], 'from its month on');
+          const wk = await call('GET', `/cpm/overview?year=${Y}&period=week&flex=0`);
+          assert.ok(wk.periods.length >= 52 && Math.abs(wk.periods.reduce((t, p) => t + p.techs.DOD.need, 0) - ov.periods.reduce((t, p) => t + p.techs.DOD.need, 0)) < 1, 'by week: the same year, spread over its working days');
+          assert.equal((await call('GET', '/cpm/scenarios')).length, 1);
+          await call('PUT', `/cpm/scenarios/${sc.id}`, { shared: true, changes: [{ type: 'shifts', shifts: 2 }] });
+          await call('DELETE', `/cpm/scenarios/${sc.id}`);
+          await call('DELETE', `/cpm/history?year=${Y - 1}&kind=forecast`); await call('DELETE', `/cpm/history?year=${Y - 1}&kind=actual`);
+          await call('DELETE', '/cpm/customers/KBC'); await call('DELETE', '/cpm/customers/AES');
+          await call('PUT', '/cpm/settings', { cpm_machines: '{}' }); await call('PATCH', '/settings', { kpi_fc_benelux: '', kpi_fc_amex: '' });
+        }
         assert.equal((await fetch(`${BASE}/plan/upload?half=disp`, { method: 'POST', body: exp, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } })).status, 400, 'a perso export isn\'t a Dispatch export');
         assert.equal((await fetch(`${BASE}/plan/upload?half=otto`, { method: 'POST', body: exp, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } })).status, 400, 'a perso export isn\'t an Otto export');
         // Otto machines and speeds: each job on the machine where it finishes first, never before its perso work
@@ -2225,7 +2268,7 @@ async function waitForServer() {
       assert.ok((await sam('GET', '/auth/me')).data.account.areas.includes('kpi'), 'no modules set: all');
       const samId = (await admin('GET', '/accounts')).data.find((a) => a.username === 'sam').id;
       r = await admin('PATCH', `/accounts/${samId}`, { modules: ['production', 'nonsense'] });
-      assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'production'], ['planning']], 'the basic pack always, unknown ones dropped');
+      assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'production'], ['planning', 'cpm']], 'the basic pack always, unknown ones dropped; Prod Management includes 📐 Capacity planning');
       assert.equal((await sam('GET', '/kpi/snapshots')).status, 403, 'no KPIs');
       assert.equal((await sam('GET', '/ideas')).status, 403, 'no ideas');
       assert.equal((await sam('GET', '/plan/find?q=ab')).status, 200, 'planning');
