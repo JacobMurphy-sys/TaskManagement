@@ -1371,7 +1371,21 @@ tr.kfd-cust-detail > td { background: var(--panel-2); padding: 8px 12px; }
 .cpm-ax { fill: var(--muted); font-size: 11px; }
 .cpm-bar.ok { fill: #3c9a5f; } .cpm-bar.warn { fill: #d9962b; } .cpm-bar.bad { fill: #c93636; } .cpm-bar { fill: #8a94a6; opacity: .85; }
 .cpm-bar-fc { fill: var(--panel); opacity: .55; }
-.cpm-act { fill: var(--accent); stroke: var(--panel); stroke-width: 1.5; }
+.cpm-cap { fill: var(--text); }
+.cpm-lbl { font-size: 10px; fill: var(--text); font-weight: 600; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
+.cpm-lbl.in { fill: var(--text); stroke: none; font-weight: 500; opacity: .85; } .cpm-lbl.cap { fill: var(--text); font-weight: 500; font-style: italic; }
+.cpm-lbl.need-in, .cpm-lbl.cap-in { fill: #fff; stroke: none; }
+.cpm-lbl.fc { fill: var(--muted); font-weight: 500; } .cpm-lbl.act { fill: var(--accent); }
+.cpm-lbl.dev.ok { fill: var(--ok); } .cpm-lbl.dev.warn { fill: var(--warn); } .cpm-lbl.dev.bad { fill: var(--danger); }
+.cpm-fva-fc { fill: #9aa7bd; opacity: .75; } .cpm-fva-fc.future { fill: none; stroke: #9aa7bd; stroke-width: 1.2; stroke-dasharray: 3 2; }
+.cpm-fva-act { fill: var(--accent); } .cpm-fva-act.open { opacity: .5; }
+.cpm-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--muted); margin: 6px 0 2px; align-items: center; }
+.cpm-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.cpm-legend .sw { display: inline-block; width: 14px; height: 10px; border-radius: 2px; }
+.cpm-legend .ln { display: inline-block; width: 18px; border-top: 2.2px solid var(--text); } .cpm-legend .ln.dash { border-top-style: dashed; }
+.cpm-sw-need { background: linear-gradient(90deg, #3c9a5f 33%, #d9962b 33% 66%, #c93636 66%); }
+.cpm-sw-fc { background: var(--panel); border: 1px solid var(--muted); opacity: .8; }
+.cpm-sw-fcb { background: #9aa7bd; } .cpm-sw-act { background: var(--accent); } .cpm-sw-act.open { opacity: .5; }
 .cpm-t th:first-child, .cpm-t td:first-child { position: sticky; left: 0; background: var(--panel); white-space: nowrap; }
 .cpm-t td.num { white-space: nowrap; }
 .cpm-u.ok { color: var(--ok); } .cpm-u.warn { color: var(--warn); font-weight: 600; } .cpm-u.bad { color: var(--danger); font-weight: 700; }

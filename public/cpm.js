@@ -3,6 +3,13 @@
 // OEE, the capacity settings, and each person's scenarios (src/cpm.js does the sums).
 const CPM_TABS = [['overview', '📊 Overview'], ['flex', '📈 Forecast vs actual'], ['customers', '👥 Customers'], ['capacity', '⚙ Capacity'], ['scenarios', '🧪 Scenarios']];
 const cpmN = (v, d = 0) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: d }));
+// a volume axis in even steps: 0.1M for small figures, else 0.25M, else 0.5M (1M past 6M)
+function cpmScale(top) {
+  const step = top <= 600000 ? 100000 : top <= 2500000 ? 250000 : top <= 6000000 ? 500000 : 1000000;
+  const max = Math.max(step, Math.ceil(top / step) * step);
+  return { max, ticks: Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step) };
+}
+const cpmAxis = (v) => (v === 0 ? '0' : `${(v / 1e6).toLocaleString('en-GB', { minimumFractionDigits: v % 500000 ? 2 : 1, maximumFractionDigits: 2 })}M`);
 const cpmK = (v) => (v === null || v === undefined ? '—' : Math.abs(v) >= 1e6 ? `${(v / 1e6).toLocaleString('en-GB', { maximumFractionDigits: 2 })}M` : Math.abs(v) >= 1e3 ? `${Math.round(v / 1e3).toLocaleString('en-GB')}k` : cpmN(v));
 const cpmPct = (v, d = 0) => (v === null || v === undefined ? '—' : `${(v * 100).toLocaleString('en-GB', { maximumFractionDigits: d })}%`);
 const cpmUtilCls = (u) => (u === null || u === undefined ? '' : u > 1 ? 'bad' : u > 0.85 ? 'warn' : 'ok');
@@ -34,22 +41,61 @@ async function cpmOverview(body) {
   const [d, all] = await Promise.all([api.get(`/cpm/overview?year=${year}&period=${period}&flex=${flex ? 1 : 0}&scenarios=${scen.join(',')}${cpmReread ? '&reread=1' : ''}`), api.get('/cpm/scenarios')]);
   const now = new Date().toISOString().slice(0, 10);
   const SC_COL = ['#7a5cff', '#e0861a'];
+  const labels = period === 'month'; // data labels on the monthly charts; by week, hover for the figures
   const chart = (t) => {
-    const P = d.periods; const W = Math.max(640, P.length * (period === 'week' ? 18 : 64)); const H = 220; const L = 54; const B = 26; const T = 10;
-    const max = Math.max(1, ...P.map((p) => Math.max(p.techs[t].need, p.techs[t].capacity, p.techs[t].actual)), ...d.scenarios.flatMap((s) => s.periods.map((p) => Math.max(p.techs[t].capacity, p.techs[t].need))));
-    const x = (i) => L + (i + 0.5) * ((W - L - 6) / P.length); const bw = Math.max(4, ((W - L - 6) / P.length) * 0.62); const y = (v) => T + (H - T - B) * (1 - v / max);
-    const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => max * f);
+    const P = d.periods; const W = Math.max(640, P.length * (period === 'week' ? 18 : 78)); const H = labels ? 270 : 230; const L = 50; const B = 26; const T = 18;
+    const top = Math.max(1, ...P.map((p) => Math.max(p.techs[t].need, p.techs[t].capacity)), ...d.scenarios.flatMap((s) => s.periods.map((p) => Math.max(p.techs[t].capacity, p.techs[t].need))));
+    const { max, ticks } = cpmScale(top * (labels ? 1.08 : 1));
+    const slot = (W - L - 6) / P.length; const x = (i) => L + (i + 0.5) * slot; const bw = Math.max(4, slot * 0.62); const y = (v) => T + (H - T - B) * (1 - v / max);
     const line = (pts, col, dash = '') => `<polyline fill="none" stroke="${col}" stroke-width="2.2" ${dash ? `stroke-dasharray="${dash}"` : ''} points="${pts.map(([i, v]) => `${x(i)},${y(v)}`).join(' ')}"/>`;
+    const lbl = (cx, cy, text, cls = '') => (labels ? `<text x="${cx}" y="${cy}" text-anchor="middle" class="cpm-lbl ${cls}">${esc(text)}</text>` : '');
     return `<svg class="cpm-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMin meet">
-      ${ticks.map((v) => `<line x1="${L}" x2="${W - 4}" y1="${y(v)}" y2="${y(v)}" class="cpm-grid"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="cpm-ax">${cpmK(v)}</text>`).join('')}
-      ${P.map((p, i) => { const k = p.techs[t]; const u = k.util; return `<g><title>${esc(`${p.label}: needed ${cpmN(k.need)} (forecast ${cpmN(k.fc)}${flex ? `, flexed ${cpmN(k.demand)}` : ''}) · capacity ${cpmN(k.capacity)} · ${u === null ? '' : cpmPct(u)}${k.actual ? ` · actual ${cpmN(k.actual)}` : ''}`)}</title>
+      ${ticks.map((v) => `<line x1="${L}" x2="${W - 4}" y1="${y(v)}" y2="${y(v)}" class="cpm-grid"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="cpm-ax">${cpmAxis(v)}</text>`).join('')}
+      ${P.map((p, i) => { const k = p.techs[t]; const u = k.util; return `<g><title>${esc(`${p.label}: needed ${cpmN(k.need)} (forecast ${cpmN(k.fc)}${flex ? `, flexed ${cpmN(k.demand)}` : ''}) · capacity ${cpmN(k.capacity)} · ${u === null ? '' : cpmPct(u)}`)}</title>
         <rect x="${x(i) - bw / 2}" y="${y(k.need)}" width="${bw}" height="${Math.max(0, y(0) - y(k.need))}" class="cpm-bar ${cpmUtilCls(u)}"/>
-        <rect x="${x(i) - bw / 4}" y="${y(k.fc)}" width="${bw / 2}" height="${Math.max(0, y(0) - y(k.fc))}" class="cpm-bar-fc"/></g>`; }).join('')}
+        <rect x="${x(i) - bw / 4}" y="${y(k.fc)}" width="${bw / 2}" height="${Math.max(0, y(0) - y(k.fc))}" class="cpm-bar-fc"/>
+        ${k.need ? (y(0) - y(k.need) > 34 && !(k.capacity < k.need && y(k.capacity) - y(k.need) < 30) ? lbl(x(i), y(k.need) + 13, cpmK(k.need), 'need-in') : lbl(x(i), y(k.need) - 4, cpmK(k.need), 'need')) : ''}${k.fc && y(0) - y(k.fc) > 14 ? lbl(x(i), y(k.fc) + 11, cpmK(k.fc), 'in') : ''}</g>`; }).join('')}
       ${line(P.map((p, i) => [i, p.techs[t].capacity]), 'var(--text)')}
+      ${P.map((p, i) => { const c = p.techs[t].capacity; const n = p.techs[t].need; const near = c < n && y(c) - y(n) < 30; // the point inside the bar, near its label: below the point
+        return `<circle cx="${x(i)}" cy="${y(c)}" r="2.6" class="cpm-cap"/>${c ? lbl(x(i), near ? y(c) + 14 : y(c) - 6, cpmK(c), near ? 'cap cap-in' : 'cap') : ''}`; }).join('')}
       ${d.scenarios.map((s, j) => line(s.periods.map((p, i) => [i, p.techs[t].capacity]), SC_COL[j], '6 4')).join('')}
-      ${P.map((p, i) => (p.techs[t].actual && p.end <= now ? `<circle cx="${x(i)}" cy="${y(p.techs[t].actual)}" r="3.6" class="cpm-act"><title>${esc(`${p.label}: actual ${cpmN(p.techs[t].actual)}`)}</title></circle>` : '')).join('')}
       ${P.map((p, i) => (period === 'month' || i % 4 === 0 ? `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" class="cpm-ax">${esc(period === 'week' ? p.key.slice(5) : p.label)}</text>` : '')).join('')}
     </svg>`;
+  };
+  const legend = () => `<div class="cpm-legend">
+    <span><i class="sw cpm-sw-need"></i>Capacity needed (forecast${flex ? ' × flex' : ''} ÷ OEE) — <b class="pl-ok">under 85%</b> · <b class="pl-warn">85–100%</b> · <b class="pl-late">over</b> of capacity</span>
+    <span><i class="sw cpm-sw-fc"></i>Forecast (cards)</span>
+    <span><i class="ln"></i>Capacity</span>
+    ${d.scenarios.map((s, j) => `<span><i class="ln dash" style="border-color:${SC_COL[j]}"></i>${esc(s.name)}</span>`).join('')}
+    ${labels ? '' : '<span class="muted">hover a bar for its figures</span>'}</div>`;
+  // forecast against actual: cards forecast and persoed side by side, the difference on each
+  const fva = (sel) => {
+    const P = d.periods; const pick = (p, k) => (sel === 'all' ? d.techs.reduce((a, t) => a + p.techs[t][k], 0) : p.techs[sel][k]);
+    const started = (p) => p.start <= now; const closed = (p) => p.end < now;
+    const W = Math.max(640, P.length * (period === 'week' ? 18 : 78)); const H = labels ? 250 : 210; const L = 50; const B = 26; const T = 18;
+    const { max, ticks } = cpmScale(Math.max(1, ...P.map((p) => Math.max(pick(p, 'fc'), pick(p, 'actual')))) * (labels ? 1.1 : 1));
+    const slot = (W - L - 6) / P.length; const x = (i) => L + (i + 0.5) * slot; const bw = Math.max(3, slot * 0.36); const y = (v) => T + (H - T - B) * (1 - v / max);
+    const dev = (p) => { const f = pick(p, 'fc'); const a = pick(p, 'actual'); return f && started(p) ? a / f - 1 : null; };
+    const devCls = (v) => (v === null ? '' : Math.abs(v) <= 0.1 ? 'ok' : Math.abs(v) <= 0.2 ? 'warn' : 'bad');
+    const lbl = (cx, cy, text, cls = '') => (labels ? `<text x="${cx}" y="${cy}" text-anchor="middle" class="cpm-lbl ${cls}">${esc(text)}</text>` : '');
+    const ytd = P.filter(started); const fT = ytd.reduce((a, p) => a + pick(p, 'fc'), 0); const aT = ytd.reduce((a, p) => a + pick(p, 'actual'), 0);
+    const fCl = P.filter(closed).reduce((a, p) => a + pick(p, 'fc'), 0); const aCl = P.filter(closed).reduce((a, p) => a + pick(p, 'actual'), 0);
+    const svg = `<svg class="cpm-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMin meet">
+      ${ticks.map((v) => `<line x1="${L}" x2="${W - 4}" y1="${y(v)}" y2="${y(v)}" class="cpm-grid"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="cpm-ax">${cpmAxis(v)}</text>`).join('')}
+      ${P.map((p, i) => { const f = pick(p, 'fc'); const a = pick(p, 'actual'); const v = dev(p); const open = started(p) && !closed(p);
+        return `<g><title>${esc(`${p.label}: forecast ${cpmN(f)}${started(p) ? ` · actual ${cpmN(a)}${open ? ' so far' : ''}${v === null ? '' : ` · ${v >= 0 ? '+' : ''}${cpmPct(v)}`}` : ''}`)}</title>
+        <rect x="${x(i) - bw}" y="${y(f)}" width="${bw}" height="${Math.max(0, y(0) - y(f))}" class="cpm-fva-fc ${started(p) ? '' : 'future'}"/>
+        ${started(p) ? `<rect x="${x(i)}" y="${y(a)}" width="${bw}" height="${Math.max(0, y(0) - y(a))}" class="cpm-fva-act ${open ? 'open' : ''}"/>` : ''}
+        ${f ? lbl(x(i) - bw / 2, y(f) - 4, cpmK(f), 'fc') : ''}${started(p) && a ? lbl(x(i) + bw / 2, y(a) - 4, cpmK(a), 'act') : ''}
+        ${v !== null && labels ? `<text x="${x(i)}" y="${T - 4}" text-anchor="middle" class="cpm-lbl dev ${devCls(v)}">${v >= 0 ? '+' : ''}${cpmPct(v)}${open ? '*' : ''}</text>` : ''}</g>`; }).join('')}
+      ${P.map((p, i) => (period === 'month' || i % 4 === 0 ? `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" class="cpm-ax">${esc(period === 'week' ? p.key.slice(5) : p.label)}</text>` : '')).join('')}
+    </svg>`;
+    const kpi = (lab, v, sub = '') => `<div class="kdb-tile"><div class="kdb-tile-l">${lab}</div><div class="kdb-tile-v">${v}</div><div class="kdb-tile-s">${sub}</div></div>`;
+    const dv = fCl ? aCl / fCl - 1 : null;
+    return `<div class="kdb-tiles pl-tiles">${kpi('Forecast to date', cpmN(Math.round(fT)), `${ytd.length} ${period === 'week' ? 'week' : 'month'}${ytd.length === 1 ? '' : 's'} so far this year`)}${kpi('Persoed to date', cpmN(Math.round(aT)), fT ? `${cpmPct(aT / fT)} of the forecast` : '')}
+      ${kpi(`Closed ${period === 'week' ? 'weeks' : 'months'}`, dv === null ? '—' : `<span class="cpm-u ${devCls(dv)}">${dv >= 0 ? '+' : ''}${cpmPct(dv)}</span>`, `actual ${cpmK(aCl)} against ${cpmK(fCl)} forecast`)}</div>
+      <div class="cpm-legend"><span><i class="sw cpm-sw-fcb"></i>Forecast</span><span><i class="sw cpm-sw-act"></i>Persoed (DailyPersoData, else the ⏱ timing report)</span><span><i class="sw cpm-sw-act open"></i>this ${period === 'week' ? 'week' : 'month'} so far (*)</span>
+        <span>Difference: <b class="pl-ok">within 10%</b> · <b class="pl-warn">10–20%</b> · <b class="pl-late">more</b></span>${sel === 'all' ? '' : '<span class="muted">by technology the forecast is split by each customer\'s split, the actual by card type</span>'}</div>${svg}`;
   };
   const table = (t) => {
     const P = d.periods; const row = (label, f, cls = () => '') => `<tr><th>${label}</th>${P.map((p, i) => `<td class="num ${cls(p, i)}">${f(p, i)}</td>`).join('')}<td class="num"><b>${f(null)}</b></td></tr>`;
@@ -60,7 +106,8 @@ async function cpmOverview(body) {
       ${row('Forecast', v('fc'))}${flex ? row('With flex', v('demand')) : ''}${row('Needed (÷ OEE)', v('need'))}${row('Capacity', v('capacity'))}
       ${row('Open', (p) => { const g = p ? p.techs[t].gap : tot.capacity - tot.need; return `<span class="${g < 0 ? 'pl-late' : ''}">${cpmK(g)}</span>`; })}
       ${row('Load', (p) => cpmPct(p ? p.techs[t].util : (tot.capacity ? tot.need / tot.capacity : null)), (p) => (p ? `cpm-u ${cpmUtilCls(p.techs[t].util)}` : ''))}
-      ${row('Actual', (p) => (p ? (p.end <= now || p.techs[t].actual ? cpmK(p.techs[t].actual) : '') : cpmK(tot.actual)))}
+      ${row('Actual', (p) => (p ? (p.start <= now ? cpmK(p.techs[t].actual) : '') : cpmK(tot.actual)))}
+      ${row('Actual vs forecast', (p) => { if (p && p.start > now) return ''; const f = p ? p.techs[t].fc : P.filter((q) => q.start <= now).reduce((a, q) => a + q.techs[t].fc, 0); const a = p ? p.techs[t].actual : tot.actual; if (!f) return '—'; const v = a / f - 1; return `<span class="cpm-u ${Math.abs(v) <= 0.1 ? 'ok' : Math.abs(v) <= 0.2 ? 'warn' : 'bad'}">${v >= 0 ? '+' : ''}${cpmPct(v)}</span>`; })}
       ${d.scenarios.map((s, j) => row(`<span style="color:${SC_COL[j]}">${esc(s.name)}</span>: load`, (p, i) => { const sp = p ? s.periods[i].techs[t] : null; return cpmPct(sp ? sp.util : null); }, (p, i) => (p ? `cpm-u ${cpmUtilCls(s.periods[i].techs[t].util)}` : ''))).join('')}
       </tbody></table></div>`;
   };
@@ -68,6 +115,7 @@ async function cpmOverview(body) {
   const tiles = d.techs.map((t) => { const P = d.periods; const need = P.reduce((a, p) => a + p.techs[t].need, 0); const cap = P.reduce((a, p) => a + p.techs[t].capacity, 0); const s = short(d, t);
     return `<div class="kdb-tile"><div class="kdb-tile-l">${CPM_TECH_ICON[t] || ''} ${esc(t)} — year</div><div class="kdb-tile-v ${cpmUtilCls(cap ? need / cap : null) === 'bad' ? 'kdb-bad' : ''}">${cpmPct(cap ? need / cap : null)}</div>
       <div class="kdb-tile-s">of capacity needed · <b class="${s ? 'pl-late' : 'pl-ok'}">${s} ${period === 'week' ? 'week' : 'month'}${s === 1 ? '' : 's'} over</b>${d.scenarios.map((sc, j) => ` · <span style="color:${SC_COL[j]}">${esc(sc.name)}: ${short(sc, t)}</span>`).join('')}</div></div>`; }).join('');
+  const fvaSel = ['all', ...d.techs].includes(store.get('cpmFva', 'all')) ? store.get('cpmFva', 'all') : 'all';
   const years = [year - 1, year, year + 1];
   body.innerHTML = `
     <div class="row pl-filters" style="gap:10px;flex-wrap:wrap">
@@ -82,10 +130,14 @@ async function cpmOverview(body) {
     ${d.unmapped_count ? `<div class="kc-note">🔗 <b>${d.unmapped_count} forecast name${d.unmapped_count === 1 ? '' : 's'} not linked to a customer</b> (${cpmK(d.unmapped_qty)} cards this year): counted with the mix of everything persoed and the default OEE until linked — ${d.unmapped.slice(0, 5).map((u) => esc(u.name)).join(' · ')}${d.unmapped_count > 5 ? ' …' : ''}. <a href="#/cpm/customers">Link them, or import the CPM workbook's Config sheet →</a></div>` : ''}
     <div class="kdb-tiles pl-tiles">${tiles}</div>
     ${cpmFcTotals(d)}
-    ${d.techs.map((t) => `<div class="card cpm-tech"><h3 class="pl-h">${CPM_TECH_ICON[t] || ''} ${esc(t)} <span class="muted small">— bars: capacity needed (forecast${flex ? ' × flex' : ''} ÷ OEE), green / amber from 85% / red over · inner bar: the forecast · line: capacity${d.scenarios.length ? ' (dashed: scenarios)' : ''} · dots: actual</span></h3>
-      ${chart(t)}${table(t)}</div>`).join('')}`;
+    <div class="card"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h3 class="pl-h" style="margin:0">📈 Forecast vs actual <span class="muted small">— cards forecast against cards persoed, ${period === 'week' ? 'by week' : 'by month'}</span></h3>
+      <div class="seg">${['all', ...d.techs].map((t) => `<button type="button" data-cpm-fva="${t}" class="${fvaSel === t ? 'on' : ''}">${t === 'all' ? 'All' : esc(t)}</button>`).join('')}</div></div>
+      <div id="cpm-fva">${fva(fvaSel)}</div></div>
+    ${d.techs.map((t) => `<div class="card cpm-tech"><h3 class="pl-h">${CPM_TECH_ICON[t] || ''} ${esc(t)} <span class="muted small">— capacity needed against capacity</span></h3>
+      ${legend()}${chart(t)}${table(t)}</div>`).join('')}`;
   if (cpmReread) { cpmReread = false; const bad = Object.values(d.forecast_status || {}).filter((x) => x.error); toast(bad.length ? `Couldn't read: ${bad.map((x) => x.error).join(' · ')}` : 'Forecasts read again', bad.length ? 'error' : ''); }
   const rr = $('#cpm-reread'); if (rr) rr.onclick = () => { cpmReread = true; rr.disabled = true; rr.textContent = 'Reading…'; renderCpm('overview'); };
+  $$('[data-cpm-fva]').forEach((b) => { b.onclick = () => { store.set('cpmFva', b.dataset.cpmFva); $$('[data-cpm-fva]').forEach((x) => x.classList.toggle('on', x === b)); $('#cpm-fva').innerHTML = fva(b.dataset.cpmFva); }; });
   $('#cpm-year').onchange = (e) => { store.set('cpmYear', Number(e.target.value)); renderCpm('overview'); };
   $$('[data-cpm-period]').forEach((b) => { b.onclick = () => { store.set('cpmPeriod', b.dataset.cpmPeriod); renderCpm('overview'); }; });
   $('#cpm-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('overview'); };
