@@ -1541,6 +1541,8 @@ async function waitForServer() {
           const rj = ovR2.scenarios[0].periods[0].techs.DOD;
           assert.deepEqual([Math.round(rj.need), Math.round(rj.unplaced)], [1000 + 1400, 1400], 'restricted to KBC: Amex\'s DOD work can\'t be placed');
           assert.ok(rj.util > 1 && rj.gap < -1399, 'work that can\'t be placed shows as over');
+          const full = 1000 * ovR2.periods[0].workdays * 3 * 6;
+          assert.deepEqual([Math.round(rj.capacity), Math.round(rj.reserved)], [1000, full - 1000], 'a machine kept for KBC: its capacity is KBC\'s work; the rest is idle, not capacity');
           assert.equal(ovR2.periods[0].techs.DOD.unplaced, undefined, 'the base plan (no restrictions) is worked out as before');
           assert.equal((await call('GET', '/cpm/card-values?field=material')).linked, false);
           // the overview as Excel: a plan sheet per plan, formulas over the inputs, charts

@@ -478,9 +478,10 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
 // With machines that may only run some customers / cards: each piece of work (technology, customer,
 // card) goes to the machines allowed it — the most restricted first, then those running one technology,
 // then those running several — in proportion to what's left. Work no machine may run is 'unplaced'.
-// A machine's hours left over are its technologies' capacity, shared evenly.
+// A free machine's hours left over are its technologies' capacity, shared evenly; a restricted one's
+// are idle (reserved for what it may run), so its capacity is only what it's given.
 function placeWork(P, alloc) {
-  const T = P.techs;
+  const T = P.techs; for (const t of TECHS) T[t].reserved = 0;
   const work = [...(P.buckets || new Map())].map(([k, need]) => { const [t, cust, sig] = k.split('\u0001'); return { t, cust, sig: json(sig, {}), rem: need }; });
   const may = (x, b) => x.techs.includes(b.t) && x.speed[b.t] > 0 && (x.only || []).every((r) => (!r.customers || r.customers.has(b.cust)) && (!r.values || r.values.has(String(b.sig[r.field] ?? ''))));
   const list = Object.entries(P.machines).map(([name, x]) => ({ name, x, eligible: work.filter((b) => may(x, b)) }));
@@ -491,9 +492,11 @@ function placeWork(P, alloc) {
     const hrs = eligible.reduce((s, b) => s + b.rem / x.speed[b.t], 0); const use = Math.min(x.hours, hrs); const f = hrs ? use / hrs : 0;
     for (const t of ts) alloc[name][t] = 0;
     for (const b of eligible) { const done = b.rem * f; b.rem -= done; alloc[name][b.t] += done / x.speed[b.t]; }
-    for (const t of ts) { alloc[name][t] += (x.hours - use) / ts.length; T[t].capacity += alloc[name][t] * x.speed[t]; }
+    // hours left over: the technologies' capacity on a free machine; on a restricted one they're idle —
+    // no one else may use them — so they're not capacity, only 'reserved'
+    for (const t of ts) { const spare = (x.hours - use) / ts.length; if (x.only?.length) T[t].reserved = (T[t].reserved || 0) + spare * x.speed[t]; else alloc[name][t] += spare; T[t].capacity += alloc[name][t] * x.speed[t]; }
   }
-  for (const t of TECHS) T[t].unplaced = 0;
+  for (const t of TECHS) { T[t].unplaced = 0; T[t].reserved = T[t].reserved || 0; }
   for (const b of work) if (T[b.t]) T[b.t].unplaced += b.rem;
 }
 

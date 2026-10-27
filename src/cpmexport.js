@@ -156,24 +156,27 @@ function planSheet(name, res, ctx) {
   const rows = {}; const tcol = (from, to) => `$C$${from}:$C$${to}`;
   const sumif = (crit, from, to, i) => (to < from ? '0' : `SUMIF(${tcol(from, to)},"${crit}",${sh.ref(from, col(i))}:${sh.ref(to, col(i))})`);
   const anyUnplaced = P.some((p) => T.some((t) => p.techs[t].unplaced > 0.5));
+  const anyIdle = P.some((p) => T.some((t) => p.techs[t].reserved > 0.5));
   for (const t of T) {
     const R = rows[t] = {}; let k = r;
     const label = (txt) => { sh.set(k, 1, t, 'bold'); sh.set(k, 2, txt); return k++; };
     R.cap = label('Capacity'); R.need = label('Capacity needed'); R.open = label('Open (capacity − needed)');
     if (anyUnplaced) R.unpl = label('Can\'t be placed (machine restrictions)');
+    if (anyIdle) R.idle = label('Idle on restricted machines (not capacity)');
     R.load = label('Load (needed ÷ capacity)'); R.fc = label(`Forecast — cards${ctx.flex ? ' (× flex)' : ''}`); R.act = label('Actual — cards persoed'); R.dev = label('Actual vs forecast');
     P.forEach((p, i) => {
       const c = col(i); const x = p.techs[t]; const at = (row) => sh.ref(row, c);
       sh.f(R.cap, c, sumif(t, rMc0, rMc1, i), 'int', x.capacity);
       sh.f(R.need, c, sumif(t, rNd0, rNd1, i), 'int', x.need);
       if (R.unpl) sh.set(R.unpl, c, Math.round(x.unplaced || 0), 'fixed');
+      if (R.idle) sh.set(R.idle, c, Math.round(x.reserved || 0), 'fixed');
       sh.f(R.open, c, R.unpl ? `IF(${at(R.unpl)}>0,MIN(${at(R.cap)}-${at(R.need)},-${at(R.unpl)}),${at(R.cap)}-${at(R.need)})` : `${at(R.cap)}-${at(R.need)}`, 'int', x.gap);
       const load = `IF(${at(R.cap)}>0,${at(R.need)}/${at(R.cap)},"")`;
       sh.f(R.load, c, R.unpl ? `IF(${at(R.unpl)}>0,MAX(IF(${at(R.cap)}>0,${at(R.need)}/${at(R.cap)},0),${at(R.need)}/MAX(1,${at(R.need)}-${at(R.unpl)})),${load})` : load, 'pct', x.util);
       sh.f(R.fc, c, sumif(t, rTf0, rTf1, i), 'int', x.demand);
       if (p.start <= now) { sh.set(R.act, c, Math.round(x.actual || 0)); sh.f(R.dev, c, `IF(${at(R.fc)}>0,${at(R.act)}/${at(R.fc)}-1,"")`, 'pctSigned', x.demand ? x.actual / x.demand - 1 : null); }
     });
-    for (const row of [R.cap, R.need, R.open, R.fc, R.act, R.unpl].filter(Boolean)) sumRow(row, 'intBold');
+    for (const row of [R.cap, R.need, R.open, R.fc, R.act, R.unpl, R.idle].filter(Boolean)) sumRow(row, 'intBold');
     sh.f(R.load, tot, `IF(${sh.ref(R.cap, tot)}>0,${sh.ref(R.need, tot)}/${sh.ref(R.cap, tot)},"")`, 'pctBold');
     const doneCols = P.map((p, i) => (p.start <= now ? i : -1)).filter((i) => i >= 0);
     if (doneCols.length) sh.f(R.dev, tot, `IFERROR(SUM(${sh.ref(R.act, col(0))}:${sh.ref(R.act, col(doneCols[doneCols.length - 1]))})/SUM(${sh.ref(R.fc, col(0))}:${sh.ref(R.fc, col(doneCols[doneCols.length - 1]))})-1,"")`, 'pctSigned');
