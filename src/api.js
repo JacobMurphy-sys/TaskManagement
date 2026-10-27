@@ -2702,6 +2702,8 @@ router.post('/cpm/customers/import', express.raw({ type: '*/*', limit: '60mb' })
   cpm.remapForecasts();
   res.json({ sheet: cfg.sheet, customers: byTri.size });
 }));
+// a card database column's values, for restricting a machine to some cards
+router.get('/cpm/card-values', h((req, res) => { const cards = cpmCards(); res.json({ fields: cpm.CARD_FIELDS, linked: !!cards, values: cpm.cardValues(cards, String(req.query.field || '')).slice(0, 500) }); }));
 router.get('/cpm/flex', h((req, res) => { cpmRefresh(); const f = cpm.flex({ cards: cpmCards() }); res.json({ customers: f.customers, overall: f.overall, pairs: f.pairs, history: cpm.historyCoverage() }); }));
 router.post('/cpm/history', express.raw({ type: '*/*', limit: '60mb' }), h((req, res) => {
   const name = String(req.get('X-File-Name') || 'upload.xlsx');
@@ -2714,7 +2716,7 @@ router.get('/cpm/scenarios', h((req, res) => {
   res.json(db.all('SELECT * FROM cpm_scenarios WHERE owner = ? OR shared = 1 ORDER BY owner = ? DESC, updated_at DESC', [cpmOwner(req), cpmOwner(req)])
     .map((sc) => ({ ...sc, changes: JSON.parse(sc.changes || '[]'), shared: !!sc.shared, mine: sc.owner === cpmOwner(req) })));
 }));
-const cpmChanges = (c) => (Array.isArray(c) ? c : []).filter((x) => x && typeof x === 'object' && /^(speed|add_machine|remove_machine|capabilities|shifts|oee|volume|new_customer)$/.test(x.type)).slice(0, 60);
+const cpmChanges = (c) => (Array.isArray(c) ? c : []).filter((x) => x && typeof x === 'object' && /^(speed|add_machine|remove_machine|capabilities|restrict|shifts|oee|volume|new_customer)$/.test(x.type)).slice(0, 60);
 router.post('/cpm/scenarios', h((req, res) => {
   const b = req.body || {}; const name = String(b.name || '').trim(); if (!name) throw new HttpError(400, 'Give the scenario a name');
   const row = insertRow('cpm_scenarios', { owner: cpmOwner(req), owner_name: req.account?.person || null, name, notes: b.notes || null, changes: JSON.stringify(cpmChanges(b.changes)), shared: b.shared ? 1 : 0 });

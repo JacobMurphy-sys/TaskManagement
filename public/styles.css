@@ -1398,3 +1398,5 @@ tr.kfd-cust-detail > td { background: var(--panel-2); padding: 8px 12px; }
 .cpm-change { margin-bottom: 8px; }
 
 .cpm-manual { border-color: var(--accent, #2563eb) !important; font-weight: 600; }
+.cpm-picks { display: flex; flex-wrap: wrap; gap: 2px 14px; max-height: 180px; overflow: auto; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); margin-top: 4px; }
+.cpm-picks label { white-space: nowrap; }

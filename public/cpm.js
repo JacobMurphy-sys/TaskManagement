@@ -108,6 +108,7 @@ async function cpmOverview(body) {
       ${row('Load', (p) => cpmPct(p ? p.techs[t].util : (tot.capacity ? tot.need / tot.capacity : null)), (p) => (p ? `cpm-u ${cpmUtilCls(p.techs[t].util)}` : ''))}
       ${row('Actual', (p) => (p ? (p.start <= now ? cpmK(p.techs[t].actual) : '') : cpmK(tot.actual)))}
       ${row('Actual vs forecast', (p) => { if (p && p.start > now) return ''; const f = p ? p.techs[t].fc : P.filter((q) => q.start <= now).reduce((a, q) => a + q.techs[t].fc, 0); const a = p ? p.techs[t].actual : tot.actual; if (!f) return '—'; const v = a / f - 1; return `<span class="cpm-u ${Math.abs(v) <= 0.1 ? 'ok' : Math.abs(v) <= 0.2 ? 'warn' : 'bad'}">${v >= 0 ? '+' : ''}${cpmPct(v)}</span>`; })}
+      ${d.scenarios.map((s, j) => (s.periods.some((p) => p.techs[t].unplaced > 0.005 * p.techs[t].need) ? row(`<span style="color:${SC_COL[j]}">${esc(s.name)}</span>: can't be placed`, (p, i) => { const u = p ? s.periods[i].techs[t].unplaced || 0 : s.periods.reduce((a, q) => a + (q.techs[t].unplaced || 0), 0); return u > 0.5 ? `<span class="pl-late" title="Needed, but no machine that runs ${esc(t)} is allowed this customer / card">${cpmK(u)}</span>` : ''; }) : '')).join('')}
       ${d.scenarios.map((s, j) => row(`<span style="color:${SC_COL[j]}">${esc(s.name)}</span>: load`, (p, i) => { const sp = p ? s.periods[i].techs[t] : null; return cpmPct(sp ? sp.util : null); }, (p, i) => (p ? `cpm-u ${cpmUtilCls(s.periods[i].techs[t].util)}` : ''))).join('')}
       </tbody></table></div>`;
   };
@@ -265,6 +266,7 @@ const CPM_CHANGES = {
   add_machine: { label: '➕ Add a machine', fields: ['name', 'techs'] },
   remove_machine: { label: '➖ Remove a machine / downtime', fields: ['machine'] },
   capabilities: { label: '🔁 Change what a machine runs', fields: ['machine', 'techs'] },
+  restrict: { label: '🔒 Restrict a machine to customers / cards', fields: ['machine', 'customers', 'cards'] },
   shifts: { label: '🕐 Shifts and hours', fields: ['shifts', 'hours'] },
   oee: { label: '🎯 OEE change', fields: ['customer', 'tech', 'points'] },
   volume: { label: '📦 Customer volume', fields: ['customer', 'pct'] },
@@ -273,13 +275,34 @@ const CPM_CHANGES = {
 async function cpmScenarios(body) {
   const [list, ov, cs] = await Promise.all([api.get('/cpm/scenarios'), api.get(`/cpm/overview?year=${new Date().getFullYear()}&period=month&flex=0`), api.get('/cpm/customers')]);
   const openId = Number(store.get('cpmScenario', 0)) || null; const sc = list.find((s) => s.id === openId) || null;
-  const machines = ov.machines.filter((m) => !m.added).map((m) => m.name); const T = ov.techs; const custs = cs.customers.map((c) => c.trigram);
+  const machines = ov.machines.filter((m) => !m.added).map((m) => m.name); const T = ov.techs; const custs = [...new Set([...cs.customers.map((c) => c.trigram), ...cs.not_set_up.map((c) => c.trigram)])].sort();
+  const cardFields = { material: 'Material', name: 'Cardbody name', sides: 'Print sides', tag: 'Tag', provider: 'Provider', type: 'Type' };
+  const cardVals = {}; // field → [{ value, qty }]
+  const loadCards = () => $$('.cpm-change').forEach(async (el) => {
+    const list = el.querySelector('.cpm-cf-list'); if (!list) return;
+    const sel = el.querySelector('.cpm-cf'); const q = el.querySelector('.cpm-cf-q'); const n = el.querySelector('.cpm-cf-n');
+    const draw = async () => {
+      const f = sel.value; if (!cardVals[f]) { const r = await api.get(`/cpm/card-values?field=${f}`); cardVals[f] = r.linked ? r.values : null; }
+      const picked = new Set(JSON.parse(list.dataset.sel || '[]'));
+      const vals = cardVals[f]; if (!vals) { list.innerHTML = '<span class="small pl-warn">The card database isn\'t linked (Production › ⚙ Setup) — there are no cards to pick from.</span>'; return; }
+      const term = q.value.trim().toLowerCase(); const shown = vals.filter((v) => picked.has(v.value) || !term || v.value.toLowerCase().includes(term));
+      n.textContent = `${picked.size} ticked · ${vals.length} values`;
+      list.innerHTML = shown.slice(0, 200).map((v) => `<label class="row small" title="${cpmN(v.qty)} persoed in the last year"><input type="checkbox" name="values" value="${esc(v.value)}" ${picked.has(v.value) ? 'checked' : ''}> ${esc(v.value)} <span class="muted">${v.qty ? cpmK(v.qty) : ''}</span></label>`).join('') || '<span class="small muted">Nothing matches.</span>';
+      list.querySelectorAll('input').forEach((i) => { i.onchange = () => { const s = new Set(JSON.parse(list.dataset.sel || '[]')); if (i.checked) s.add(i.value); else s.delete(i.value); list.dataset.sel = JSON.stringify([...s]); n.textContent = `${s.size} ticked · ${vals.length} values`; }; });
+    };
+    sel.onchange = () => { list.dataset.sel = '[]'; list.innerHTML = ''; draw(); }; q.oninput = draw; draw();
+  });
   const sel = (name, val, opts, all = 'all') => `<select name="${name}"><option value="">${all}</option>${opts.map((o) => `<option ${o === val ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
   const field = (c, f) => {
     if (f === 'machine') return `<label class="f">Machine${sel('machine', c.machine, machines, c.type === 'speed' ? 'all machines' : '— choose —')}</label>`;
     if (f === 'tech') return `<label class="f">Technology${sel('tech', c.tech, T, 'all')}</label>`;
     if (f === 'customer') return `<label class="f">Customer${sel('customer', c.customer, custs, 'all customers')}</label>`;
     if (f === 'techs') return `<div class="f"><span>Runs</span><div class="row">${T.map((t) => `<label class="row small"><input type="checkbox" name="techs" value="${t}" ${(c.techs || []).includes(t) ? 'checked' : ''}> ${t}</label>`).join(' ')}</div></div>`;
+    if (f === 'customers') return `<div class="f full"><span>Only these customers <span class="muted">(none ticked: any)</span></span><div class="cpm-picks">${custs.map((t) => `<label class="row small"><input type="checkbox" name="customers" value="${esc(t)}" ${(c.customers || []).includes(t) ? 'checked' : ''}> ${esc(t)}</label>`).join('')}</div></div>`;
+    if (f === 'cards') return `<div class="f full"><span>Only these cards <span class="muted">(from the card database; none ticked: any)</span></span>
+      <div class="row" style="gap:6px;flex-wrap:wrap"><select name="field" class="cpm-cf">${Object.entries(cardFields).map(([k, l]) => `<option value="${k}" ${(c.field || 'material') === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+      <input type="search" class="cpm-cf-q" placeholder="Filter…" style="max-width:220px"><span class="small muted cpm-cf-n"></span></div>
+      <div class="cpm-picks cpm-cf-list" data-sel="${esc(JSON.stringify(c.values || []))}"><span class="small muted">Loading…</span></div></div>`;
     if (f === 'split') return `<div class="f"><span>Split %</span><div class="row">${T.map((t) => `<label class="row small">${t} <input type="number" name="split_${t}" min="0" max="100" style="width:70px" value="${c.split?.[t] ? Math.round(c.split[t] * 100) : ''}"></label>`).join(' ')}</div></div>`;
     const L = { pct: ['Change %', '+10 or −15'], points: ['OEE change (points)', '+5'], shifts: ['Shifts a day', ''], hours: ['Productive hours a shift', ''], name: ['Name', ''], qty: ['Cards a month', ''], oee: ['OEE %', '35'] }[f];
     return `<label class="f">${L[0]}<input type="${f === 'name' ? 'text' : 'number'}" name="${f}" value="${esc(c[f] ?? (f === 'oee' && c.oee ? Math.round(c.oee * 100) : ''))}" placeholder="${L[1]}"></label>`;
@@ -303,22 +326,25 @@ async function cpmScenarios(body) {
     const c = { type: sc.changes[Number(el.dataset.i)].type };
     for (const inp of el.querySelectorAll('[name]')) {
       if (inp.name === 'techs') { if (inp.checked) (c.techs = c.techs || []).push(inp.value); continue; }
+      if (inp.name === 'customers' || inp.name === 'values') { if (inp.checked) (c[inp.name] = c[inp.name] || []).push(inp.value); continue; }
       if (inp.name.startsWith('split_')) { if (inp.value) (c.split = c.split || {})[inp.name.slice(6)] = Number(inp.value) / 100; continue; }
       if (inp.value === '') continue;
       c[inp.name] = inp.type === 'number' ? (inp.name === 'oee' ? Number(inp.value) / 100 : Number(inp.value)) : inp.value;
     }
     if (CPM_CHANGES[c.type].fields.includes('techs') && !c.techs) c.techs = [];
+    if (c.type === 'restrict') { const list = el.querySelector('.cpm-cf-list'); if (list) c.values = JSON.parse(list.dataset.sel || '[]'); if (!c.values?.length) delete c.values; }
     return c;
   });
   $$('[data-cpm-open]').forEach((el) => { el.onclick = () => { store.set('cpmScenario', Number(el.dataset.cpmOpen)); renderCpm('scenarios'); }; });
   $('#cpm-sc-new').onclick = async () => { const name = $('#cpm-sc-name').value.trim() || 'New scenario'; const s = await api.post('/cpm/scenarios', { name, changes: [] }); store.set('cpmScenario', s.id); renderCpm('scenarios'); };
   if (!sc) return;
+  loadCards();
   $('#cpm-sc-compare').onclick = () => { store.set('cpmCompare', [sc.id]); location.hash = '#/cpm/overview'; };
   $('#cpm-sc-copy').onclick = async () => { const s = await api.post('/cpm/scenarios', { name: `${sc.name} (copy)`, notes: sc.notes, changes: sc.mine ? read() : sc.changes }); store.set('cpmScenario', s.id); toast('Copied — it\'s yours to change'); renderCpm('scenarios'); };
   if (!sc.mine) return;
   $('#cpm-sc-del').onclick = async () => { if (!confirm(`Delete “${sc.name}”?`)) return; await api.del(`/cpm/scenarios/${sc.id}`); store.set('cpmScenario', 0); renderCpm('scenarios'); };
-  $('#cpm-add-change').onclick = () => { sc.changes = [...read(), { type: $('#cpm-add-type').value }]; $('#cpm-changes').innerHTML = sc.changes.map(changeHtml).join(''); wireRm(); };
-  const wireRm = () => $$('[data-cpm-rm]').forEach((b) => { b.onclick = () => { const l = read(); l.splice(Number(b.dataset.cpmRm), 1); sc.changes = l; $('#cpm-changes').innerHTML = l.map(changeHtml).join('') || '<p class="muted">No changes yet — add one below.</p>'; wireRm(); }; });
+  $('#cpm-add-change').onclick = () => { sc.changes = [...read(), { type: $('#cpm-add-type').value }]; $('#cpm-changes').innerHTML = sc.changes.map(changeHtml).join(''); wireRm(); loadCards(); };
+  const wireRm = () => $$('[data-cpm-rm]').forEach((b) => { b.onclick = () => { const l = read(); l.splice(Number(b.dataset.cpmRm), 1); sc.changes = l; $('#cpm-changes').innerHTML = l.map(changeHtml).join('') || '<p class="muted">No changes yet — add one below.</p>'; wireRm(); loadCards(); }; });
   wireRm();
   $('#cpm-sc-save').onclick = async () => {
     try { await api.put(`/cpm/scenarios/${sc.id}`, { name: $('#cpm-sc-title').value, notes: $('#cpm-sc-notes').value, shared: $('#cpm-sc-share').checked, changes: read() }); toast('Scenario saved'); renderCpm('scenarios'); } catch (err) { toast(err.message, 'error'); }

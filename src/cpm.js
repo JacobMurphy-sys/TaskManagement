@@ -168,8 +168,33 @@ function actuals(fromDay, toDay, cards) {
   return rows.map((r) => {
     const card = cards ? cards.get(planning.axKey(r.item)) : null;
     const mt = machineTech.get(String(r.machine || '').toLowerCase()) || [];
-    return { day: r.day, trigram: String(r.trigram || '').toUpperCase() || null, tech: normTech(card?.type) || (mt.length === 1 ? mt[0] : null), qty: r.qty || 0 };
+    return { day: r.day, trigram: String(r.trigram || '').toUpperCase() || null, tech: normTech(card?.type) || (mt.length === 1 ? mt[0] : null), qty: r.qty || 0, card: card || null };
   });
+}
+
+// ---- cards: what a customer's volume is made of, by a card database column (for machine restrictions)
+const CARD_FIELDS = { material: 'Material', name: 'Cardbody name', sides: 'Print sides', tag: 'Tag', provider: 'Provider', type: 'Type' };
+const cardVal = (card, f) => String(card?.[f] ?? '').trim();
+// the last year persoed: 'TRI|tech' (and '*|tech' for everyone) → Map(signature → share), a signature
+// being the card's values for those fields ({ material: 'PVC' } as JSON)
+function cardMix(cards, fields) {
+  const to = ymd(new Date()); const fromD = new Date(); fromD.setFullYear(fromD.getFullYear() - 1);
+  const by = new Map(); const put = (k, sig, q) => { const m = by.get(k) || by.set(k, new Map()).get(k); m.set(sig, (m.get(sig) || 0) + q); };
+  for (const a of actuals(ymd(fromD), to, cards)) {
+    if (!a.tech || !a.card) continue;
+    const sig = JSON.stringify(Object.fromEntries(fields.map((f) => [f, cardVal(a.card, f)])));
+    if (a.trigram) put(`${a.trigram}|${a.tech}`, sig, a.qty); put(`*|${a.tech}`, sig, a.qty);
+  }
+  for (const m of by.values()) { const tot = [...m.values()].reduce((x, y) => x + y, 0); for (const [k, q] of m) m.set(k, q / tot); }
+  return by;
+}
+// a card column's values, the most persoed (last year) first: [{ value, qty }]
+function cardValues(cards, field) {
+  if (!CARD_FIELDS[field] || !cards) return [];
+  const to = ymd(new Date()); const fromD = new Date(); fromD.setFullYear(fromD.getFullYear() - 1);
+  const q = new Map(); for (const c of cards.values()) { const v = cardVal(c, field); if (v && !q.has(v)) q.set(v, 0); }
+  for (const a of actuals(ymd(fromD), to, cards)) { const v = cardVal(a.card, field); if (v) q.set(v, (q.get(v) || 0) + a.qty); }
+  return [...q].map(([value, qty]) => ({ value, qty })).sort((a, b) => b.qty - a.qty || a.value.localeCompare(b.value));
 }
 
 // ---- history (earlier years, uploaded) ------------------------------------------------------------
@@ -345,7 +370,10 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
     for (const c of changes) if (c.type === 'capabilities' && c.machine === m.name && inRange(month, c)) techs = (c.techs || []).map(normTech).filter(Boolean);
     const o = opts[m.name] || {};
     const speed = {}; for (const t of techs) { let s = Number(o.speed?.[t]) || sp[t] || 0; for (const c of changes) if (c.type === 'speed' && (!c.machine || c.machine === m.name) && (!c.tech || normTech(c.tech) === t) && inRange(month, c)) s *= 1 + (Number(c.pct) || 0) / 100; speed[t] = s; }
-    return { techs, speed, avail: o.avail === undefined || o.avail === null || o.avail === '' ? 1 : Math.max(0, Math.min(1, Number(o.avail))) };
+    const only = changes.filter((c) => c.type === 'restrict' && c.machine === m.name && inRange(month, c))
+      .map((c) => ({ customers: (c.customers || []).length ? new Set(c.customers) : null, field: CARD_FIELDS[c.field] && (c.values || []).length ? c.field : null, values: CARD_FIELDS[c.field] && (c.values || []).length ? new Set(c.values) : null }))
+      .filter((r) => r.customers || r.values);
+    return { techs, speed, only, avail: o.avail === undefined || o.avail === null || o.avail === '' ? 1 : Math.max(0, Math.min(1, Number(o.avail))) };
   };
   const shiftAt = (month) => { let s = shifts0; let h = hours0; for (const c of changes) if (c.type === 'shifts' && inRange(month, c)) { if (Number(c.shifts) >= 0 && c.shifts !== '' && c.shifts !== null && c.shifts !== undefined) s = Number(c.shifts); if (Number(c.hours) > 0) h = Number(c.hours); } return { s, h }; };
   // demand per customer and month: forecast × flex (× the scenario's volume change), split, ÷ OEE
@@ -362,13 +390,22 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
     for (const t of m.techs) x[t] = (x[t] || 0) + ((Number(o.speed?.[t]) || sp[t] || 0) * a) / m.techs.length; }
     const tot = Object.values(x).reduce((p, q) => p + q, 0); return tot ? Object.fromEntries(Object.entries(x).map(([t, q]) => [t, q / tot])) : null; })();
   const extra = changes.filter((c) => c.type === 'new_customer');
+  // machines that may only run some customers / cards: their fields' mix per customer, learned from what ran
+  const restricts = changes.filter((c) => c.type === 'restrict' && c.machine);
+  const rFields = [...new Set(restricts.filter((c) => c.field && CARD_FIELDS[c.field] && (c.values || []).length).map((c) => c.field))];
+  const mixOf = rFields.length ? cardMix(cards, rFields) : new Map();
+  if (rFields.length && !cards) warnings.push('A machine is restricted to some cards, but the card database isn\'t linked — its cards can\'t be told apart, so it gets none of that work');
   for (let m = 1; m <= 12; m++) {
-    const month = ym(year, m); const md = monthDemand[month] = Object.fromEntries(TECHS.map((t) => [t, { fc: 0, demand: 0, need: 0 }]));
+    const month = ym(year, m); const md = monthDemand[month] = Object.fromEntries(TECHS.map((t) => [t, { fc: 0, demand: 0, need: 0, buckets: new Map() }]));
     const add = (tri, qty, split, oeeOf) => {
       for (const [t0, share] of Object.entries(split)) { const t = normTech(t0); if (!md[t] || !share) continue;
         let oee = oeeOf(t); for (const c of changes) if (c.type === 'oee' && (!c.customer || c.customer === tri) && (!c.tech || normTech(c.tech) === t) && inRange(month, c)) oee += (Number(c.points) || 0) / 100;
         oee = Math.max(0.05, Math.min(1, oee));
-        md[t].demand += qty * share; md[t].need += (qty * share) / oee; }
+        md[t].demand += qty * share; md[t].need += (qty * share) / oee;
+        if (restricts.length) { // by customer and card, for the machines that may only run some
+          const mix = mixOf.get(`${tri}|${t}`) || mixOf.get(`*|${t}`) || new Map([['{}', 1]]);
+          for (const [sig, f] of mix) { const k = `${tri}\u0001${sig}`; md[t].buckets.set(k, (md[t].buckets.get(k) || 0) + ((qty * share) / oee) * f); }
+        } }
     };
     for (const c of custs) {
       const f = fc.by.get(`${c.trigram}|${m}`); if (!f) continue;
@@ -398,13 +435,16 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
     if (!d.work) continue;
     P.workdays++;
     const share = 1 / (wdm[d.month] || 1);
-    for (const t of TECHS) { const md = monthDemand[d.month][t]; P.techs[t].fc += md.fc * share; P.techs[t].demand += md.demand * share; P.techs[t].need += md.need * share; }
+    for (const t of TECHS) { const md = monthDemand[d.month][t]; P.techs[t].fc += md.fc * share; P.techs[t].demand += md.demand * share; P.techs[t].need += md.need * share;
+      if (md.buckets.size) { const B = P.buckets || (P.buckets = new Map()); for (const [k, q] of md.buckets) { const kk = `${t}\u0001${k}`; B.set(kk, (B.get(kk) || 0) + q * share); } } }
     const { s, h } = shiftAt(d.month);
-    for (const m of machines) { const at = machineAt(m, d.month); if (!at) continue; const x = P.machines[m.name] || (P.machines[m.name] = { hours: 0, techs: at.techs, speed: at.speed }); x.hours += s * h * at.avail; x.techs = at.techs; x.speed = at.speed; }
+    for (const m of machines) { const at = machineAt(m, d.month); if (!at) continue; const x = P.machines[m.name] || (P.machines[m.name] = { hours: 0, techs: at.techs, speed: at.speed }); x.hours += s * h * at.avail; x.techs = at.techs; x.speed = at.speed; x.only = at.only; }
   }
   // capacity: one-technology machines first; a machine running several gives its hours where they're short
   const out = [...periods.values()].map((P) => {
     const T = P.techs; const alloc = {};
+    if (Object.values(P.machines).some((x) => x.only?.length)) placeWork(P, alloc);
+    else {
     for (const [name, x] of Object.entries(P.machines)) if (x.techs.length === 1) { const t = x.techs[0]; if (T[t]) { T[t].capacity += x.hours * (x.speed[t] || 0); alloc[name] = { [t]: x.hours }; } }
     for (const [name, x] of Object.entries(P.machines)) {
       if (x.techs.length < 2) continue;
@@ -416,7 +456,9 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
       for (const t of ts) alloc[name][t] += left / ts.length; // what nobody needs, shared
       for (const t of ts) T[t].capacity += alloc[name][t] * x.speed[t];
     }
-    for (const t of TECHS) { const x = T[t]; x.gap = x.capacity - x.need; x.util = x.capacity ? x.need / x.capacity : null; }
+    }
+    for (const t of TECHS) { const x = T[t]; x.gap = x.capacity - x.need; x.util = x.capacity ? x.need / x.capacity : null;
+      if (x.unplaced > 0.005 * x.need) { x.gap = Math.min(x.gap, -x.unplaced); x.util = Math.max(x.util || 0, x.need / Math.max(1, x.need - x.unplaced)); } }
     const tot = { fc: 0, demand: 0, need: 0, capacity: 0, actual: 0 }; for (const t of TECHS) for (const k of Object.keys(tot)) tot[k] += T[t][k];
     tot.gap = tot.capacity - tot.need; tot.util = tot.capacity ? tot.need / tot.capacity : null;
     return { key: P.key, label: P.label, start: P.start, end: P.end, workdays: P.workdays, techs: T, total: tot, machines: Object.entries(P.machines).map(([name, x]) => ({ name, hours: x.hours, techs: x.techs, alloc: alloc[name] || {} })) };
@@ -426,6 +468,28 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
     forecast_total: [...fc.by.values()].reduce((t, f) => t + (f.total || Object.values(f.tech).reduce((a, b) => a + b, 0)), 0),
     machines: machines.map((m) => ({ name: m.name, techs: m.techs, added: !!m.added, ...(opts[m.name] || {}) })), periods: out, warnings: [...new Set(warnings)], flex: fx ? { overall: fx.overall.year, pairs: fx.pairs } : null };
 }
+// With machines that may only run some customers / cards: each piece of work (technology, customer,
+// card) goes to the machines allowed it — the most restricted first, then those running one technology,
+// then those running several — in proportion to what's left. Work no machine may run is 'unplaced'.
+// A machine's hours left over are its technologies' capacity, shared evenly.
+function placeWork(P, alloc) {
+  const T = P.techs;
+  const work = [...(P.buckets || new Map())].map(([k, need]) => { const [t, cust, sig] = k.split('\u0001'); return { t, cust, sig: json(sig, {}), rem: need }; });
+  const may = (x, b) => x.techs.includes(b.t) && x.speed[b.t] > 0 && (x.only || []).every((r) => (!r.customers || r.customers.has(b.cust)) && (!r.values || r.values.has(String(b.sig[r.field] ?? ''))));
+  const list = Object.entries(P.machines).map(([name, x]) => ({ name, x, eligible: work.filter((b) => may(x, b)) }));
+  const rank = (m) => (m.x.only?.length ? 0 : m.x.techs.length === 1 ? 1 : 2);
+  list.sort((a, b) => rank(a) - rank(b) || a.eligible.reduce((s, w) => s + w.rem, 0) - b.eligible.reduce((s, w) => s + w.rem, 0));
+  for (const { name, x, eligible } of list) {
+    const ts = x.techs.filter((t) => T[t] && x.speed[t] > 0); alloc[name] = {}; if (!ts.length) continue;
+    const hrs = eligible.reduce((s, b) => s + b.rem / x.speed[b.t], 0); const use = Math.min(x.hours, hrs); const f = hrs ? use / hrs : 0;
+    for (const t of ts) alloc[name][t] = 0;
+    for (const b of eligible) { const done = b.rem * f; b.rem -= done; alloc[name][b.t] += done / x.speed[b.t]; }
+    for (const t of ts) { alloc[name][t] += (x.hours - use) / ts.length; T[t].capacity += alloc[name][t] * x.speed[t]; }
+  }
+  for (const t of TECHS) T[t].unplaced = 0;
+  for (const b of work) if (T[b.t]) T[b.t].unplaced += b.rem;
+}
+
 // a customer's split by technology from what was persoed over the last year: trigram → { DOD: 0.7, … }
 function learnedSplit(cards) {
   const to = ymd(new Date()); const fromD = new Date(); fromD.setFullYear(fromD.getFullYear() - 1);
@@ -459,4 +523,4 @@ function parseConfig(buf) {
   throw new Error('No Config sheet with a Trigram column');
 }
 
-module.exports = { TECHS, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf };
+module.exports = { TECHS, CARD_FIELDS, cardValues, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf };

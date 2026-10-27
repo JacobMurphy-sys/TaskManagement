@@ -1534,6 +1534,15 @@ async function waitForServer() {
           assert.deepEqual([s0.periods[0].techs.DOD.capacity - ov.periods[0].techs.DOD.capacity, s0.periods[1].techs.DOD.capacity - ov.periods[1].techs.DOD.capacity], [0, 1000 * ov.periods[1].workdays * 3 * 6], 'from its month on');
           const wk = await call('GET', `/cpm/overview?year=${Y}&period=week&flex=0`);
           assert.ok(wk.periods.length >= 52 && Math.abs(wk.periods.reduce((t, p) => t + p.techs.DOD.need, 0) - ov.periods.reduce((t, p) => t + p.techs.DOD.need, 0)) < 1, 'by week: the same year, spread over its working days');
+          // a machine that may only run KBC: Amex's DOD work has nowhere to go
+          const rs = await call('POST', '/cpm/scenarios', { name: 'KBC only', changes: [{ type: 'add_machine', name: 'CPM X', techs: ['DOD'] }, { type: 'restrict', machine: 'CPM X', customers: ['KBC'] }] });
+          const ovR2 = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${rs.id}`);
+          const rj = ovR2.scenarios[0].periods[0].techs.DOD;
+          assert.deepEqual([Math.round(rj.need), Math.round(rj.unplaced)], [1000 + 1400, 1400], 'restricted to KBC: Amex\'s DOD work can\'t be placed');
+          assert.ok(rj.util > 1 && rj.gap < -1399, 'work that can\'t be placed shows as over');
+          assert.equal(ovR2.periods[0].techs.DOD.unplaced, undefined, 'the base plan (no restrictions) is worked out as before');
+          assert.equal((await call('GET', '/cpm/card-values?field=material')).linked, false);
+          await call('DELETE', `/cpm/scenarios/${rs.id}`);
           assert.equal((await call('GET', '/cpm/scenarios')).length, 1);
           await call('PUT', `/cpm/scenarios/${sc.id}`, { shared: true, changes: [{ type: 'shifts', shifts: 2 }] });
           await call('DELETE', `/cpm/scenarios/${sc.id}`);
