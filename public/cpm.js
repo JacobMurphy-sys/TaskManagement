@@ -80,6 +80,7 @@ async function cpmOverview(body) {
     ${d.forecast_as_of && !d.forecast_total ? `<div class="kc-note">⚠ The forecast read in ${esc(d.forecast_as_of)} has nothing for ${d.year} — check the files linked in Reporting › Sources.</div>` : ''}
     ${d.unmapped_count ? `<div class="kc-note">🔗 <b>${d.unmapped_count} forecast name${d.unmapped_count === 1 ? '' : 's'} not linked to a customer</b> (${cpmK(d.unmapped_qty)} cards this year): counted with the mix of everything persoed and the default OEE until linked — ${d.unmapped.slice(0, 5).map((u) => esc(u.name)).join(' · ')}${d.unmapped_count > 5 ? ' …' : ''}. <a href="#/cpm/customers">Link them, or import the CPM workbook's Config sheet →</a></div>` : ''}
     <div class="kdb-tiles pl-tiles">${tiles}</div>
+    ${cpmFcTotals(d)}
     ${d.techs.map((t) => `<div class="card cpm-tech"><h3 class="pl-h">${CPM_TECH_ICON[t] || ''} ${esc(t)} <span class="muted small">— bars: capacity needed (forecast${flex ? ' × flex' : ''} ÷ OEE), green / amber from 85% / red over · inner bar: the forecast · line: capacity${d.scenarios.length ? ' (dashed: scenarios)' : ''} · dots: actual</span></h3>
       ${chart(t)}${table(t)}</div>`).join('')}`;
   $('#cpm-year').onchange = (e) => { store.set('cpmYear', Number(e.target.value)); renderCpm('overview'); };
@@ -262,4 +263,26 @@ async function cpmScenarios(body) {
   $('#cpm-sc-save').onclick = async () => {
     try { await api.put(`/cpm/scenarios/${sc.id}`, { name: $('#cpm-sc-title').value, notes: $('#cpm-sc-notes').value, shared: $('#cpm-sc-share').checked, changes: read() }); toast('Scenario saved'); renderCpm('scenarios'); } catch (err) { toast(err.message, 'error'); }
   };
+}
+
+// The forecast's total per month, as Reporting's Database adds it up (BeNeLux + Amex), against what the
+// technology charts count — so the two can be checked against each other
+function cpmFcTotals(d) {
+  const src = d.forecast_sources || {}; if (!Object.keys(src).length) return '';
+  const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const bn = src.benelux || Array(12).fill(0); const ax = src.amex || Array(12).fill(0);
+  const tot = bn.map((q, i) => q + ax[i]);
+  const counted = M.map((_, i) => d.forecast_counted?.[`${d.year}-${String(i + 1).padStart(2, '0')}`] || 0);
+  const sit = bn.map((q) => q + ax[0]); // SITHUB looks every month's Amex up against January
+  const sum = (a) => a.reduce((t, x) => t + x, 0);
+  const tr = (label, a, cls = '', title = '') => `<tr class="${cls}"><th title="${esc(title)}">${label}</th>${a.map((x) => `<td class="num">${cpmN(Math.round(x))}</td>`).join('')}<td class="num"><b>${cpmN(Math.round(sum(a)))}</b></td></tr>`;
+  const off = counted.map((x, i) => x - tot[i]);
+  return `<div class="card"><h3 class="pl-h">Forecast ${d.year} <span class="muted small">— the files linked in Reporting › Sources, by SITHUB's rules (BeNeLux: Benelux + “basic” lines; Amex: TOTAL BAU)</span></h3>
+    <div class="kdb-scroll"><table class="log small cpm-tbl"><thead><tr><th></th>${M.map((m) => `<th class="num">${m}</th>`).join('')}<th class="num">Year</th></tr></thead><tbody>
+      ${tr('BeNeLux', bn)}${tr('Amex', ax)}${tr('<b>Total</b>', tot)}
+      ${tr('Counted in the charts', counted, '', 'The forecast split over DOD / Emboss / Laser below — less than the total when a customer has no split to go by (see the notes above)')}
+      ${off.some((x) => Math.abs(x) >= 1) ? tr('Not counted', off.map((x) => -x), 'pl-late') : ''}
+      ${ax[0] && ax.some((x) => x !== ax[0]) ? tr('SITHUB Database', sit, 'muted', 'SITHUB\'s Database row adds January\'s Amex figure to every month (its lookup is fixed to 01/01/2026) — the total above takes each month\'s own') : ''}
+    </tbody></table></div>
+    ${ax[0] && ax.some((x) => x !== ax[0]) ? '<p class="small muted">SITHUB\'s Database adds January\'s Amex to every month (its lookup is fixed on 01/01/2026); the total here takes each month\'s own Amex figure, so February on differs by that.</p>' : ''}</div>`;
 }

@@ -118,13 +118,15 @@ function forecastOf(year, asOf = null) {
   // linked as the customers stand now (a name linked after the read counts straight away); a name not
   // linked to any customer still counts, under '~name'
   const names = nameMap(); const by = new Map(); const unmapped = new Map();
+  // each source's total per month, as SITHUB's Database adds them up (Amex: its TOTAL BAU row)
+  const sources = {}; for (const r of rows) if (!r.tech) { const x = sources[r.source] || (sources[r.source] = Array(12).fill(0)); x[r.month - 1] += r.qty; }
   for (const r of rows) {
     const tri = r.trigram || names.get(String(r.name || '').trim().toLowerCase()) || null;
     if (!tri) unmapped.set(r.name, (unmapped.get(r.name) || 0) + r.qty);
     const k = `${tri || `~${r.name}`}|${r.month}`; const x = by.get(k) || by.set(k, { total: 0, tech: {} }).get(k);
     if (r.tech) x.tech[r.tech] = (x.tech[r.tech] || 0) + r.qty; else x.total += r.qty;
   }
-  return { as_of: at || null, by, unmapped: [...unmapped].map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty) };
+  return { as_of: at || null, by, sources, unmapped: [...unmapped].map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty) };
 }
 
 // ---- actuals: DailyPersoData (else the timing runs), technology from the card's type ----------------
@@ -379,6 +381,7 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
     return { key: P.key, label: P.label, start: P.start, end: P.end, workdays: P.workdays, techs: T, total: tot, machines: Object.entries(P.machines).map(([name, x]) => ({ name, hours: x.hours, techs: x.techs, alloc: alloc[name] || {} })) };
   });
   return { year, period, techs: TECHS, speeds: sp, shifts: shifts0, hours: hours0, forecast_as_of: fc.as_of, unmapped: fc.unmapped.slice(0, 30), unmapped_count: fc.unmapped.length, unmapped_qty: unlinkedQty,
+    forecast_sources: fc.sources, forecast_counted: Object.fromEntries(Object.entries(monthDemand).map(([k, md]) => [k, TECHS.reduce((t, x) => t + md[x].fc, 0)])),
     forecast_total: [...fc.by.values()].reduce((t, f) => t + (f.total || Object.values(f.tech).reduce((a, b) => a + b, 0)), 0),
     machines: machines.map((m) => ({ name: m.name, techs: m.techs, added: !!m.added, ...(opts[m.name] || {}) })), periods: out, warnings: [...new Set(warnings)], flex: fx ? { overall: fx.overall.year, pairs: fx.pairs } : null };
 }
