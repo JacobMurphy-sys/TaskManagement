@@ -2672,7 +2672,7 @@ router.get('/cpm/customers', h((req, res) => {
   const list = cpm.customers().map((c) => ({ ...c, learned: learned.get(c.trigram) || null, prod_oee: prodOee.get(c.trigram) ?? null, forecast_year: fcTot.get(c.trigram) || 0 }));
   // customers persoed or forecast but not set up yet
   const known = new Set(list.map((c) => c.trigram));
-  const seen = [...new Set([...learned.keys(), ...fcTot.keys()])].filter((t) => !known.has(t)).map((t) => ({ trigram: t, learned: learned.get(t) || null, forecast_year: fcTot.get(t) || 0 }));
+  const seen = [...new Set([...learned.keys(), ...fcTot.keys()])].filter((t) => !known.has(t) && !/^[~*]/.test(t)).map((t) => ({ trigram: t, learned: learned.get(t) || null, forecast_year: fcTot.get(t) || 0 }));
   res.json({ customers: list, not_set_up: seen, unmapped: fc.unmapped, forecast_as_of: fc.as_of, techs: cpm.TECHS, oee_default: Number(getSettings().cpm_oee_default) || 0.35 });
 }));
 router.put('/cpm/customers/:trigram', h((req, res) => {

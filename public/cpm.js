@@ -77,7 +77,8 @@ async function cpmOverview(body) {
     </div>
     <p class="small muted">Forecast ${d.forecast_as_of ? `as read in ${esc(d.forecast_as_of)}` : '— none read yet: link the BeNeLux and Amex forecasts in Reporting › Sources'} · ${d.shifts} shifts × ${d.hours} productive hours · speeds from Production: ${d.techs.map((t) => `${esc(t)} ${d.speeds[t] ? `${cpmN(d.speeds[t])}/h` : '<b class="pl-late">none</b>'}`).join(' · ')}${d.cards ? '' : ' · <span class="pl-warn">card database not linked: actuals by machine only</span>'}</p>
     ${d.warnings.length ? `<div class="kc-note">⚠ ${d.warnings.map(esc).join('<br>⚠ ')}</div>` : ''}
-    ${d.unmapped.length ? `<div class="kc-note">Forecast lines for customers not set up (not counted): ${d.unmapped.slice(0, 8).map((u) => `<b>${esc(u.name)}</b> ${cpmK(u.qty)}`).join(' · ')}${d.unmapped.length > 8 ? ' …' : ''} — <a href="#/cpm/customers">set them up</a></div>` : ''}
+    ${d.forecast_as_of && !d.forecast_total ? `<div class="kc-note">⚠ The forecast read in ${esc(d.forecast_as_of)} has nothing for ${d.year} — check the files linked in Reporting › Sources.</div>` : ''}
+    ${d.unmapped_count ? `<div class="kc-note">🔗 <b>${d.unmapped_count} forecast name${d.unmapped_count === 1 ? '' : 's'} not linked to a customer</b> (${cpmK(d.unmapped_qty)} cards this year): counted with the mix of everything persoed and the default OEE until linked — ${d.unmapped.slice(0, 5).map((u) => esc(u.name)).join(' · ')}${d.unmapped_count > 5 ? ' …' : ''}. <a href="#/cpm/customers">Link them, or import the CPM workbook's Config sheet →</a></div>` : ''}
     <div class="kdb-tiles pl-tiles">${tiles}</div>
     ${d.techs.map((t) => `<div class="card cpm-tech"><h3 class="pl-h">${CPM_TECH_ICON[t] || ''} ${esc(t)} <span class="muted small">— bars: capacity needed (forecast${flex ? ' × flex' : ''} ÷ OEE), green / amber from 85% / red over · inner bar: the forecast · line: capacity${d.scenarios.length ? ' (dashed: scenarios)' : ''} · dots: actual</span></h3>
       ${chart(t)}${table(t)}</div>`).join('')}`;
@@ -139,8 +140,9 @@ async function cpmCustomers(body) {
       <div class="kdb-scroll"><table class="log small cpm-cust"><thead><tr><th rowspan="2">Trigram</th><th rowspan="2">Name</th><th rowspan="2">Forecast names</th><th colspan="${T.length}">Split %</th><th colspan="${T.length}">OEE %</th><th rowspan="2" class="num">Forecast this year</th><th rowspan="2"></th></tr>
         <tr>${T.map((t) => `<th>${esc(t)}</th>`).join('')}${T.map((t) => `<th>${esc(t)}</th>`).join('')}</tr></thead>
         <tbody>${d.customers.map(row).join('') || `<tr><td colspan="${5 + T.length * 2}" class="muted">None yet — import the CPM workbook's Config sheet, or add them below.</td></tr>`}</tbody></table></div></div>
-    ${d.unmapped.length ? `<div class="card"><h3 class="pl-h">Forecast names not linked to a customer <span class="muted small">— their volume isn't counted</span></h3>
-      <table class="log small"><tbody>${d.unmapped.map((u) => `<tr><td><b>${esc(u.name)}</b></td><td class="num">${cpmK(u.qty)}</td><td><select data-cpm-map="${esc(u.name)}"><option value="">Link to…</option>${d.customers.map((c) => `<option value="${esc(c.trigram)}">${esc(c.trigram)} ${esc(c.name || '')}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table></div>` : ''}
+    ${d.unmapped.length ? `<div class="card"><h3 class="pl-h">Forecast names not linked to a customer <span class="muted small">— counted with the mix of everything persoed until linked; type the trigram (a new one is set up)</span></h3>
+      <datalist id="cpm-tris">${[...d.customers.map((c) => [c.trigram, c.name]), ...d.not_set_up.map((c) => [c.trigram, ''])].map(([t, n]) => `<option value="${esc(t)}">${esc(n || '')}</option>`).join('')}</datalist>
+      <table class="log small"><tbody>${d.unmapped.map((u) => `<tr><td><b>${esc(u.name)}</b></td><td class="num">${cpmK(u.qty)}</td><td><input type="text" list="cpm-tris" data-cpm-map="${esc(u.name)}" placeholder="Trigram" style="width:110px"> <button class="small" data-cpm-link="${esc(u.name)}">Link</button></td></tr>`).join('')}</tbody></table></div>` : ''}
     ${d.not_set_up.length ? `<div class="card"><h3 class="pl-h">Persoed or forecast, not set up <span class="muted small">— add them to count them</span></h3>
       <div class="row" style="gap:6px;flex-wrap:wrap">${d.not_set_up.map((c) => `<button class="small" data-cpm-add="${esc(c.trigram)}">+ ${esc(c.trigram)}${c.learned ? ` <span class="muted">${Object.entries(c.learned).map(([t, s]) => `${t} ${Math.round(s * 100)}%`).join(' ')}</span>` : ''}</button>`).join('')}</div></div>` : ''}
     <div class="row small" style="gap:6px"><input type="text" id="cpm-new-tri" placeholder="Trigram (e.g. KBC)" style="width:160px"><button class="small" id="cpm-new">+ Add a customer</button></div>`;
@@ -151,7 +153,13 @@ async function cpmCustomers(body) {
     else await save(tri, { [f]: f === 'fc_names' ? el.value.split('|') : el.value });
   }; });
   $$('[data-cpm-active]').forEach((el) => { el.onchange = async () => { await save(el.dataset.cpmActive, { active: el.checked }); renderCpm('customers'); }; });
-  $$('[data-cpm-map]').forEach((el) => { el.onchange = async () => { const c = d.customers.find((x) => x.trigram === el.value); if (!c) return; await save(c.trigram, { fc_names: [...c.fc_names, el.dataset.cpmMap] }); renderCpm('customers'); }; });
+  const link = async (name) => {
+    const el = $$('[data-cpm-map]').find((x) => x.dataset.cpmMap === name); const tri = el.value.trim().toUpperCase(); if (!tri) return el.focus();
+    const c = d.customers.find((x) => x.trigram === tri);
+    await save(tri, c ? { fc_names: [...c.fc_names, name] } : { name, fc_names: [name] }); renderCpm('customers');
+  };
+  $$('[data-cpm-link]').forEach((b) => { b.onclick = () => link(b.dataset.cpmLink); });
+  $$('[data-cpm-map]').forEach((el) => { el.onkeydown = (e) => { if (e.key === 'Enter') link(el.dataset.cpmMap); }; });
   $$('[data-cpm-add]').forEach((b) => { b.onclick = async () => { await save(b.dataset.cpmAdd, {}); renderCpm('customers'); }; });
   $('#cpm-new').onclick = async () => { const t = $('#cpm-new-tri').value.trim(); if (t) { await save(t, {}); renderCpm('customers'); } };
   $('#cpm-cfg').onchange = async (e) => {

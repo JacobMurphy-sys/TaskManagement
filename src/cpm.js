@@ -115,10 +115,13 @@ function forecastOf(year, asOf = null) {
   const at = asOf || db.get('SELECT MAX(as_of) AS a FROM cpm_forecast')?.a;
   // each source as it stood at that time (its latest read on or before it)
   const rows = at ? db.all('SELECT f.* FROM cpm_forecast f WHERE f.year = ? AND f.as_of = (SELECT MAX(g.as_of) FROM cpm_forecast g WHERE g.as_of <= ? AND g.source = f.source)', [year, at]) : [];
-  const by = new Map(); const unmapped = new Map();
+  // linked as the customers stand now (a name linked after the read counts straight away); a name not
+  // linked to any customer still counts, under '~name'
+  const names = nameMap(); const by = new Map(); const unmapped = new Map();
   for (const r of rows) {
-    if (!r.trigram) { unmapped.set(r.name, (unmapped.get(r.name) || 0) + r.qty); continue; }
-    const k = `${r.trigram}|${r.month}`; const x = by.get(k) || by.set(k, { total: 0, tech: {} }).get(k);
+    const tri = r.trigram || names.get(String(r.name || '').trim().toLowerCase()) || null;
+    if (!tri) unmapped.set(r.name, (unmapped.get(r.name) || 0) + r.qty);
+    const k = `${tri || `~${r.name}`}|${r.month}`; const x = by.get(k) || by.set(k, { total: 0, tech: {} }).get(k);
     if (r.tech) x.tech[r.tech] = (x.tech[r.tech] || 0) + r.qty; else x.total += r.qty;
   }
   return { as_of: at || null, by, unmapped: [...unmapped].map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty) };
@@ -271,8 +274,16 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
   const oeeDefault = Number(setting('cpm_oee_default', '0.35')) || 0.35;
   const sp = speeds();
   const prodOee = new Map(db.all('SELECT customer, oee FROM plan_oee').map((r) => [String(r.customer).toUpperCase(), r.oee]));
-  const custs = customers().filter((c) => c.active);
+  const all = customers(); const custs = all.filter((c) => c.active);
   const fc = forecastOf(year);
+  // the forecast counts whether or not its customers are set up here: a trigram not set up takes its
+  // learned split and Production's OEE; a name not linked to a customer, the mix of everything persoed
+  const known = new Set(all.map((c) => c.trigram));
+  for (const k of new Set([...fc.by.keys()].map((x) => x.split('|')[0]))) {
+    if (known.has(k)) continue; known.add(k);
+    custs.push(k.startsWith('~') ? { trigram: k, name: k.slice(1), unlinked: true, split: null, oee: null } : { trigram: k, name: k, split: null, oee: null });
+  }
+  let unlinkedQty = 0;
   const fx = useFlex ? flex({ cards }) : null;
   const learned = learnedSplit(cards);
   const warnings = [];
@@ -299,9 +310,14 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
   const monthDemand = {}; // month → tech → { fc, demand, need }
   const custSplit = (c, m) => {
     const f = fc.by.get(`${c.trigram}|${m}`); const ft = f && Object.keys(f.tech).length ? f.tech : null;
-    const s = c.split && Object.keys(c.split).length ? c.split : ft ? Object.fromEntries(Object.entries(ft).map(([t, q]) => [t, q / Object.values(ft).reduce((a, b) => a + b, 0)])) : learned.get(c.trigram) || null;
+    const s = c.split && Object.keys(c.split).length ? c.split : ft ? Object.fromEntries(Object.entries(ft).map(([t, q]) => [t, q / Object.values(ft).reduce((a, b) => a + b, 0)])) : learned.get(c.trigram) || learned.get('*') || parkMix;
+    if (s === parkMix && parkMix) warnings.push('Nothing persoed with a card type to learn the split from (card database linked?) — customers without a split are spread like the machines\' capacity');
     return s;
   };
+  // the last resort for a split: as the machines' hours and speeds spread over the technologies
+  const parkMix = (() => { const x = {}; for (const m of base) { const o = opts[m.name] || {}; const a = o.avail === undefined || o.avail === null || o.avail === '' ? 1 : Number(o.avail) || 0;
+    for (const t of m.techs) x[t] = (x[t] || 0) + ((Number(o.speed?.[t]) || sp[t] || 0) * a) / m.techs.length; }
+    const tot = Object.values(x).reduce((p, q) => p + q, 0); return tot ? Object.fromEntries(Object.entries(x).map(([t, q]) => [t, q / tot])) : null; })();
   const extra = changes.filter((c) => c.type === 'new_customer');
   for (let m = 1; m <= 12; m++) {
     const month = ym(year, m); const md = monthDemand[month] = Object.fromEntries(TECHS.map((t) => [t, { fc: 0, demand: 0, need: 0 }]));
@@ -313,9 +329,10 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
     };
     for (const c of custs) {
       const f = fc.by.get(`${c.trigram}|${m}`); if (!f) continue;
+      if (c.unlinked) unlinkedQty += f.total || Object.values(f.tech).reduce((a, b) => a + b, 0);
       let qty = f.total || Object.values(f.tech).reduce((a, b) => a + b, 0); if (!qty) continue;
       const split = custSplit(c, m);
-      if (!split) { warnings.push(`${c.trigram}: no technology split — set one on Customers`); continue; }
+      if (!split) { warnings.push(`${c.unlinked ? `“${c.name}”` : c.trigram}: no technology split — set one on Customers`); continue; }
       for (const [t0, share] of Object.entries(split)) { const t = normTech(t0); if (md[t]) md[t].fc += qty * share; }
       if (fx) qty *= fx.factor(c.trigram, m);
       for (const ch of changes) if (ch.type === 'volume' && (!ch.customer || ch.customer === c.trigram) && inRange(month, ch)) qty *= 1 + (Number(ch.pct) || 0) / 100;
@@ -361,7 +378,8 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
     tot.gap = tot.capacity - tot.need; tot.util = tot.capacity ? tot.need / tot.capacity : null;
     return { key: P.key, label: P.label, start: P.start, end: P.end, workdays: P.workdays, techs: T, total: tot, machines: Object.entries(P.machines).map(([name, x]) => ({ name, hours: x.hours, techs: x.techs, alloc: alloc[name] || {} })) };
   });
-  return { year, period, techs: TECHS, speeds: sp, shifts: shifts0, hours: hours0, forecast_as_of: fc.as_of, unmapped: fc.unmapped.slice(0, 30),
+  return { year, period, techs: TECHS, speeds: sp, shifts: shifts0, hours: hours0, forecast_as_of: fc.as_of, unmapped: fc.unmapped.slice(0, 30), unmapped_count: fc.unmapped.length, unmapped_qty: unlinkedQty,
+    forecast_total: [...fc.by.values()].reduce((t, f) => t + (f.total || Object.values(f.tech).reduce((a, b) => a + b, 0)), 0),
     machines: machines.map((m) => ({ name: m.name, techs: m.techs, added: !!m.added, ...(opts[m.name] || {}) })), periods: out, warnings: [...new Set(warnings)], flex: fx ? { overall: fx.overall.year, pairs: fx.pairs } : null };
 }
 // a customer's split by technology from what was persoed over the last year: trigram → { DOD: 0.7, … }
@@ -369,6 +387,8 @@ function learnedSplit(cards) {
   const to = ymd(new Date()); const fromD = new Date(); fromD.setFullYear(fromD.getFullYear() - 1);
   const by = new Map();
   for (const a of actuals(ymd(fromD), to, cards)) { if (!a.trigram || !a.tech) continue; const x = by.get(a.trigram) || by.set(a.trigram, {}).get(a.trigram); x[a.tech] = (x[a.tech] || 0) + a.qty; }
+  const all = {}; for (const x of by.values()) for (const [t, q] of Object.entries(x)) all[t] = (all[t] || 0) + q;
+  if (Object.keys(all).length) by.set('*', all); // the mix of everything persoed: for a forecast name not linked to a customer
   const out = new Map();
   for (const [tri, x] of by) { const tot = Object.values(x).reduce((a, b) => a + b, 0); if (tot) out.set(tri, Object.fromEntries(Object.entries(x).map(([t, q]) => [t, Math.round((q / tot) * 1000) / 1000]))); }
   return out;

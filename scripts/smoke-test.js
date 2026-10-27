@@ -1490,10 +1490,18 @@ async function waitForServer() {
           const bnF = path.join(tmp, 'Benelux Forecast.xlsx'); const axF = path.join(tmp, 'Amex Forecast.xlsx');
           fs.writeFileSync(bnF, bx([{ name: 'LIVE_EU_PAY_CARDS', columns: ['Line_Year', 'Line_Month', 'Man_SubArea_Nm', 'Item_Nm', 'Cust_Nm', 'Line_Qty'].map((header, i) => ({ header, type: [0, 1, 5].includes(i) ? 'number' : undefined })), rows: [
             [Y, 1, 'Benelux', 'Basic card KBC', 'KBC Bank NV', 1000], [Y, 1, 'Benelux', 'DRP Monthly Fee', 'KBC Bank NV', 999], [Y, 1, 'Germany & Austria', 'Basic card', 'KBC Bank NV', 500],
-            [Y, 2, 'Benelux', 'basic', 'KBC Bank NV', 2000], [Y, 1, 'Benelux', 'Basic', 'Unknown Bank', 300]] }]));
+            [Y, 2, 'Benelux', 'basic', 'KBC Bank NV', 2000], [Y, 3, 'Benelux', 'Basic', 'Unknown Bank', 300]] }]));
           fs.writeFileSync(axF, bx([{ name: 'Sittard', columns: ['Column1', 'Column2', `01/01/${Y}`, `01/02/${Y}`].map((header) => ({ header })), rows: [
             ['LASER', 'Total', 300, 300], ['DOD Total', 'Total', 700, 700], ['TOTAL BAU', 'Total', 1000, 1000]] }]));
           await call('PATCH', '/settings', { kpi_fc_benelux: bnF, kpi_fc_amex: axF });
+          await call('PUT', '/cpm/settings', { cpm_machines: '{}' });
+          const pm = await call('POST', '/plan/machines', { name: 'CPM DOD', types: 'DOD' });
+          const ov0 = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0`);
+          const fcOf = (p) => TECHS_.reduce((t, x) => t + p.techs[x].fc, 0); const TECHS_ = ['DOD', 'Emboss', 'Laser'];
+          assert.equal(Math.round(ov0.periods[0].techs.Laser.fc), 300, 'no customers set up: the forecast still counts (Amex by its own technology rows)');
+          assert.equal(Math.round(fcOf(ov0.periods[1])), 2000 + 1000, 'a forecast name not linked to a customer counts too (with the mix of everything persoed)');
+          assert.equal(ov0.unmapped_count, 2);
+          await call('DELETE', `/plan/machines/${pm.id}`);
           await call('PUT', '/cpm/customers/KBC', { name: 'KBC Bank NV', fc_names: ['KBC Bank NV'], split: { DOD: 0.5, EMB: 0.5 }, oee: { DOD: 0.5, Emboss: 0.5 } });
           await call('PUT', '/cpm/customers/AES', { name: 'AMEX', oee: { DOD: 0.5, Laser: 0.5 } }); // split: from the Amex forecast's own rows
           await call('PUT', '/cpm/settings', { cpm_machines: JSON.stringify({ 'CPM X': { speed: { DOD: 1000 } } }) });
@@ -1501,7 +1509,8 @@ async function waitForServer() {
           const jan = ov.periods[0].techs;
           assert.deepEqual([jan.DOD.fc, jan.Emboss.fc, jan.Laser.fc].map(Math.round), [500 + 700, 500, 300], 'BeNeLux: Benelux + "basic" only; Amex: TOTAL BAU, split by its own technology rows');
           assert.deepEqual([jan.DOD.need, jan.Emboss.need, jan.Laser.need].map(Math.round), [1000 + 1400, 1000, 600], 'needed = forecast × split ÷ OEE');
-          assert.deepEqual(ov.unmapped.map((u) => [u.name, u.qty]), [['Unknown Bank', 300]], 'a forecast name not linked to a customer: listed, not counted');
+          assert.deepEqual(ov.unmapped.map((u) => [u.name, u.qty]), [['Unknown Bank', 300]], 'a forecast name not linked to a customer is listed');
+          if (!ov.warnings.some((w) => /Unknown Bank/.test(w))) assert.equal(Math.round(fcOf(ov.periods[2])), 300, '… and counted');
           // flex from an earlier year: KBC did 20% more than forecast in January
           const hx = (rows) => bx([{ name: 'CPM', columns: ['Trigram', 'Customer', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'].map((header, i) => ({ header, type: i > 1 ? 'number' : undefined })), rows }]);
           const up = (kind, body) => fetch(`${BASE}/cpm/history?kind=${kind}&year=${Y - 1}`, { method: 'POST', body, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': `${kind}.xlsx` } }).then((r) => r.json());
