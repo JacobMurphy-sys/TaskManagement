@@ -248,18 +248,22 @@ async function cpmDay(body) {
   const [d, scs] = await Promise.all([api.get(`/cpm/day?${q}`).catch((err) => { if (scId) store.set('cpmDayScenario', 0); throw err; }), api.get('/cpm/scenarios')]);
   const H = d.hours; const T = d.techs; const hl = (h) => `${String(h).padStart(2, '0')}:00`;
   // run periods: an entry per customer (and technology) — periods, or hourly values pasted
-  const custOpts = [...new Set(d.rows.map((r) => r.trigram).filter(Boolean))].sort();
   const manShares = (v) => { const out = Array(24).fill(0); const hmm = (x) => { const m = String(x || '').match(/^(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
     if (Array.isArray(v?.hours)) v.hours.forEach((x, h) => { out[h] = Math.max(0, Number(x) || 0); });
     else for (const p of v?.periods || []) { const a = hmm(p.from); let b = hmm(p.to); const w = Math.max(0, Number(p.share) || 0); if (a === null || b === null || !w) continue; if (b <= a) b += 1440; for (let t = a; t < b;) { const h = Math.floor(t / 60); const e = Math.min(b, (h + 1) * 60); out[h % 24] += (w * (e - t)) / (b - a); t = e; } }
     const tot = out.reduce((x, y) => x + y, 0); return tot ? out.map((x) => x / tot) : out; };
-  const manPreview = (v) => { const sh = manShares(v); const mx = Math.max(...sh, 0.0001); return `<svg class="cpm-man-prev" viewBox="0 0 120 26" preserveAspectRatio="none">${H.map((h, i) => `<rect x="${i * 5}" y="${24 - (sh[h] / mx) * 22}" width="4" height="${(sh[h] / mx) * 22}"><title>${String(h).padStart(2, '0')}:00 — ${cpmPct(sh[h], 1)}</title></rect>`).join('')}<line x1="0" x2="120" y1="24.5" y2="24.5"/></svg>`; };
-  const perRow = (p) => `<span class="cpm-man-per"><input type="time" class="mp-from" value="${esc(p.from || '')}"><span>–</span><input type="time" class="mp-to" value="${esc(p.to || '')}"><input type="number" class="mp-share" min="0" max="100" step="1" value="${esc(p.share ?? '')}" placeholder="%" title="Its share of the day, %"><span class="muted small">%</span><button class="link small mp-rm" title="Remove the period">✕</button></span>`;
-  const manRow = (k, v) => { const [tri, tech] = k.split('|');
-    return `<div class="cpm-man-row" data-hours="${esc(JSON.stringify(v?.hours || null))}"><select class="mr-cust"><option value="*" ${tri === '*' ? 'selected' : ''}>Everyone else</option>${[...new Set([...custOpts, tri].filter((x) => x && x !== '*'))].map((c) => `<option ${c === tri ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
-      <select class="mr-tech"><option value="*">all technologies</option>${T.map((t) => `<option ${t === tech ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>
-      <span class="mr-pers">${Array.isArray(v?.hours) ? '<span class="small muted">hourly values pasted</span>' : (v?.periods || []).map(perRow).join('')}</span>${Array.isArray(v?.hours) ? '' : '<button class="link small mr-addp">+ period</button>'}
-      <span class="mr-prev">${manPreview(v)}</span><button class="link small mr-rm" title="Remove — back to what's learned">✕ remove</button></div>`; };
+  // the run-periods grid: a row per customer (biggest first) and one for everyone else; each cell the % of its
+  // daily work in that hour. A row set by hand shows its values; one that isn't, what's learned (greyed)
+  const gridCusts = (() => { const by = new Map(); for (const r of d.rows) if (r.trigram) { const x = by.get(r.trigram) || by.set(r.trigram, { tri: r.trigram, name: r.name, need: 0, learned: Array(24).fill(0) }).get(r.trigram); x.need += r.need_daily; r.learned_shares.forEach((v, i) => { x.learned[i] += v * r.need_daily; }); }
+    const list = [...by.values()].sort((p2, q) => q.need - p2.need); for (const x of list) x.learned = x.learned.map((v) => (x.need ? v / x.need : 0));
+    const all = Array(24).fill(0); const tot = list.reduce((p2, x) => p2 + x.need, 0); for (const x of list) x.learned.forEach((v, i) => { all[i] += (v * x.need) / (tot || 1); });
+    return [{ tri: '*', name: 'Everyone else', learned: all }, ...list]; })();
+  const setRow = (tri) => { const v = (d.manual || {})[`${tri}|*`]; if (!v) return null; const sh = manShares(v); return H.map((h) => sh[h]); }; // by the day's hours
+  const r1 = (v) => Math.round(v * 1000) / 10;
+  const gridRow = (c) => { const set = setRow(c.tri); const vals = set || c.learned;
+    return `<tr class="cpm-grow ${set ? 'set' : ''}" data-tri="${esc(c.tri)}"><th title="${esc(c.name)}">${c.tri === '*' ? '<i>Everyone else</i>' : `<b>${esc(c.tri)}</b> ${c.name && c.name !== c.tri ? `<span class="muted small">${esc(String(c.name).slice(0, 18))}</span>` : ''}`}</th>
+      ${vals.map((v, i) => `<td><input type="text" inputmode="decimal" class="cpm-gc" data-i="${i}" value="${set ? r1(v) : ''}" placeholder="${r1(v) || ''}"></td>`).join('')}
+      <td class="num cpm-gsum">${set ? '100%' : '<span class="muted">learned</span>'}</td><td><button class="link small cpm-greset" title="Back to what's learned" ${set ? '' : 'hidden'}>↺</button></td></tr>`; };
   const shipRow = (x, k) => `<div class="row cpm-ship-row" style="gap:6px;margin-bottom:4px;align-items:center" data-k="${k}"><input type="time" class="cpm-ship-t" value="${esc(x.time)}" style="width:120px"><input type="text" class="cpm-ship-l" value="${esc(x.label || '')}" placeholder="Label, e.g. PostNL" style="width:200px"><button class="link small cpm-ship-rm" title="Remove">✕</button></div>`;
   const hhmm = (v) => (v === null || v === undefined ? '' : `${String(Math.floor(v)).padStart(2, '0')}:${String(Math.round((v % 1) * 60)).padStart(2, '0')}`);
   const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -405,12 +409,10 @@ async function cpmDay(body) {
     <div class="card"><h3 class="pl-h">🔁 Renewal windows <span class="muted small">— the hours each technology runs renewals (click to toggle); ${d.scenario?.changes?.some((c) => c.type === 'rnw_window') ? 'the scenario sets some — change them in 🧪 Scenarios' : 'a scenario can set its own'}</span></h3>${win}
       <div class="row" style="gap:10px;margin-top:8px;align-items:center;flex-wrap:wrap"><label class="row small">Renewal OEE: the customer's + <input type="number" id="cpm-rnw-bonus" min="0" max="50" step="1" value="${Math.round(d.bonus * 100)}" style="width:60px"> points</label>
         <div class="spacer"></div><span class="small pl-warn" id="cpm-win-dirty" hidden>Not saved yet</span><button class="small" id="cpm-win-undo" disabled>Undo changes</button><button class="small primary" id="cpm-win-save" disabled>💾 Save</button></div></div>
-    <div class="card"><h3 class="pl-h">⏰ Run periods <span class="muted small">— when each customer's daily work comes in, set by hand: periods with a share of its day (spread evenly over their hours). A customer's own beats “Everyone else”, which beats what's learned.</span></h3>
-      <div id="cpm-man">${Object.entries(d.manual || {}).map(([k, v]) => manRow(k, v)).join('') || '<p class="small muted cpm-man-none">None set — every customer follows what was learned.</p>'}</div>
-      <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><button class="small" id="cpm-man-add">+ Add a customer</button><button class="small" id="cpm-man-paste" title="Rows of: trigram (or * for everyone else), optionally the technology, then 24 hourly values from ${String(H[0]).padStart(2, '0')}:00 — e.g. your Daily split sheet">📋 Paste hourly values</button>
-        <div class="spacer"></div><span class="small pl-warn" id="cpm-man-dirty" hidden>Not saved yet</span><button class="small" id="cpm-man-undo" disabled>Undo changes</button><button class="small primary" id="cpm-man-save" disabled>💾 Save</button></div>
-      <div id="cpm-man-pastebox" hidden style="margin-top:8px"><textarea id="cpm-man-text" rows="5" placeholder="KBC	DOD	0	0	5	10	10 … (24 values from ${String(H[0]).padStart(2, '0')}:00)&#10;AES		…&#10;*		… (everyone else)"></textarea>
-        <div class="row" style="gap:6px;margin-top:4px"><button class="small primary" id="cpm-man-parse">Add these</button><button class="small" id="cpm-man-cancel">Cancel</button><span class="small muted">Tab- or semicolon-separated; % signs and decimal commas are fine; a row replaces that customer's periods.</span></div></div></div>
+    <div class="card"><h3 class="pl-h">⏰ Run periods <span class="muted small">— the % of each customer's daily work typically produced in each hour, as the Daily split sheet. Greyed: what's learned; click into a row to set it (it starts from those figures). Paste from Excel into any cell to fill right and down. A customer's own row beats “Everyone else”, which beats what's learned.</span></h3>
+      <div class="kdb-scroll"><table class="log small cpm-rp"><thead><tr><th>Customer</th>${H.map((h) => `<th class="num">${String(h).padStart(2, '0')}</th>`).join('')}<th class="num">Total</th><th></th></tr></thead><tbody>${gridCusts.map(gridRow).join('')}</tbody></table></div>
+      <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><span class="small muted">A row that doesn't add up to 100% is scaled to it when used. Rows for one technology only (set before) stay as they are.</span>
+        <div class="spacer"></div><span class="small pl-warn" id="cpm-man-dirty" hidden>Not saved yet</span><button class="small" id="cpm-man-undo" disabled>Undo changes</button><button class="small primary" id="cpm-man-save" disabled>💾 Save</button></div></div>
     <div class="card"><h3 class="pl-h">🚚 Shipment times <span class="muted small">— the cut-offs drawn on the charts; ${d.ship_times.own ? 'set here' : `learned from the work orders lately (${d.ship_times.learned.map((x) => x.time).join(', ') || 'none yet'})`}</span></h3>
       <div id="cpm-ship">${(d.ship_times.times || []).map((x, k) => shipRow(x, k)).join('')}</div>
       <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><button class="small" id="cpm-ship-add">+ Add a time</button>${d.ship_times.own ? `<button class="small" id="cpm-ship-learned" title="Drop the times set here and show the learned ones (${esc(d.ship_times.learned.map((x) => x.time).join(', ') || 'none')})">↺ Use the learned times</button>` : ''}
@@ -442,31 +444,28 @@ async function cpmDay(body) {
   $('#cpm-win-undo').onclick = () => { for (const t of T) pend[t] = [...(d.windows[t] || [])]; $$('[data-win]').forEach((b) => b.classList.toggle('on', (pend[b.dataset.win] || []).includes(Number(b.dataset.h)))); T.forEach(note); $('#cpm-rnw-bonus').value = bonus0; dirty(); };
   $('#cpm-win-save').onclick = async () => { const btn = $('#cpm-win-save'); btn.disabled = true; btn.textContent = 'Saving…';
     try { await api.put('/cpm/settings', { cpm_rnw_hours: JSON.stringify(pend), cpm_rnw_bonus: String((Number($('#cpm-rnw-bonus').value) || 0) / 100) }); toast('Renewal windows saved'); await redraw(); } catch (err) { toast(err.message, 'error'); btn.disabled = false; btn.textContent = '💾 Save'; } };
-  // run periods: edited here, saved together
-  const man0 = JSON.stringify(d.manual || {});
-  const manNow = () => { const o = {}; for (const r of $$('.cpm-man-row')) { const k = `${r.querySelector('.mr-cust').value}|${r.querySelector('.mr-tech').value}`; const hours = JSON.parse(r.dataset.hours || 'null');
-    if (hours) { o[k] = { hours }; continue; }
-    const periods = [...r.querySelectorAll('.cpm-man-per')].map((p) => ({ from: p.querySelector('.mp-from').value, to: p.querySelector('.mp-to').value, share: Number(p.querySelector('.mp-share').value) || 0 })).filter((p) => p.from && p.to && p.share > 0);
-    if (periods.length) o[k] = { periods }; } return o; };
-  const manDirty = () => { const ch = JSON.stringify(manNow()) !== man0; $('#cpm-man-save').disabled = !ch; $('#cpm-man-undo').disabled = !ch; $('#cpm-man-dirty').hidden = !ch;
-    for (const r of $$('.cpm-man-row')) { const v = JSON.parse(r.dataset.hours || 'null') ? { hours: JSON.parse(r.dataset.hours) } : { periods: [...r.querySelectorAll('.cpm-man-per')].map((p) => ({ from: p.querySelector('.mp-from').value, to: p.querySelector('.mp-to').value, share: Number(p.querySelector('.mp-share').value) || 0 })) }; r.querySelector('.mr-prev').innerHTML = manPreview(v); } };
-  const wireMan = () => { $$('.cpm-man-row input, .cpm-man-row select').forEach((i) => { i.oninput = manDirty; i.onchange = manDirty; });
-    $$('.mp-rm').forEach((b) => { b.onclick = () => { b.closest('.cpm-man-per').remove(); manDirty(); }; });
-    $$('.mr-addp').forEach((b) => { b.onclick = () => { b.closest('.cpm-man-row').querySelector('.mr-pers').insertAdjacentHTML('beforeend', perRow({ from: '', to: '', share: '' })); wireMan(); manDirty(); }; });
-    $$('.mr-rm').forEach((b) => { b.onclick = () => { b.closest('.cpm-man-row').remove(); manDirty(); }; }); };
-  wireMan();
-  const addMan = (k, v) => { $('.cpm-man-none')?.remove(); const ex = $$('.cpm-man-row').find((r) => `${r.querySelector('.mr-cust').value}|${r.querySelector('.mr-tech').value}` === k); if (ex) ex.remove(); $('#cpm-man').insertAdjacentHTML('beforeend', manRow(k, v)); wireMan(); manDirty(); };
-  $('#cpm-man-add').onclick = () => addMan(`${custOpts[0] || '*'}|*`, { periods: [{ from: '', to: '', share: '' }] });
-  $('#cpm-man-undo').onclick = () => { $('#cpm-man').innerHTML = Object.entries(d.manual || {}).map(([k, v]) => manRow(k, v)).join('') || '<p class="small muted cpm-man-none">None set — every customer follows what was learned.</p>'; wireMan(); manDirty(); };
-  $('#cpm-man-save').onclick = async () => { try { await api.put('/cpm/settings', { cpm_day_manual: JSON.stringify(manNow()) }); toast('Run periods saved'); await redraw(); } catch (err) { toast(err.message, 'error'); } };
-  $('#cpm-man-paste').onclick = () => { $('#cpm-man-pastebox').hidden = false; $('#cpm-man-text').focus(); };
-  $('#cpm-man-cancel').onclick = () => { $('#cpm-man-pastebox').hidden = true; };
-  $('#cpm-man-parse').onclick = () => { let n = 0; const bad = [];
-    for (const line of $('#cpm-man-text').value.split(/\r?\n/)) { if (!line.trim()) continue; const c = line.split(/\t|;/).map((x) => x.trim());
-      let tri = (c.shift() || '').toUpperCase(); if (/^(\*|ALL|EVERYONE.*)$/i.test(tri)) tri = '*'; let tech = '*'; const tt = T.find((t) => t.toLowerCase() === String(c[0] || '').toLowerCase()); if (tt) { tech = tt; c.shift(); } else if (c[0] === '' ) c.shift();
-      const vals = c.filter((x) => x !== '').map((x) => Number(x.replace('%', '').replace(',', '.'))); if (!tri || vals.length !== 24 || vals.some((x) => !Number.isFinite(x))) { bad.push(line.slice(0, 30)); continue; }
-      const byClock = Array(24).fill(0); H.forEach((h, i) => { byClock[h] = vals[i]; }); addMan(`${tri}|${tech}`, { hours: byClock }); n++; }
-    toast(`${n} row${n === 1 ? '' : 's'} added${bad.length ? ` — ${bad.length} not read (each needs a trigram and 24 values): ${bad.slice(0, 3).join(' · ')}` : ''} — Save to keep them`, bad.length ? 'error' : ''); if (n) $('#cpm-man-pastebox').hidden = true; };
+  // run periods grid: edited here, saved together
+  const gridNow = () => { const o = {}; for (const [k, v] of Object.entries(d.manual || {})) if (!k.endsWith('|*')) o[k] = v; // a technology's own rows stay
+    for (const tr of $$('.cpm-grow.set')) { const byDay = [...tr.querySelectorAll('.cpm-gc')].map((i) => Math.max(0, Number(String(i.value).replace('%', '').replace(',', '.')) || 0));
+      if (byDay.some((x) => x > 0)) { const byClock = Array(24).fill(0); H.forEach((h, i) => { byClock[h] = byDay[i]; }); o[`${tr.dataset.tri}|*`] = { hours: byClock }; } }
+    return o; };
+  const man0 = JSON.stringify(gridNow());
+  const rowSum = (tr) => { const t = [...tr.querySelectorAll('.cpm-gc')].reduce((p2, i) => p2 + (Number(String(i.value).replace('%', '').replace(',', '.')) || 0), 0); const c = tr.querySelector('.cpm-gsum');
+    c.innerHTML = tr.classList.contains('set') ? `<span class="${Math.abs(t - 100) > 0.5 ? 'pl-late' : 'pl-ok'}">${Math.round(t * 10) / 10}%</span>` : '<span class="muted">learned</span>'; };
+  const manDirty = () => { const ch = JSON.stringify(gridNow()) !== man0; $('#cpm-man-save').disabled = !ch; $('#cpm-man-undo').disabled = !ch; $('#cpm-man-dirty').hidden = !ch; };
+  const startRow = (tr, blank) => { if (tr.classList.contains('set')) return; tr.classList.add('set'); tr.querySelectorAll('.cpm-gc').forEach((i) => { i.value = blank ? '0' : i.placeholder || '0'; }); tr.querySelector('.cpm-greset').hidden = false; rowSum(tr); manDirty(); }; // pasted into: starts from nothing
+  const wireGrid = () => {
+    $$('.cpm-gc').forEach((i) => { const tr = i.closest('tr');
+      i.onfocus = () => { startRow(tr); i.select(); }; i.oninput = () => { rowSum(tr); manDirty(); };
+      i.onpaste = (e) => { const txt = (e.clipboardData || window.clipboardData).getData('text'); if (!/[\t\n]/.test(txt)) return; e.preventDefault(); // a block from Excel: right and down from here
+        const rowsT = txt.replace(/\r/g, '').replace(/\n$/, '').split('\n').map((l) => l.split('\t')); const trs = $$('.cpm-grow'); const r0 = trs.indexOf(tr); const c0 = Number(i.dataset.i);
+        rowsT.forEach((cells, dr) => { const t2 = trs[r0 + dr]; if (!t2) return; startRow(t2, true); const ins = t2.querySelectorAll('.cpm-gc'); cells.forEach((v, dc) => { const inp = ins[c0 + dc]; if (inp) inp.value = String(v).trim().replace('%', '').replace(',', '.'); }); rowSum(t2); });
+        manDirty(); }; });
+    $$('.cpm-greset').forEach((b) => { b.onclick = () => { const tr = b.closest('tr'); tr.classList.remove('set'); tr.querySelectorAll('.cpm-gc').forEach((i) => { i.value = ''; }); b.hidden = true; rowSum(tr); manDirty(); }; });
+  };
+  wireGrid();
+  $('#cpm-man-undo').onclick = () => { $('.cpm-rp tbody').innerHTML = gridCusts.map(gridRow).join(''); wireGrid(); manDirty(); };
+  $('#cpm-man-save').onclick = async () => { try { await api.put('/cpm/settings', { cpm_day_manual: JSON.stringify(gridNow()) }); toast('Run periods saved'); await redraw(); } catch (err) { toast(err.message, 'error'); } };
   // shipment times: edited here, saved together
   const ship0 = JSON.stringify((d.ship_times.times || []).map((x) => ({ time: x.time, label: x.label || '' })));
   const shipNow = () => $$('.cpm-ship-row').map((r) => ({ time: r.querySelector('.cpm-ship-t').value, label: r.querySelector('.cpm-ship-l').value.trim() })).filter((x) => /^\d{2}:\d{2}$/.test(x.time));

@@ -1445,3 +1445,8 @@ tr.kfd-cust-detail > td { background: var(--panel-2); padding: 8px 12px; }
 .cpm-man-per { display: inline-flex; gap: 3px; align-items: center; padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--radius); }
 .cpm-man-per input[type=time] { width: 104px; padding: 1px 4px; } .cpm-man-per input.mp-share { width: 56px; padding: 1px 4px; }
 .cpm-man-prev { width: 120px; height: 26px; } .cpm-man-prev rect { fill: var(--accent); } .cpm-man-prev line { stroke: var(--border); }
+.cpm-rp th:first-child { white-space: nowrap; max-width: 190px; overflow: hidden; text-overflow: ellipsis; position: sticky; left: 0; background: var(--panel); z-index: 1; }
+table.log.cpm-rp { width: auto; } table.log.cpm-rp th, table.log.cpm-rp td { padding: 2px 1px; } table.log.cpm-rp thead th.num { text-align: center; } table.log.cpm-rp input.cpm-gc { width: 36px; padding: 1px 2px; height: 22px; font-size: 11px; text-align: right; }
+.cpm-rp input.cpm-gc::placeholder { color: var(--muted); opacity: .7; }
+.cpm-rp tr.set th { color: var(--accent); } .cpm-rp tr.set input.cpm-gc { border-color: var(--accent); background: var(--accent-soft); }
+.cpm-rp .cpm-gsum { white-space: nowrap; font-weight: 600; }

@@ -1635,6 +1635,11 @@ async function waitForServer() {
           await call('PUT', '/cpm/settings', { cpm_day_manual: JSON.stringify({ 'KBC|*': { periods: [{ from: '13:00', to: '15:00', share: 100 }] }, '*|*': { periods: [{ from: '22:00', to: '02:00', share: 1 }] } }) });
           const dm2 = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); const km = dm2.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD'); const am = dm2.rows.find((r) => r.trigram === 'AES');
           assert.deepEqual([km.profile, km.shares[dm2.hours.indexOf(13)], km.shares[dm2.hours.indexOf(14)], am.profile, am.shares[dm2.hours.indexOf(0)]], ['manual', 0.5, 0.5, 'manual-default', 0.25], 'run periods: 13–15 for KBC; 22–02 for everyone else');
+          assert.ok(Math.abs(km.learned_shares.reduce((a, b) => a + b, 0) - 1) < 1e-9 && km.learned_from !== 'manual', 'what\'s learned is kept beside what\'s set');
+          // the grid: a row of % by clock hour, not adding up to 100, scaled to it
+          const g = Array(24).fill(0); g[9] = 30; g[10] = 30; await call('PUT', '/cpm/settings', { cpm_day_manual: JSON.stringify({ 'KBC|*': { hours: g } }) });
+          const dm3 = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); const kg = dm3.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
+          assert.deepEqual([kg.profile, kg.shares[dm3.hours.indexOf(9)], kg.shares[dm3.hours.indexOf(10)]], ['manual', 0.5, 0.5], 'grid row: 30% + 30% read as half each');
           await call('PUT', '/cpm/settings', { cpm_day_manual: '{}' });
           // shipment times set on the tab (shown, labelled), a customer's own cut-off typed in
           await call('PUT', '/cpm/settings', { cpm_cutoffs: JSON.stringify([{ time: '17:00', label: 'PostNL' }, { time: '08:00', label: '' }, { time: 'nope' }]), cpm_cutoff_cust: JSON.stringify({ KBC: '11:00' }) });

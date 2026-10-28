@@ -312,11 +312,14 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
     let seen = null;
     // set by hand on the tab: the customer and technology, the customer, everyone else (this technology / all)
     for (const k of [`${tri}|${D.tech}`, `${tri}|*`, `*|${D.tech}`, '*|*']) if (!p && manual.get(k)) { p = manual.get(k); from = k.startsWith('*') ? 'manual-default' : 'manual'; }
+    const manualP = p; const manualFrom = from; p = null; from = 'even'; // what's learned, kept to show beside what's set by hand
     if (!p && arr && arr.orders) { for (const [k, f] of [[`${tri}|${D.tech}`, 'own'], [`${tri}|*`, 'own'], [`*|${D.tech}`, 'technology'], ['*|*', 'technology']]) if (!p && prof.get(k)) { p = prof.get(k); from = `arrivals-${f}`; if (f === 'own') seen = arr.counts.get(`${tri}|*`) || arr.counts.get(k) || null; } }
     if (!p) for (const [k, f] of [[`${tri}|${D.tech}`, 'own'], [`*|${D.tech}`, 'technology'], ['*|*', 'technology']]) if (!p && prodProf.get(k)) { p = prodProf.get(k); from = f; }
+    const learnedShares = H.map((h) => (p ? p[h] : worked.has(h) ? 1 / worked.size : 0)); const learnedFrom = from;
+    if (manualP) { p = manualP; from = manualFrom; }
     const shares = H.map((h) => (p ? p[h] : worked.has(h) ? 1 / worked.size : 0));
     rows.push({ trigram: tri, name: D.name, tech: D.tech, month_volume: vol, daily_pct: 1 - rShare, rnw_pct: rShare, rnw_learned: learned ? learned.share : null, rnw_typed: typed ?? null,
-      oee, oee_rnw: oeeR, workdays: days, daily, renew, need_daily: daily / oee, need_rnw: renew / oeeR, profile: from, arrive_avg: p ? meanHour(p) : null, arrive_seen: seen, shares,
+      oee, oee_rnw: oeeR, workdays: days, daily, renew, need_daily: daily / oee, need_rnw: renew / oeeR, profile: from, learned_shares: learnedShares, learned_from: learnedFrom, arrive_avg: p ? meanHour(p) : null, arrive_seen: seen, shares,
       hours: shares.map((s) => (daily / oee) * s), cards_hours: shares.map((s) => daily * s) });
   }
   rows.sort((a, b) => T.indexOf(a.tech) - T.indexOf(b.tech) || b.need_daily - a.need_daily);
