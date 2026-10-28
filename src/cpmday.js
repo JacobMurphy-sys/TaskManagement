@@ -173,6 +173,90 @@ function smoothDay(H, rows, base, cap, cutoffOf) {
   return { load, cards, perRow };
 }
 
+// each customer's typical work order: the median size (cards) of its work orders lately, per technology
+// where the cards tell — 'TRI|tech' / 'TRI|*' / '*|tech' / '*|*', daily (D) and renewals (R) apart
+function orderSizes(cards) {
+  const from = new Date(); from.setDate(from.getDate() - LOOKBACK);
+  let jobs = []; try { jobs = db.all('SELECT key, customer, qty, prio FROM plan_history_jobs WHERE first_seen >= ? AND customer IS NOT NULL AND qty > 0', [ymd(from)]); } catch { return new Map(); }
+  const lines = new Map(); try { for (const l of db.all('SELECT key, article, qty FROM plan_history_lines WHERE key IN (SELECT key FROM plan_history_jobs WHERE first_seen >= ?)', [ymd(from)])) (lines.get(l.key) || lines.set(l.key, []).get(l.key)).push(l); } catch { /* none */ }
+  const by = new Map(); const add = (k, q) => (by.get(k) || by.set(k, []).get(k)).push(q);
+  for (const j of jobs) {
+    const kind = /^low/i.test(String(j.prio || '')) ? 'R' : 'D'; const tri = String(j.customer).toUpperCase();
+    const per = {}; for (const l of lines.get(j.key) || []) { const t = cpm.normTech(cards?.get(planning.axKey(l.article))?.type); if (t) per[t] = (per[t] || 0) + (Number(l.qty) || 0); }
+    for (const [t, q] of Object.entries(per)) if (q > 0) { add(`${kind}|${tri}|${t}`, q); add(`${kind}|*|${t}`, q); }
+    add(`${kind}|${tri}|*`, Number(j.qty)); add(`${kind}|*|*`, Number(j.qty));
+  }
+  const out = new Map(); for (const [k, a] of by) if (a.length >= (k.includes('|*|') || k.endsWith('|*|*') ? 1 : 3)) { a.sort((x, y) => x - y); out.set(k, a[Math.floor(a.length / 2)]); }
+  return out;
+}
+// A typical day run as the floor runs it: each customer's day cut into work orders of its typical size,
+// coming in at its usual times (the arrival profile's quantiles) — renewals at the start of their window —
+// and each run as a block, start to finish, on the first free machine that runs its technology (and may
+// run that customer), first come first served; renewals only in their window. Three days are run and the
+// middle one kept, so what's carried over from the day before is in it.
+// slots: H; rows; machines: [{ name, techs, speed, avail, only }]; worked(i); factor; windows: tech → hours
+function runBlocks({ H, rows, machines, workedAt, factor, rnwHours, sizes, allowed, cutoffOf }) {
+  const STEP = 1 / 60; const DAYS = 3; const orders = []; let id = 0;
+  const sizeOf = (kind, r) => sizes.get(`${kind}|${r.trigram}|${r.tech}`) || sizes.get(`${kind}|${r.trigram}|*`) || sizes.get(`${kind}|*|${r.tech}`) || sizes.get(`${kind}|*|*`) || 1000;
+  for (let dd = 0; dd < DAYS; dd++) for (const r of rows) {
+    // daily: n work orders at the profile's quantiles
+    if (r.daily > 0.5) {
+      const n = Math.max(1, Math.round(r.daily / sizeOf('D', r))); const cum = []; let c = 0; for (const x of r.shares) { c += x; cum.push(c); }
+      for (let k = 0; k < n; k++) {
+        const q = ((k + 0.5) / n) * (c || 1); let i = cum.findIndex((v) => v >= q - 1e-12); if (i < 0) i = 23;
+        const prev = i ? cum[i - 1] : 0; const frac = r.shares[i] > 0 ? (q - prev) / r.shares[i] : 0.5;
+        const at = dd * 24 + i + Math.min(0.999, Math.max(0, frac)); const cards = r.daily / n;
+        const cut = cutoffOf(r.trigram); let dl = null; if (cut !== null) { const clock = H[i] + frac; let dt = (cut - clock + 24) % 24; if (dt <= 0) dt = 24; dl = at + dt; }
+        orders.push({ id: id++, day: dd, kind: 'daily', r, tech: r.tech, cards, need: cards / r.oee, left: cards / r.oee, at, deadline: dl });
+      }
+    }
+    if (r.renew > 0.5) {
+      const hrs = rnwHours[r.tech] || []; const first = H.findIndex((h) => hrs.includes(h)); const i = first < 0 ? 0 : first;
+      const n = Math.max(1, Math.round(r.renew / sizeOf('R', r)));
+      for (let k = 0; k < n; k++) orders.push({ id: id++, day: dd, kind: 'renewal', r, tech: r.tech, cards: r.renew / n, need: r.renew / n / r.oee_rnw, left: r.renew / n / r.oee_rnw, at: dd * 24 + i, deadline: null });
+    }
+  }
+  orders.sort((a, b) => a.at - b.at || a.id - b.id);
+  const ms = machines.map((m) => ({ ...m, job: null, blocks: [] }));
+  const T = [...new Set(rows.map((r) => r.tech))];
+  const ran = Object.fromEntries(T.map((t) => [t, Array(24 * DAYS).fill(0)])); const cardsRan = Object.fromEntries(T.map((t) => [t, Array(24 * DAYS).fill(0)]));
+  const waitAt = Object.fromEntries(T.map((t) => [t, Array(24 * DAYS).fill(0)])); const ranR = Object.fromEntries(T.map((t) => [t, Array(24 * DAYS).fill(0)])); const cardsR = Object.fromEntries(T.map((t) => [t, Array(24 * DAYS).fill(0)]));
+  let next = 0; const queue = [];
+  for (let t = 0; t < 24 * DAYS - 1e-9; t += STEP) {
+    while (next < orders.length && orders[next].at <= t + 1e-9) queue.push(orders[next++]);
+    const hi = Math.floor(t + 1e-9) % 24; const hour = H[hi]; const on = workedAt(hi);
+    const inWindow = (o) => o.kind !== 'renewal' || !(rnwHours[o.tech] || []).length || rnwHours[o.tech].includes(hour);
+    for (const m of ms) {
+      if (!on) continue;
+      if (m.job && !inWindow(m.job)) { queue.unshift(m.job); m.job = null; } // a renewal out of its window goes back, part done, and the machine takes daily work
+      let tl = STEP; // the minute: one order after another in it
+      while (tl > 1e-12) {
+        if (!m.job) { // the first waiting order it may run
+          const k = queue.findIndex((o) => m.techs.includes(o.tech) && m.speed[o.tech] > 0 && (!m.only?.length || allowed(m, o.r) > 0) && inWindow(o));
+          if (k < 0) break; m.job = queue.splice(k, 1)[0]; if (m.job.start === undefined) m.job.start = t + (STEP - tl); m.job.machine = m.name;
+        }
+        const o = m.job; const perH = m.speed[o.tech] * (m.avail ?? 1) * factor; if (!(perH > 0)) break;
+        const done = Math.min(perH * tl, o.left); const used = done / perH;
+        const hx = Math.floor(t + 1e-9); o.left -= done; ran[o.tech][hx] += done; cardsRan[o.tech][hx] += done * (o.cards / o.need); tl -= used;
+        if (o.kind === 'renewal') { ranR[o.tech][hx] += done; cardsR[o.tech][hx] += done * (o.cards / o.need); }
+        if (o.left <= 1e-6) { o.end = t + (STEP - tl); m.blocks.push(o); m.job = null; }
+      }
+    }
+    const h0 = Math.floor(t + 1e-9); if (Math.floor(t + STEP + 1e-9) > h0) for (const tt of T) waitAt[tt][h0] = queue.filter((o) => o.tech === tt).reduce((a, o) => a + o.left, 0) + ms.filter((m) => m.job?.tech === tt).reduce((a, m) => a + m.job.left, 0); // what's waiting (or still running) at the end of the hour
+  }
+  // the middle day
+  const D0 = 24; const pick = (a) => a.slice(D0, D0 + 24);
+  const blocks = ms.map((m) => ({ name: m.name, techs: m.techs, blocks: m.blocks.filter((o) => o.end > D0 && o.start < D0 + 24).map((o) => ({
+    customer: o.r.trigram || o.r.name, name: o.r.name, tech: o.tech, kind: o.kind, cards: Math.round(o.cards), start: o.start - D0, end: o.end - D0, arrived: o.at - D0, deadline: o.deadline === null ? null : o.deadline - D0,
+    late: o.deadline !== null && o.end > o.deadline + 1e-6, from_yesterday: o.day < 1 })) }));
+  const late = orders.filter((o) => o.day === 1 && o.kind === 'daily' && o.deadline !== null && (o.end === undefined || o.end > o.deadline + 1e-6));
+  const unfinished = orders.filter((o) => o.day === 1 && o.end === undefined);
+  return { blocks, per: Object.fromEntries(T.map((t) => [t, { need: pick(ran[t]), cards: pick(cardsRan[t]), need_rnw: pick(ranR[t]), cards_rnw: pick(cardsR[t]), waiting: pick(waitAt[t]) }])),
+    late: late.map((o) => ({ customer: o.r.trigram || o.r.name, name: o.r.name, tech: o.tech, cards: Math.round(o.cards), arrived: o.at - D0, deadline: o.deadline - D0, end: o.end === undefined ? null : o.end - D0 })),
+    sizes: Object.fromEntries(rows.map((r) => [`${r.trigram || r.name}|${r.tech}`, Math.round(sizeOf('D', r))])),
+    orders: orders.filter((o) => o.day === 1).length, unfinished: unfinished.length };
+}
+
 // ---- the day -----------------------------------------------------------------------------------------
 // windows: { DOD: [hours], … } — the hours renewals run; blank: all the hours the shifts cover
 function day({ year, month, changes = [], useFlex = true, cards = null, full = true }) {
@@ -292,9 +376,15 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
       cards: { daily: cDaily, renewals: cRnw, total: cards_, capacity: effCap, actual: act.per[t] ? H.map((h) => act.per[t][h]) : null, oee: dayRatio }, load: need.map((v, i) => (cap[t][i] ? v / cap[t][i] : v ? null : 0)),
       total: { need: tot, daily: daily.reduce((a, b) => a + b, 0), renewals: rnwByTech[t].need, capacity: capTot, idle: idle[t].reduce((a, b) => a + b, 0), load: capTot ? tot / capTot : null, end_backlog: carry, hours_over: need.filter((v, i) => v > cap[t][i] + 0.5).length } };
   }
-  return { year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), shifts, hph, full,
+  // the day as work orders, run in blocks
+  let blocks = null;
+  try {
+    blocks = runBlocks({ H, rows, machines: P.machines.filter((m) => m.techs.some((t) => cap[t] && m.speed?.[t] > 0)), workedAt: (i) => worked.has(H[i]), factor,
+      rnwHours: Object.fromEntries(T.map((t) => [t, rnwByTech[t].window ? rnwByTech[t].hours : []])), sizes: orderSizes(cards), allowed: (m, r) => (m.only?.length ? allowed(m, r) : 1), cutoffOf });
+  } catch (err) { warnings.push(`The work-order run couldn't be worked out: ${err.message}`); }
+  return { blocks, year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), shifts, hph, full,
     techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, tech: out, cutoffs: cutoffs(), warnings: [...new Set(warnings)],
     learned: { runs: rs.length, renewals: [...rnw.values()].reduce((a, x) => a + x.qty, 0) }, forecast_as_of: plan.forecast_as_of, flex: useFlex };
 }
 
-module.exports = { day, hoursOfDay, profiles, arrivals, actualDay, smoothDay, customerCutoffs, renewalShares, machineHours, cutoffs };
+module.exports = { day, hoursOfDay, profiles, arrivals, actualDay, smoothDay, customerCutoffs, orderSizes, runBlocks, renewalShares, machineHours, cutoffs };

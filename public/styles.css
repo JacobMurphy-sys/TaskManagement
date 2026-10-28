@@ -1431,3 +1431,7 @@ tr.kfd-cust-detail > td { background: var(--panel-2); padding: 8px 12px; }
 .cpm-mini button { font-size: 12px; padding: 3px 10px; }
 .cpm-sm-note { margin: 6px 0 2px; }
 .cpm-sum { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--border); color: var(--muted); }
+.cpm-blk { stroke: var(--panel); stroke-width: .6; } .cpm-blk-late { stroke: var(--danger); stroke-width: 2; }
+.cpm-blk-l { font-size: 10px; fill: #fff; font-weight: 600; pointer-events: none; }
+.cpm-gantt-wrap { margin: 2px 0 6px; }
+.cpm-legend .cpm-blk-late-sw { background: none; border: 2px solid var(--danger); }
