@@ -396,6 +396,7 @@ async function cpmDay(body) {
       <select id="cpm-day-sc"><option value="0">Base plan</option>${scs.map((s) => `<option value="${s.id}" ${s.id === scId ? 'selected' : ''}>🧪 ${esc(s.name)}</option>`).join('')}</select>
       <div class="seg" title="What the bars count"><button type="button" data-cpm-view="cards" class="${view === 'cards' ? 'on' : ''}">Cards</button><button type="button" data-cpm-view="need" class="${view === 'need' ? 'on' : ''}">Capacity needed (÷ OEE)</button></div>
       <select id="cpm-day-prof" title="How each customer's daily work is spread over the day"><option value="arrival" ${d.profile_source === 'arrival' ? 'selected' : ''}>Daily work: when it arrives</option><option value="produced" ${d.profile_source === 'produced' ? 'selected' : ''}>Daily work: when it was produced</option></select>
+      <select id="cpm-day-shape" title="How the days learned from are put together: lined up on the customer's usual time (keeps each day's clump), or simply added up (spread wide, as each day comes in at slightly different times)"><option value="typical" ${d.day_shape !== 'average' ? 'selected' : ''}>Learned: a typical day (clumped)</option><option value="average" ${d.day_shape === 'average' ? 'selected' : ''}>Learned: all days averaged (wide)</option></select>
       <div class="seg" title="Capacity in an hour"><button type="button" data-cpm-full="1" class="${d.full ? 'on' : ''}">Full speed</button><button type="button" data-cpm-full="0" class="${d.full ? '' : 'on'}">Productive (${d.hph} of 8 h)</button></div>
       <label class="row small" title="Each machine's part of the capacity, as stacked lines"><input type="checkbox" class="cpm-mach-tick" ${store.get('cpmMachLines', false) === true ? 'checked' : ''}> capacity per machine</label>
       <a class="button small" href="/api/cpm/day/export?${q}" download>⬇ Excel</a>
@@ -427,6 +428,7 @@ async function cpmDay(body) {
   wireSm();
   $$('.cpm-mach-tick').forEach((c) => { c.onchange = () => { store.set('cpmMachLines', c.checked); $$('[data-tech-card]').forEach((el) => { el.outerHTML = techCard(el.dataset.techCard); }); wireSm(); }; });
   $$('[data-cpm-view]').forEach((b) => { b.onclick = () => { store.set('cpmDayView2', b.dataset.cpmView); renderCpm('day'); }; });
+  $('#cpm-day-shape').onchange = async (e) => { try { await api.put('/cpm/settings', { cpm_day_shape: e.target.value }); renderCpm('day'); } catch (err) { toast(err.message, 'error'); } };
   $('#cpm-day-prof').onchange = async (e) => { try { await api.put('/cpm/settings', { cpm_day_profile: e.target.value }); renderCpm('day'); } catch (err) { toast(err.message, 'error'); } };
   const dayAll = $('#cpm-day-all'); if (dayAll) dayAll.onclick = () => { store.set('cpmDayAll', !store.get('cpmDayAll', false)); renderCpm('day'); };
   // redraw the tab where it was (not back at the top)

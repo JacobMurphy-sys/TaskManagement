@@ -38,14 +38,29 @@ function spread(r, add) {
   const s = r.start.getTime(); const e = Math.max(s + 60000, r.end.getTime()); const len = e - s;
   for (let t = s; t < e;) { const d = new Date(t); const next = new Date(d); next.setMinutes(0, 0, 0); next.setHours(d.getHours() + 1); const until = Math.min(e, next.getTime()); add(d.getHours(), (r.qty * (until - t)) / len); t = until; }
 }
+// a key's days (a working day → [hour 0..23] → qty) → its shares per hour. 'average': all its days added up —
+// broad, as each day's work comes in at slightly different times. 'typical' (default): each day moved so its
+// middle lands on the usual hour (volume weighted), then added up — the day as tightly clumped as it usually
+// is, at its usual time
+const dayKey = (t) => ymd(new Date(t.getTime() - dayStart() * 3600000));
+function shapeOf(days, mode) {
+  const out = Array(24).fill(0); const list = [...days.values()].map((a) => ({ a, v: a.reduce((x, y) => x + y, 0) })).filter((x) => x.v > 0);
+  if (mode === 'average') { for (const { a } of list) a.forEach((q, h) => { out[h] += q; }); } else {
+    let x = 0; let y = 0; for (const d of list) { d.c = meanHour(d.a); if (d.c === null) continue; const ang = (d.c / 24) * 2 * Math.PI; x += d.v * Math.cos(ang); y += d.v * Math.sin(ang); }
+    const R = Math.abs(x) + Math.abs(y) < 1e-9 ? null : ((Math.atan2(y, x) / (2 * Math.PI)) * 24 + 24) % 24;
+    for (const d of list) { const sh = R === null || d.c === null ? 0 : Math.round(((R - d.c + 36) % 24) - 12); d.a.forEach((q, h) => { out[(h + sh + 24) % 24] += q; }); }
+  }
+  const tot = out.reduce((a, b) => a + b, 0); return tot > 0 ? out.map((q) => q / tot) : null;
+}
+const dayShape = () => (setting('cpm_day_shape', 'typical') === 'average' ? 'average' : 'typical');
 // each customer and technology's day: 'TRI|tech' (also '*|tech' and '*|*') → shares per hour of the
 // day [hour 0..23], from when their cards were produced
 function profiles(cards, rs = runs(cards)) {
-  const by = new Map(); const put = (k, h, q) => { const a = by.get(k) || by.set(k, Array(24).fill(0)).get(k); a[h] += q; };
-  for (const r of rs) { if (!r.qty) continue; spread(r, (h, q) => { if (r.trigram && r.tech) put(`${r.trigram}|${r.tech}`, h, q); if (r.tech) put(`*|${r.tech}`, h, q); put('*|*', h, q); }); }
+  const by = new Map(); let dk = ''; const put = (k, h, q) => { const m = by.get(k) || by.set(k, new Map()).get(k); const a = m.get(dk) || m.set(dk, Array(24).fill(0)).get(dk); a[h] += q; };
+  for (const r of rs) { if (!r.qty) continue; dk = dayKey(r.start); spread(r, (h, q) => { if (r.trigram && r.tech) put(`${r.trigram}|${r.tech}`, h, q); if (r.tech) put(`*|${r.tech}`, h, q); put('*|*', h, q); }); }
   const out = new Map(); const counts = new Map();
   for (const r of rs) if (r.trigram && r.tech) counts.set(`${r.trigram}|${r.tech}`, (counts.get(`${r.trigram}|${r.tech}`) || 0) + 1);
-  for (const [k, a] of by) { const tot = a.reduce((x, y) => x + y, 0); if (tot > 0 && (k.startsWith('*') || (counts.get(k) || 0) >= 5)) out.set(k, a.map((x) => x / tot)); }
+  const mode = dayShape(); for (const [k, days] of by) { if (!k.startsWith('*') && (counts.get(k) || 0) < 5) continue; const sh = shapeOf(days, mode); if (sh) out.set(k, sh); }
   return out;
 }
 // each customer and technology's day by when its daily work orders arrive: when they first appear in the
@@ -60,16 +75,16 @@ function arrivals(cards) {
   for (let i = 1; i < reads.length; i++) { const a = new Date(reads[i - 1]); const b = new Date(reads[i]); if (b - a > 0 && b - a <= 2 * 3600000) { at.set(reads[i], new Date((a.getTime() + b.getTime()) / 2)); if (b >= from) for (let t = a.getTime(); t < b.getTime(); t += 1800000) covered.add(new Date(t).getHours()); } }
   let jobs = []; try { jobs = db.all("SELECT key, customer, qty, prio, first_seen FROM plan_history_jobs WHERE first_seen >= ? AND customer IS NOT NULL AND (prio IS NULL OR lower(prio) NOT LIKE 'low%')", [ymd(from)]); } catch { return { profiles: new Map(), orders: 0 }; }
   const lines = new Map(); try { for (const l of db.all('SELECT key, article, qty FROM plan_history_lines WHERE key IN (SELECT key FROM plan_history_jobs WHERE first_seen >= ?)', [ymd(from)])) (lines.get(l.key) || lines.set(l.key, []).get(l.key)).push(l); } catch { /* none */ }
-  const by = new Map(); const n = new Map(); const put = (k, h, q) => { const a = by.get(k) || by.set(k, Array(24).fill(0)).get(k); a[h] += q; n.set(k, (n.get(k) || 0) + 1); };
+  const by = new Map(); const n = new Map(); let dk = ''; const put = (k, h, q) => { const m = by.get(k) || by.set(k, new Map()).get(k); const a = m.get(dk) || m.set(dk, Array(24).fill(0)).get(dk); a[h] += q; n.set(k, (n.get(k) || 0) + 1); };
   let orders = 0;
   for (const j of jobs) {
-    const t0 = at.get(j.first_seen); if (!t0) continue; const h = t0.getHours(); const tri = String(j.customer).toUpperCase(); orders++;
+    const t0 = at.get(j.first_seen); if (!t0) continue; const h = t0.getHours(); dk = dayKey(t0); const tri = String(j.customer).toUpperCase(); orders++;
     const ls = (lines.get(j.key) || []).map((l) => ({ t: cpm.normTech(cards?.get(planning.axKey(l.article))?.type), q: Number(l.qty) || 0 })).filter((l) => l.t && l.q);
     if (ls.length) for (const l of ls) { put(`${tri}|${l.t}`, h, l.q); put(`*|${l.t}`, h, l.q); }
     put(`${tri}|*`, h, Number(j.qty) || 0); put('*|*', h, Number(j.qty) || 0);
   }
   const out = new Map();
-  for (const [k, a] of by) { const tot = a.reduce((x, y) => x + y, 0); if (tot > 0 && (k.startsWith('*') || (n.get(k) || 0) >= 5)) out.set(k, a.map((x) => x / tot)); }
+  const mode = dayShape(); for (const [k, days] of by) { if (!k.startsWith('*') && (n.get(k) || 0) < 5) continue; const sh = shapeOf(days, mode); if (sh) out.set(k, sh); }
   return { profiles: out, orders, counts: n, covered };
 }
 // a day's shares → its typical hour (a circular mean, so 23:00 and 01:00 average to midnight): 9.5 for 09:30
@@ -409,7 +424,7 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
       rnwHours: Object.fromEntries(T.map((t) => [t, rnwByTech[t].window ? rnwByTech[t].hours : []])), sizes: orderSizes(cards), allowed: (m, r) => (m.only?.length ? allowed(m, r) : 1), cutoffOf });
   } catch (err) { warnings.push(`The work-order run couldn't be worked out: ${err.message}`); }
   return { blocks, year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), shifts, hph, full,
-    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, capacity_by_machine: Object.fromEntries(T.map((t) => [t, [...byM[t]].map(([name, per]) => ({ name, per }))])), tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, manual: json(setting('cpm_day_manual', '{}'), {}), warnings: [...new Set(warnings)],
+    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, day_shape: dayShape(), arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, capacity_by_machine: Object.fromEntries(T.map((t) => [t, [...byM[t]].map(([name, per]) => ({ name, per }))])), tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, manual: json(setting('cpm_day_manual', '{}'), {}), warnings: [...new Set(warnings)],
     learned: { runs: rs.length, renewals: [...rnw.values()].reduce((a, x) => a + x.qty, 0) }, forecast_as_of: plan.forecast_as_of, flex: useFlex };
 }
 

@@ -1628,6 +1628,18 @@ async function waitForServer() {
             assert.ok(smd.need.every((v, i) => v <= da.tech.DOD.capacity[i] + 1e-6 || v <= da.tech.DOD.need[i] + 1e-6), 'nothing pushed over capacity that wasn\'t already');
             const krs = da.tech.DOD && da.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
             assert.ok(krs.smoothed.slice(0, da.hours.indexOf(9)).every((v) => v < 1e-9), 'nothing done before it comes in');
+            // a second day, its files in at 13:30: a typical day keeps the clump (at the usual time, between
+            // the two); all days averaged spreads it over both
+            const d1 = new Date(); d1.setDate(d1.getDate() - 1); const day1 = `${d1.getFullYear()}-${String(d1.getMonth() + 1).padStart(2, '0')}-${String(d1.getDate()).padStart(2, '0')}`;
+            const sq4 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
+            for (const t of ['13:00', '14:00']) { const r = `${day1}T${t}:00`; reads.push(r); sq4.prepare('INSERT OR IGNORE INTO plan_history_reads (file_modified, read_at) VALUES (?, ?)').run(r, r); }
+            for (let i = 0; i < 6; i++) sq4.prepare("INSERT INTO plan_history_jobs (key, wo, customer, qty, prio, first_seen, last_seen) VALUES (?, ?, 'KBC', 100, 'High', ?, ?)").run(`ARRB${i}`, `ARRB${i}`, reads[reads.length - 1], reads[reads.length - 1]);
+            sq4.close();
+            const kOf = async () => { const x = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); const r = x.rows.find((q) => q.trigram === 'KBC' && q.tech === 'DOD'); return [9, 11, 13].map((h) => Math.round(r.learned_shares[x.hours.indexOf(h)] * 100) / 100); };
+            assert.deepEqual(await kOf(), [0, 1, 0], 'a typical day: one clump, at the usual time');
+            await call('PUT', '/cpm/settings', { cpm_day_shape: 'average' });
+            assert.deepEqual(await kOf(), [0.5, 0, 0.5], 'all days averaged: spread over both');
+            await call('PUT', '/cpm/settings', { cpm_day_shape: 'typical' });
             const sq3 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
             sq3.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'ARR%'").run(); for (const r of reads) sq3.prepare('DELETE FROM plan_history_reads WHERE file_modified = ?').run(r); sq3.close();
           }
