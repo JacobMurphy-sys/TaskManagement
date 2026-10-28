@@ -1440,3 +1440,8 @@ tr.kfd-cust-detail > td { background: var(--panel-2); padding: 8px 12px; }
 .cpm-t .cpm-daytot { border-left: 2px solid var(--border); font-weight: 700; }
 .cpm-gantt tfoot tr.cpm-gtot th, .cpm-gantt tfoot tr.cpm-gtot td { font-weight: 700; border-top: 1px solid var(--border); background: var(--panel-2); font-size: 11px; }
 .cpm-gantt tfoot tr.cpm-gtot-all th, .cpm-gantt tfoot tr.cpm-gtot-all td { border-top: 2px solid var(--text); }
+.cpm-man-row { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.cpm-man-row select { width: auto; } .mr-pers { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.cpm-man-per { display: inline-flex; gap: 3px; align-items: center; padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--radius); }
+.cpm-man-per input[type=time] { width: 104px; padding: 1px 4px; } .cpm-man-per input.mp-share { width: 56px; padding: 1px 4px; }
+.cpm-man-prev { width: 120px; height: 26px; } .cpm-man-prev rect { fill: var(--accent); } .cpm-man-prev line { stroke: var(--border); }

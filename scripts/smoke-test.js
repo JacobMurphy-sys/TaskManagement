@@ -1631,6 +1631,11 @@ async function waitForServer() {
             const sq3 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
             sq3.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'ARR%'").run(); for (const r of reads) sq3.prepare('DELETE FROM plan_history_reads WHERE file_modified = ?').run(r); sq3.close();
           }
+          // run periods set by hand: KBC's own beats what's learned; everyone else's for the rest
+          await call('PUT', '/cpm/settings', { cpm_day_manual: JSON.stringify({ 'KBC|*': { periods: [{ from: '13:00', to: '15:00', share: 100 }] }, '*|*': { periods: [{ from: '22:00', to: '02:00', share: 1 }] } }) });
+          const dm2 = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); const km = dm2.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD'); const am = dm2.rows.find((r) => r.trigram === 'AES');
+          assert.deepEqual([km.profile, km.shares[dm2.hours.indexOf(13)], km.shares[dm2.hours.indexOf(14)], am.profile, am.shares[dm2.hours.indexOf(0)]], ['manual', 0.5, 0.5, 'manual-default', 0.25], 'run periods: 13–15 for KBC; 22–02 for everyone else');
+          await call('PUT', '/cpm/settings', { cpm_day_manual: '{}' });
           // shipment times set on the tab (shown, labelled), a customer's own cut-off typed in
           await call('PUT', '/cpm/settings', { cpm_cutoffs: JSON.stringify([{ time: '17:00', label: 'PostNL' }, { time: '08:00', label: '' }, { time: 'nope' }]), cpm_cutoff_cust: JSON.stringify({ KBC: '11:00' }) });
           const dc = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`);
