@@ -1426,3 +1426,7 @@ tr.kfd-cust-detail > td { background: var(--panel-2); padding: 8px 12px; }
 .cpm-legend .cpm-scneed-sw { display: inline-block; width: 12px; height: 3px; border-radius: 2px; margin-left: -2px; }
 .cpm-actdot { fill: var(--panel); stroke: var(--warn); stroke-width: 2.4; }
 .cpm-legend .cpm-actdot-sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 2.4px solid var(--warn); }
+.cpm-ghost { fill: none; stroke: var(--muted); stroke-width: 1.3; stroke-dasharray: 3 2; }
+.cpm-legend .cpm-ghost-sw { background: none; border: 1.3px dashed var(--muted); }
+.cpm-mini button { font-size: 12px; padding: 3px 10px; }
+.cpm-sm-note { margin: 6px 0 2px; }

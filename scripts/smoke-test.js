@@ -1619,6 +1619,12 @@ async function waitForServer() {
             assert.equal(kr.profile, 'arrivals-own'); assert.equal(da.arrivals_seen, 6, 'the Low order and the one after a 4-hour gap left out');
             assert.ok(Math.abs(kr.shares[da.hours.indexOf(9)] - 1) < 1e-9, 'all of KBC\'s daily work lands at 9');
             assert.ok(Math.abs(kr.cards_hours.reduce((a, b) => a + b, 0) - kr.daily) < 0.01 && Math.abs(da.tech.DOD.cards.total.reduce((a, b) => a + b, 0) - da.rows.filter((r) => r.tech === 'DOD').reduce((a, r) => a + r.daily + r.renew, 0)) < 0.01, 'cards: the day\'s cards, before OEE');
+            // smoothed: the same day, moved only later (up to the cut-off), the peak no higher
+            const smd = da.tech.DOD.smooth; const sum = (a) => a.reduce((x, y) => x + y, 0);
+            assert.ok(Math.abs(sum(smd.need) - sum(da.tech.DOD.need)) < 0.01 && Math.abs(sum(smd.cards.total) - sum(da.tech.DOD.cards.total)) < 0.01, 'smoothing keeps the day');
+            assert.ok(smd.peak <= Math.max(...da.tech.DOD.load.map((v) => v || 0)) + 1e-9, 'and its peak no higher');
+            const krs = da.tech.DOD && da.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
+            assert.ok(krs.smoothed.slice(0, da.hours.indexOf(9)).every((v) => v < 1e-9), 'nothing done before it comes in');
             const sq3 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
             sq3.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'ARR%'").run(); for (const r of reads) sq3.prepare('DELETE FROM plan_history_reads WHERE file_modified = ?').run(r); sq3.close();
           }
