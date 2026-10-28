@@ -1422,3 +1422,5 @@ tr.kfd-cust-detail > td { background: var(--panel-2); padding: 8px 12px; }
 .cpm-gantt td.cpm-g-name { white-space: nowrap; max-width: 210px; overflow: hidden; text-overflow: ellipsis; }
 .cpm-gantt td, .cpm-gantt th { padding-top: 3px; padding-bottom: 3px; }
 .cpm-gantt input.cpm-rnw-in { padding: 1px 4px; height: 22px; font-size: 12px; }
+.cpm-scneed { stroke-width: 3.2; stroke-linecap: round; }
+.cpm-legend .cpm-scneed-sw { display: inline-block; width: 12px; height: 3px; border-radius: 2px; margin-left: -2px; }

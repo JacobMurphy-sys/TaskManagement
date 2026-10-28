@@ -64,6 +64,9 @@ async function cpmOverview(body) {
       ${P.map((p, i) => { const c = p.techs[t].capacity; const n = p.techs[t].need; const near = c < n && y(c) - y(n) < 30; // the point inside the bar, near its label: below the point
         return `<circle cx="${x(i)}" cy="${y(c)}" r="2.6" class="cpm-cap"/>${c ? lbl(x(i), near ? y(c) + 14 : y(c) - 6, cpmK(c), near ? 'cap cap-in' : 'cap') : ''}`; }).join('')}
       ${d.scenarios.map((s, j) => line(s.periods.map((p, i) => [i, p.techs[t].capacity]), SC_COL[j], '6 4')).join('')}
+      ${d.scenarios.map((s, j) => s.periods.map((p, i) => { const sn = p.techs[t].need; const bn = P[i].techs[t].need; const off = (j - (d.scenarios.length - 1) / 2) * 5; // the scenario's capacity needed: a bar-wide mark
+        return `<g><title>${esc(`${s.name} · ${p.label}: needed ${cpmN(sn)} (base ${cpmN(bn)}${bn ? `, ${sn >= bn ? '+' : ''}${cpmPct(sn / bn - 1)}` : ''}) · capacity ${cpmN(p.techs[t].capacity)} · load ${cpmPct(p.techs[t].util)}`)}</title>
+          <line x1="${x(i) - bw / 2 - 4}" x2="${x(i) + bw / 2 + 4}" y1="${y(sn) + off}" y2="${y(sn) + off}" stroke="${SC_COL[j]}" class="cpm-scneed"/></g>`; }).join('')).join('')}
       ${P.map((p, i) => (period === 'month' || i % 4 === 0 ? `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" class="cpm-ax">${esc(period === 'week' ? p.key.slice(5) : p.label)}</text>` : '')).join('')}
     </svg>`;
   };
@@ -71,7 +74,7 @@ async function cpmOverview(body) {
     <span><i class="sw cpm-sw-need"></i>Capacity needed (forecast${flex ? ' × flex' : ''} ÷ OEE) — <b class="pl-ok">under 85%</b> · <b class="pl-warn">85–100%</b> · <b class="pl-late">over</b> of capacity</span>
     <span><i class="sw cpm-sw-fc"></i>Forecast (cards)</span>
     <span><i class="ln"></i>Capacity</span>
-    ${d.scenarios.map((s, j) => `<span><i class="ln dash" style="border-color:${SC_COL[j]}"></i>${esc(s.name)}</span>`).join('')}
+    ${d.scenarios.map((s, j) => `<span><i class="ln dash" style="border-color:${SC_COL[j]}"></i><i class="cpm-scneed-sw" style="background:${SC_COL[j]}"></i>${esc(s.name)}: capacity (dashed) · needed (mark across the bar)</span>`).join('')}
     ${labels ? '' : '<span class="muted">hover a bar for its figures</span>'}</div>`;
   // all three technologies on one chart: capacity needed as bars in each technology's colour with a tick
   // at its capacity, or each technology's load as a line against 100%
@@ -157,7 +160,11 @@ async function cpmOverview(body) {
       ${row('Actual', (p) => (p ? (p.start <= now ? cpmK(p.techs[t].actual) : '') : cpmK(tot.actual)))}
       ${row('Actual vs forecast', (p) => { if (p && p.start > now) return ''; const f = p ? p.techs[t].fc : P.filter((q) => q.start <= now).reduce((a, q) => a + q.techs[t].fc, 0); const a = p ? p.techs[t].actual : tot.actual; if (!f) return '—'; const v = a / f - 1; return `<span class="cpm-u ${Math.abs(v) <= 0.1 ? 'ok' : Math.abs(v) <= 0.2 ? 'warn' : 'bad'}">${v >= 0 ? '+' : ''}${cpmPct(v)}</span>`; })}
       ${d.scenarios.map((s, j) => (s.periods.some((p) => p.techs[t].unplaced > 0.005 * p.techs[t].need) ? row(`<span style="color:${SC_COL[j]}">${esc(s.name)}</span>: can't be placed`, (p, i) => { const u = p ? s.periods[i].techs[t].unplaced || 0 : s.periods.reduce((a, q) => a + (q.techs[t].unplaced || 0), 0); return u > 0.5 ? `<span class="pl-late" title="Needed, but no machine that runs ${esc(t)} is allowed this customer / card">${cpmK(u)}</span>` : ''; }) : '')).join('')}
-      ${d.scenarios.map((s, j) => (s.periods.some((p) => p.techs[t].reserved > 0.5) ? row(`<span style="color:${SC_COL[j]}">${esc(s.name)}</span>: capacity`, (p, i) => cpmK(p ? s.periods[i].techs[t].capacity : s.periods.reduce((a, q) => a + q.techs[t].capacity, 0))) + row(`<span style="color:${SC_COL[j]}">${esc(s.name)}</span>: idle on restricted machines`, (p, i) => { const v = p ? s.periods[i].techs[t].reserved || 0 : s.periods.reduce((a, q) => a + (q.techs[t].reserved || 0), 0); return v > 0.5 ? `<span class="muted" title="Hours a restricted machine has left after its customers / cards — no one else may use them, so they're not counted as capacity">${cpmK(v)}</span>` : ''; }) : '')).join('')}
+      ${d.scenarios.map((s, j) => { const dif = (a, b, upBad = true) => (Math.abs(a - b) > 0.5 ? ` <span class="small ${(a > b) === upBad ? 'pl-late' : 'pl-ok'}" title="against the base plan">${a > b ? '+' : '−'}${cpmK(Math.abs(a - b))}</span>` : '');
+        const sum = (k) => s.periods.reduce((a, q) => a + (q.techs[t][k] || 0), 0); const base = (k) => P.reduce((a, q) => a + (q.techs[t][k] || 0), 0);
+        return row(`<span style="color:${SC_COL[j]}">${esc(s.name)}</span>: needed`, (p, i) => (p ? `${cpmK(s.periods[i].techs[t].need)}` : `${cpmK(sum('need'))}${dif(sum('need'), base('need'))}`))
+          + row(`<span style="color:${SC_COL[j]}">${esc(s.name)}</span>: capacity`, (p, i) => (p ? `${cpmK(s.periods[i].techs[t].capacity)}` : `${cpmK(sum('capacity'))}${dif(sum('capacity'), base('capacity'), false)}`)); }).join('')}
+      ${d.scenarios.map((s, j) => (s.periods.some((p) => p.techs[t].reserved > 0.5) ? row(`<span style="color:${SC_COL[j]}">${esc(s.name)}</span>: idle on restricted machines`, (p, i) => { const v = p ? s.periods[i].techs[t].reserved || 0 : s.periods.reduce((a, q) => a + (q.techs[t].reserved || 0), 0); return v > 0.5 ? `<span class="muted" title="Hours a restricted machine has left after its customers / cards — no one else may use them, so they're not counted as capacity">${cpmK(v)}</span>` : ''; }) : '')).join('')}
       ${d.scenarios.map((s, j) => row(`<span style="color:${SC_COL[j]}">${esc(s.name)}</span>: load`, (p, i) => { const sp = p ? s.periods[i].techs[t] : null; return cpmPct(sp ? sp.util : null); }, (p, i) => (p ? `cpm-u ${cpmUtilCls(s.periods[i].techs[t].util)}` : ''))).join('')}
       </tbody></table></div>`;
   };
@@ -456,7 +463,7 @@ async function cpmScenarios(body) {
       <input type="search" class="cpm-cf-q" placeholder="Filter…" style="max-width:220px"><span class="small muted cpm-cf-n"></span></div>
       <div class="cpm-picks cpm-cf-list" data-sel="${esc(JSON.stringify(c.values || []))}"><span class="small muted">Loading…</span></div></div>`;
     if (f === 'split') return `<div class="f"><span>Split %</span><div class="row">${T.map((t) => `<label class="row small">${t} <input type="number" name="split_${t}" min="0" max="100" style="width:70px" value="${c.split?.[t] ? Math.round(c.split[t] * 100) : ''}"></label>`).join(' ')}</div></div>`;
-    const L = { pct: ['Change %', '+10 or −15'], points: ['OEE change (points)', '+5'], shifts: ['Shifts a day', ''], hours: ['Productive hours a shift', ''], name: ['Name', ''], qty: ['Cards a month', ''], oee: ['OEE %', '35'] }[f];
+    const L = { pct: ['Change %', '+10 or −15'], points: ['OEE change (points) — lowers the capacity needed; capacity stays', '+5'], shifts: ['Shifts a day', ''], hours: ['Productive hours a shift', ''], name: ['Name', ''], qty: ['Cards a month', ''], oee: ['OEE %', '35'] }[f];
     return `<label class="f">${L[0]}<input type="${f === 'name' ? 'text' : 'number'}" name="${f}" value="${esc(c[f] ?? (f === 'oee' && c.oee ? Math.round(c.oee * 100) : ''))}" placeholder="${L[1]}"></label>`;
   };
   const changeHtml = (c, i) => `<div class="card cpm-change" data-i="${i}"><div class="row" style="justify-content:space-between"><b>${CPM_CHANGES[c.type].label}</b><button class="link small" data-cpm-rm="${i}">✕ remove</button></div>
