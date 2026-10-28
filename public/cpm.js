@@ -290,7 +290,7 @@ async function cpmDay(body) {
   // renewal windows
   const win = `<div class="cpm-win">${T.map((t) => `<div class="row" style="gap:6px;align-items:center;flex-wrap:wrap"><b style="color:${cpmTc(t)};min-width:64px">${esc(t)}</b>
       ${H.map((h, i) => `<button type="button" class="cpm-hr ${(d.windows[t] || []).includes(h) ? 'on' : ''} ${d.worked[i] ? '' : 'off'}" data-win="${t}" data-h="${h}" style="--c:${cpmTc(t)}">${String(h).padStart(2, '0')}</button>`).join('')}
-      <span class="small muted">${(d.windows[t] || []).length ? `${cpmK(d.renewals[t].need)} a day over ${d.windows[t].length} h` : `none set — renewals (${cpmK(d.renewals[t].need)} a day) spread over every hour worked`}</span></div>`).join('')}</div>`;
+      <span class="small muted" data-win-note="${t}">${(d.windows[t] || []).length ? `${cpmK(d.renewals[t].need)} a day over ${d.windows[t].length} h` : `none set — renewals (${cpmK(d.renewals[t].need)} a day) spread over every hour worked`}</span></div>`).join('')}</div>`;
   const techCard = (t) => { const S = d.tech[t].smooth; const X0 = d.tech[t]; const sm = smoothed(t);
     const peak0 = Math.max(...X0.load.map((v) => v || 0));
     return `<div class="card cpm-tech" data-tech-card="${t}"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h3 class="pl-h cpm-tech-h" style="margin:0;border-left-color:${cpmTc(t)}">${CPM_TECH_ICON[t] || ''} <span style="color:${cpmTc(t)}">${esc(t)}</span> <span class="muted small">— the day hour by hour</span></h3>
@@ -315,7 +315,8 @@ async function cpmDay(body) {
       <div class="cpm-legend">${T.map((t) => `<span><i class="sw" style="background:${cpmTc(t)}"></i>${esc(t)}</span>`).join('')}<span><i class="ln dash cpm-100-sw"></i>100% of capacity</span><span><i class="sw cpm-sw-off"></i>not worked</span>${d.cutoffs.length ? '<span>🚚 shipping cut-offs</span>' : ''}</div>${allChart()}</div>
     ${T.map((t) => techCard(t)).join('')}
     <div class="card"><h3 class="pl-h">🔁 Renewal windows <span class="muted small">— the hours each technology runs renewals (click to toggle); ${d.scenario?.changes?.some((c) => c.type === 'rnw_window') ? 'the scenario sets some — change them in 🧪 Scenarios' : 'a scenario can set its own'}</span></h3>${win}
-      <label class="row small" style="margin-top:6px">Renewal OEE: the customer's + <input type="number" id="cpm-rnw-bonus" min="0" max="50" step="1" value="${Math.round(d.bonus * 100)}" style="width:60px"> points</label></div>
+      <div class="row" style="gap:10px;margin-top:8px;align-items:center;flex-wrap:wrap"><label class="row small">Renewal OEE: the customer's + <input type="number" id="cpm-rnw-bonus" min="0" max="50" step="1" value="${Math.round(d.bonus * 100)}" style="width:60px"> points</label>
+        <div class="spacer"></div><span class="small pl-warn" id="cpm-win-dirty" hidden>Not saved yet</span><button class="small" id="cpm-win-undo" disabled>Undo changes</button><button class="small primary" id="cpm-win-save" disabled>💾 Save</button></div></div>
     <div class="card"><h3 class="pl-h">Where each customer's day lands <span class="muted small">— ${view === 'cards' ? 'cards' : 'capacity needed (÷ OEE)'} per hour of daily work; renewals go in the windows above</span></h3>${gantt}</div>`;
   $('#cpm-day-month').onchange = (e) => { store.set('cpmDayMonth', Number(e.target.value)); renderCpm('day'); };
   $('#cpm-day-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('day'); };
@@ -326,11 +327,22 @@ async function cpmDay(body) {
   $$('[data-cpm-view]').forEach((b) => { b.onclick = () => { store.set('cpmDayView', b.dataset.cpmView); renderCpm('day'); }; });
   $('#cpm-day-prof').onchange = async (e) => { try { await api.put('/cpm/settings', { cpm_day_profile: e.target.value }); renderCpm('day'); } catch (err) { toast(err.message, 'error'); } };
   const dayAll = $('#cpm-day-all'); if (dayAll) dayAll.onclick = () => { store.set('cpmDayAll', !store.get('cpmDayAll', false)); renderCpm('day'); };
-  $$('[data-win]').forEach((b) => { b.onclick = async () => {
-    const w = { ...(d.windows || {}) }; const t = b.dataset.win; const h = Number(b.dataset.h); const l = new Set(w[t] || []); if (l.has(h)) l.delete(h); else l.add(h); w[t] = [...l].sort((a, c) => a - c);
-    try { await api.put('/cpm/settings', { cpm_rnw_hours: JSON.stringify(w) }); renderCpm('day'); } catch (err) { toast(err.message, 'error'); } }; });
-  $('#cpm-rnw-bonus').onchange = async (e) => { try { await api.put('/cpm/settings', { cpm_rnw_bonus: String((Number(e.target.value) || 0) / 100) }); renderCpm('day'); } catch (err) { toast(err.message, 'error'); } };
-  $$('.cpm-rnw-in').forEach((el) => { el.onchange = async () => { try { await api.put('/cpm/day/renewals', { trigram: el.dataset.tri, tech: el.dataset.tech, share: el.value === '' ? null : Number(el.value) / 100 }); renderCpm('day'); } catch (err) { toast(err.message, 'error'); } }; });
+  // redraw the tab where it was (not back at the top)
+  const redraw = async () => { const sc = document.scrollingElement; const m = main(); const y = [sc?.scrollTop || 0, m?.scrollTop || 0]; await renderCpm('day'); if (sc) sc.scrollTop = y[0]; if (m) m.scrollTop = y[1]; };
+  // renewal windows: ticked here, saved together (no redraw on every click)
+  const pend = JSON.parse(JSON.stringify(d.windows || {})); const bonus0 = String(Math.round(d.bonus * 100));
+  const dirty = () => { const changed = JSON.stringify(T.map((t) => [...(pend[t] || [])].sort((a, c) => a - c))) !== JSON.stringify(T.map((t) => [...(d.windows[t] || [])].sort((a, c) => a - c))) || $('#cpm-rnw-bonus').value !== bonus0;
+    $('#cpm-win-save').disabled = !changed; $('#cpm-win-undo').disabled = !changed; $('#cpm-win-dirty').hidden = !changed; };
+  const note = (t) => { const el = $(`[data-win-note="${t}"]`); const n = (pend[t] || []).length; const same = JSON.stringify([...(pend[t] || [])].sort((a, c) => a - c)) === JSON.stringify([...(d.windows[t] || [])].sort((a, c) => a - c));
+    if (!same) el.textContent = n ? `${cpmK(d.renewals[t].need)} a day over ${n} h — not saved yet` : `none — renewals (${cpmK(d.renewals[t].need)} a day) over every hour worked — not saved yet`; else el.textContent = n ? `${cpmK(d.renewals[t].need)} a day over ${n} h` : `none set — renewals (${cpmK(d.renewals[t].need)} a day) spread over every hour worked`; };
+  $$('[data-win]').forEach((b) => { b.onclick = () => {
+    const t = b.dataset.win; const h = Number(b.dataset.h); const l = new Set(pend[t] || []); if (l.has(h)) l.delete(h); else l.add(h); pend[t] = [...l].sort((a, c) => a - c);
+    b.classList.toggle('on', l.has(h)); note(t); dirty(); }; });
+  $('#cpm-rnw-bonus').oninput = dirty;
+  $('#cpm-win-undo').onclick = () => { for (const t of T) pend[t] = [...(d.windows[t] || [])]; $$('[data-win]').forEach((b) => b.classList.toggle('on', (pend[b.dataset.win] || []).includes(Number(b.dataset.h)))); T.forEach(note); $('#cpm-rnw-bonus').value = bonus0; dirty(); };
+  $('#cpm-win-save').onclick = async () => { const btn = $('#cpm-win-save'); btn.disabled = true; btn.textContent = 'Saving…';
+    try { await api.put('/cpm/settings', { cpm_rnw_hours: JSON.stringify(pend), cpm_rnw_bonus: String((Number($('#cpm-rnw-bonus').value) || 0) / 100) }); toast('Renewal windows saved'); await redraw(); } catch (err) { toast(err.message, 'error'); btn.disabled = false; btn.textContent = '💾 Save'; } };
+  $$('.cpm-rnw-in').forEach((el) => { el.onchange = async () => { try { await api.put('/cpm/day/renewals', { trigram: el.dataset.tri, tech: el.dataset.tech, share: el.value === '' ? null : Number(el.value) / 100 }); await redraw(); } catch (err) { toast(err.message, 'error'); } }; });
 }
 
 async function cpmFlex(body) {
