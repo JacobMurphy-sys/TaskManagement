@@ -14,6 +14,8 @@ const cpmK = (v) => (v === null || v === undefined ? '—' : Math.abs(v) >= 1e6 
 const cpmPct = (v, d = 0) => (v === null || v === undefined ? '—' : `${(v * 100).toLocaleString('en-GB', { maximumFractionDigits: d })}%`);
 const cpmUtilCls = (u) => (u === null || u === undefined ? '' : u > 1 ? 'bad' : u > 0.85 ? 'warn' : 'ok');
 const CPM_TECH_ICON = { DOD: '🖨', Emboss: '🔠', Laser: '🔆' };
+// each technology's colour, as the CPM workbook colours its rows (DOD teal, Laser purple, Emboss dark)
+const cpmTc = (t) => `var(--tech-${String(t).toLowerCase()}, var(--accent))`;
 
 async function renderCpm(tab) {
   tab = CPM_TABS.some(([k]) => k === tab) ? tab : store.get('cpmTab', 'overview');
@@ -68,6 +70,49 @@ async function cpmOverview(body) {
     <span><i class="ln"></i>Capacity</span>
     ${d.scenarios.map((s, j) => `<span><i class="ln dash" style="border-color:${SC_COL[j]}"></i>${esc(s.name)}</span>`).join('')}
     ${labels ? '' : '<span class="muted">hover a bar for its figures</span>'}</div>`;
+  // all three technologies on one chart: capacity needed as bars in each technology's colour with a tick
+  // at its capacity, or each technology's load as a line against 100%
+  const allChart = (mode) => {
+    const P = d.periods; const T = d.techs; const W = Math.max(640, P.length * (period === 'week' ? 22 : 84)); const L = 50; const B = 26; const T0 = 18;
+    const slot = (W - L - 6) / P.length; const x = (i) => L + (i + 0.5) * slot;
+    const lbl = (cx, cy, text, style = '', rot = false) => (labels ? `<text x="${cx}" y="${cy}" ${rot ? `transform="rotate(-90 ${cx} ${cy})" text-anchor="start"` : 'text-anchor="middle"'} class="cpm-lbl" style="${style}">${esc(text)}</text>` : '');
+    const axisX = (H) => P.map((p, i) => (period === 'month' || i % 4 === 0 ? `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" class="cpm-ax">${esc(period === 'week' ? p.key.slice(5) : p.label)}</text>` : '')).join('');
+    if (mode === 'load') {
+      const H = labels ? 270 : 230; const top = Math.max(1.2, ...P.flatMap((p) => T.map((t) => p.techs[t].util || 0))) * (labels ? 1.06 : 1);
+      const step = top > 2.5 ? 0.5 : 0.25; const max = Math.ceil(top / step) * step; const y = (v) => T0 + (H - T0 - B) * (1 - v / max);
+      const ticks = Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step);
+      return `<svg class="cpm-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMin meet">
+        ${ticks.map((v) => `<line x1="${L}" x2="${W - 4}" y1="${y(v)}" y2="${y(v)}" class="cpm-grid"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="cpm-ax">${Math.round(v * 100)}%</text>`).join('')}
+        <line x1="${L}" x2="${W - 4}" y1="${y(1)}" y2="${y(1)}" class="cpm-100"/><text x="${W - 6}" y="${y(1) - 4}" text-anchor="end" class="cpm-ax cpm-100-l">100% of capacity</text>
+        ${T.map((t) => { const pts = P.map((p, i) => [x(i), y(p.techs[t].util || 0), p.techs[t].util]);
+          return `<polyline fill="none" stroke="${cpmTc(t)}" stroke-width="2.6" points="${pts.map(([a, b]) => `${a},${b}`).join(' ')}"/>${pts.map(([a, b, u], i) => `<circle cx="${a}" cy="${b}" r="3.2" style="fill:${cpmTc(t)}"><title>${esc(`${t} · ${P[i].label}: load ${cpmPct(u)}`)}</title></circle>`).join('')}`; }).join('')}
+        ${labels ? P.map((p, i) => { // labels kept apart: the top line's above its point, the bottom one's below, the middle where there's room
+          const at = T.map((t) => ({ t, py: y(p.techs[t].util || 0), u: p.techs[t].util })).sort((a, b) => a.py - b.py);
+          const out = []; let prev = -Infinity;
+          at.forEach((q, k) => { let ly = k === at.length - 1 && at.length > 1 ? q.py + 15 : q.py - 7; let lx = x(i); let anchor = 'middle';
+            if (ly - prev < 11) { if (k < at.length - 1 && q.py + 15 < at[k + 1].py - 7 - 11) ly = q.py + 15; else { lx = x(i) + 7; ly = q.py + 4; anchor = 'start'; } }
+            if (k === at.length - 1 && ly - prev < 11) ly = prev + 11;
+            prev = anchor === 'start' ? prev : ly;
+            out.push(`<text x="${lx}" y="${ly}" text-anchor="${anchor}" class="cpm-lbl" style="fill:${cpmTc(q.t)}">${esc(cpmPct(q.u))}</text>`); });
+          return out.join(''); }).join('') : ''}
+        ${axisX(H)}</svg>`;
+    }
+    const H = labels ? 290 : 230;
+    const top = Math.max(1, ...P.flatMap((p) => T.map((t) => Math.max(p.techs[t].need, p.techs[t].capacity))));
+    const { max, ticks } = cpmScale(top * (labels ? 1.16 : 1)); const y = (v) => T0 + (H - T0 - B) * (1 - v / max);
+    const bw = Math.max(3, (slot * 0.8) / T.length);
+    return `<svg class="cpm-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMin meet">
+      ${ticks.map((v) => `<line x1="${L}" x2="${W - 4}" y1="${y(v)}" y2="${y(v)}" class="cpm-grid"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="cpm-ax">${cpmAxis(v)}</text>`).join('')}
+      ${P.map((p, i) => T.map((t, k) => { const q = p.techs[t]; const bx = x(i) - (bw * T.length) / 2 + k * bw; const over = q.util > 1;
+        return `<g><title>${esc(`${t} · ${p.label}: needed ${cpmN(q.need)} · capacity ${cpmN(q.capacity)} · ${cpmPct(q.util)}`)}</title>
+          <rect x="${bx + 0.5}" y="${y(q.need)}" width="${bw - 1}" height="${Math.max(0, y(0) - y(q.need))}" style="fill:${cpmTc(t)}" class="cpm-allbar"/>
+          <line x1="${bx - 1}" x2="${bx + bw + 1}" y1="${y(q.capacity)}" y2="${y(q.capacity)}" class="cpm-captick ${over ? 'over' : ''}"/>
+          ${q.need ? lbl(bx + bw / 2 + 3, Math.min(y(q.need), y(q.capacity)) - 4, cpmK(q.need), `fill:${cpmTc(t)}`, true) : ''}</g>`; }).join('')).join('')}
+      ${axisX(H)}</svg>`;
+  };
+  const allLegend = (mode) => `<div class="cpm-legend">${d.techs.map((t) => `<span><i class="sw" style="background:${cpmTc(t)}"></i>${esc(t)}</span>`).join('')}
+    ${mode === 'load' ? '<span><i class="ln dash cpm-100-sw"></i>100% of capacity — above it, more is needed than there is</span><span class="muted">load = capacity needed (forecast' + (flex ? ' × flex' : '') + ' ÷ OEE) ÷ capacity</span>'
+    : `<span><i class="ln"></i>tick: the technology's capacity (red where it's short)</span><span class="muted">bars: capacity needed (forecast${flex ? ' × flex' : ''} ÷ OEE)</span>`}</div>`;
   // forecast against actual: cards forecast and persoed side by side, the difference on each
   const fva = (sel) => {
     const P = d.periods; const pick = (p, k) => (sel === 'all' ? d.techs.reduce((a, t) => a + p.techs[t][k], 0) : p.techs[sel][k]);
@@ -85,7 +130,7 @@ async function cpmOverview(body) {
       ${P.map((p, i) => { const f = pick(p, 'fc'); const a = pick(p, 'actual'); const v = dev(p); const open = started(p) && !closed(p);
         return `<g><title>${esc(`${p.label}: forecast ${cpmN(f)}${started(p) ? ` · actual ${cpmN(a)}${open ? ' so far' : ''}${v === null ? '' : ` · ${v >= 0 ? '+' : ''}${cpmPct(v)}`}` : ''}`)}</title>
         <rect x="${x(i) - bw}" y="${y(f)}" width="${bw}" height="${Math.max(0, y(0) - y(f))}" class="cpm-fva-fc ${started(p) ? '' : 'future'}"/>
-        ${started(p) ? `<rect x="${x(i)}" y="${y(a)}" width="${bw}" height="${Math.max(0, y(0) - y(a))}" class="cpm-fva-act ${open ? 'open' : ''}"/>` : ''}
+        ${started(p) ? `<rect x="${x(i)}" y="${y(a)}" width="${bw}" height="${Math.max(0, y(0) - y(a))}" class="cpm-fva-act ${open ? 'open' : ''}" ${sel === 'all' ? '' : `style="fill:${cpmTc(sel)}"`}/>` : ''}
         ${f ? lbl(x(i) - bw / 2, y(f) - 4, cpmK(f), 'fc') : ''}${started(p) && a ? lbl(x(i) + bw / 2, y(a) - 4, cpmK(a), 'act') : ''}
         ${v !== null && labels ? `<text x="${x(i)}" y="${T - 4}" text-anchor="middle" class="cpm-lbl dev ${devCls(v)}">${v >= 0 ? '+' : ''}${cpmPct(v)}${open ? '*' : ''}</text>` : ''}</g>`; }).join('')}
       ${P.map((p, i) => (period === 'month' || i % 4 === 0 ? `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" class="cpm-ax">${esc(period === 'week' ? p.key.slice(5) : p.label)}</text>` : '')).join('')}
@@ -94,7 +139,7 @@ async function cpmOverview(body) {
     const dv = fCl ? aCl / fCl - 1 : null;
     return `<div class="kdb-tiles pl-tiles">${kpi('Forecast to date', cpmN(Math.round(fT)), `${ytd.length} ${period === 'week' ? 'week' : 'month'}${ytd.length === 1 ? '' : 's'} so far this year`)}${kpi('Persoed to date', cpmN(Math.round(aT)), fT ? `${cpmPct(aT / fT)} of the forecast` : '')}
       ${kpi(`Closed ${period === 'week' ? 'weeks' : 'months'}`, dv === null ? '—' : `<span class="cpm-u ${devCls(dv)}">${dv >= 0 ? '+' : ''}${cpmPct(dv)}</span>`, `actual ${cpmK(aCl)} against ${cpmK(fCl)} forecast`)}</div>
-      <div class="cpm-legend"><span><i class="sw cpm-sw-fcb"></i>Forecast</span><span><i class="sw cpm-sw-act"></i>Persoed (DailyPersoData, else the ⏱ timing report)</span><span><i class="sw cpm-sw-act open"></i>this ${period === 'week' ? 'week' : 'month'} so far (*)</span>
+      <div class="cpm-legend"><span><i class="sw cpm-sw-fcb"></i>Forecast</span><span><i class="sw cpm-sw-act" ${sel === 'all' ? '' : `style="background:${cpmTc(sel)}"`}></i>Persoed (DailyPersoData, else the ⏱ timing report)</span><span><i class="sw cpm-sw-act open" ${sel === 'all' ? '' : `style="background:${cpmTc(sel)}"`}></i>this ${period === 'week' ? 'week' : 'month'} so far (*)</span>
         <span>Difference: <b class="pl-ok">within 10%</b> · <b class="pl-warn">10–20%</b> · <b class="pl-late">more</b></span>${sel === 'all' ? '' : '<span class="muted">by technology the forecast is split by each customer\'s split, the actual by card type</span>'}</div>${svg}`;
   };
   const table = (t) => {
@@ -115,8 +160,9 @@ async function cpmOverview(body) {
   };
   const short = (res, t) => res.periods.filter((p) => p.techs[t].util > 1).length;
   const tiles = d.techs.map((t) => { const P = d.periods; const need = P.reduce((a, p) => a + p.techs[t].need, 0); const cap = P.reduce((a, p) => a + p.techs[t].capacity, 0); const s = short(d, t);
-    return `<div class="kdb-tile"><div class="kdb-tile-l">${CPM_TECH_ICON[t] || ''} ${esc(t)} — year</div><div class="kdb-tile-v ${cpmUtilCls(cap ? need / cap : null) === 'bad' ? 'kdb-bad' : ''}">${cpmPct(cap ? need / cap : null)}</div>
+    return `<div class="kdb-tile cpm-tile" style="border-top-color:${cpmTc(t)}"><div class="kdb-tile-l">${CPM_TECH_ICON[t] || ''} <b style="color:${cpmTc(t)}">${esc(t)}</b> — year</div><div class="kdb-tile-v ${cpmUtilCls(cap ? need / cap : null) === 'bad' ? 'kdb-bad' : ''}">${cpmPct(cap ? need / cap : null)}</div>
       <div class="kdb-tile-s">of capacity needed · <b class="${s ? 'pl-late' : 'pl-ok'}">${s} ${period === 'week' ? 'week' : 'month'}${s === 1 ? '' : 's'} over</b>${d.scenarios.map((sc, j) => ` · <span style="color:${SC_COL[j]}">${esc(sc.name)}: ${short(sc, t)}</span>`).join('')}</div></div>`; }).join('');
+  const allSel = store.get('cpmAll', 'volume') === 'load' ? 'load' : 'volume';
   const fvaSel = ['all', ...d.techs].includes(store.get('cpmFva', 'all')) ? store.get('cpmFva', 'all') : 'all';
   const years = [year - 1, year, year + 1];
   body.innerHTML = `
@@ -132,14 +178,18 @@ async function cpmOverview(body) {
     ${d.forecast_as_of && !d.forecast_total ? `<div class="kc-note">⚠ The forecast read in ${esc(d.forecast_as_of)} has nothing for ${d.year} — check the files linked in Reporting › Sources.</div>` : ''}
     ${d.unmapped_count ? `<div class="kc-note">🔗 <b>${d.unmapped_count} forecast name${d.unmapped_count === 1 ? '' : 's'} not linked to a customer</b> (${cpmK(d.unmapped_qty)} cards this year): counted with the mix of everything persoed and the default OEE until linked — ${d.unmapped.slice(0, 5).map((u) => esc(u.name)).join(' · ')}${d.unmapped_count > 5 ? ' …' : ''}. <a href="#/cpm/customers">Link them, or import the CPM workbook's Config sheet →</a></div>` : ''}
     <div class="kdb-tiles pl-tiles">${tiles}</div>
+    <div class="card"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h3 class="pl-h" style="margin:0">All technologies <span class="muted small">— ${allSel === 'load' ? 'how full each is' : 'capacity needed against capacity'}</span></h3>
+      <div class="seg"><button type="button" data-cpm-all="volume" class="${allSel === 'volume' ? 'on' : ''}">Cards</button><button type="button" data-cpm-all="load" class="${allSel === 'load' ? 'on' : ''}">Load %</button></div></div>
+      <div id="cpm-all">${allLegend(allSel)}${allChart(allSel)}</div></div>
     ${cpmFcTotals(d)}
     <div class="card"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h3 class="pl-h" style="margin:0">📈 Forecast vs actual <span class="muted small">— cards forecast against cards persoed, ${period === 'week' ? 'by week' : 'by month'}</span></h3>
-      <div class="seg">${['all', ...d.techs].map((t) => `<button type="button" data-cpm-fva="${t}" class="${fvaSel === t ? 'on' : ''}">${t === 'all' ? 'All' : esc(t)}</button>`).join('')}</div></div>
+      <div class="seg">${['all', ...d.techs].map((t) => `<button type="button" data-cpm-fva="${t}" class="${fvaSel === t ? 'on' : ''}" ${t === 'all' ? '' : `style="color:${cpmTc(t)}"`}>${t === 'all' ? 'All' : esc(t)}</button>`).join('')}</div></div>
       <div id="cpm-fva">${fva(fvaSel)}</div></div>
-    ${d.techs.map((t) => `<div class="card cpm-tech"><h3 class="pl-h">${CPM_TECH_ICON[t] || ''} ${esc(t)} <span class="muted small">— capacity needed against capacity</span></h3>
+    ${d.techs.map((t) => `<div class="card cpm-tech"><h3 class="pl-h cpm-tech-h" style="border-left-color:${cpmTc(t)}">${CPM_TECH_ICON[t] || ''} <span style="color:${cpmTc(t)}">${esc(t)}</span> <span class="muted small">— capacity needed against capacity</span></h3>
       ${legend()}${chart(t)}${table(t)}</div>`).join('')}`;
   if (cpmReread) { cpmReread = false; const bad = Object.values(d.forecast_status || {}).filter((x) => x.error); toast(bad.length ? `Couldn't read: ${bad.map((x) => x.error).join(' · ')}` : 'Forecasts read again', bad.length ? 'error' : ''); }
   const rr = $('#cpm-reread'); if (rr) rr.onclick = () => { cpmReread = true; rr.disabled = true; rr.textContent = 'Reading…'; renderCpm('overview'); };
+  $$('[data-cpm-all]').forEach((b) => { b.onclick = () => { store.set('cpmAll', b.dataset.cpmAll); $$('[data-cpm-all]').forEach((x) => x.classList.toggle('on', x === b)); $('#cpm-all').innerHTML = allLegend(b.dataset.cpmAll) + allChart(b.dataset.cpmAll); b.closest('.card').querySelector('h3 .muted').textContent = b.dataset.cpmAll === 'load' ? '— how full each is' : '— capacity needed against capacity'; }; });
   $$('[data-cpm-fva]').forEach((b) => { b.onclick = () => { store.set('cpmFva', b.dataset.cpmFva); $$('[data-cpm-fva]').forEach((x) => x.classList.toggle('on', x === b)); $('#cpm-fva').innerHTML = fva(b.dataset.cpmFva); }; });
   $('#cpm-year').onchange = (e) => { store.set('cpmYear', Number(e.target.value)); renderCpm('overview'); };
   $$('[data-cpm-period]').forEach((b) => { b.onclick = () => { store.set('cpmPeriod', b.dataset.cpmPeriod); renderCpm('overview'); }; });

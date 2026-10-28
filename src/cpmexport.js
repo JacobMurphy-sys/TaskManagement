@@ -7,7 +7,8 @@
 const { sheet, buildBook } = require('./xlsxbook');
 const { colName } = require('./xlsx');
 
-const TECH_COL = { DOD: '1F77B4', Emboss: 'E0861A', Laser: '7A5CFF' };
+// the CPM workbook's technology colours (DOD teal, Laser purple, Emboss black — a dark grey for bars)
+const TECH_COL = { DOD: '008080', Emboss: '404040', Laser: '7030A0' };
 const SC_COL = ['7A5CFF', 'E0861A'];
 const FIRST = 7; // the first period column (G)
 
@@ -198,6 +199,10 @@ function planSheet(name, res, ctx) {
   sh.cf.push({ ref: `${sh.ref(A.load, col(0))}:${sh.ref(A.load, tot)}`, rules: [{ op: 'greaterThan', v: '1', dxf: 'bad' }, { op: 'between', v: '0.85', v2: '1', dxf: 'warn' }, { op: 'between', v: '0', v2: '0.85', dxf: 'good' }] });
   r = k + 1;
   if (res.warnings?.length) { sh.set(r, 1, 'Notes', 'bold'); res.warnings.forEach((w, j) => sh.set(r + 1 + j, 1, `⚠ ${w}`, 'note')); }
+  // each row's text in its technology's colour, as the CPM workbook does
+  const techRows = [[rFc0, rFc1], [rTf0, rTf1], [rNd0, rNd1], [rMh0, rMh1], [rMc0, rMc1]].filter(([a, b]) => b >= a);
+  for (const [a, b] of techRows) sh.cf.push({ ref: `A${a}:${colName(tot - 1)}${b}`, rules: T.map((t) => ({ expr: `$C${a}="${t}"`, dxf: t })) });
+  for (const t of T) { const R = rows[t]; const rs = Object.values(R); sh.cf.push({ ref: `A${Math.min(...rs)}:B${Math.max(...rs)}`, rules: [{ expr: `$A${Math.min(...rs)}="${t}"`, dxf: t }] }); }
   sh.freeze = { row: 1, col: FIRST };
   return { sh, rows, headRow: 6, n, col };
 }
@@ -212,20 +217,27 @@ function buildCpmWorkbook({ base, scenarios = [], period, flex, sources, CARD_FI
   // ---- charts: per technology capacity needed against capacity (and the scenarios'), forecast against actual
   const ch = sheet('Charts'); ch.set(1, 1, `CPM ${base.year} — charts`, 'title'); ch.set(2, 1, 'The charts read the plan sheets: change an input there and they follow.', 'note');
   const cats = B.sh.full(B.headRow, FIRST, B.headRow, FIRST + B.n - 1);
-  const W = 13; const H = 20;
+  const W = 13; const H = 20; const rng = (row) => B.sh.full(row, FIRST, row, FIRST + B.n - 1);
+  // all three technologies together: capacity needed (bars) against capacity (lines), and each one's load
+  ch.charts.push({ title: 'All technologies — capacity needed (bars) against capacity (lines)', cats, from: [1, 4], to: [1 + W - 1, 4 + H - 1],
+    series: [...base.techs.map((t) => ({ name: `${t} needed`, ref: rng(B.rows[t].need), kind: 'bar', color: TECH_COL[t] || '1F77B4' })),
+      ...base.techs.map((t) => ({ name: `${t} capacity`, ref: rng(B.rows[t].cap), kind: 'line', color: TECH_COL[t] || '1F77B4', dash: true }))] });
+  ch.charts.push({ title: 'All technologies — load (needed ÷ capacity)', cats, pct: true, from: [1 + W, 4], to: [2 * W, 4 + H - 1],
+    series: base.techs.map((t) => ({ name: t, ref: rng(B.rows[t].load), kind: 'line', color: TECH_COL[t] || '1F77B4', markers: true, labels: period !== 'week', pct: true })) });
+  const OFF = H; // the charts per technology below
   base.techs.forEach((t, i) => {
-    const R = B.rows[t]; const at = [1 + (i % 2) * W, 4 + Math.floor(i / 2) * H];
+    const R = B.rows[t]; const at = [1 + (i % 2) * W, 4 + OFF + Math.floor(i / 2) * H];
     ch.charts.push({ title: `${t} — capacity needed against capacity`, cats, from: at, to: [at[0] + W - 1, at[1] + H - 1],
       series: [{ name: 'Capacity needed', ref: B.sh.full(R.need, FIRST, R.need, FIRST + B.n - 1), kind: 'bar', color: TECH_COL[t] || '1F77B4', labels: period !== 'week' },
         { name: 'Capacity', ref: B.sh.full(R.cap, FIRST, R.cap, FIRST + B.n - 1), kind: 'line', color: '111827', labels: period !== 'week' },
         ...built.slice(1).map((s, j) => ({ name: `Capacity — ${s.sc.name}`, ref: s.sh.full(s.rows[t].cap, FIRST, s.rows[t].cap, FIRST + s.n - 1), kind: 'line', color: SC_COL[j % 2], dash: true }))] });
   });
-  const k = base.techs.length; const at = [1 + (k % 2) * W, 4 + Math.floor(k / 2) * H];
+  const k = base.techs.length; const at = [1 + (k % 2) * W, 4 + OFF + Math.floor(k / 2) * H];
   ch.charts.push({ title: 'Forecast against actual — all technologies (cards)', cats, from: at, to: [at[0] + W - 1, at[1] + H - 1],
     series: [{ name: 'Forecast', ref: B.sh.full(B.rows.all.fc, FIRST, B.rows.all.fc, FIRST + B.n - 1), kind: 'bar', color: '9AA7BD', labels: period !== 'week' },
       { name: 'Persoed', ref: B.sh.full(B.rows.all.act, FIRST, B.rows.all.act, FIRST + B.n - 1), kind: 'bar', color: '2563EB', labels: period !== 'week' }] });
-  const at2 = [1, 4 + Math.ceil((k + 1) / 2) * H];
-  ch.charts.push({ title: 'Load — all technologies', cats, pct: true, from: at2, to: [at2[0] + 2 * W - 1, at2[1] + H - 1],
+  const at2 = [1, 4 + OFF + Math.ceil((k + 1) / 2) * H];
+  ch.charts.push({ title: 'Load, all technologies together — base plan against the scenarios', cats, pct: true, from: at2, to: [at2[0] + 2 * W - 1, at2[1] + H - 1],
     series: built.map((s, j) => ({ name: j ? s.sc.name : 'Base plan', ref: s.sh.full(s.rows.all.load, FIRST, s.rows.all.load, FIRST + s.n - 1), kind: 'line', color: j ? SC_COL[(j - 1) % 2] : '111827', dash: j > 0, markers: true })) });
 
   // ---- the forecast as read, against SITHUB's Database

@@ -1,4 +1,5 @@
 :root {
+  --tech-dod: #008080; --tech-laser: #7030a0; --tech-emboss: #3a3a3a;
   --bg: #f4f6f9;
   --panel: #ffffff;
   --panel-2: #f8f9fb;
@@ -22,6 +23,7 @@
    no choice has been made (data-theme absent). */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    --tech-dod: #2fb5b5; --tech-laser: #b083e0; --tech-emboss: #c9c9c9;
     --bg: #14171d; --panel: #1c2028; --panel-2: #222733; --text: #e5e8ee; --muted: #9099ab;
     --border: #2f3542; --accent: #5b91f0; --accent-soft: #23324d; --danger: #ec6a6a;
     --danger-soft: #3b2226; --warn: #f0a445; --warn-soft: #3a2e1b; --ok: #4cc27a; --ok-soft: #1c3527;
@@ -31,6 +33,7 @@
   }
 }
 :root[data-theme="dark"] {
+  --tech-dod: #2fb5b5; --tech-laser: #b083e0; --tech-emboss: #c9c9c9;
     --bg: #14171d; --panel: #1c2028; --panel-2: #222733; --text: #e5e8ee; --muted: #9099ab;
     --border: #2f3542; --accent: #5b91f0; --accent-soft: #23324d; --danger: #ec6a6a;
     --danger-soft: #3b2226; --warn: #f0a445; --warn-soft: #3a2e1b; --ok: #4cc27a; --ok-soft: #1c3527;
@@ -1400,3 +1403,7 @@ tr.kfd-cust-detail > td { background: var(--panel-2); padding: 8px 12px; }
 .cpm-manual { border-color: var(--accent, #2563eb) !important; font-weight: 600; }
 .cpm-picks { display: flex; flex-wrap: wrap; gap: 2px 14px; max-height: 180px; overflow: auto; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); margin-top: 4px; }
 .cpm-picks label { white-space: nowrap; }
+.cpm-allbar { opacity: .9; }
+.cpm-captick { stroke: var(--text); stroke-width: 2.5; } .cpm-captick.over { stroke: var(--danger); stroke-width: 3; }
+.cpm-100 { stroke: var(--danger); stroke-width: 1.4; stroke-dasharray: 6 4; } .cpm-100-l { fill: var(--danger); } .cpm-legend .cpm-100-sw { border-top-color: var(--danger); }
+.cpm-tech-h { border-left: 4px solid; padding-left: 8px; } .cpm-tile { border-top: 3px solid; }

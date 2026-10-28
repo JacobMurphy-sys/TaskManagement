@@ -1555,7 +1555,7 @@ async function waitForServer() {
           const loadJan = xs.cells.get(`G${loadRow.row}`);
           assert.ok(loadJan.f && Math.abs(loadJan.v - 2.4) < 0.01, 'the load is a formula, saved with the app\'s figure');
           assert.ok(cellsOf.some((c) => c.f && /^SUMIF\(/.test(c.f)), 'the summary adds up the rows above');
-          assert.equal(xb.drawing(xb.sheet('Charts')).anchors.length, base0Techs(ovR2) + 2, 'a chart per technology, forecast vs actual and load');
+          assert.equal(xb.drawing(xb.sheet('Charts')).anchors.length, base0Techs(ovR2) + 4, 'all technologies (needed and load), a chart per technology, forecast vs actual and load');
           await call('DELETE', `/cpm/scenarios/${rs.id}`);
           assert.equal((await call('GET', '/cpm/scenarios')).length, 1);
           await call('PUT', `/cpm/scenarios/${sc.id}`, { shared: true, changes: [{ type: 'shifts', shifts: 2 }] });
