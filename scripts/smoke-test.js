@@ -1603,6 +1603,25 @@ async function waitForServer() {
           const nb = ow.periods[0].techs; const nsx = ow.scenarios[0].periods[0].techs;
           assert.ok(Math.abs((nsx.DOD.demand - nb.DOD.demand) - 625) < 0.01 && Math.abs((nsx.Laser.demand - nb.Laser.demand) - 375) < 0.01, 'a 50 / 30 split is 62.5% / 37.5% of the new customer\'s 1,000');
           await call('DELETE', `/cpm/scenarios/${ws.id}`);
+          // the daily work spread by when its orders arrive: midway between an export and the one before;
+          // after a gap of more than 2 hours (or Low: renewals) left out
+          {
+            const sq2 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
+            const d0 = new Date(); d0.setDate(d0.getDate() - 2); const day = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, '0')}-${String(d0.getDate()).padStart(2, '0')}`;
+            const reads = ['08:00', '09:00', '10:00', '14:00'].map((t) => `${day}T${t}:00`);
+            for (const r of reads) sq2.prepare("INSERT OR IGNORE INTO plan_history_reads (file_modified, read_at) VALUES (?, ?)").run(r, r);
+            const job = (k, prio, at) => sq2.prepare("INSERT INTO plan_history_jobs (key, wo, customer, qty, prio, first_seen, last_seen) VALUES (?, ?, 'KBC', 100, ?, ?, ?)").run(k, k, prio, at, at);
+            for (let i = 0; i < 6; i++) job(`ARR${i}`, 'High', reads[2]); // arrived 09:00–10:00 → 09:30
+            job('ARRLOW', 'Low', reads[1]); job('ARRGAP', 'High', reads[3]);
+            sq2.close();
+            await call('PUT', '/cpm/settings', { cpm_day_profile: 'arrival' });
+            const da = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); const kr = da.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
+            assert.equal(kr.profile, 'arrivals-own'); assert.equal(da.arrivals_seen, 6, 'the Low order and the one after a 4-hour gap left out');
+            assert.ok(Math.abs(kr.shares[da.hours.indexOf(9)] - 1) < 1e-9, 'all of KBC\'s daily work lands at 9');
+            assert.ok(Math.abs(kr.cards_hours.reduce((a, b) => a + b, 0) - kr.daily) < 0.01 && Math.abs(da.tech.DOD.cards.total.reduce((a, b) => a + b, 0) - da.rows.filter((r) => r.tech === 'DOD').reduce((a, r) => a + r.daily + r.renew, 0)) < 0.01, 'cards: the day\'s cards, before OEE');
+            const sq3 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
+            sq3.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'ARR%'").run(); for (const r of reads) sq3.prepare('DELETE FROM plan_history_reads WHERE file_modified = ?').run(r); sq3.close();
+          }
           await call('PUT', '/cpm/day/renewals', { trigram: 'KBC', tech: 'DOD', share: null }); await call('PUT', '/cpm/settings', { cpm_rnw_hours: '{}' });
           await call('DELETE', '/cpm/customers/KBC'); await call('DELETE', '/cpm/customers/AES');
           await call('PUT', '/cpm/settings', { cpm_machines: '{}' }); await call('PATCH', '/settings', { kpi_fc_benelux: '', kpi_fc_amex: '' });

@@ -48,6 +48,49 @@ function profiles(cards, rs = runs(cards)) {
   for (const [k, a] of by) { const tot = a.reduce((x, y) => x + y, 0); if (tot > 0 && (k.startsWith('*') || (counts.get(k) || 0) >= 5)) out.set(k, a.map((x) => x / tot)); }
   return out;
 }
+// each customer and technology's day by when its daily work orders arrive: when they first appear in the
+// hourly open-order export — midway between that export and the one before it; an order first seen after a
+// gap of more than 2 hours (the app closed, the first read) could have come any time, so it's left out.
+// Renewals (Low priority) aren't daily work, so they're left out too. Same keys as profiles().
+function arrivals(cards) {
+  const from = new Date(); from.setDate(from.getDate() - LOOKBACK);
+  let reads = []; try { reads = db.all('SELECT file_modified FROM plan_history_reads ORDER BY file_modified').map((r) => r.file_modified); } catch { return { profiles: new Map(), orders: 0 }; }
+  const at = new Map(); // a read → when its new orders arrived (a time), if the read before was close enough
+  for (let i = 1; i < reads.length; i++) { const a = new Date(reads[i - 1]); const b = new Date(reads[i]); if (b - a > 0 && b - a <= 2 * 3600000) at.set(reads[i], new Date((a.getTime() + b.getTime()) / 2)); }
+  let jobs = []; try { jobs = db.all("SELECT key, customer, qty, prio, first_seen FROM plan_history_jobs WHERE first_seen >= ? AND customer IS NOT NULL AND (prio IS NULL OR lower(prio) NOT LIKE 'low%')", [ymd(from)]); } catch { return { profiles: new Map(), orders: 0 }; }
+  const lines = new Map(); try { for (const l of db.all('SELECT key, article, qty FROM plan_history_lines WHERE key IN (SELECT key FROM plan_history_jobs WHERE first_seen >= ?)', [ymd(from)])) (lines.get(l.key) || lines.set(l.key, []).get(l.key)).push(l); } catch { /* none */ }
+  const by = new Map(); const n = new Map(); const put = (k, h, q) => { const a = by.get(k) || by.set(k, Array(24).fill(0)).get(k); a[h] += q; n.set(k, (n.get(k) || 0) + 1); };
+  let orders = 0;
+  for (const j of jobs) {
+    const t0 = at.get(j.first_seen); if (!t0) continue; const h = t0.getHours(); const tri = String(j.customer).toUpperCase(); orders++;
+    const ls = (lines.get(j.key) || []).map((l) => ({ t: cpm.normTech(cards?.get(planning.axKey(l.article))?.type), q: Number(l.qty) || 0 })).filter((l) => l.t && l.q);
+    if (ls.length) for (const l of ls) { put(`${tri}|${l.t}`, h, l.q); put(`*|${l.t}`, h, l.q); }
+    put(`${tri}|*`, h, Number(j.qty) || 0); put('*|*', h, Number(j.qty) || 0);
+  }
+  const out = new Map();
+  for (const [k, a] of by) { const tot = a.reduce((x, y) => x + y, 0); if (tot > 0 && (k.startsWith('*') || (n.get(k) || 0) >= 5)) out.set(k, a.map((x) => x / tot)); }
+  return { profiles: out, orders };
+}
+// what was really persoed, hour by hour, on an average working day: the chosen month's runs when it has
+// any, else the last 4 weeks. { tech: [hour 0..23] cards, days, from, to }
+function actualDay(cards, year, month) {
+  const pad2 = (x) => String(x).padStart(2, '0'); const mFrom = `${year}-${pad2(month)}-01`; const mTo = `${year}-${pad2(month)}-31`;
+  const machineTech = new Map(db.all('SELECT name, types FROM plan_machines').map((m) => [String(m.name).toLowerCase(), String(m.types || '').split(/[,;/]/).map(cpm.normTech).filter(Boolean)]));
+  const read = (a, b) => { try { return db.all("SELECT start_at, end_at, qty, item, machine FROM prod_runs WHERE source = 'perso' AND remake = 0 AND end_at IS NOT NULL AND job NOT LIKE 'M%' AND start_at >= ? AND start_at <= ?", [a, `${b}T23:59:59`]); } catch { return []; } };
+  let rows = read(mFrom, mTo); let from = mFrom; let to = mTo; let which = 'month';
+  if (!rows.length) { const e = new Date(); const b = new Date(); b.setDate(b.getDate() - 28); from = ymd(b); to = ymd(e); rows = read(from, to); which = 'last 4 weeks'; }
+  const workDays = new Set(String(setting('plan_days', '1,2,3,4,5')).split(',').map(Number));
+  const by = {}; const days = new Set();
+  for (const r of rows) {
+    const card = cards ? cards.get(planning.axKey(r.item)) : null; const mt = machineTech.get(String(r.machine || '').toLowerCase()) || [];
+    const t = cpm.normTech(card?.type) || (mt.length === 1 ? mt[0] : null); if (!t) continue;
+    const run = { start: new Date(r.start_at), end: new Date(r.end_at), qty: Number(r.qty) || 0 }; if (Number.isNaN(run.start.getTime())) continue;
+    if (workDays.has(run.start.getDay())) days.add(ymd(run.start));
+    spread(run, (h, q) => { (by[t] = by[t] || Array(24).fill(0))[h] += q; });
+  }
+  const nd = Math.max(1, days.size);
+  return { per: Object.fromEntries(Object.entries(by).map(([t, a]) => [t, a.map((x) => x / nd)])), days: days.size, from, to, which };
+}
 // a machine running several technologies: the share of each hour it ran each one — name → [hour] → { tech: share }
 function machineHours(cards, rs = runs(cards)) {
   const by = new Map();
@@ -82,13 +125,18 @@ function cutoffs() {
 function day({ year, month, changes = [], useFlex = true, cards = null, full = true }) {
   const plan = cpm.compute({ year, period: 'month', changes, useFlex, cards });
   const P = plan.periods[month - 1]; const T = plan.techs; const H = hoursOfDay(); const warnings = [...plan.warnings];
-  const rs = runs(cards); const prof = profiles(cards, rs); const mh = machineHours(cards, rs); const rnw = renewalShares(cards);
+  const rs = runs(cards); const mh = machineHours(cards, rs); const rnw = renewalShares(cards);
+  // the daily part's day: when its work orders arrive (default) or when its cards were produced
+  const source = setting('cpm_day_profile', 'arrival') === 'produced' ? 'produced' : 'arrival';
+  const arr = source === 'arrival' ? arrivals(cards) : null; const prof = arr ? arr.profiles : profiles(cards, rs);
+  if (arr && !arr.orders) warnings.push('No work orders seen arriving yet (the hourly open-order export, read with no gap over 2 hours) — each day is spread as its cards were produced instead');
   const over = json(setting('cpm_rnw_share', '{}'), {}); // 'TRI|tech' → share typed in
   const bonus = Number(setting('cpm_rnw_bonus', '0.05')) || 0;
   let windows = json(setting('cpm_rnw_hours', '{}'), {});
   for (const c of changes) if (c.type === 'rnw_window' && c.tech && (!c.from || `${year}-${pad(month)}` >= c.from) && (!c.to || `${year}-${pad(month)}` <= c.to)) windows = { ...windows, [cpm.normTech(c.tech)]: (c.hours || []).map(Number) };
   if (full && changes.some((c) => c.type === 'shifts' && Number(c.hours) > 0)) warnings.push('This scenario changes the productive hours a shift — they only count with “Productive” capacity, not at full speed');
-  if (!rs.length) warnings.push('No ⏱ timing report runs in the last months — each day is spread evenly over the hours worked');
+  if (!rs.length && !(arr && arr.orders)) warnings.push('No ⏱ timing report runs in the last months — each day is spread evenly over the hours worked');
+  const prodProf = arr ? profiles(cards, rs) : prof;
   const days = P.workdays || 0;
   // the hours the shifts cover, from the first shift's start
   const shifts = P.shifts ?? plan.shifts; const hph = P.hph ?? plan.hours;
@@ -104,11 +152,13 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
     const rShare = typed !== undefined && typed !== null && typed !== '' ? Number(typed) : learned ? learned.share : 0;
     const oee = x.oee; const oeeR = Math.min(1, oee + bonus);
     const daily = (vol * (1 - rShare)) / days; const renew = (vol * rShare) / days;
-    const p = prof.get(`${tri}|${D.tech}`) || prof.get(`*|${D.tech}`) || prof.get('*|*') || null;
+    let p = null; let from = 'even';
+    if (arr && arr.orders) { for (const [k, f] of [[`${tri}|${D.tech}`, 'own'], [`${tri}|*`, 'own'], [`*|${D.tech}`, 'technology'], ['*|*', 'technology']]) if (!p && prof.get(k)) { p = prof.get(k); from = `arrivals-${f}`; } }
+    if (!p) for (const [k, f] of [[`${tri}|${D.tech}`, 'own'], [`*|${D.tech}`, 'technology'], ['*|*', 'technology']]) if (!p && prodProf.get(k)) { p = prodProf.get(k); from = f; }
     const shares = H.map((h) => (p ? p[h] : worked.has(h) ? 1 / worked.size : 0));
     rows.push({ trigram: tri, name: D.name, tech: D.tech, month_volume: vol, daily_pct: 1 - rShare, rnw_pct: rShare, rnw_learned: learned ? learned.share : null, rnw_typed: typed ?? null,
-      oee, oee_rnw: oeeR, workdays: days, daily, renew, need_daily: daily / oee, need_rnw: renew / oeeR, profile: p ? (prof.has(`${tri}|${D.tech}`) ? 'own' : 'technology') : 'even', shares,
-      hours: shares.map((s) => (daily / oee) * s) });
+      oee, oee_rnw: oeeR, workdays: days, daily, renew, need_daily: daily / oee, need_rnw: renew / oeeR, profile: from, shares,
+      hours: shares.map((s) => (daily / oee) * s), cards_hours: shares.map((s) => daily * s) });
   }
   rows.sort((a, b) => T.indexOf(a.tech) - T.indexOf(b.tech) || b.need_daily - a.need_daily);
   // renewals: each technology's day of renewals over its window
@@ -158,19 +208,27 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
     if (m.only?.length) row.only = m.only;
     machines.push(row);
   }
-  // demand, load and the backlog carried from hour to hour
+  // demand, load and the backlog carried from hour to hour; the same in cards (capacity × the hour's OEE);
+  // and what was really persoed in an average working day's hours
+  const act = actualDay(cards, year, month);
   const out = {};
   for (const t of T) {
+    const cDaily = H.map((_, i) => rows.filter((r) => r.tech === t).reduce((a, r) => a + r.cards_hours[i], 0));
+    const rCards = rows.filter((r) => r.tech === t).reduce((a, r) => a + r.renew, 0);
+    const cRnw = H.map((h) => (rnwByTech[t].hours.includes(h) ? rCards / rnwByTech[t].hours.length : 0));
     const daily = H.map((_, i) => rows.filter((r) => r.tech === t).reduce((a, r) => a + r.hours[i], 0));
     const renewals = rnwByTech[t].per; const need = daily.map((v, i) => v + renewals[i]);
     let carry = 0; const backlog = need.map((v, i) => { carry = Math.max(0, carry + v - cap[t][i]); return carry; });
     const tot = need.reduce((a, b) => a + b, 0); const capTot = cap[t].reduce((a, b) => a + b, 0);
-    out[t] = { daily, renewals, need, capacity: cap[t], idle: idle[t], backlog, load: need.map((v, i) => (cap[t][i] ? v / cap[t][i] : v ? null : 0)),
+    const cards_ = cDaily.map((v, i) => v + cRnw[i]); const dayRatio = need.reduce((a, b) => a + b, 0) ? cards_.reduce((a, b) => a + b, 0) / need.reduce((a, b) => a + b, 0) : 1;
+    const effCap = cap[t].map((c, i) => c * (need[i] > 0.5 ? cards_[i] / need[i] : dayRatio));
+    out[t] = { daily, renewals, need, capacity: cap[t], idle: idle[t], backlog,
+      cards: { daily: cDaily, renewals: cRnw, total: cards_, capacity: effCap, actual: act.per[t] ? H.map((h) => act.per[t][h]) : null, oee: dayRatio }, load: need.map((v, i) => (cap[t][i] ? v / cap[t][i] : v ? null : 0)),
       total: { need: tot, daily: daily.reduce((a, b) => a + b, 0), renewals: rnwByTech[t].need, capacity: capTot, idle: idle[t].reduce((a, b) => a + b, 0), load: capTot ? tot / capTot : null, end_backlog: carry, hours_over: need.filter((v, i) => v > cap[t][i] + 0.5).length } };
   }
   return { year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), shifts, hph, full,
-    techs: T, rows, renewals: rnwByTech, windows, bonus, capacity_machines: machines, tech: out, cutoffs: cutoffs(), warnings: [...new Set(warnings)],
+    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, tech: out, cutoffs: cutoffs(), warnings: [...new Set(warnings)],
     learned: { runs: rs.length, renewals: [...rnw.values()].reduce((a, x) => a + x.qty, 0) }, forecast_as_of: plan.forecast_as_of, flex: useFlex };
 }
 
-module.exports = { day, hoursOfDay, profiles, renewalShares, machineHours, cutoffs };
+module.exports = { day, hoursOfDay, profiles, arrivals, actualDay, renewalShares, machineHours, cutoffs };

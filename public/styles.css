@@ -1424,3 +1424,5 @@ tr.kfd-cust-detail > td { background: var(--panel-2); padding: 8px 12px; }
 .cpm-gantt input.cpm-rnw-in { padding: 1px 4px; height: 22px; font-size: 12px; }
 .cpm-scneed { stroke-width: 3.2; stroke-linecap: round; }
 .cpm-legend .cpm-scneed-sw { display: inline-block; width: 12px; height: 3px; border-radius: 2px; margin-left: -2px; }
+.cpm-actdot { fill: var(--panel); stroke: var(--warn); stroke-width: 2.4; }
+.cpm-legend .cpm-actdot-sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 2.4px solid var(--warn); }
