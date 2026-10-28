@@ -1430,3 +1430,4 @@ tr.kfd-cust-detail > td { background: var(--panel-2); padding: 8px 12px; }
 .cpm-legend .cpm-ghost-sw { background: none; border: 1.3px dashed var(--muted); }
 .cpm-mini button { font-size: 12px; padding: 3px 10px; }
 .cpm-sm-note { margin: 6px 0 2px; }
+.cpm-sum { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--border); color: var(--muted); }
