@@ -1653,7 +1653,13 @@ async function waitForServer() {
             assert.ok(pTyp < 1 && pWorst === 1, `typical ${pTyp} spread a bit, the worst case all in one hour`);
             const cmp = await call('GET', `/cpm/day/compare?year=${Y}&month=1&flex=0`);
             const sumN = (k) => cmp.shapes[k].DOD.need.reduce((a, b) => a + b, 0);
-            assert.ok(['typical', 'worst', 'average'].every((k) => cmp.shapes[k].DOD) && Math.abs(sumN('worst') - sumN('average')) < 0.01 && cmp.shapes.worst.DOD.peak >= cmp.shapes.average.DOD.peak - 1e-9, 'the three side by side: the same day\'s work, the worst case peaking highest');
+            assert.ok(['typical', 'worst', 'average'].every((k) => cmp.shapes[k].DOD) && sumN('worst') > sumN('average') + 1 && Math.abs(sumN('typical') - sumN('average')) < 0.01 && cmp.shapes.worst.DOD.peak >= cmp.shapes.average.DOD.peak - 1e-9, 'the three side by side: the worst case bigger and peaking highest');
+            // worst-case volume: the busiest day submitted (800 cards) ÷ the average over the 3 days read (2,000 / 3) = × 1.2;
+            // KBC seen on under 5 days, so everyone's
+            const dT = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); await call('PUT', '/cpm/settings', { cpm_day_shape: 'worst' });
+            const dW = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); await call('PUT', '/cpm/settings', { cpm_day_shape: 'typical' });
+            const kT = dT.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD'); const kW = dW.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
+            assert.ok(Math.abs(kW.peak.factor - 1.2) < 1e-9 && kW.peak.peak === 800 && kW.peak.own === false && Math.abs(kW.daily - kT.daily * 1.2) < 1e-6 && Math.abs(kW.renew - kT.renew) < 1e-9 && kT.peak === null, `worst case: daily × 1.2, renewals as they are (${JSON.stringify(kW.peak)})`);
             const sq3 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
             sq3.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'ARR%'").run(); for (const r of reads) sq3.prepare('DELETE FROM plan_history_reads WHERE file_modified = ?').run(r); sq3.close();
           }

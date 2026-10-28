@@ -92,6 +92,27 @@ function arrivals(cards) {
   const mode = dayShape(); for (const [k, days] of by) { if (!k.startsWith('*') && (n.get(k) || 0) < 5) continue; const sh = shapeOf(days, mode); if (sh) out.set(k, sh); }
   return { profiles: out, orders, counts: n, covered };
 }
+// each customer's busiest day lately against its average one, for the worst case: the daily work orders
+// (not Low) submitted a day — when they first appear in the hourly export, if read with no gap over 2 hours
+// before (a first read after the app was closed would gather days of work into one) — the peak ÷ the average
+// over the days the export was read. 'TRI' (and '*' for everyone) → { factor, peak, avg, day, days };
+// a customer seen on fewer than 5 days takes everyone's. Else the ⏱ timing report's runs a day.
+function peakVolumes(rs = []) {
+  const from = new Date(); from.setDate(from.getDate() - LOOKBACK);
+  const by = new Map(); const daysAll = new Set(); const add = (k, dk, q) => { const m = by.get(k) || by.set(k, new Map()).get(k); m.set(dk, (m.get(dk) || 0) + q); };
+  let src = 'orders';
+  try {
+    const reads = db.all('SELECT file_modified FROM plan_history_reads WHERE file_modified >= ? ORDER BY file_modified', [ymd(from)]).map((r) => r.file_modified);
+    const ok = new Set(); for (let i = 1; i < reads.length; i++) { const a = new Date(reads[i - 1]); const b = new Date(reads[i]); if (b - a > 0 && b - a <= 2 * 3600000) { ok.add(reads[i]); daysAll.add(dayKey(b)); } }
+    for (const j of db.all("SELECT customer, qty, first_seen FROM plan_history_jobs WHERE first_seen >= ? AND customer IS NOT NULL AND (prio IS NULL OR lower(prio) NOT LIKE 'low%')", [ymd(from)])) {
+      if (!ok.has(j.first_seen)) continue; const dk = dayKey(new Date(j.first_seen)); const q = Number(j.qty) || 0; add(String(j.customer).toUpperCase(), dk, q); add('*', dk, q); }
+  } catch { /* no history */ }
+  if (!by.size) { src = 'produced'; for (const r of rs) { if (!r.qty) continue; const dk = dayKey(r.start); daysAll.add(dk); if (r.trigram) add(r.trigram, dk, r.qty); add('*', dk, r.qty); } }
+  const out = new Map();
+  for (const [k, m] of by) { if (k !== '*' && m.size < 5) continue; const n = Math.max(daysAll.size, m.size); const tot = [...m.values()].reduce((a, b) => a + b, 0); if (!tot || !n) continue;
+    const [day, peak] = [...m.entries()].reduce((w, e) => (e[1] > w[1] ? e : w)); const avg = tot / n; out.set(k, { factor: Math.max(1, peak / avg), peak, avg, day, days: m.size }); }
+  return { by: out, source: src };
+}
 // a day's shares → its typical hour (a circular mean, so 23:00 and 01:00 average to midnight): 9.5 for 09:30
 function meanHour(p) {
   let x = 0; let y = 0; p.forEach((w, h) => { const a = ((h + 0.5) / 24) * 2 * Math.PI; x += w * Math.cos(a); y += w * Math.sin(a); });
@@ -335,6 +356,8 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
   // or { hours: [24 weights by the clock] } — made into a day's shares by the clock hour
   const manual = new Map();
   for (const [k, v] of Object.entries(json(setting('cpm_day_manual', '{}'), {}))) { const sh = manualShares(v); if (sh) manual.set(k, sh); }
+  const shape = dayShape(); const pv = shape === 'worst' ? peakVolumes(rs) : null; // the worst case: its busiest day's volume too
+  if (pv && !pv.by.size) warnings.push('No history of daily volumes yet (work orders seen arriving, or ⏱ timing report runs) — the worst case takes the forecast\'s daily volume');
   const rows = [];
   for (const D of plan.detail) {
     const x = D.months[month]; if (!x || !days) continue;
@@ -342,7 +365,8 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
     const learned = rnw.get(`${tri}|${D.tech}`) || rnw.get(tri) || null; const typed = over[`${tri}|${D.tech}`];
     const rShare = typed !== undefined && typed !== null && typed !== '' ? Number(typed) : learned ? learned.share : 0;
     const oee = x.oee; const oeeR = Math.min(1, oee + bonus);
-    const daily = (vol * (1 - rShare)) / days; const renew = (vol * rShare) / days;
+    const pk = pv ? pv.by.get(tri) || pv.by.get('*') || null : null; // the busiest day ÷ the average, from history
+    const daily = ((vol * (1 - rShare)) / days) * (pk ? pk.factor : 1); const renew = (vol * rShare) / days;
     let p = null; let from = 'even';
     let seen = null;
     // set by hand on the tab: the customer and technology, the customer, everyone else (this technology / all)
@@ -354,7 +378,7 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
     if (manualP) { p = manualP; from = manualFrom; }
     const shares = H.map((h) => (p ? p[h] : worked.has(h) ? 1 / worked.size : 0));
     rows.push({ trigram: tri, name: D.name, tech: D.tech, month_volume: vol, daily_pct: 1 - rShare, rnw_pct: rShare, rnw_learned: learned ? learned.share : null, rnw_typed: typed ?? null,
-      oee, oee_rnw: oeeR, workdays: days, daily, renew, need_daily: daily / oee, need_rnw: renew / oeeR, profile: from, learned_shares: learnedShares, learned_from: learnedFrom, arrive_avg: p ? meanHour(p) : null, arrive_seen: seen, shares,
+      oee, oee_rnw: oeeR, workdays: days, daily, renew, need_daily: daily / oee, need_rnw: renew / oeeR, profile: from, peak: pk ? { factor: pk.factor, day: pk.day, peak: pk.peak, avg: pk.avg, days: pk.days, own: !!pv.by.get(tri) } : null, learned_shares: learnedShares, learned_from: learnedFrom, arrive_avg: p ? meanHour(p) : null, arrive_seen: seen, shares,
       hours: shares.map((s) => (daily / oee) * s), cards_hours: shares.map((s) => daily * s) });
   }
   rows.sort((a, b) => T.indexOf(a.tech) - T.indexOf(b.tech) || b.need_daily - a.need_daily);
@@ -444,8 +468,8 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
       rnwHours: Object.fromEntries(T.map((t) => [t, rnwByTech[t].window ? rnwByTech[t].hours : []])), sizes: orderSizes(cards), allowed: (m, r) => (m.only?.length ? allowed(m, r) : 1), cutoffOf });
   } catch (err) { warnings.push(`The work-order run couldn't be worked out: ${err.message}`); }
   return { blocks, year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), shifts, hph, full,
-    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, day_shape: dayShape(), arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, capacity_by_machine: Object.fromEntries(T.map((t) => [t, [...byM[t]].map(([name, per]) => ({ name, per }))])), tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, manual: json(setting('cpm_day_manual', '{}'), {}), warnings: [...new Set(warnings)],
+    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, day_shape: shape, peak_source: pv ? pv.source : null, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, capacity_by_machine: Object.fromEntries(T.map((t) => [t, [...byM[t]].map(([name, per]) => ({ name, per }))])), tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, manual: json(setting('cpm_day_manual', '{}'), {}), warnings: [...new Set(warnings)],
     learned: { runs: rs.length, renewals: [...rnw.values()].reduce((a, x) => a + x.qty, 0) }, forecast_as_of: plan.forecast_as_of, flex: useFlex };
 }
 
-module.exports = { day, compareShapes, manualShares, hoursOfDay, profiles, arrivals, actualDay, smoothDay, customerCutoffs, orderSizes, runBlocks, renewalShares, machineHours, cutoffs };
+module.exports = { day, compareShapes, peakVolumes, manualShares, hoursOfDay, profiles, arrivals, actualDay, smoothDay, customerCutoffs, orderSizes, runBlocks, renewalShares, machineHours, cutoffs };

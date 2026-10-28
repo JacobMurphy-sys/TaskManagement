@@ -299,7 +299,7 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
     const row = R0 + k;
     sh.set(row, 2, r.rnw_pct, 'inputPct'); sh.f(row, 1, `1-B${row}`, 'pct', r.daily_pct);
     sh.set(row, 3, r.trigram || '—'); sh.set(row, 4, r.name); sh.set(row, 5, r.tech);
-    sh.set(row, 6, r.month_volume, 'input'); sh.f(row, 7, `F${row}*A${row}`, 'int', r.month_volume * r.daily_pct); sh.f(row, 8, `G${row}/$C$4`, 'int', r.daily);
+    sh.set(row, 6, r.month_volume, 'input'); sh.f(row, 7, `F${row}*A${row}`, 'int', r.month_volume * r.daily_pct); sh.f(row, 8, r.peak && r.peak.factor !== 1 ? `G${row}/$C$4*${r.peak.factor}` : `G${row}/$C$4`, 'int', r.daily); // worst case: × its busiest day ÷ its average
     sh.set(row, 9, r.oee, 'inputPct'); sh.f(row, 10, `H${row}/I${row}`, 'int', r.need_daily);
     sh.f(row, 11, `F${row}*B${row}`, 'int', r.month_volume * r.rnw_pct); sh.f(row, 12, `K${row}/$C$4`, 'int', r.renew); sh.f(row, 13, `MIN(1,I${row}+$F$4)`, 'pct', r.oee_rnw); sh.f(row, 14, `L${row}/M${row}`, 'int', r.need_rnw);
     r.hours.forEach((v, i) => sh.f(row, hc(i), `$J${row}*'Hour profile'!${L(hc(i))}${row}`, 'int', v));
