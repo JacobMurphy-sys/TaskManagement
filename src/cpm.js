@@ -361,6 +361,18 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
   const base = db.all('SELECT * FROM plan_machines WHERE active = 1 ORDER BY sort_order, id').map((m) => ({ name: m.name, techs: String(m.types || '').split(/[,;/]/).map(normTech).filter(Boolean), base: true }));
   for (const m of base) if (!m.techs.length) m.techs = [...TECHS];
   const machines = [...base, ...changes.filter((c) => c.type === 'add_machine').map((c) => ({ name: c.name || 'New machine', techs: (c.techs || []).map(normTech).filter(Boolean), added: c }))];
+  // a scenario's changes that would do nothing, or not what they seem to: said, not silent
+  const names = new Set(machines.map((m) => m.name));
+  const when = (c) => `${c.from ? ` from ${c.from}` : ''}${c.to ? ` until ${c.to}` : ''}`;
+  for (const c of changes) {
+    if (c.from && c.to && c.to < c.from) warnings.push(`A ${c.type.replace('_', ' ')} change runs from ${c.from} until ${c.to} — it never applies`);
+    if (['remove_machine', 'capabilities', 'restrict'].includes(c.type) || (c.type === 'speed' && c.machine)) { if (!c.machine) warnings.push(`A ${c.type.replace('_', ' ')} change has no machine chosen — it does nothing`); else if (!names.has(c.machine)) warnings.push(`${c.machine} isn't a machine in Production › ⚙ Setup (or added by this scenario) — that change does nothing`); }
+    if (c.type === 'add_machine' && !(c.techs || []).map(normTech).filter(Boolean).length) warnings.push(`${c.name || 'The machine added'} runs no technology — tick what it runs, or it adds nothing`);
+    if (c.type === 'capabilities' && c.machine && !(c.techs || []).map(normTech).filter(Boolean).length) warnings.push(`${c.machine} is set to run nothing${when(c)} — the same as removing it`);
+    if (c.type === 'new_customer') { const sp = Object.values(c.split || {}).reduce((a, b) => a + (Number(b) || 0), 0); if (c.split && Object.keys(c.split).length && Math.abs(sp - 1) > 0.005) warnings.push(`${c.name || 'The new customer'}'s split adds up to ${Math.round(sp * 100)}% — it's taken as shares of 100%`); if (!(Number(c.qty) > 0)) warnings.push(`${c.name || 'The new customer'} has no cards a month — it adds nothing`); }
+    if ((c.type === 'oee' && !Number(c.points)) || ((c.type === 'volume' || c.type === 'speed') && !Number(c.pct))) warnings.push(`A ${c.type} change of 0 — it does nothing`);
+    if (c.type === 'rnw_window') warnings.push(`The ${c.tech || ''} renewal window only changes 🕐 Day by hour — not the month or week figures`.replace('The  ', 'The '));
+  }
   // CPM's own per-machine settings: availability (share of its hours for perso) and speed per technology
   const opts = json(setting('cpm_machines', '{}'), {});
   const machineAt = (m, month) => {
@@ -393,6 +405,8 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
   const extra = changes.filter((c) => c.type === 'new_customer');
   // machines that may only run some customers / cards: their fields' mix per customer, learned from what ran
   const restricts = changes.filter((c) => c.type === 'restrict' && c.machine);
+  const fcTris = new Set([...fc.by.keys()].map((k) => k.split('|')[0]));
+  for (const c of restricts) if ((c.customers || []).length && !c.customers.some((tri) => fcTris.has(tri)) && !changes.some((x) => x.type === 'new_customer' && c.customers.includes(x.name))) warnings.push(`${c.machine} is kept for ${c.customers.join(', ')}, who have no forecast in ${year} — it stands idle`);
   const rFields = [...new Set(restricts.filter((c) => c.field && CARD_FIELDS[c.field] && (c.values || []).length).map((c) => c.field))];
   const mixOf = rFields.length ? cardMix(cards, rFields) : new Map();
   if (rFields.length && !cards) warnings.push('A machine is restricted to some cards, but the card database isn\'t linked — its cards can\'t be told apart, so it gets none of that work');
@@ -423,7 +437,9 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
       const oeeOf = (t) => Number(c.oee?.[t]) || Number(prodOee.get(c.trigram)) || oeeDefault;
       add(c.trigram, qty, split, oeeOf, c.name || c.trigram, f.total || Object.values(f.tech).reduce((a, b) => a + b, 0));
     }
-    for (const nc of extra) if (inRange(month, nc)) add(nc.name || 'New', Number(nc.qty) || 0, nc.split || { DOD: 1 }, () => Number(nc.oee) || oeeDefault, `${nc.name || 'New'} (new)`);
+    for (const nc of extra) if (inRange(month, nc)) { // its split as shares of 100% (50 / 30 is 62.5% / 37.5%), none: all DOD
+      const sp = Object.fromEntries(Object.entries(nc.split || {}).filter(([, v]) => Number(v) > 0)); const tot = Object.values(sp).reduce((a, b) => a + Number(b), 0);
+      add(nc.name || 'New', Number(nc.qty) || 0, tot ? Object.fromEntries(Object.entries(sp).map(([t, v]) => [t, Number(v) / tot])) : { DOD: 1 }, () => Number(nc.oee) || oeeDefault, `${nc.name || 'New'} (new)`); }
   }
   // per day: demand spread over the month's working days; machine hours; then by period
   const keyOf = (d) => (period === 'week' ? weekOf(d.day).key : d.month);
@@ -468,7 +484,8 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
     const tot = { fc: 0, demand: 0, need: 0, capacity: 0, actual: 0 }; for (const t of TECHS) for (const k of Object.keys(tot)) tot[k] += T[t][k];
     tot.gap = tot.capacity - tot.need; tot.util = tot.capacity ? tot.need / tot.capacity : null;
     return { key: P.key, label: P.label, start: P.start, end: P.end, workdays: P.workdays, hours: P.hours || 0, shifts: P.shifts ?? null, hph: P.hph ?? null, share: P.share || {}, techs: T, total: tot,
-      machines: Object.entries(P.machines).map(([name, x]) => ({ name, hours: x.hours, avail: x.avail, techs: x.techs, speed: x.speed, alloc: alloc[name] || {} })) };
+      machines: Object.entries(P.machines).map(([name, x]) => ({ name, hours: x.hours, avail: x.avail, techs: x.techs, speed: x.speed, alloc: alloc[name] || {},
+        only: (x.only || []).map((r) => ({ customers: r.customers ? [...r.customers] : null, field: r.field, values: r.values ? [...r.values] : null })) })) };
   });
   return { year, period, techs: TECHS, speeds: sp, speed_from: Object.fromEntries(Object.entries(speeds(true)).map(([t, x]) => [t, x.from])), oee_fallback: oeeDefault, oee_fallback_from: Number(setting('plan_oee_default', '')) > 0 ? 'production' : 'cpm', shifts: shifts0, hours: hours0, forecast_as_of: fc.as_of, unmapped: fc.unmapped.slice(0, 30), unmapped_count: fc.unmapped.length, unmapped_qty: unlinkedQty,
     forecast_sources: fc.sources, forecast_counted: Object.fromEntries(Object.entries(monthDemand).map(([k, md]) => [k, TECHS.reduce((t, x) => t + md[x].fc, 0)])),
@@ -533,4 +550,4 @@ function parseConfig(buf) {
   throw new Error('No Config sheet with a Trigram column');
 }
 
-module.exports = { TECHS, CARD_FIELDS, cardValues, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf };
+module.exports = { TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf };

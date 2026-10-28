@@ -1588,6 +1588,21 @@ async function waitForServer() {
           const dx = await fetch(`${BASE}/cpm/day/export?year=${Y}&month=1&flex=0`, { headers: { 'X-Requested-With': 'TaskManager' } });
           assert.equal(dx.status, 200);
           assert.deepEqual(require('../src/xlsxread').readBook(Buffer.from(await dx.arrayBuffer())).sheets.map((x) => x.name), [`Day January ${Y}`, 'Hour profile', 'Charts']);
+          // the day with a machine kept for KBC: it counts only KBC's work in an hour, the rest is idle
+          const dm = await call('POST', '/plan/machines', { name: 'CPM D1', types: 'DOD' });
+          const rsd = await call('POST', '/cpm/scenarios', { name: 'D1 for KBC', changes: [{ type: 'restrict', machine: 'CPM D1', customers: ['KBC'] }] });
+          const dyR = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&scenario=${rsd.id}`); const dyB = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`);
+          const kbcDay = dyR.rows.filter((r) => r.trigram === 'KBC' && r.tech === 'DOD').reduce((a, r) => a + r.need_daily + r.need_rnw, 0);
+          assert.ok(Math.abs(dyR.tech.DOD.total.capacity - kbcDay) < 0.5 && dyR.tech.DOD.total.idle > 0 && dyB.tech.DOD.total.capacity > dyR.tech.DOD.total.capacity, 'a day: the restricted machine counts only its customer\'s work');
+          await call('DELETE', `/cpm/scenarios/${rsd.id}`); await call('DELETE', `/plan/machines/${dm.id}`);
+          // changes that would do nothing say so; a new customer's split is taken as shares of 100%
+          const ws = await call('POST', '/cpm/scenarios', { name: 'odd', changes: [{ type: 'add_machine', name: 'X9', techs: [] }, { type: 'speed', machine: 'NOPE', pct: 5 }, { type: 'volume', pct: 10, from: `${Y}-05`, to: `${Y}-02` }, { type: 'new_customer', name: 'NEWC', qty: 1000, split: { DOD: 0.5, Laser: 0.3 } }] });
+          const ow = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${ws.id}`);
+          const w = ow.scenarios[0].warnings.join(' | ');
+          assert.ok(/X9 runs no technology/.test(w) && /NOPE isn't a machine/.test(w) && /never applies/.test(w) && /adds up to 80%/.test(w), `warnings: ${w}`);
+          const nb = ow.periods[0].techs; const nsx = ow.scenarios[0].periods[0].techs;
+          assert.ok(Math.abs((nsx.DOD.demand - nb.DOD.demand) - 625) < 0.01 && Math.abs((nsx.Laser.demand - nb.Laser.demand) - 375) < 0.01, 'a 50 / 30 split is 62.5% / 37.5% of the new customer\'s 1,000');
+          await call('DELETE', `/cpm/scenarios/${ws.id}`);
           await call('PUT', '/cpm/day/renewals', { trigram: 'KBC', tech: 'DOD', share: null }); await call('PUT', '/cpm/settings', { cpm_rnw_hours: '{}' });
           await call('DELETE', '/cpm/customers/KBC'); await call('DELETE', '/cpm/customers/AES');
           await call('PUT', '/cpm/settings', { cpm_machines: '{}' }); await call('PATCH', '/settings', { kpi_fc_benelux: '', kpi_fc_amex: '' });

@@ -87,6 +87,7 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
   const bonus = Number(setting('cpm_rnw_bonus', '0.05')) || 0;
   let windows = json(setting('cpm_rnw_hours', '{}'), {});
   for (const c of changes) if (c.type === 'rnw_window' && c.tech && (!c.from || `${year}-${pad(month)}` >= c.from) && (!c.to || `${year}-${pad(month)}` <= c.to)) windows = { ...windows, [cpm.normTech(c.tech)]: (c.hours || []).map(Number) };
+  if (full && changes.some((c) => c.type === 'shifts' && Number(c.hours) > 0)) warnings.push('This scenario changes the productive hours a shift — they only count with “Productive” capacity, not at full speed');
   if (!rs.length) warnings.push('No ⏱ timing report runs in the last months — each day is spread evenly over the hours worked');
   const days = P.workdays || 0;
   // the hours the shifts cover, from the first shift's start
@@ -118,9 +119,23 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
     rnwByTech[t] = { need, hours: hrs, window: !!win.length, per: H.map((h) => (hrs.includes(h) ? need / hrs.length : 0)) };
   }
   // capacity per hour: each machine's speed × availability in the hours worked, a multi-technology machine
-  // split as it ran in that hour (else as the month gives it its hours)
-  const cap = Object.fromEntries(T.map((t) => [t, Array(24).fill(0)])); const machines = [];
-  for (const m of P.machines) {
+  // split as it ran in that hour (else as the month gives it its hours). A machine kept for some customers /
+  // cards counts only the work it's allowed in that hour (theirs, daily and renewals, the card share learned
+  // from what they ran); the rest of its hour is idle — no one else may use it — so not capacity.
+  const cap = Object.fromEntries(T.map((t) => [t, Array(24).fill(0)])); const idle = Object.fromEntries(T.map((t) => [t, Array(24).fill(0)])); const machines = [];
+  const restricted = P.machines.filter((m) => m.only?.length);
+  const rem = rows.map((r) => H.map((h, i) => r.hours[i] + (rnwByTech[r.tech].hours.includes(h) ? r.need_rnw / rnwByTech[r.tech].hours.length : 0)));
+  const fields = [...new Set(restricted.flatMap((m) => m.only.map((o) => o.field).filter(Boolean)))];
+  const mix = fields.length ? cpm.cardMix(cards, fields) : new Map();
+  if (fields.length && !cards) warnings.push('A machine is restricted to some cards, but the card database isn\'t linked — it gets none of that work');
+  const allowed = (m, r) => m.only.reduce((f, o) => {
+    if (o.customers && !o.customers.includes(r.trigram) && !o.customers.includes(r.name)) return 0;
+    if (!o.values) return f;
+    const mx = mix.get(`${r.trigram}|${r.tech}`) || mix.get(`*|${r.tech}`); if (!mx) return 0;
+    let share = 0; for (const [sig, x] of mx) if (o.values.includes(String(json(sig, {})[o.field] ?? ''))) share += x; return f * share;
+  }, 1);
+  const order = [...restricted, ...P.machines.filter((m) => !m.only?.length)];
+  for (const m of order) {
     const ts = m.techs.filter((t) => cap[t] && m.speed?.[t] > 0); if (!ts.length) continue;
     const allocT = ts.reduce((a, t) => a + (m.alloc?.[t] || 0), 0); const learned = ts.length > 1 ? mh.get(String(m.name).toLowerCase()) : null;
     const row = { name: m.name, techs: ts, speed: m.speed, avail: m.avail ?? 1, share: [] };
@@ -131,8 +146,16 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
       if (!sh) sh = Object.fromEntries(ts.map((t) => [t, allocT ? (m.alloc[t] || 0) / allocT : 1 / ts.length]));
       row.share.push(sh);
       if (!worked.has(h)) return;
-      for (const t of ts) cap[t][i] += m.speed[t] * (m.avail ?? 1) * sh[t] * factor;
+      for (const t of ts) {
+        const c = m.speed[t] * (m.avail ?? 1) * sh[t] * factor;
+        if (!m.only?.length) { cap[t][i] += c; continue; }
+        const mine = rows.map((r, k) => (r.tech === t ? rem[k][i] * allowed(m, r) : 0)); const want = mine.reduce((a, b) => a + b, 0);
+        const use = Math.min(c, want); const f = want ? use / want : 0;
+        rows.forEach((r, k) => { if (mine[k]) rem[k][i] -= mine[k] * f; });
+        cap[t][i] += use; idle[t][i] += c - use; ((row.used = row.used || {})[t] = row.used[t] || Array(24).fill(0))[i] = use;
+      }
     });
+    if (m.only?.length) row.only = m.only;
     machines.push(row);
   }
   // demand, load and the backlog carried from hour to hour
@@ -142,8 +165,8 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
     const renewals = rnwByTech[t].per; const need = daily.map((v, i) => v + renewals[i]);
     let carry = 0; const backlog = need.map((v, i) => { carry = Math.max(0, carry + v - cap[t][i]); return carry; });
     const tot = need.reduce((a, b) => a + b, 0); const capTot = cap[t].reduce((a, b) => a + b, 0);
-    out[t] = { daily, renewals, need, capacity: cap[t], backlog, load: need.map((v, i) => (cap[t][i] ? v / cap[t][i] : v ? null : 0)),
-      total: { need: tot, daily: daily.reduce((a, b) => a + b, 0), renewals: rnwByTech[t].need, capacity: capTot, load: capTot ? tot / capTot : null, end_backlog: carry, hours_over: need.filter((v, i) => v > cap[t][i] + 0.5).length } };
+    out[t] = { daily, renewals, need, capacity: cap[t], idle: idle[t], backlog, load: need.map((v, i) => (cap[t][i] ? v / cap[t][i] : v ? null : 0)),
+      total: { need: tot, daily: daily.reduce((a, b) => a + b, 0), renewals: rnwByTech[t].need, capacity: capTot, idle: idle[t].reduce((a, b) => a + b, 0), load: capTot ? tot / capTot : null, end_backlog: carry, hours_over: need.filter((v, i) => v > cap[t][i] + 0.5).length } };
   }
   return { year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), shifts, hph, full,
     techs: T, rows, renewals: rnwByTech, windows, bonus, capacity_machines: machines, tech: out, cutoffs: cutoffs(), warnings: [...new Set(warnings)],

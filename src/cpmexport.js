@@ -334,7 +334,10 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   }
   r++; const C0 = r;
   for (const { row, m, t } of shareRows) {
-    sh.set(r, 3, m.name); sh.set(r, 4, 'capacity'); sh.set(r, 5, t);
+    sh.set(r, 3, m.name); sh.set(r, 4, m.only?.length ? 'capacity — only the work it may run' : 'capacity'); sh.set(r, 5, t);
+    if (m.only?.length) { // kept for some customers / cards: the work it's given that hour, the rest idle
+      H.forEach((_, i) => sh.set(r, hc(i), m.used?.[t]?.[i] || 0, 'fixed')); sh.f(r, hc(n), `SUM(${L(hc(0))}${r}:${L(hc(n - 1))}${r})`, 'intBold'); r++; continue;
+    }
     H.forEach((_, i) => sh.f(r, hc(i), `$F${row}*$G${row}*${L(hc(i))}${row}*${L(hc(i))}$${worked}*$J$4`, 'int', d.worked[i] ? m.speed[t] * (m.avail ?? 1) * (m.share[i]?.[t] ?? 0) * (d.full ? 1 : Math.min(1, d.hph / 8)) : 0));
     sh.f(r, hc(n), `SUM(${L(hc(0))}${r}:${L(hc(n - 1))}${r})`, 'intBold'); r++;
   }

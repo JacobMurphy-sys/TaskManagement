@@ -185,6 +185,7 @@ async function cpmOverview(body) {
     </div>
     <p class="small muted">Forecast ${d.forecast_as_of ? `as read in ${esc(d.forecast_as_of)}` : '— none read yet: link the BeNeLux and Amex forecasts in Reporting › Sources'} · ${d.shifts} shifts × ${d.hours} productive hours · speeds from Production: ${d.techs.map((t) => `${esc(t)} ${d.speeds[t] ? `${cpmN(d.speeds[t])}/h` : '<b class="pl-late">none</b>'}`).join(' · ')}${d.cards ? '' : ' · <span class="pl-warn">card database not linked: actuals by machine only</span>'}</p>
     ${d.warnings.length ? `<div class="kc-note">⚠ ${d.warnings.map(esc).join('<br>⚠ ')}</div>` : ''}
+    ${d.scenarios.map((sc, j) => { const w = sc.warnings.filter((x) => !d.warnings.includes(x)); return w.length ? `<div class="kc-note">🧪 <b style="color:${SC_COL[j]}">${esc(sc.name)}</b>: ${w.map(esc).join(' · ')}</div>` : ''; }).join('')}
     ${d.forecast_as_of && !d.forecast_total ? `<div class="kc-note">⚠ The forecast read in ${esc(d.forecast_as_of)} has nothing for ${d.year} — check the files linked in Reporting › Sources.</div>` : ''}
     ${d.unmapped_count ? `<div class="kc-note">🔗 <b>${d.unmapped_count} forecast name${d.unmapped_count === 1 ? '' : 's'} not linked to a customer</b> (${cpmK(d.unmapped_qty)} cards this year): counted with the mix of everything persoed and the default OEE until linked — ${d.unmapped.slice(0, 5).map((u) => esc(u.name)).join(' · ')}${d.unmapped_count > 5 ? ' …' : ''}. <a href="#/cpm/customers">Link them, or import the CPM workbook's Config sheet →</a></div>` : ''}
     <div class="kdb-tiles pl-tiles">${tiles}</div>
@@ -256,10 +257,11 @@ async function cpmDay(body) {
   const table = (t) => { const X = d.tech[t]; const r = (label, a, f = cpmK, cls = () => '') => `<tr><th>${label}</th>${a.map((v, i) => `<td class="num ${cls(v, i)}">${v === null ? '—' : f(v)}</td>`).join('')}</tr>`;
     return `<div class="kdb-scroll"><table class="log small cpm-t"><thead><tr><th></th>${H.map((h) => `<th class="num">${String(h).padStart(2, '0')}</th>`).join('')}</tr></thead><tbody>
       ${r('Daily', X.daily)}${r('Renewals', X.renewals)}${r('Needed (÷ OEE)', X.need)}${r('Capacity', X.capacity)}
-      ${r('Load', X.load, cpmPct, (v) => `cpm-u ${cpmUtilCls(v)}`)}${X.backlog.some((v) => v > 0.5) ? r('Carried over', X.backlog, cpmK, (v) => (v > 0.5 ? 'pl-late' : '')) : ''}</tbody></table></div>`; };
+      ${r('Load', X.load, cpmPct, (v) => `cpm-u ${cpmUtilCls(v)}`)}${X.backlog.some((v) => v > 0.5) ? r('Carried over', X.backlog, cpmK, (v) => (v > 0.5 ? 'pl-late' : '')) : ''}
+      ${X.idle?.some((v) => v > 0.5) ? r('<span title="Hours a restricted machine has left after the work it may run — no one else may use them, so they\'re not capacity">Idle on restricted machines</span>', X.idle, (v) => (v > 0.5 ? cpmK(v) : ''), () => 'muted') : ''}</tbody></table></div>`; };
   const tiles = T.map((t) => { const x = d.tech[t].total;
     return `<div class="kdb-tile cpm-tile" style="border-top-color:${cpmTc(t)}"><div class="kdb-tile-l">${CPM_TECH_ICON[t] || ''} <b style="color:${cpmTc(t)}">${esc(t)}</b> — a day</div><div class="kdb-tile-v ${cpmUtilCls(x.load) === 'bad' ? 'kdb-bad' : ''}">${cpmPct(x.load)}</div>
-      <div class="kdb-tile-s">${cpmK(x.need)} needed of ${cpmK(x.capacity)} · <b class="${x.hours_over ? 'pl-late' : 'pl-ok'}">${x.hours_over} hour${x.hours_over === 1 ? '' : 's'} over</b>${x.end_backlog > 0.5 ? ` · <b class="pl-late">${cpmK(x.end_backlog)} left at the end of the day</b>` : ''}</div></div>`; }).join('');
+      <div class="kdb-tile-s">${cpmK(x.need)} needed of ${cpmK(x.capacity)} · <b class="${x.hours_over ? 'pl-late' : 'pl-ok'}">${x.hours_over} hour${x.hours_over === 1 ? '' : 's'} over</b>${x.end_backlog > 0.5 ? ` · <b class="pl-late">${cpmK(x.end_backlog)} left at the end of the day</b>` : ''}${x.idle > 0.5 ? ` · <span class="muted">${cpmK(x.idle)} idle on restricted machines</span>` : ''}</div></div>`; }).join('');
   // the Gantt: where each customer's day lands
   const rowsShown = store.get('cpmDayAll', false) ? d.rows : d.rows.slice(0, 40); const top = Math.max(1, ...d.rows.flatMap((r) => r.hours));
   const gantt = `<div class="kdb-scroll"><table class="log small cpm-gantt"><thead><tr><th>Customer</th><th>Tech</th><th class="num" title="The month's forecast for this technology (× split${flex ? ' × flex' : ''})">Month</th><th class="num" title="Renewals: Low priority work orders, learned — type to set">Renewals %</th><th class="num">OEE</th><th class="num" title="Daily cards a day ÷ OEE">Daily /day</th><th class="num" title="Renewal cards a day ÷ (OEE + ${Math.round(d.bonus * 100)} points)">RNW /day</th>${H.map((h) => `<th class="num">${String(h).padStart(2, '0')}</th>`).join('')}</tr></thead><tbody>
@@ -424,7 +426,7 @@ const CPM_CHANGES = {
   remove_machine: { label: '➖ Remove a machine / downtime', fields: ['machine'] },
   capabilities: { label: '🔁 Change what a machine runs', fields: ['machine', 'techs'] },
   restrict: { label: '🔒 Restrict a machine to customers / cards', fields: ['machine', 'customers', 'cards'] },
-  rnw_window: { label: '🔁 Renewal window (Day by hour)', fields: ['tech', 'hours'] },
+  rnw_window: { label: '🔁 Renewal window (🕐 Day by hour only)', fields: ['tech', 'hours'] },
   shifts: { label: '🕐 Shifts and hours', fields: ['shifts', 'hours'] },
   oee: { label: '🎯 OEE change', fields: ['customer', 'tech', 'points'] },
   volume: { label: '📦 Customer volume', fields: ['customer', 'pct'] },
@@ -433,7 +435,11 @@ const CPM_CHANGES = {
 async function cpmScenarios(body) {
   const [list, ov, cs] = await Promise.all([api.get('/cpm/scenarios'), api.get(`/cpm/overview?year=${new Date().getFullYear()}&period=month&flex=0`), api.get('/cpm/customers')]);
   const openId = Number(store.get('cpmScenario', 0)) || null; const sc = list.find((s) => s.id === openId) || null;
-  const machines = ov.machines.filter((m) => !m.added).map((m) => m.name); const T = ov.techs; const custs = [...new Set([...cs.customers.map((c) => c.trigram), ...cs.not_set_up.map((c) => c.trigram)])].sort();
+  // what in it would do nothing, or only show elsewhere (as saved)
+  const scWarn = sc ? await api.get(`/cpm/overview?year=${new Date().getFullYear()}&period=month&flex=0&scenarios=${sc.id}`).then((o) => o.scenarios[0].warnings.filter((w) => !o.warnings.includes(w))).catch(() => []) : [];
+  const baseMachines = ov.machines.filter((m) => !m.added).map((m) => m.name);
+  let machines = baseMachines; // with the machines this scenario adds, so they can be changed too
+  const T = ov.techs; const custs = [...new Set([...cs.customers.map((c) => c.trigram), ...cs.not_set_up.map((c) => c.trigram)])].sort();
   const cardFields = { material: 'Material', name: 'Cardbody name', sides: 'Print sides', tag: 'Tag', provider: 'Provider', type: 'Type' };
   const cardVals = {}; // field → [{ value, qty }]
   const loadCards = () => $$('.cpm-change').forEach(async (el) => {
@@ -466,9 +472,11 @@ async function cpmScenarios(body) {
     const L = { pct: ['Change %', '+10 or −15'], points: ['OEE change (points) — lowers the capacity needed; capacity stays', '+5'], shifts: ['Shifts a day', ''], hours: ['Productive hours a shift', ''], name: ['Name', ''], qty: ['Cards a month', ''], oee: ['OEE %', '35'] }[f];
     return `<label class="f">${L[0]}<input type="${f === 'name' ? 'text' : 'number'}" name="${f}" value="${esc(c[f] ?? (f === 'oee' && c.oee ? Math.round(c.oee * 100) : ''))}" placeholder="${L[1]}"></label>`;
   };
+  const refreshMachines = () => { machines = [...baseMachines, ...(sc?.changes || []).filter((c) => c.type === 'add_machine' && c.name && !baseMachines.includes(c.name)).map((c) => c.name)]; };
   const changeHtml = (c, i) => `<div class="card cpm-change" data-i="${i}"><div class="row" style="justify-content:space-between"><b>${CPM_CHANGES[c.type].label}</b><button class="link small" data-cpm-rm="${i}">✕ remove</button></div>
       <div class="form-grid">${CPM_CHANGES[c.type].fields.map((f) => field(c, f)).join('')}
         <label class="f">From month<input type="month" name="from" value="${esc(c.from || '')}"></label><label class="f" title="Leave blank to keep the change from then on">Until (blank: from then on)<input type="month" name="to" value="${esc(c.to || '')}"></label></div></div>`;
+  refreshMachines();
   body.innerHTML = `<div class="cpm-scen"><div class="card cpm-scen-list"><h3 class="pl-h">Scenarios</h3>
       ${list.map((s) => `<div class="cpm-scen-item ${s.id === openId ? 'on' : ''}" data-cpm-open="${s.id}"><b>${esc(s.name)}</b><div class="small muted">${s.changes.length} change${s.changes.length === 1 ? '' : 's'} · ${s.mine ? (s.shared ? 'yours, shared' : 'yours') : `${esc(s.owner_name || 'someone')}'s`}</div></div>`).join('') || '<p class="small muted">None yet.</p>'}
       <div class="row" style="gap:6px;margin-top:8px"><input type="text" id="cpm-sc-name" placeholder="Name, e.g. MX1 to DOD"><button class="small primary" id="cpm-sc-new">+ New</button></div>
@@ -478,6 +486,7 @@ async function cpmScenarios(body) {
         ${sc.mine ? `<label class="row small"><input type="checkbox" id="cpm-sc-share" ${sc.shared ? 'checked' : ''}> share with Prod Management</label>` : `<span class="small muted">${esc(sc.owner_name || 'Someone')}'s — read only</span>`}
         <button class="small" id="cpm-sc-compare">📊 Compare on Overview</button><button class="small" id="cpm-sc-copy">⧉ Copy</button>${sc.mine ? '<button class="small" id="cpm-sc-del">🗑</button>' : ''}</div>
         <textarea id="cpm-sc-notes" rows="2" placeholder="Notes — what it's for" ${sc.mine ? '' : 'disabled'} style="margin-top:6px">${esc(sc.notes || '')}</textarea></div>
+      <div id="cpm-sc-warn">${scWarn.length ? `<div class="kc-note">⚠ ${scWarn.map(esc).join('<br>⚠ ')}</div>` : ''}</div>
       <div id="cpm-changes">${sc.changes.map(changeHtml).join('') || '<p class="muted">No changes yet — add one below.</p>'}</div>
       ${sc.mine ? `<div class="row" style="gap:6px;flex-wrap:wrap"><select id="cpm-add-type">${Object.entries(CPM_CHANGES).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select><button class="small" id="cpm-add-change">+ Add change</button><div class="spacer"></div><button class="primary" id="cpm-sc-save">💾 Save</button></div>` : ''}`
       : '<div class="card lib-empty"><p>Pick a scenario on the left, or make a new one.</p><p class="small muted">A scenario is a list of changes laid over the base plan — machines added, removed or changed, speeds, shifts, OEE, customer volumes — each from a month (and until one). The base forecast keeps updating underneath.</p></div>'}</div></div>`;
@@ -503,8 +512,8 @@ async function cpmScenarios(body) {
   $('#cpm-sc-copy').onclick = async () => { const s = await api.post('/cpm/scenarios', { name: `${sc.name} (copy)`, notes: sc.notes, changes: sc.mine ? read() : sc.changes }); store.set('cpmScenario', s.id); toast('Copied — it\'s yours to change'); renderCpm('scenarios'); };
   if (!sc.mine) return;
   $('#cpm-sc-del').onclick = async () => { if (!confirm(`Delete “${sc.name}”?`)) return; await api.del(`/cpm/scenarios/${sc.id}`); store.set('cpmScenario', 0); renderCpm('scenarios'); };
-  $('#cpm-add-change').onclick = () => { sc.changes = [...read(), { type: $('#cpm-add-type').value }]; $('#cpm-changes').innerHTML = sc.changes.map(changeHtml).join(''); wireRm(); loadCards(); };
-  const wireRm = () => $$('[data-cpm-rm]').forEach((b) => { b.onclick = () => { const l = read(); l.splice(Number(b.dataset.cpmRm), 1); sc.changes = l; $('#cpm-changes').innerHTML = l.map(changeHtml).join('') || '<p class="muted">No changes yet — add one below.</p>'; wireRm(); loadCards(); }; });
+  $('#cpm-add-change').onclick = () => { sc.changes = [...read(), { type: $('#cpm-add-type').value }]; refreshMachines(); $('#cpm-changes').innerHTML = sc.changes.map(changeHtml).join(''); wireRm(); loadCards(); };
+  const wireRm = () => $$('[data-cpm-rm]').forEach((b) => { b.onclick = () => { const l = read(); l.splice(Number(b.dataset.cpmRm), 1); sc.changes = l; refreshMachines(); $('#cpm-changes').innerHTML = l.map(changeHtml).join('') || '<p class="muted">No changes yet — add one below.</p>'; wireRm(); loadCards(); }; });
   wireRm();
   $('#cpm-sc-save').onclick = async () => {
     try { await api.put(`/cpm/scenarios/${sc.id}`, { name: $('#cpm-sc-title').value, notes: $('#cpm-sc-notes').value, shared: $('#cpm-sc-share').checked, changes: read() }); toast('Scenario saved'); renderCpm('scenarios'); } catch (err) { toast(err.message, 'error'); }
