@@ -1617,6 +1617,8 @@ async function waitForServer() {
             await call('PUT', '/cpm/settings', { cpm_day_profile: 'arrival' });
             const da = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); const kr = da.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
             assert.equal(kr.profile, 'arrivals-own'); assert.equal(da.arrivals_seen, 6, 'the Low order and the one after a 4-hour gap left out');
+            assert.ok(Math.abs(kr.arrive_avg - 9.5) < 1e-6 && kr.arrive_seen === 6, 'KBC\'s files come in around 09:30 (6 timed)');
+            assert.ok(da.warnings.some((w) => /wasn't read at/.test(w)), 'hours the export wasn\'t read are said');
             assert.ok(Math.abs(kr.shares[da.hours.indexOf(9)] - 1) < 1e-9, 'all of KBC\'s daily work lands at 9');
             assert.ok(Math.abs(kr.cards_hours.reduce((a, b) => a + b, 0) - kr.daily) < 0.01 && Math.abs(da.tech.DOD.cards.total.reduce((a, b) => a + b, 0) - da.rows.filter((r) => r.tech === 'DOD').reduce((a, r) => a + r.daily + r.renew, 0)) < 0.01, 'cards: the day\'s cards, before OEE');
             // smoothed: the same day, moved only later (up to the cut-off), the peak no higher

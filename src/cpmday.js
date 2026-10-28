@@ -56,7 +56,8 @@ function arrivals(cards) {
   const from = new Date(); from.setDate(from.getDate() - LOOKBACK);
   let reads = []; try { reads = db.all('SELECT file_modified FROM plan_history_reads ORDER BY file_modified').map((r) => r.file_modified); } catch { return { profiles: new Map(), orders: 0 }; }
   const at = new Map(); // a read → when its new orders arrived (a time), if the read before was close enough
-  for (let i = 1; i < reads.length; i++) { const a = new Date(reads[i - 1]); const b = new Date(reads[i]); if (b - a > 0 && b - a <= 2 * 3600000) at.set(reads[i], new Date((a.getTime() + b.getTime()) / 2)); }
+  const covered = new Set(); // the hours of the day the export was read through (no gap over 2 hours), lately
+  for (let i = 1; i < reads.length; i++) { const a = new Date(reads[i - 1]); const b = new Date(reads[i]); if (b - a > 0 && b - a <= 2 * 3600000) { at.set(reads[i], new Date((a.getTime() + b.getTime()) / 2)); if (b >= from) for (let t = a.getTime(); t < b.getTime(); t += 1800000) covered.add(new Date(t).getHours()); } }
   let jobs = []; try { jobs = db.all("SELECT key, customer, qty, prio, first_seen FROM plan_history_jobs WHERE first_seen >= ? AND customer IS NOT NULL AND (prio IS NULL OR lower(prio) NOT LIKE 'low%')", [ymd(from)]); } catch { return { profiles: new Map(), orders: 0 }; }
   const lines = new Map(); try { for (const l of db.all('SELECT key, article, qty FROM plan_history_lines WHERE key IN (SELECT key FROM plan_history_jobs WHERE first_seen >= ?)', [ymd(from)])) (lines.get(l.key) || lines.set(l.key, []).get(l.key)).push(l); } catch { /* none */ }
   const by = new Map(); const n = new Map(); const put = (k, h, q) => { const a = by.get(k) || by.set(k, Array(24).fill(0)).get(k); a[h] += q; n.set(k, (n.get(k) || 0) + 1); };
@@ -69,7 +70,12 @@ function arrivals(cards) {
   }
   const out = new Map();
   for (const [k, a] of by) { const tot = a.reduce((x, y) => x + y, 0); if (tot > 0 && (k.startsWith('*') || (n.get(k) || 0) >= 5)) out.set(k, a.map((x) => x / tot)); }
-  return { profiles: out, orders };
+  return { profiles: out, orders, counts: n, covered };
+}
+// a day's shares → its typical hour (a circular mean, so 23:00 and 01:00 average to midnight): 9.5 for 09:30
+function meanHour(p) {
+  let x = 0; let y = 0; p.forEach((w, h) => { const a = ((h + 0.5) / 24) * 2 * Math.PI; x += w * Math.cos(a); y += w * Math.sin(a); });
+  if (Math.abs(x) + Math.abs(y) < 1e-9) return null; return ((Math.atan2(y, x) / (2 * Math.PI)) * 24 + 24) % 24;
 }
 // what was really persoed, hour by hour, on an average working day: the chosen month's runs when it has
 // any, else the last 4 weeks. { tech: [hour 0..23] cards, days, from, to }
@@ -176,6 +182,8 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
   // the daily part's day: when its work orders arrive (default) or when its cards were produced
   const source = setting('cpm_day_profile', 'arrival') === 'produced' ? 'produced' : 'arrival';
   const arr = source === 'arrival' ? arrivals(cards) : null; const prof = arr ? arr.profiles : profiles(cards, rs);
+  if (arr && arr.orders && arr.covered.size < 24) { const miss = Array.from({ length: 24 }, (_, h) => h).filter((h) => !arr.covered.has(h));
+    warnings.push(`The hourly export wasn't read at ${miss.length > 8 ? `${miss.length} hours of the day` : miss.map((h) => `${pad(h)}:00`).join(', ')} lately (the app not running) — work arriving then isn't timed, so the arrival times lean towards the hours it was read; the shared server, reading round the clock, avoids this`); }
   if (arr && !arr.orders) warnings.push('No work orders seen arriving yet (the hourly open-order export, read with no gap over 2 hours) — each day is spread as its cards were produced instead');
   const over = json(setting('cpm_rnw_share', '{}'), {}); // 'TRI|tech' → share typed in
   const bonus = Number(setting('cpm_rnw_bonus', '0.05')) || 0;
@@ -200,11 +208,12 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
     const oee = x.oee; const oeeR = Math.min(1, oee + bonus);
     const daily = (vol * (1 - rShare)) / days; const renew = (vol * rShare) / days;
     let p = null; let from = 'even';
-    if (arr && arr.orders) { for (const [k, f] of [[`${tri}|${D.tech}`, 'own'], [`${tri}|*`, 'own'], [`*|${D.tech}`, 'technology'], ['*|*', 'technology']]) if (!p && prof.get(k)) { p = prof.get(k); from = `arrivals-${f}`; } }
+    let seen = null;
+    if (arr && arr.orders) { for (const [k, f] of [[`${tri}|${D.tech}`, 'own'], [`${tri}|*`, 'own'], [`*|${D.tech}`, 'technology'], ['*|*', 'technology']]) if (!p && prof.get(k)) { p = prof.get(k); from = `arrivals-${f}`; if (f === 'own') seen = arr.counts.get(`${tri}|*`) || arr.counts.get(k) || null; } }
     if (!p) for (const [k, f] of [[`${tri}|${D.tech}`, 'own'], [`*|${D.tech}`, 'technology'], ['*|*', 'technology']]) if (!p && prodProf.get(k)) { p = prodProf.get(k); from = f; }
     const shares = H.map((h) => (p ? p[h] : worked.has(h) ? 1 / worked.size : 0));
     rows.push({ trigram: tri, name: D.name, tech: D.tech, month_volume: vol, daily_pct: 1 - rShare, rnw_pct: rShare, rnw_learned: learned ? learned.share : null, rnw_typed: typed ?? null,
-      oee, oee_rnw: oeeR, workdays: days, daily, renew, need_daily: daily / oee, need_rnw: renew / oeeR, profile: from, shares,
+      oee, oee_rnw: oeeR, workdays: days, daily, renew, need_daily: daily / oee, need_rnw: renew / oeeR, profile: from, arrive_avg: p ? meanHour(p) : null, arrive_seen: seen, shares,
       hours: shares.map((s) => (daily / oee) * s), cards_hours: shares.map((s) => daily * s) });
   }
   rows.sort((a, b) => T.indexOf(a.tech) - T.indexOf(b.tech) || b.need_daily - a.need_daily);
