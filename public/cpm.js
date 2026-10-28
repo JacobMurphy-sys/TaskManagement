@@ -1,15 +1,17 @@
 // 📐 CPM — capacity planning (Prod Management): the forecasts against the machines' capacity per
 // technology by month or week, the forecasts against what was done (flex), the customers' split and
 // OEE, the capacity settings, and each person's scenarios (src/cpm.js does the sums).
-const CPM_TABS = [['overview', '📊 Overview'], ['flex', '📈 Forecast vs actual'], ['customers', '👥 Customers'], ['capacity', '⚙ Capacity'], ['scenarios', '🧪 Scenarios']];
+const CPM_TABS = [['overview', '📊 Overview'], ['day', '🕐 Day by hour'], ['flex', '📈 Forecast vs actual'], ['customers', '👥 Customers'], ['capacity', '⚙ Capacity'], ['scenarios', '🧪 Scenarios']];
 const cpmN = (v, d = 0) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: d }));
 // a volume axis in even steps: 0.1M for small figures, else 0.25M, else 0.5M (1M past 6M)
 function cpmScale(top) {
-  const step = top <= 600000 ? 100000 : top <= 2500000 ? 250000 : top <= 6000000 ? 500000 : 1000000;
+  // below 0.6M (an hour, a small technology) round steps of 1 / 2 / 2.5 / 5 × 10ⁿ, about six of them
+  const small = () => { const raw = top / 6; const p = 10 ** Math.floor(Math.log10(Math.max(raw, 1))); return [1, 2, 2.5, 5, 10].map((m) => m * p).find((x) => x >= raw) || 10 * p; };
+  const step = top <= 600000 ? Math.max(small(), top <= 1 ? 1 : 0) || 100000 : top <= 2500000 ? 250000 : top <= 6000000 ? 500000 : 1000000;
   const max = Math.max(step, Math.ceil(top / step) * step);
   return { max, ticks: Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step) };
 }
-const cpmAxis = (v) => (v === 0 ? '0' : `${(v / 1e6).toLocaleString('en-GB', { minimumFractionDigits: v % 500000 ? 2 : 1, maximumFractionDigits: 2 })}M`);
+const cpmAxis = (v) => (v === 0 ? '0' : v < 100000 ? `${(v / 1000).toLocaleString('en-GB', { maximumFractionDigits: 1 })}k` : `${(v / 1e6).toLocaleString('en-GB', { minimumFractionDigits: v % 500000 ? 2 : 1, maximumFractionDigits: 2 })}M`);
 const cpmK = (v) => (v === null || v === undefined ? '—' : Math.abs(v) >= 1e6 ? `${(v / 1e6).toLocaleString('en-GB', { maximumFractionDigits: 2 })}M` : Math.abs(v) >= 1e3 ? `${Math.round(v / 1e3).toLocaleString('en-GB')}k` : cpmN(v));
 const cpmPct = (v, d = 0) => (v === null || v === undefined ? '—' : `${(v * 100).toLocaleString('en-GB', { maximumFractionDigits: d })}%`);
 const cpmUtilCls = (u) => (u === null || u === undefined ? '' : u > 1 ? 'bad' : u > 0.85 ? 'warn' : 'ok');
@@ -26,6 +28,7 @@ async function renderCpm(tab) {
   const body = $('#cpm-body');
   try {
     if (tab === 'overview') await cpmOverview(body);
+    else if (tab === 'day') await cpmDay(body);
     else if (tab === 'flex') await cpmFlex(body);
     else if (tab === 'customers') await cpmCustomers(body);
     else if (tab === 'capacity') await cpmCapacity(body);
@@ -198,6 +201,101 @@ async function cpmOverview(body) {
 }
 
 // ---- 📈 Forecast vs actual: the flex -----------------------------------------------------------------
+// ---- 🕐 Day by hour: a working day of a month, hour by hour (the CPM daily sheet) ----------------------
+async function cpmDay(body) {
+  const year = Number(store.get('cpmYear', new Date().getFullYear()));
+  const month = Number(store.get('cpmDayMonth', new Date().getMonth() + 1));
+  const flex = store.get('cpmFlex', true); const scId = Number(store.get('cpmDayScenario', 0)) || 0;
+  const full = store.get('cpmDayFull', null);
+  const q = `year=${year}&month=${month}&flex=${flex ? 1 : 0}${scId ? `&scenario=${scId}` : ''}${full === null ? '' : `&full=${full ? 1 : 0}`}`;
+  const [d, scs] = await Promise.all([api.get(`/cpm/day?${q}`).catch((err) => { if (scId) store.set('cpmDayScenario', 0); throw err; }), api.get('/cpm/scenarios')]);
+  const H = d.hours; const T = d.techs; const hl = (h) => `${String(h).padStart(2, '0')}:00`;
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const cut = d.cutoffs.map((c) => Number(c.slice(0, 2)) + Number(c.slice(3)) / 60);
+  // where a cut-off falls on the chart (between the hour columns)
+  const cutX = (x0, slot) => cut.map((c) => { const i = H.indexOf(Math.floor(c)); return i < 0 ? null : x0 + (i + (c % 1)) * slot; });
+  const chart = (t) => {
+    const X = d.tech[t]; const W = 1100; const Hh = 290; const L = 50; const B = 28; const T0 = 26;
+    const { max, ticks } = cpmScale(Math.max(1, ...X.need, ...X.capacity, ...X.backlog) * 1.12);
+    const slot = (W - L - 6) / 24; const x = (i) => L + (i + 0.5) * slot; const bw = slot * 0.66; const y = (v) => T0 + (Hh - T0 - B) * (1 - v / max);
+    const step = X.capacity.map((c, i) => `${i ? 'L' : 'M'}${L + i * slot},${y(c)} L${L + (i + 1) * slot},${y(c)}`).join(' ');
+    return `<svg class="cpm-chart" viewBox="0 0 ${W} ${Hh}" preserveAspectRatio="xMinYMin meet">
+      ${ticks.map((v) => `<line x1="${L}" x2="${W - 4}" y1="${y(v)}" y2="${y(v)}" class="cpm-grid"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="cpm-ax">${cpmAxis(v)}</text>`).join('')}
+      ${H.map((h, i) => (d.worked[i] ? '' : `<rect x="${L + i * slot}" y="${T0}" width="${slot}" height="${Hh - T0 - B}" class="cpm-off"/>`)).join('')}
+      ${cutX(L, slot).map((cx, k) => (cx === null ? '' : `<line x1="${cx}" x2="${cx}" y1="${T0 - 14}" y2="${Hh - B}" class="cpm-cut"/><text x="${cx}" y="${T0 - 16}" text-anchor="middle" class="cpm-ax cpm-cut-l">🚚 ${esc(d.cutoffs[k])}</text>`)).join('')}
+      ${H.map((h, i) => { const a = X.daily[i]; const r = X.renewals[i]; const over = X.need[i] > X.capacity[i] + 0.5;
+        return `<g><title>${esc(`${t} ${hl(h)}: daily ${cpmN(a)} + renewals ${cpmN(r)} = ${cpmN(X.need[i])} needed · capacity ${cpmN(X.capacity[i])}${X.backlog[i] > 0.5 ? ` · ${cpmN(X.backlog[i])} carried over` : ''}`)}</title>
+          <rect x="${x(i) - bw / 2}" y="${y(a)}" width="${bw}" height="${Math.max(0, y(0) - y(a))}" style="fill:${cpmTc(t)}" class="cpm-allbar ${over ? 'cpm-over' : ''}"/>
+          <rect x="${x(i) - bw / 2}" y="${y(a + r)}" width="${bw}" height="${Math.max(0, y(a) - y(a + r))}" style="fill:${cpmTc(t)}" class="cpm-rnw"/>
+          ${X.need[i] >= 0.5 ? `<text x="${x(i)}" y="${y(X.need[i]) - 4}" text-anchor="middle" class="cpm-lbl ${over ? 'over' : ''}">${esc(cpmK(X.need[i]))}</text>` : ''}</g>`; }).join('')}
+      <path d="${step}" fill="none" class="cpm-capstep"/>
+      ${X.backlog.some((v) => v > 0.5) ? `<polyline fill="none" class="cpm-backlog" points="${X.backlog.map((v, i) => `${x(i)},${y(v)}`).join(' ')}"/>` : ''}
+      ${H.map((h, i) => `<text x="${x(i)}" y="${Hh - 9}" text-anchor="middle" class="cpm-ax">${String(h).padStart(2, '0')}</text>`).join('')}
+    </svg>`;
+  };
+  const allChart = () => {
+    const W = 1100; const Hh = 250; const L = 50; const B = 28; const T0 = 26;
+    const top = Math.max(1.2, ...T.flatMap((t) => d.tech[t].load.map((v) => v || 0))) * 1.06; const st = top > 3 ? 1 : top > 2 ? 0.5 : 0.25; const max = Math.ceil(top / st) * st;
+    const slot = (W - L - 6) / 24; const x = (i) => L + (i + 0.5) * slot; const y = (v) => T0 + (Hh - T0 - B) * (1 - Math.min(v, max) / max);
+    return `<svg class="cpm-chart" viewBox="0 0 ${W} ${Hh}" preserveAspectRatio="xMinYMin meet">
+      ${Array.from({ length: Math.round(max / st) + 1 }, (_, i) => i * st).map((v) => `<line x1="${L}" x2="${W - 4}" y1="${y(v)}" y2="${y(v)}" class="cpm-grid"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="cpm-ax">${Math.round(v * 100)}%</text>`).join('')}
+      ${H.map((h, i) => (d.worked[i] ? '' : `<rect x="${L + i * slot}" y="${T0}" width="${slot}" height="${Hh - T0 - B}" class="cpm-off"/>`)).join('')}
+      <line x1="${L}" x2="${W - 4}" y1="${y(1)}" y2="${y(1)}" class="cpm-100"/>
+      ${cutX(L, slot).map((cx, k) => (cx === null ? '' : `<line x1="${cx}" x2="${cx}" y1="${T0 - 14}" y2="${Hh - B}" class="cpm-cut"/><text x="${cx}" y="${T0 - 16}" text-anchor="middle" class="cpm-ax cpm-cut-l">🚚 ${esc(d.cutoffs[k])}</text>`)).join('')}
+      ${T.map((t) => { const pts = d.tech[t].load.map((v, i) => [x(i), y(v || 0), v]); return `<polyline fill="none" stroke="${cpmTc(t)}" stroke-width="2.6" points="${pts.map(([a, b]) => `${a},${b}`).join(' ')}"/>${pts.map(([a, b, v], i) => `<circle cx="${a}" cy="${b}" r="3" style="fill:${cpmTc(t)}"><title>${esc(`${t} ${hl(H[i])}: ${v === null ? 'needed, no capacity' : cpmPct(v)}`)}</title></circle>`).join('')}`; }).join('')}
+      ${H.map((h, i) => `<text x="${x(i)}" y="${Hh - 9}" text-anchor="middle" class="cpm-ax">${String(h).padStart(2, '0')}</text>`).join('')}
+    </svg>`;
+  };
+  const table = (t) => { const X = d.tech[t]; const r = (label, a, f = cpmK, cls = () => '') => `<tr><th>${label}</th>${a.map((v, i) => `<td class="num ${cls(v, i)}">${v === null ? '—' : f(v)}</td>`).join('')}</tr>`;
+    return `<div class="kdb-scroll"><table class="log small cpm-t"><thead><tr><th></th>${H.map((h) => `<th class="num">${String(h).padStart(2, '0')}</th>`).join('')}</tr></thead><tbody>
+      ${r('Daily', X.daily)}${r('Renewals', X.renewals)}${r('Needed (÷ OEE)', X.need)}${r('Capacity', X.capacity)}
+      ${r('Load', X.load, cpmPct, (v) => `cpm-u ${cpmUtilCls(v)}`)}${X.backlog.some((v) => v > 0.5) ? r('Carried over', X.backlog, cpmK, (v) => (v > 0.5 ? 'pl-late' : '')) : ''}</tbody></table></div>`; };
+  const tiles = T.map((t) => { const x = d.tech[t].total;
+    return `<div class="kdb-tile cpm-tile" style="border-top-color:${cpmTc(t)}"><div class="kdb-tile-l">${CPM_TECH_ICON[t] || ''} <b style="color:${cpmTc(t)}">${esc(t)}</b> — a day</div><div class="kdb-tile-v ${cpmUtilCls(x.load) === 'bad' ? 'kdb-bad' : ''}">${cpmPct(x.load)}</div>
+      <div class="kdb-tile-s">${cpmK(x.need)} needed of ${cpmK(x.capacity)} · <b class="${x.hours_over ? 'pl-late' : 'pl-ok'}">${x.hours_over} hour${x.hours_over === 1 ? '' : 's'} over</b>${x.end_backlog > 0.5 ? ` · <b class="pl-late">${cpmK(x.end_backlog)} left at the end of the day</b>` : ''}</div></div>`; }).join('');
+  // the Gantt: where each customer's day lands
+  const rowsShown = store.get('cpmDayAll', false) ? d.rows : d.rows.slice(0, 40); const top = Math.max(1, ...d.rows.flatMap((r) => r.hours));
+  const gantt = `<div class="kdb-scroll"><table class="log small cpm-gantt"><thead><tr><th>Customer</th><th>Tech</th><th class="num" title="The month's forecast for this technology (× split${flex ? ' × flex' : ''})">Month</th><th class="num" title="Renewals: Low priority work orders, learned — type to set">Renewals %</th><th class="num">OEE</th><th class="num" title="Daily cards a day ÷ OEE">Daily /day</th><th class="num" title="Renewal cards a day ÷ (OEE + ${Math.round(d.bonus * 100)} points)">RNW /day</th>${H.map((h) => `<th class="num">${String(h).padStart(2, '0')}</th>`).join('')}</tr></thead><tbody>
+    ${rowsShown.map((r) => `<tr><td class="cpm-g-name" title="${esc(r.name)}"><b>${esc(r.trigram || '—')}</b> <span class="muted">${esc(r.name)}</span></td><td style="color:${cpmTc(r.tech)}"><b>${esc(r.tech)}</b></td><td class="num">${cpmK(r.month_volume)}</td>
+      <td class="num"><input type="number" min="0" max="100" step="1" class="cpm-rnw-in" data-tri="${esc(r.trigram)}" data-tech="${esc(r.tech)}" value="${r.rnw_typed !== null && r.rnw_typed !== undefined ? Math.round(r.rnw_typed * 100) : ''}" placeholder="${r.rnw_learned !== null ? Math.round(r.rnw_learned * 100) : '0'}" ${r.trigram ? '' : 'disabled title="Link this forecast name to a customer first"'}></td>
+      <td class="num">${cpmPct(r.oee)}</td><td class="num">${cpmK(r.need_daily)}</td><td class="num">${r.need_rnw ? cpmK(r.need_rnw) : ''}</td>
+      ${r.hours.map((v, i) => `<td class="cpm-heat" style="--a:${Math.min(1, v / top).toFixed(3)};--c:${cpmTc(r.tech)}" title="${esc(`${r.trigram || r.name} ${r.tech} ${hl(H[i])}: ${cpmN(v)} (${cpmPct(r.shares[i])} of its day — ${r.profile === 'own' ? 'its own runs' : r.profile === 'technology' ? `all ${r.tech} runs` : 'spread evenly'})`)}">${v >= 0.5 && v / top > 0.08 ? esc(cpmK(v)) : ''}</td>`).join('')}</tr>`).join('')}
+    </tbody></table></div>${d.rows.length > 40 ? `<button class="small" id="cpm-day-all">${store.get('cpmDayAll', false) ? 'Show the 40 biggest' : `Show all ${d.rows.length}`}</button>` : ''}`;
+  // renewal windows
+  const win = `<div class="cpm-win">${T.map((t) => `<div class="row" style="gap:6px;align-items:center;flex-wrap:wrap"><b style="color:${cpmTc(t)};min-width:64px">${esc(t)}</b>
+      ${H.map((h, i) => `<button type="button" class="cpm-hr ${(d.windows[t] || []).includes(h) ? 'on' : ''} ${d.worked[i] ? '' : 'off'}" data-win="${t}" data-h="${h}" style="--c:${cpmTc(t)}">${String(h).padStart(2, '0')}</button>`).join('')}
+      <span class="small muted">${(d.windows[t] || []).length ? `${cpmK(d.renewals[t].need)} a day over ${d.windows[t].length} h` : `none set — renewals (${cpmK(d.renewals[t].need)} a day) spread over every hour worked`}</span></div>`).join('')}</div>`;
+  body.innerHTML = `
+    <div class="row pl-filters" style="gap:10px;flex-wrap:wrap">
+      <select id="cpm-day-month">${MONTHS.map((m, i) => `<option value="${i + 1}" ${i + 1 === month ? 'selected' : ''}>${m} ${year}</option>`).join('')}</select>
+      <label class="row small"><input type="checkbox" id="cpm-day-flex" ${flex ? 'checked' : ''}> apply flex</label>
+      <select id="cpm-day-sc"><option value="0">Base plan</option>${scs.map((s) => `<option value="${s.id}" ${s.id === scId ? 'selected' : ''}>🧪 ${esc(s.name)}</option>`).join('')}</select>
+      <div class="seg" title="Capacity in an hour"><button type="button" data-cpm-full="1" class="${d.full ? 'on' : ''}">Full speed</button><button type="button" data-cpm-full="0" class="${d.full ? '' : 'on'}">Productive (${d.hph} of 8 h)</button></div>
+      <a class="button small" href="/api/cpm/day/export?${q}" download>⬇ Excel</a>
+    </div>
+    <p class="small muted">A working day in ${esc(d.label)} (${d.workdays} working days) · ${d.shifts} shift${d.shifts === 1 ? '' : 's'}${d.scenario ? ` · scenario <b>${esc(d.scenario.name)}</b>` : ''} · each customer's day spread as its cards were produced (⏱ timing report, ${cpmN(d.learned.runs)} runs, last 4 months) · renewals = Low priority work orders (${cpmK(d.learned.renewals)} cards seen) · renewal OEE + ${Math.round(d.bonus * 100)} points</p>
+    ${d.warnings.length ? `<div class="kc-note">⚠ ${d.warnings.map(esc).join('<br>⚠ ')}</div>` : ''}
+    <div class="kdb-tiles pl-tiles">${tiles}</div>
+    <div class="card"><h3 class="pl-h">All technologies — load hour by hour</h3>
+      <div class="cpm-legend">${T.map((t) => `<span><i class="sw" style="background:${cpmTc(t)}"></i>${esc(t)}</span>`).join('')}<span><i class="ln dash cpm-100-sw"></i>100% of capacity</span><span><i class="sw cpm-sw-off"></i>not worked</span>${d.cutoffs.length ? '<span>🚚 shipping cut-offs</span>' : ''}</div>${allChart()}</div>
+    ${T.map((t) => `<div class="card cpm-tech"><h3 class="pl-h cpm-tech-h" style="border-left-color:${cpmTc(t)}">${CPM_TECH_ICON[t] || ''} <span style="color:${cpmTc(t)}">${esc(t)}</span> <span class="muted small">— the day hour by hour</span></h3>
+      <div class="cpm-legend"><span><i class="sw" style="background:${cpmTc(t)}"></i>Daily (÷ OEE)</span><span><i class="sw cpm-rnw-sw" style="background:${cpmTc(t)}"></i>Renewals</span><span><i class="ln"></i>Capacity</span><span><i class="ln dash cpm-bl-sw"></i>Carried over to the next hour</span><span class="muted">red outline: more needed than the hour has</span></div>
+      ${chart(t)}${table(t)}</div>`).join('')}
+    <div class="card"><h3 class="pl-h">🔁 Renewal windows <span class="muted small">— the hours each technology runs renewals (click to toggle); ${d.scenario?.changes?.some((c) => c.type === 'rnw_window') ? 'the scenario sets some — change them in 🧪 Scenarios' : 'a scenario can set its own'}</span></h3>${win}
+      <label class="row small" style="margin-top:6px">Renewal OEE: the customer's + <input type="number" id="cpm-rnw-bonus" min="0" max="50" step="1" value="${Math.round(d.bonus * 100)}" style="width:60px"> points</label></div>
+    <div class="card"><h3 class="pl-h">Where each customer's day lands <span class="muted small">— capacity needed per hour (daily work, ÷ OEE); renewals go in the windows above</span></h3>${gantt}</div>`;
+  $('#cpm-day-month').onchange = (e) => { store.set('cpmDayMonth', Number(e.target.value)); renderCpm('day'); };
+  $('#cpm-day-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('day'); };
+  $('#cpm-day-sc').onchange = (e) => { store.set('cpmDayScenario', Number(e.target.value)); renderCpm('day'); };
+  $$('[data-cpm-full]').forEach((b) => { b.onclick = () => { store.set('cpmDayFull', b.dataset.cpmFull === '1'); renderCpm('day'); }; });
+  const dayAll = $('#cpm-day-all'); if (dayAll) dayAll.onclick = () => { store.set('cpmDayAll', !store.get('cpmDayAll', false)); renderCpm('day'); };
+  $$('[data-win]').forEach((b) => { b.onclick = async () => {
+    const w = { ...(d.windows || {}) }; const t = b.dataset.win; const h = Number(b.dataset.h); const l = new Set(w[t] || []); if (l.has(h)) l.delete(h); else l.add(h); w[t] = [...l].sort((a, c) => a - c);
+    try { await api.put('/cpm/settings', { cpm_rnw_hours: JSON.stringify(w) }); renderCpm('day'); } catch (err) { toast(err.message, 'error'); } }; });
+  $('#cpm-rnw-bonus').onchange = async (e) => { try { await api.put('/cpm/settings', { cpm_rnw_bonus: String((Number(e.target.value) || 0) / 100) }); renderCpm('day'); } catch (err) { toast(err.message, 'error'); } };
+  $$('.cpm-rnw-in').forEach((el) => { el.onchange = async () => { try { await api.put('/cpm/day/renewals', { trigram: el.dataset.tri, tech: el.dataset.tech, share: el.value === '' ? null : Number(el.value) / 100 }); renderCpm('day'); } catch (err) { toast(err.message, 'error'); } }; });
+}
+
 async function cpmFlex(body) {
   const d = await api.get('/cpm/flex');
   const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -319,6 +417,7 @@ const CPM_CHANGES = {
   remove_machine: { label: '➖ Remove a machine / downtime', fields: ['machine'] },
   capabilities: { label: '🔁 Change what a machine runs', fields: ['machine', 'techs'] },
   restrict: { label: '🔒 Restrict a machine to customers / cards', fields: ['machine', 'customers', 'cards'] },
+  rnw_window: { label: '🔁 Renewal window (Day by hour)', fields: ['tech', 'hours'] },
   shifts: { label: '🕐 Shifts and hours', fields: ['shifts', 'hours'] },
   oee: { label: '🎯 OEE change', fields: ['customer', 'tech', 'points'] },
   volume: { label: '📦 Customer volume', fields: ['customer', 'pct'] },
@@ -350,6 +449,7 @@ async function cpmScenarios(body) {
     if (f === 'tech') return `<label class="f">Technology${sel('tech', c.tech, T, 'all')}</label>`;
     if (f === 'customer') return `<label class="f">Customer${sel('customer', c.customer, custs, 'all customers')}</label>`;
     if (f === 'techs') return `<div class="f"><span>Runs</span><div class="row">${T.map((t) => `<label class="row small"><input type="checkbox" name="techs" value="${t}" ${(c.techs || []).includes(t) ? 'checked' : ''}> ${t}</label>`).join(' ')}</div></div>`;
+    if (f === 'hours') return `<div class="f full"><span>Renewals run in these hours</span><div class="row" style="gap:3px;flex-wrap:wrap">${Array.from({ length: 24 }, (_, i) => (6 + i) % 24).map((h) => `<label class="cpm-hr-pick"><input type="checkbox" name="hours" value="${h}" ${(c.hours || []).map(Number).includes(h) ? 'checked' : ''}><span>${String(h).padStart(2, '0')}</span></label>`).join('')}</div></div>`;
     if (f === 'customers') return `<div class="f full"><span>Only these customers <span class="muted">(none ticked: any)</span></span><div class="cpm-picks">${custs.map((t) => `<label class="row small"><input type="checkbox" name="customers" value="${esc(t)}" ${(c.customers || []).includes(t) ? 'checked' : ''}> ${esc(t)}</label>`).join('')}</div></div>`;
     if (f === 'cards') return `<div class="f full"><span>Only these cards <span class="muted">(from the card database; none ticked: any)</span></span>
       <div class="row" style="gap:6px;flex-wrap:wrap"><select name="field" class="cpm-cf">${Object.entries(cardFields).map(([k, l]) => `<option value="${k}" ${(c.field || 'material') === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
@@ -379,6 +479,7 @@ async function cpmScenarios(body) {
     for (const inp of el.querySelectorAll('[name]')) {
       if (inp.name === 'techs') { if (inp.checked) (c.techs = c.techs || []).push(inp.value); continue; }
       if (inp.name === 'customers' || inp.name === 'values') { if (inp.checked) (c[inp.name] = c[inp.name] || []).push(inp.value); continue; }
+      if (inp.name === 'hours') { if (inp.checked) (c.hours = c.hours || []).push(Number(inp.value)); continue; }
       if (inp.name.startsWith('split_')) { if (inp.value) (c.split = c.split || {})[inp.name.slice(6)] = Number(inp.value) / 100; continue; }
       if (inp.value === '') continue;
       c[inp.name] = inp.type === 'number' ? (inp.name === 'oee' ? Number(inp.value) / 100 : Number(inp.value)) : inp.value;

@@ -1572,6 +1572,23 @@ async function waitForServer() {
           assert.deepEqual([ovR.forecast_sources.benelux[0], ovR.forecast_sources.benelux[1], ovR.forecast_status.benelux.by_position.length, ovR.forecast_status.benelux.sheet], [4000, 100, 1, 'LIVE_EU_PAY_CARDS'], 'BeNeLux read as Reporting reads it');
           await call('PATCH', '/settings', { kpi_fc_benelux: path.join(tmp, 'nope.xlsx') });
           assert.match((await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0`)).forecast_status.benelux.error, /can't find/, 'a file that can\'t be read says so');
+          // 🕐 a day by the hour: the month's volume a working day, ÷ OEE, over the hours; renewals in their window
+          await call('PUT', '/cpm/day/renewals', { trigram: 'KBC', tech: 'DOD', share: 0 }); // earlier tests' Low work orders would make KBC all renewals
+          let dy = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`);
+          const kd = dy.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
+          assert.ok(kd && kd.month_volume === 4000 * 0.5 && Math.abs(kd.need_daily - kd.month_volume / 0.5 / dy.workdays) < 0.01, 'KBC DOD a day: forecast × split ÷ OEE ÷ working days');
+          assert.equal(dy.hours.length, 24); assert.equal(dy.hours[0], 6, 'the day starts at Production\'s day start');
+          assert.ok(Math.abs(kd.hours.reduce((a, b) => a + b, 0) - kd.need_daily) < 0.01, 'the hours add up to the day');
+          await call('PUT', '/cpm/day/renewals', { trigram: 'KBC', tech: 'DOD', share: 0.25 });
+          await call('PUT', '/cpm/settings', { cpm_rnw_hours: JSON.stringify({ DOD: [12, 13] }), cpm_rnw_bonus: '0.05' });
+          dy = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`);
+          const kd2 = dy.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD'); const at12 = dy.hours.indexOf(12);
+          assert.ok(Math.abs(kd2.need_rnw - (kd2.month_volume * 0.25) / dy.workdays / 0.55) < 0.01 && Math.abs(kd2.need_daily - (kd2.month_volume * 0.75) / dy.workdays / 0.5) < 0.01, 'renewals a quarter, at the OEE + 5 points');
+          assert.ok(Math.abs(dy.tech.DOD.renewals[at12] - dy.renewals.DOD.need / 2) < 0.01 && dy.tech.DOD.renewals[dy.hours.indexOf(14)] === 0, 'renewals in their window only');
+          const dx = await fetch(`${BASE}/cpm/day/export?year=${Y}&month=1&flex=0`, { headers: { 'X-Requested-With': 'TaskManager' } });
+          assert.equal(dx.status, 200);
+          assert.deepEqual(require('../src/xlsxread').readBook(Buffer.from(await dx.arrayBuffer())).sheets.map((x) => x.name), [`Day January ${Y}`, 'Hour profile', 'Charts']);
+          await call('PUT', '/cpm/day/renewals', { trigram: 'KBC', tech: 'DOD', share: null }); await call('PUT', '/cpm/settings', { cpm_rnw_hours: '{}' });
           await call('DELETE', '/cpm/customers/KBC'); await call('DELETE', '/cpm/customers/AES');
           await call('PUT', '/cpm/settings', { cpm_machines: '{}' }); await call('PATCH', '/settings', { kpi_fc_benelux: '', kpi_fc_amex: '' });
         }

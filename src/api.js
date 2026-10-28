@@ -2590,7 +2590,7 @@ const SETTING_DEFAULTS = {
   // The customer forecast files (blank: the workbook's copy of them).
   kpi_fc_benelux: '', kpi_fc_amex: '',
   // ⏱ The daily timing reports (each job's start and end on its machine), perso and Matching.
-  kpi_time_perso: '', kpi_time_otto: '', cpm_shifts: '3', cpm_hours: '6', cpm_holidays: '', cpm_oee_default: '0.35', cpm_machines: '{}', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
+  kpi_time_perso: '', kpi_time_otto: '', cpm_shifts: '3', cpm_hours: '6', cpm_holidays: '', cpm_oee_default: '0.35', cpm_machines: '{}', cpm_rnw_hours: '{}', cpm_rnw_bonus: '0.05', cpm_rnw_share: '{}', cpm_hour_full: '1', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
   plan_src: '', planner_url: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_learned_times: '0', plan_oee_default: '', plan_otto_src: '', plan_disp_src: '', plan_max_age: '30', plan_miti_days: '5', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
@@ -2650,7 +2650,7 @@ const cpmScenario = (req, id) => {
   if (!sc || (sc.owner !== cpmOwner(req) && !sc.shared)) throw new HttpError(404, 'No such scenario');
   return { ...sc, changes: JSON.parse(sc.changes || '[]'), shared: !!sc.shared, mine: sc.owner === cpmOwner(req) };
 };
-const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines'];
+const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines', 'cpm_rnw_hours', 'cpm_rnw_bonus', 'cpm_rnw_share', 'cpm_hour_full'];
 router.get('/cpm/overview', h((req, res) => {
   const files = cpmRefresh(req.query.reread === '1');
   const year = Number(req.query.year) || new Date().getFullYear();
@@ -2718,6 +2718,31 @@ router.get('/cpm/export', h((req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '')}.xlsx"; filename*=UTF-8''${encodeURIComponent(name)}.xlsx`);
   res.send(buf);
 }));
+// 🕐 a working day of a month, hour by hour (the CPM daily sheet), for the base plan or one scenario
+const cpmDayOf = (req) => {
+  cpmRefresh();
+  const year = Number(req.query.year) || new Date().getFullYear(); const month = Math.min(12, Math.max(1, Number(req.query.month) || new Date().getMonth() + 1));
+  const sc = req.query.scenario ? cpmScenario(req, Number(req.query.scenario)) : null;
+  const full = req.query.full !== undefined ? req.query.full !== '0' : getSettings().cpm_hour_full !== '0';
+  return { ...require('./cpmday').day({ year, month, changes: sc?.changes || [], useFlex: req.query.flex !== '0', cards: cpmCards(), full }), scenario: sc ? { id: sc.id, name: sc.name, changes: sc.changes } : null };
+};
+router.get('/cpm/day', h((req, res) => res.json(cpmDayOf(req))));
+router.get('/cpm/day/export', h((req, res) => {
+  const d = cpmDayOf(req);
+  const buf = require('./cpmexport').buildDayWorkbook(d, { scenario: d.scenario?.name || null });
+  const name = `CPM daily ${d.label}${d.scenario ? ` - ${d.scenario.name}` : ''}`.replace(/[\\/:*?"<>|]/g, ' ').slice(0, 120);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '')}.xlsx"; filename*=UTF-8''${encodeURIComponent(name)}.xlsx`);
+  res.send(buf);
+}));
+// a customer's renewal share typed in (blank: learned again)
+router.put('/cpm/day/renewals', h((req, res) => {
+  const tri = String(req.body?.trigram || '').trim().toUpperCase(); const tech = cpm.normTech(req.body?.tech); if (!tri || !tech) throw new HttpError(400, 'Which customer and technology?');
+  const o = (() => { try { return JSON.parse(getSettings().cpm_rnw_share || '{}'); } catch { return {}; } })(); const v = req.body.share;
+  if (v === null || v === undefined || v === '') delete o[`${tri}|${tech}`]; else o[`${tri}|${tech}`] = Math.max(0, Math.min(1, Number(v) || 0));
+  db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', ['cpm_rnw_share', JSON.stringify(o)]);
+  res.json({ ok: true });
+}));
 // a card database column's values, for restricting a machine to some cards
 router.get('/cpm/card-values', h((req, res) => { const cards = cpmCards(); res.json({ fields: cpm.CARD_FIELDS, linked: !!cards, values: cpm.cardValues(cards, String(req.query.field || '')).slice(0, 500) }); }));
 router.get('/cpm/flex', h((req, res) => { cpmRefresh(); const f = cpm.flex({ cards: cpmCards() }); res.json({ customers: f.customers, overall: f.overall, pairs: f.pairs, history: cpm.historyCoverage() }); }));
@@ -2732,7 +2757,7 @@ router.get('/cpm/scenarios', h((req, res) => {
   res.json(db.all('SELECT * FROM cpm_scenarios WHERE owner = ? OR shared = 1 ORDER BY owner = ? DESC, updated_at DESC', [cpmOwner(req), cpmOwner(req)])
     .map((sc) => ({ ...sc, changes: JSON.parse(sc.changes || '[]'), shared: !!sc.shared, mine: sc.owner === cpmOwner(req) })));
 }));
-const cpmChanges = (c) => (Array.isArray(c) ? c : []).filter((x) => x && typeof x === 'object' && /^(speed|add_machine|remove_machine|capabilities|restrict|shifts|oee|volume|new_customer)$/.test(x.type)).slice(0, 60);
+const cpmChanges = (c) => (Array.isArray(c) ? c : []).filter((x) => x && typeof x === 'object' && /^(speed|add_machine|remove_machine|capabilities|restrict|rnw_window|shifts|oee|volume|new_customer)$/.test(x.type)).slice(0, 60);
 router.post('/cpm/scenarios', h((req, res) => {
   const b = req.body || {}; const name = String(b.name || '').trim(); if (!name) throw new HttpError(400, 'Give the scenario a name');
   const row = insertRow('cpm_scenarios', { owner: cpmOwner(req), owner_name: req.account?.person || null, name, notes: b.notes || null, changes: JSON.stringify(cpmChanges(b.changes)), shared: b.shared ? 1 : 0 });

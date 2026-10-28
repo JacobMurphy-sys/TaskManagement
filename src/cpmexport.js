@@ -271,4 +271,107 @@ function buildCpmWorkbook({ base, scenarios = [], period, flex, sources, CARD_FI
   return buildBook(sheets, { active: 0 });
 }
 
-module.exports = { buildCpmWorkbook, describe };
+// ---- 🕐 a day by the hour, laid out like the CPM daily sheet ------------------------------------------
+// d: cpmday.day(). One row per customer and technology (renewal %, the month's volume, daily and renewal
+// cards a day ÷ OEE) with its day over the hours (× the hour profile on its own sheet); the renewal
+// windows; the hours worked and each machine's share of each hour per technology; and per technology the
+// day's demand, capacity, load and what's carried over — formulas over the blue-on-yellow inputs.
+const TECH_LIGHT = { DOD: '7FC0C0', Emboss: 'A6A6A6', Laser: 'B597D0' };
+function buildDayWorkbook(d, { scenario = null } = {}) {
+  const T = d.techs; const H = d.hours; const HC = 16; const n = 24; const hc = (i) => HC + i; const L = (c) => colName(c - 1);
+  const hl = (h) => `${String(h).padStart(2, '0')}:00`;
+  const name = `Day ${d.label}`.slice(0, 31);
+  const sh = sheet(name); const pr = sheet('Hour profile');
+  for (const s of [sh, pr]) { s.width(1, 9).width(2, 10).width(3, 9).width(4, 28).width(5, 9); for (let c = 6; c <= 14; c++) s.width(c, 10); s.width(15, 2); for (let i = 0; i < n; i++) s.width(hc(i), 8); s.width(hc(n), 11); }
+  sh.set(1, 1, `CPM daily — a working day in ${d.label}${scenario ? ` — ${scenario}` : ''}`, 'title');
+  sh.set(2, 1, `Forecast as read in ${d.forecast_as_of || '—'} · ${d.flex ? 'flex applied' : 'no flex'} · each customer's day spread as its cards were produced (Hour profile sheet) · renewals = Low priority work orders, in each technology's window`, 'note');
+  sh.set(3, 1, 'Cells in blue on yellow are inputs — renewal %, volume, OEE, the hour profile, the renewal windows, hours worked, speeds, availability and how each machine splits its hours — change them and the day works itself out.', 'note');
+  sh.set(4, 1, 'Working days', 'bold'); sh.set(4, 3, d.workdays, 'input');
+  sh.set(4, 5, 'Renewal OEE +', 'bold'); sh.set(4, 6, d.bonus, 'inputPct');
+  sh.set(4, 8, 'Capacity × ', 'bold'); sh.set(4, 10, d.full ? 1 : Math.min(1, d.hph / 8), 'inputDec'); sh.set(4, 11, d.full ? 'full speed' : `${d.hph} productive hours of 8`, 'note');
+  const head = (s, row, labels) => { labels.forEach((l, i) => s.set(row, i + 1, l, i >= 5 ? 'headerNum' : 'header')); s.set(row, 15, '', 'header'); H.forEach((h, i) => s.set(row, hc(i), hl(h), 'headerNum')); s.set(row, hc(n), 'Day', 'headerNum'); };
+  const R0 = 7; const rows = d.rows; const R1 = R0 + rows.length - 1;
+  head(sh, 6, ['Daily %', 'Renewals %', 'Trigram', 'Customer', 'Tech', 'Month', 'Daily /month', 'Daily /day', 'OEE', 'Needed daily', 'RNW /month', 'RNW /day', 'RNW OEE', 'Needed RNW']);
+  head(pr, 6, ['', '', 'Trigram', 'Customer', 'Tech', 'From', '', '', '', '', '', '', '', '']);
+  pr.set(1, 1, 'Hour profile — the share of each customer\'s day in each hour', 'title');
+  pr.set(2, 1, 'Learned from when its cards were produced (⏱ timing report, the last 4 months): own = its own runs, technology = all runs of the technology, even = spread over the hours worked. Each row should add up to 100%.', 'note');
+  rows.forEach((r, k) => {
+    const row = R0 + k;
+    sh.set(row, 2, r.rnw_pct, 'inputPct'); sh.f(row, 1, `1-B${row}`, 'pct', r.daily_pct);
+    sh.set(row, 3, r.trigram || '—'); sh.set(row, 4, r.name); sh.set(row, 5, r.tech);
+    sh.set(row, 6, r.month_volume, 'input'); sh.f(row, 7, `F${row}*A${row}`, 'int', r.month_volume * r.daily_pct); sh.f(row, 8, `G${row}/$C$4`, 'int', r.daily);
+    sh.set(row, 9, r.oee, 'inputPct'); sh.f(row, 10, `H${row}/I${row}`, 'int', r.need_daily);
+    sh.f(row, 11, `F${row}*B${row}`, 'int', r.month_volume * r.rnw_pct); sh.f(row, 12, `K${row}/$C$4`, 'int', r.renew); sh.f(row, 13, `MIN(1,I${row}+$F$4)`, 'pct', r.oee_rnw); sh.f(row, 14, `L${row}/M${row}`, 'int', r.need_rnw);
+    r.hours.forEach((v, i) => sh.f(row, hc(i), `$J${row}*'Hour profile'!${L(hc(i))}${row}`, 'int', v));
+    sh.f(row, hc(n), `SUM(${L(hc(0))}${row}:${L(hc(n - 1))}${row})`, 'intBold', r.need_daily);
+    pr.set(row, 3, r.trigram || '—'); pr.set(row, 4, r.name); pr.set(row, 5, r.tech); pr.set(row, 6, r.profile, 'note');
+    r.shares.forEach((v, i) => pr.set(row, hc(i), v, 'inputPct')); pr.f(row, hc(n), `SUM(${L(hc(0))}${row}:${L(hc(n - 1))}${row})`, 'pctBold', 1);
+  });
+  const tot = R1 + 1; sh.set(tot, 4, 'Total', 'bold');
+  for (const c of [6, 7, 8, 10, 11, 12, 14, ...H.map((_, i) => hc(i)), hc(n)]) sh.f(tot, c, `SUM(${L(c)}${R0}:${L(c)}${R1})`, 'intBold');
+  const section = (row, text) => { for (let c = 1; c <= hc(n); c++) sh.set(row, c, c === 1 ? text : '', 'section'); };
+  // renewal windows
+  let r = tot + 2; section(r, 'Renewals — each technology\'s renewal cards a day (÷ renewal OEE), spread evenly over the hours ticked (1)'); r++;
+  head(sh, r, ['', '', '', '', 'Tech', '', '', '', '', '', '', '', '', 'Needed RNW']); r++;
+  const rnw = {};
+  for (const t of T) {
+    const flags = r; const per = r + 1; rnw[t] = per; const set = new Set(d.renewals[t].hours);
+    sh.set(flags, 4, 'window (1 = renewals run)'); sh.set(flags, 5, t, 'bold'); H.forEach((h, i) => sh.set(flags, hc(i), set.has(h) ? 1 : 0, 'input'));
+    sh.set(per, 4, 'renewals in the hour'); sh.set(per, 5, t, 'bold'); sh.f(per, 14, `SUMIF($E$${R0}:$E$${R1},"${t}",$N$${R0}:$N$${R1})`, 'intBold', d.renewals[t].need);
+    H.forEach((_, i) => sh.f(per, hc(i), `IF(SUM($${L(hc(0))}${flags}:$${L(hc(n - 1))}${flags})>0,${L(hc(i))}${flags}*$N${per}/SUM($${L(hc(0))}${flags}:$${L(hc(n - 1))}${flags}),0)`, 'int', d.renewals[t].per[i]));
+    sh.f(per, hc(n), `SUM(${L(hc(0))}${per}:${L(hc(n - 1))}${per})`, 'intBold', d.renewals[t].need);
+    r += 2;
+  }
+  // machines: hours worked, speed, availability, how each splits its hours
+  r++; section(r, 'Capacity — each machine\'s speed × availability × its share of the hour for the technology, in the hours worked (1)'); r++;
+  head(sh, r, ['', '', 'Machine', '', 'Tech', 'Speed /h', 'Available', '', '', '', '', '', '', '']); r++;
+  const worked = r; sh.set(worked, 4, 'hours worked (1)', 'bold'); H.forEach((_, i) => sh.set(worked, hc(i), d.worked[i] ? 1 : 0, 'input')); r++;
+  const shareRows = [];
+  for (const m of d.capacity_machines) for (const t of m.techs) {
+    sh.set(r, 3, m.name, 'bold'); sh.set(r, 4, m.techs.length > 1 ? 'share of the hour' : ''); sh.set(r, 5, t); sh.set(r, 6, m.speed[t], 'input'); sh.set(r, 7, m.avail ?? 1, 'inputPct');
+    H.forEach((_, i) => sh.set(r, hc(i), m.share[i]?.[t] ?? 0, m.techs.length > 1 ? 'inputPct' : 'pct'));
+    shareRows.push({ row: r, m, t }); r++;
+  }
+  r++; const C0 = r;
+  for (const { row, m, t } of shareRows) {
+    sh.set(r, 3, m.name); sh.set(r, 4, 'capacity'); sh.set(r, 5, t);
+    H.forEach((_, i) => sh.f(r, hc(i), `$F${row}*$G${row}*${L(hc(i))}${row}*${L(hc(i))}$${worked}*$J$4`, 'int', d.worked[i] ? m.speed[t] * (m.avail ?? 1) * (m.share[i]?.[t] ?? 0) * (d.full ? 1 : Math.min(1, d.hph / 8)) : 0));
+    sh.f(r, hc(n), `SUM(${L(hc(0))}${r}:${L(hc(n - 1))}${r})`, 'intBold'); r++;
+  }
+  const C1 = r - 1;
+  // per technology: the day against the capacity
+  r++; section(r, 'The day per technology'); r++;
+  head(sh, r, ['', '', '', '', 'Tech', '', '', '', '', '', '', '', '', '']); const headRow = r; r++;
+  const S = {};
+  for (const t of T) {
+    const X = d.tech[t]; const R = S[t] = {}; const lab = (txt) => { sh.set(r, 4, txt); sh.set(r, 5, t, 'bold'); return r++; };
+    R.daily = lab('Daily (÷ OEE)'); R.rnw = lab('Renewals'); R.need = lab('Needed'); R.cap = lab('Capacity'); R.load = lab('Load'); R.carry = lab('Carried over');
+    H.forEach((_, i) => { const c = hc(i); const at = (row) => `${L(c)}${row}`;
+      sh.f(R.daily, c, `SUMIF($E$${R0}:$E$${R1},"${t}",${L(c)}$${R0}:${L(c)}$${R1})`, 'int', X.daily[i]);
+      sh.f(R.rnw, c, `${L(c)}${rnw[t]}`, 'int', X.renewals[i]); sh.f(R.need, c, `${at(R.daily)}+${at(R.rnw)}`, 'intBold', X.need[i]);
+      sh.f(R.cap, c, C1 >= C0 ? `SUMIF($E$${C0}:$E$${C1},"${t}",${L(c)}$${C0}:${L(c)}$${C1})` : '0', 'int', X.capacity[i]);
+      sh.f(R.load, c, `IF(${at(R.cap)}>0,${at(R.need)}/${at(R.cap)},"")`, 'pct', X.load[i]);
+      sh.f(R.carry, c, i ? `MAX(0,${L(c - 1)}${R.carry}+${at(R.need)}-${at(R.cap)})` : `MAX(0,${at(R.need)}-${at(R.cap)})`, 'int', X.backlog[i]); });
+    for (const row of [R.daily, R.rnw, R.need, R.cap]) sh.f(row, hc(n), `SUM(${L(hc(0))}${row}:${L(hc(n - 1))}${row})`, 'intBold');
+    sh.f(R.load, hc(n), `IF(${L(hc(n))}${R.cap}>0,${L(hc(n))}${R.need}/${L(hc(n))}${R.cap},"")`, 'pctBold', X.total.load);
+    sh.cf.push({ ref: `${L(hc(0))}${R.load}:${L(hc(n))}${R.load}`, rules: [{ op: 'greaterThan', v: '1', dxf: 'bad' }, { op: 'between', v: '0.85', v2: '1', dxf: 'warn' }, { op: 'between', v: '0', v2: '0.85', dxf: 'good' }] });
+    sh.cf.push({ ref: `${L(hc(0))}${R.carry}:${L(hc(n - 1))}${R.carry}`, rules: [{ op: 'greaterThan', v: '0.5', dxf: 'bad' }] });
+    r++;
+  }
+  // each row in its technology's colour, as the CPM workbook does
+  for (const [a, b] of [[R0, R1], [C0 - shareRows.length - 1, C1]]) if (b >= a) sh.cf.push({ ref: `A${a}:${L(hc(n))}${b}`, rules: T.map((t) => ({ expr: `$E${a}="${t}"`, dxf: t })) });
+  if (rows.length) pr.cf.push({ ref: `A${R0}:${L(hc(n))}${R1}`, rules: T.map((t) => ({ expr: `$E${R0}="${t}"`, dxf: t })) });
+  sh.freeze = { row: 7, col: 6 }; pr.freeze = { row: 7, col: 6 };
+  // charts
+  const ch = sheet('Charts'); ch.set(1, 1, `A working day in ${d.label} — charts`, 'title'); ch.set(2, 1, 'They read the day sheet: change an input there and they follow.', 'note');
+  const cats = sh.full(headRow, hc(0), headRow, hc(n - 1)); const rng = (row) => sh.full(row, hc(0), row, hc(n - 1)); const W = 13; const HH = 20;
+  ch.charts.push({ title: 'All technologies — load hour by hour', cats, pct: true, from: [1, 4], to: [2 * W, 4 + HH - 1],
+    series: T.map((t) => ({ name: t, ref: rng(S[t].load), kind: 'line', color: TECH_COL[t] || '1F77B4', markers: true })) });
+  T.forEach((t, i) => { const at = [1 + (i % 2) * W, 4 + HH + Math.floor(i / 2) * HH];
+    ch.charts.push({ title: `${t} — the day against capacity`, cats, stacked: true, from: at, to: [at[0] + W - 1, at[1] + HH - 1],
+      series: [{ name: 'Daily', ref: rng(S[t].daily), kind: 'bar', color: TECH_COL[t] || '1F77B4' }, { name: 'Renewals', ref: rng(S[t].rnw), kind: 'bar', color: TECH_LIGHT[t] || '9AA7BD' },
+        { name: 'Capacity', ref: rng(S[t].cap), kind: 'line', color: '111827' }, { name: 'Carried over', ref: rng(S[t].carry), kind: 'line', color: 'C0392B', dash: true }] }); });
+  return buildBook([sh, pr, ch]);
+}
+
+module.exports = { buildCpmWorkbook, buildDayWorkbook, describe };
