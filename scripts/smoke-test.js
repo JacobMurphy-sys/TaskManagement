@@ -1639,7 +1639,21 @@ async function waitForServer() {
             assert.deepEqual(await kOf(), [0, 1, 0], 'a typical day: one clump, at the usual time');
             await call('PUT', '/cpm/settings', { cpm_day_shape: 'average' });
             assert.deepEqual(await kOf(), [0.5, 0, 0.5], 'all days averaged: spread over both');
+            await call('PUT', '/cpm/settings', { cpm_day_shape: 'worst' });
+            assert.deepEqual(await kOf(), [0, 1, 0], 'worst case: the most clumped day, at the usual time');
             await call('PUT', '/cpm/settings', { cpm_day_shape: 'typical' });
+            // a third day, files over 4 hours: typical gets wider, the worst case stays one clump
+            const d2 = new Date(); d2.setDate(d2.getDate() - 3); const day2 = `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, '0')}-${String(d2.getDate()).padStart(2, '0')}`;
+            const sq5 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
+            const r2 = ['09:00', '10:00', '11:00', '12:00', '13:00'].map((t) => `${day2}T${t}:00`); for (const r of r2) { reads.push(r); sq5.prepare('INSERT OR IGNORE INTO plan_history_reads (file_modified, read_at) VALUES (?, ?)').run(r, r); }
+            for (let i = 0; i < 4; i++) for (let k = 0; k < 2; k++) sq5.prepare("INSERT INTO plan_history_jobs (key, wo, customer, qty, prio, first_seen, last_seen) VALUES (?, ?, 'KBC', 100, 'High', ?, ?)").run(`ARRC${i}${k}`, `ARRC${i}${k}`, r2[i + 1], r2[i + 1]);
+            sq5.close();
+            const peakOf = async () => { const x = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); return Math.max(...x.rows.find((q) => q.trigram === 'KBC' && q.tech === 'DOD').learned_shares); };
+            const pTyp = await peakOf(); await call('PUT', '/cpm/settings', { cpm_day_shape: 'worst' }); const pWorst = await peakOf(); await call('PUT', '/cpm/settings', { cpm_day_shape: 'typical' });
+            assert.ok(pTyp < 1 && pWorst === 1, `typical ${pTyp} spread a bit, the worst case all in one hour`);
+            const cmp = await call('GET', `/cpm/day/compare?year=${Y}&month=1&flex=0`);
+            const sumN = (k) => cmp.shapes[k].DOD.need.reduce((a, b) => a + b, 0);
+            assert.ok(['typical', 'worst', 'average'].every((k) => cmp.shapes[k].DOD) && Math.abs(sumN('worst') - sumN('average')) < 0.01 && cmp.shapes.worst.DOD.peak >= cmp.shapes.average.DOD.peak - 1e-9, 'the three side by side: the same day\'s work, the worst case peaking highest');
             const sq3 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
             sq3.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'ARR%'").run(); for (const r of reads) sq3.prepare('DELETE FROM plan_history_reads WHERE file_modified = ?').run(r); sq3.close();
           }

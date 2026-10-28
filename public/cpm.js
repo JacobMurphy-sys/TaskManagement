@@ -396,7 +396,7 @@ async function cpmDay(body) {
       <select id="cpm-day-sc"><option value="0">Base plan</option>${scs.map((s) => `<option value="${s.id}" ${s.id === scId ? 'selected' : ''}>🧪 ${esc(s.name)}</option>`).join('')}</select>
       <div class="seg" title="What the bars count"><button type="button" data-cpm-view="cards" class="${view === 'cards' ? 'on' : ''}">Cards</button><button type="button" data-cpm-view="need" class="${view === 'need' ? 'on' : ''}">Capacity needed (÷ OEE)</button></div>
       <select id="cpm-day-prof" title="How each customer's daily work is spread over the day"><option value="arrival" ${d.profile_source === 'arrival' ? 'selected' : ''}>Daily work: when it arrives</option><option value="produced" ${d.profile_source === 'produced' ? 'selected' : ''}>Daily work: when it was produced</option></select>
-      <select id="cpm-day-shape" title="How the days learned from are put together: lined up on the customer's usual time (keeps each day's clump), or simply added up (spread wide, as each day comes in at slightly different times)"><option value="typical" ${d.day_shape !== 'average' ? 'selected' : ''}>Learned: a typical day (clumped)</option><option value="average" ${d.day_shape === 'average' ? 'selected' : ''}>Learned: all days averaged (wide)</option></select>
+      <select id="cpm-day-shape" title="How the days learned from are put together: lined up on the customer's usual time (keeps each day's clump), or simply added up (spread wide, as each day comes in at slightly different times)"><option value="typical" ${d.day_shape === 'typical' ? 'selected' : ''}>Learned: a typical day (clumped)</option><option value="worst" ${d.day_shape === 'worst' ? 'selected' : ''}>Learned: worst case (most clumped day)</option><option value="average" ${d.day_shape === 'average' ? 'selected' : ''}>Learned: all days averaged (wide)</option></select>
       <div class="seg" title="Capacity in an hour"><button type="button" data-cpm-full="1" class="${d.full ? 'on' : ''}">Full speed</button><button type="button" data-cpm-full="0" class="${d.full ? '' : 'on'}">Productive (${d.hph} of 8 h)</button></div>
       <label class="row small" title="Each machine's part of the capacity, as stacked lines"><input type="checkbox" class="cpm-mach-tick" ${store.get('cpmMachLines', false) === true ? 'checked' : ''}> capacity per machine</label>
       <a class="button small" href="/api/cpm/day/export?${q}" download>⬇ Excel</a>
@@ -406,6 +406,7 @@ async function cpmDay(body) {
     <div class="kdb-tiles pl-tiles">${tiles}</div>
     <div class="card"><h3 class="pl-h">All technologies — load hour by hour</h3>
       <div class="cpm-legend">${T.map((t) => `<span><i class="sw" style="background:${cpmTc(t)}"></i>${esc(t)}</span>`).join('')}<span><i class="ln dash cpm-100-sw"></i>100% of capacity</span><span><i class="sw cpm-sw-off"></i>not worked</span>${d.cutoffs.length ? '<span>🚚 shipping cut-offs</span>' : ''}</div>${allChart()}</div>
+    <div class="card" id="cpm-cmp"><h3 class="pl-h">⚖ Typical day · worst case · all days averaged <span class="muted small">— the same day with each way of learning when the work comes in: a typical day (each day's clump, at its usual time), the worst case (the most clumped day seen, at its usual time) and all days averaged (wide). Customers whose run periods are set by hand are the same in all three.</span></h3><p class="small muted">Working it out…</p></div>
     ${T.map((t) => techCard(t)).join('')}
     <div class="card"><h3 class="pl-h">🔁 Renewal windows <span class="muted small">— the hours each technology runs renewals (click to toggle); ${d.scenario?.changes?.some((c) => c.type === 'rnw_window') ? 'the scenario sets some — change them in 🧪 Scenarios' : 'a scenario can set its own'}</span></h3>${win}
       <div class="row" style="gap:10px;margin-top:8px;align-items:center;flex-wrap:wrap"><label class="row small">Renewal OEE: the customer's + <input type="number" id="cpm-rnw-bonus" min="0" max="50" step="1" value="${Math.round(d.bonus * 100)}" style="width:60px"> points</label>
@@ -428,6 +429,26 @@ async function cpmDay(body) {
   wireSm();
   $$('.cpm-mach-tick').forEach((c) => { c.onchange = () => { store.set('cpmMachLines', c.checked); $$('[data-tech-card]').forEach((el) => { el.outerHTML = techCard(el.dataset.techCard); }); wireSm(); }; });
   $$('[data-cpm-view]').forEach((b) => { b.onclick = () => { store.set('cpmDayView2', b.dataset.cpmView); renderCpm('day'); }; });
+  // the three ways of learning the day, side by side (worked out after the page is up)
+  (async () => {
+    const box = $('#cpm-cmp'); if (!box) return;
+    let c; try { c = await api.get(`/cpm/day/compare?${q}`); } catch (err) { box.querySelector('p').textContent = err.message; return; }
+    if (!document.body.contains(box)) return;
+    const SH = [['typical', 'Typical day', ''], ['worst', 'Worst case', 'cpm-cmp-worst'], ['average', 'All days averaged', 'cpm-cmp-avg']];
+    const chart = (t) => { const W = 760; const Hh = 190; const L = 50; const B = 22; const T0 = 10; const n = c.hours.length; const x = (i) => L + ((i + 0.5) * (W - L - 6)) / n;
+      const top = Math.max(1, ...c.capacity[t], ...SH.flatMap(([k]) => c.shapes[k][t].need)); const { max, ticks } = cpmScale(top * 1.05); const y = (v) => T0 + (Hh - T0 - B) * (1 - v / max);
+      const line = (a) => a.map((v, i) => `${x(i)},${y(v)}`).join(' ');
+      return `<svg class="cpm-chart" viewBox="0 0 ${W} ${Hh}" preserveAspectRatio="xMinYMin meet">
+        ${ticks.map((v) => `<line x1="${L}" x2="${W - 4}" y1="${y(v)}" y2="${y(v)}" class="cpm-grid"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="cpm-ax">${cpmAxis(v)}</text>`).join('')}
+        <polyline fill="none" class="cpm-cmp-cap" points="${line(c.capacity[t])}"/>
+        ${SH.slice().reverse().map(([k, label, cls]) => `<polyline fill="none" class="${cls}" stroke="${cpmTc(t)}" stroke-width="2.4" points="${line(c.shapes[k][t].need)}"><title>${esc(`${t} · ${label}`)}</title></polyline>`).join('')}
+        ${c.hours.map((h, i) => `<text x="${x(i)}" y="${Hh - 6}" text-anchor="middle" class="cpm-ax">${String(h).padStart(2, '0')}</text>`).join('')}</svg>`; };
+    const row = (t, [k, label]) => { const v = c.shapes[k][t];
+      return `<tr><th>${label}</th><td class="num ${v.peak > 1 ? 'pl-late' : ''}">${cpmPct(v.peak)}</td><td class="num">${v.hours_over}</td><td class="num">${cpmK(v.over)}</td><td class="num">${cpmK(v.end_backlog)}</td><td class="num ${v.smooth.peak > 1 ? 'pl-late' : ''}">${cpmPct(v.smooth.peak)}</td><td class="num">${cpmK(v.smooth.late)}</td><td class="num">${v.blocks_late === null ? '—' : cpmK(v.blocks_late)}</td></tr>`; };
+    box.querySelector('p').outerHTML = `<div class="cpm-legend"><span><i class="ln" style="border-top-color:var(--text)"></i>Typical day</span><span><i class="ln cpm-cmp-worst-sw"></i>Worst case</span><span><i class="ln dash"></i>All days averaged</span><span><i class="ln cpm-cmp-cap-sw"></i>capacity</span></div>
+      ${c.techs.map((t) => `<h4 class="cpm-cmp-h" style="color:${cpmTc(t)}">${esc(t)} — capacity needed</h4>${chart(t)}
+        <div class="kdb-scroll"><table class="log small"><thead><tr><th></th><th class="num">Peak load</th><th class="num">Hours over capacity</th><th class="num">Over capacity</th><th class="num">Left at the day's end</th><th class="num">Smoothed: peak</th><th class="num">Smoothed: late</th><th class="num">Work orders: late cards</th></tr></thead><tbody>${SH.map((sh) => row(t, sh)).join('')}</tbody></table></div>`).join('')}`;
+  })();
   $('#cpm-day-shape').onchange = async (e) => { try { await api.put('/cpm/settings', { cpm_day_shape: e.target.value }); renderCpm('day'); } catch (err) { toast(err.message, 'error'); } };
   $('#cpm-day-prof').onchange = async (e) => { try { await api.put('/cpm/settings', { cpm_day_profile: e.target.value }); renderCpm('day'); } catch (err) { toast(err.message, 'error'); } };
   const dayAll = $('#cpm-day-all'); if (dayAll) dayAll.onclick = () => { store.set('cpmDayAll', !store.get('cpmDayAll', false)); renderCpm('day'); };

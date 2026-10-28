@@ -41,18 +41,23 @@ function spread(r, add) {
 // a key's days (a working day → [hour 0..23] → qty) → its shares per hour. 'average': all its days added up —
 // broad, as each day's work comes in at slightly different times. 'typical' (default): each day moved so its
 // middle lands on the usual hour (volume weighted), then added up — the day as tightly clumped as it usually
-// is, at its usual time
+// is, at its usual time. 'worst': the most clumped of its days (the biggest share in one hour, of the days at
+// least as big as its median day, so one small file doesn't count), at the usual time
 const dayKey = (t) => ymd(new Date(t.getTime() - dayStart() * 3600000));
 function shapeOf(days, mode) {
   const out = Array(24).fill(0); const list = [...days.values()].map((a) => ({ a, v: a.reduce((x, y) => x + y, 0) })).filter((x) => x.v > 0);
   if (mode === 'average') { for (const { a } of list) a.forEach((q, h) => { out[h] += q; }); } else {
     let x = 0; let y = 0; for (const d of list) { d.c = meanHour(d.a); if (d.c === null) continue; const ang = (d.c / 24) * 2 * Math.PI; x += d.v * Math.cos(ang); y += d.v * Math.sin(ang); }
     const R = Math.abs(x) + Math.abs(y) < 1e-9 ? null : ((Math.atan2(y, x) / (2 * Math.PI)) * 24 + 24) % 24;
-    for (const d of list) { const sh = R === null || d.c === null ? 0 : Math.round(((R - d.c + 36) % 24) - 12); d.a.forEach((q, h) => { out[(h + sh + 24) % 24] += q; }); }
+    let use = list;
+    if (mode === 'worst' && list.length) { const vs = list.map((d) => d.v).sort((a, b) => a - b); const med = vs[Math.floor((vs.length - 1) / 2)];
+      use = [list.filter((d) => d.v >= med).reduce((w, d) => (Math.max(...d.a) / d.v > Math.max(...w.a) / w.v ? d : w))]; }
+    for (const d of use) { const sh = R === null || d.c === null ? 0 : Math.round(((R - d.c + 36) % 24) - 12); d.a.forEach((q, h) => { out[(h + sh + 24) % 24] += q; }); }
   }
   const tot = out.reduce((a, b) => a + b, 0); return tot > 0 ? out.map((q) => q / tot) : null;
 }
-const dayShape = () => (setting('cpm_day_shape', 'typical') === 'average' ? 'average' : 'typical');
+let shapeNow = null; // a day worked out with a shape of its own (the comparison), else the tab's
+const dayShape = () => { const v = shapeNow || setting('cpm_day_shape', 'typical'); return ['average', 'worst'].includes(v) ? v : 'typical'; };
 // each customer and technology's day: 'TRI|tech' (also '*|tech' and '*|*') → shares per hour of the
 // day [hour 0..23], from when their cards were produced
 function profiles(cards, rs = runs(cards)) {
@@ -287,7 +292,22 @@ function manualShares(v) {
 
 // ---- the day -----------------------------------------------------------------------------------------
 // windows: { DOD: [hours], … } — the hours renewals run; blank: all the hours the shifts cover
-function day({ year, month, changes = [], useFlex = true, cards = null, full = true }) {
+function day(o) {
+  shapeNow = o.shape || null; try { return dayOf(o); } finally { shapeNow = null; }
+}
+// the day worked out with each way of learning it (a typical day, the worst case, all days averaged), side
+// by side: each technology's capacity needed hour by hour, its peak and hours over, and what ends up late
+function compareShapes(o) {
+  const out = { hours: null, techs: null, capacity: {}, shapes: {} };
+  for (const shape of ['typical', 'worst', 'average']) {
+    const d = day({ ...o, shape }); out.hours = d.hours; out.techs = d.techs;
+    out.shapes[shape] = Object.fromEntries(d.techs.map((t) => { const x = d.tech[t]; out.capacity[t] = x.capacity;
+      return [t, { need: x.need, peak: Math.max(0, ...x.load.map((v) => v || 0)), hours_over: x.total.hours_over, over: x.need.reduce((a, v, i) => a + Math.max(0, v - x.capacity[i]), 0), end_backlog: x.total.end_backlog,
+        smooth: { peak: x.smooth.peak, hours_over: x.smooth.hours_over, late: x.smooth.late }, blocks_late: d.blocks ? d.blocks.late.filter((b) => b.tech === t).reduce((a, b) => a + b.cards, 0) : null }]; }));
+  }
+  return out;
+}
+function dayOf({ year, month, changes = [], useFlex = true, cards = null, full = true }) {
   const plan = cpm.compute({ year, period: 'month', changes, useFlex, cards });
   const P = plan.periods[month - 1]; const T = plan.techs; const H = hoursOfDay(); const warnings = [...plan.warnings];
   const rs = runs(cards); const mh = machineHours(cards, rs); const rnw = renewalShares(cards);
@@ -428,4 +448,4 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
     learned: { runs: rs.length, renewals: [...rnw.values()].reduce((a, x) => a + x.qty, 0) }, forecast_as_of: plan.forecast_as_of, flex: useFlex };
 }
 
-module.exports = { day, manualShares, hoursOfDay, profiles, arrivals, actualDay, smoothDay, customerCutoffs, orderSizes, runBlocks, renewalShares, machineHours, cutoffs };
+module.exports = { day, compareShapes, manualShares, hoursOfDay, profiles, arrivals, actualDay, smoothDay, customerCutoffs, orderSizes, runBlocks, renewalShares, machineHours, cutoffs };
