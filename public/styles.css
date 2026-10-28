@@ -1436,3 +1436,4 @@ tr.kfd-cust-detail > td { background: var(--panel-2); padding: 8px 12px; }
 .cpm-gantt-wrap { margin: 2px 0 6px; }
 .cpm-legend .cpm-blk-late-sw { background: none; border: 2px solid var(--danger); }
 .cpm-gantt input.cpm-cut-in { width: 92px; padding: 1px 4px; height: 22px; font-size: 12px; }
+.cpm-mband { opacity: .13; } .cpm-mline { stroke-width: 1.6; opacity: .9; } .cpm-mlabel { font-size: 10px; font-weight: 600; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }

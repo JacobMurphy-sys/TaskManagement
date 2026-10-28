@@ -314,6 +314,7 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
   // cards counts only the work it's allowed in that hour (theirs, daily and renewals, the card share learned
   // from what they ran); the rest of its hour is idle — no one else may use it — so not capacity.
   const cap = Object.fromEntries(T.map((t) => [t, Array(24).fill(0)])); const idle = Object.fromEntries(T.map((t) => [t, Array(24).fill(0)])); const machines = [];
+  const byM = Object.fromEntries(T.map((t) => [t, new Map()])); const addM = (t, name, i, v) => { const a = byM[t].get(name) || byM[t].set(name, Array(24).fill(0)).get(name); a[i] += v; }; // each machine's part of a technology's capacity
   const restricted = P.machines.filter((m) => m.only?.length);
   const rem = rows.map((r) => H.map((h, i) => r.hours[i] + (rnwByTech[r.tech].hours.includes(h) ? r.need_rnw / rnwByTech[r.tech].hours.length : 0)));
   const fields = [...new Set(restricted.flatMap((m) => m.only.map((o) => o.field).filter(Boolean)))];
@@ -339,11 +340,11 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
       if (!worked.has(h)) return;
       for (const t of ts) {
         const c = m.speed[t] * (m.avail ?? 1) * sh[t] * factor;
-        if (!m.only?.length) { cap[t][i] += c; continue; }
+        if (!m.only?.length) { cap[t][i] += c; addM(t, m.name, i, c); continue; }
         const mine = rows.map((r, k) => (r.tech === t ? rem[k][i] * allowed(m, r) : 0)); const want = mine.reduce((a, b) => a + b, 0);
         const use = Math.min(c, want); const f = want ? use / want : 0;
         rows.forEach((r, k) => { if (mine[k]) rem[k][i] -= mine[k] * f; });
-        cap[t][i] += use; idle[t][i] += c - use; ((row.used = row.used || {})[t] = row.used[t] || Array(24).fill(0))[i] = use;
+        cap[t][i] += use; addM(t, m.name, i, use); idle[t][i] += c - use; ((row.used = row.used || {})[t] = row.used[t] || Array(24).fill(0))[i] = use;
       }
     });
     if (m.only?.length) row.only = m.only;
@@ -387,7 +388,7 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
       rnwHours: Object.fromEntries(T.map((t) => [t, rnwByTech[t].window ? rnwByTech[t].hours : []])), sizes: orderSizes(cards), allowed: (m, r) => (m.only?.length ? allowed(m, r) : 1), cutoffOf });
   } catch (err) { warnings.push(`The work-order run couldn't be worked out: ${err.message}`); }
   return { blocks, year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), shifts, hph, full,
-    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, warnings: [...new Set(warnings)],
+    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, capacity_by_machine: Object.fromEntries(T.map((t) => [t, [...byM[t]].map(([name, per]) => ({ name, per }))])), tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, warnings: [...new Set(warnings)],
     learned: { runs: rs.length, renewals: [...rnw.values()].reduce((a, x) => a + x.qty, 0) }, forecast_as_of: plan.forecast_as_of, flex: useFlex };
 }
 
