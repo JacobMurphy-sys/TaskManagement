@@ -202,17 +202,17 @@ function smoothDay(H, rows, base, cap, cutoffOf) {
     packets.push({ k, i, amt, delta, ratio: r.oee });
   }));
   packets.sort((a, b) => a.i - b.i || a.delta - b.delta); // first come first served; the earlier cut-off first
-  let late = 0; let unplaced = 0;
+  let late = 0; let unplaced = 0; const lateAt = Array(24).fill(0); const lateRow = rows.map(() => Array(24).fill(0)); // done after its cut-off: when, and whose
   for (const p of packets) {
     const put = (s, v) => { load[s] += v; cards[s] += v * p.ratio; perRow[p.k][s] += v; };
     let left = p.amt;
     for (let o = 0; o < 24 && left > 1e-9; o++) {
       const s = (p.i + o) % 24; const free = Math.max(0, cap[s] - load[s]); if (free <= 1e-9) continue;
-      const v = Math.min(free, left); put(s, v); left -= v; if (o >= p.delta) late += v;
+      const v = Math.min(free, left); put(s, v); left -= v; if (o >= p.delta) { late += v; lateAt[s] += v; lateRow[p.k][s] += v; }
     }
-    if (left > 1e-9) { put(p.i, left); unplaced += left; }
+    if (left > 1e-9) { put(p.i, left); unplaced += left; late += left; lateAt[p.i] += left; lateRow[p.k][p.i] += left; } // not done within the day: late too
   }
-  return { load, cards, perRow, late, unplaced };
+  return { load, cards, perRow, late, unplaced, lateAt, lateRow };
 }
 
 // each customer's typical work order: the median size (cards) of its work orders lately, per technology
@@ -453,10 +453,10 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
     const tr = rows.filter((r) => r.tech === t); const sm = smoothDay(H, tr, renewals, cap[t], cutoffOf);
     const sDaily = sm.load.map((v, i) => v - renewals[i]); const sNeed = sm.load; const sCards = sm.cards.map((v, i) => v + cRnw[i]);
     let sc = 0; const sBack = sNeed.map((v, i) => { sc = Math.max(0, sc + v - cap[t][i]); return sc; });
-    tr.forEach((r, k) => { r.smoothed = sm.perRow[k]; r.smoothed_cards = sm.perRow[k].map((v) => v * r.oee); });
+    tr.forEach((r, k) => { r.smoothed = sm.perRow[k]; r.smoothed_cards = sm.perRow[k].map((v) => v * r.oee); r.late_hours = sm.lateRow[k]; r.late = sm.lateRow[k].reduce((a, b) => a + b, 0); r.late_cards = r.late * r.oee; });
     const smooth = { daily: sDaily, need: sNeed, load: sNeed.map((v, i) => (cap[t][i] ? v / cap[t][i] : v ? null : 0)), backlog: sBack,
       cards: { daily: sm.cards, total: sCards, capacity: cap[t].map((c, i) => c * (sNeed[i] > 0.5 ? sCards[i] / sNeed[i] : dayRatio)) },
-      peak: Math.max(...sNeed.map((v, i) => (cap[t][i] ? v / cap[t][i] : 0))), hours_over: sNeed.filter((v, i) => v > cap[t][i] + 0.5).length, over: sNeed.reduce((a, v, i) => a + Math.max(0, v - cap[t][i]), 0), late: sm.late, unplaced: sm.unplaced, end_backlog: sc };
+      peak: Math.max(...sNeed.map((v, i) => (cap[t][i] ? v / cap[t][i] : 0))), hours_over: sNeed.filter((v, i) => v > cap[t][i] + 0.5).length, over: sNeed.reduce((a, v, i) => a + Math.max(0, v - cap[t][i]), 0), late: sm.late, late_at: sm.lateAt, late_cards: tr.reduce((a, r) => a + r.late_cards, 0), late_customers: [...new Set(tr.filter((r) => r.late_cards > 0.5).map((r) => r.trigram || r.name))], unplaced: sm.unplaced, end_backlog: sc };
     out[t] = { daily, renewals, need, capacity: cap[t], idle: idle[t], backlog, smooth,
       cards: { daily: cDaily, renewals: cRnw, total: cards_, capacity: effCap, actual: act.per[t] ? H.map((h) => act.per[t][h]) : null, oee: dayRatio }, load: need.map((v, i) => (cap[t][i] ? v / cap[t][i] : v ? null : 0)),
       total: { need: tot, daily: daily.reduce((a, b) => a + b, 0), renewals: rnwByTech[t].need, capacity: capTot, idle: idle[t].reduce((a, b) => a + b, 0), load: capTot ? tot / capTot : null, end_backlog: carry, hours_over: need.filter((v, i) => v > cap[t][i] + 0.5).length } };

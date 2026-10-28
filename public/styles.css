@@ -1454,3 +1454,8 @@ table.log.cpm-rp { width: auto; } table.log.cpm-rp th, table.log.cpm-rp td { pad
 .cpm-cmp-cap { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 2 3; }
 .cpm-legend .ln.cpm-cmp-worst-sw { border-top-color: var(--danger, #d64545); } .cpm-legend .ln.cpm-cmp-cap-sw { border-top: 2px dotted var(--muted); }
 .cpm-cmp-h { margin: 12px 0 2px; font-size: 13px; }
+.cpm-late-bar { fill: var(--danger); opacity: .55; stroke: var(--danger); stroke-width: 1.2; }
+.cpm-late-pill rect { fill: var(--danger); } .cpm-late-pill text { fill: #fff; font-size: 9.5px; font-weight: 700; }
+.cpm-late-note { border: 1px solid var(--danger); background: var(--danger-soft); border-radius: 8px; padding: 8px 12px; margin: 8px 0; color: var(--text); }
+.cpm-late-note > div { margin-top: 3px; } .cpm-late-ok { color: var(--ok, #2e8b57); margin: 6px 0; }
+tr.cpm-g-late td.cpm-g-name { box-shadow: inset 3px 0 0 var(--danger); }

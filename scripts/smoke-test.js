@@ -1622,6 +1622,9 @@ async function waitForServer() {
             assert.ok(Math.abs(kr.shares[da.hours.indexOf(9)] - 1) < 1e-9, 'all of KBC\'s daily work lands at 9');
             assert.ok(Math.abs(kr.cards_hours.reduce((a, b) => a + b, 0) - kr.daily) < 0.01 && Math.abs(da.tech.DOD.cards.total.reduce((a, b) => a + b, 0) - da.rows.filter((r) => r.tech === 'DOD').reduce((a, r) => a + r.daily + r.renew, 0)) < 0.01, 'cards: the day\'s cards, before OEE');
             // smoothed: the same day, moved only later (up to the cut-off), the peak no higher
+            // what's done after its cut-off: by hour, by customer, in cards — adding up
+            { const S0 = da.tech.DOD.smooth; const rs = da.rows.filter((r) => r.tech === 'DOD');
+              assert.ok(Math.abs(S0.late_at.reduce((a, b) => a + b, 0) - S0.late) < 1e-6 && Math.abs(rs.reduce((a, r) => a + r.late, 0) - S0.late) < 1e-6 && Math.abs(rs.reduce((a, r) => a + r.late_cards, 0) - S0.late_cards) < 1e-6 && rs.every((r) => Array.isArray(r.late_hours)), 'late work: by the hour and by customer, the same total'); }
             const smd = da.tech.DOD.smooth; const sum = (a) => a.reduce((x, y) => x + y, 0);
             assert.ok(Math.abs(sum(smd.need) - sum(da.tech.DOD.need)) < 0.01 && Math.abs(sum(smd.cards.total) - sum(da.tech.DOD.cards.total)) < 0.01, 'smoothing keeps the day');
             assert.ok(smd.peak <= Math.max(...da.tech.DOD.load.map((v) => v || 0)) + 1e-9, 'and its peak no higher');
