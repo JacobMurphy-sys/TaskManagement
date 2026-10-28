@@ -1625,6 +1625,7 @@ async function waitForServer() {
             const smd = da.tech.DOD.smooth; const sum = (a) => a.reduce((x, y) => x + y, 0);
             assert.ok(Math.abs(sum(smd.need) - sum(da.tech.DOD.need)) < 0.01 && Math.abs(sum(smd.cards.total) - sum(da.tech.DOD.cards.total)) < 0.01, 'smoothing keeps the day');
             assert.ok(smd.peak <= Math.max(...da.tech.DOD.load.map((v) => v || 0)) + 1e-9, 'and its peak no higher');
+            assert.ok(smd.need.every((v, i) => v <= da.tech.DOD.capacity[i] + 1e-6 || v <= da.tech.DOD.need[i] + 1e-6), 'nothing pushed over capacity that wasn\'t already');
             const krs = da.tech.DOD && da.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
             assert.ok(krs.smoothed.slice(0, da.hours.indexOf(9)).every((v) => v < 1e-9), 'nothing done before it comes in');
             const sq3 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
