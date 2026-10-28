@@ -2590,7 +2590,7 @@ const SETTING_DEFAULTS = {
   // The customer forecast files (blank: the workbook's copy of them).
   kpi_fc_benelux: '', kpi_fc_amex: '',
   // ⏱ The daily timing reports (each job's start and end on its machine), perso and Matching.
-  kpi_time_perso: '', kpi_time_otto: '', cpm_shifts: '3', cpm_hours: '6', cpm_holidays: '', cpm_oee_default: '0.35', cpm_machines: '{}', cpm_rnw_hours: '{}', cpm_rnw_bonus: '0.05', cpm_rnw_share: '{}', cpm_hour_full: '1', cpm_day_profile: 'arrival', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
+  kpi_time_perso: '', kpi_time_otto: '', cpm_shifts: '3', cpm_hours: '6', cpm_holidays: '', cpm_oee_default: '0.35', cpm_machines: '{}', cpm_rnw_hours: '{}', cpm_rnw_bonus: '0.05', cpm_rnw_share: '{}', cpm_hour_full: '1', cpm_day_profile: 'arrival', cpm_cutoffs: '', cpm_cutoff_cust: '{}', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
   plan_src: '', planner_url: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_learned_times: '0', plan_oee_default: '', plan_otto_src: '', plan_disp_src: '', plan_max_age: '30', plan_miti_days: '5', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
@@ -2650,7 +2650,7 @@ const cpmScenario = (req, id) => {
   if (!sc || (sc.owner !== cpmOwner(req) && !sc.shared)) throw new HttpError(404, 'No such scenario');
   return { ...sc, changes: JSON.parse(sc.changes || '[]'), shared: !!sc.shared, mine: sc.owner === cpmOwner(req) };
 };
-const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines', 'cpm_rnw_hours', 'cpm_rnw_bonus', 'cpm_rnw_share', 'cpm_hour_full', 'cpm_day_profile'];
+const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines', 'cpm_rnw_hours', 'cpm_rnw_bonus', 'cpm_rnw_share', 'cpm_hour_full', 'cpm_day_profile', 'cpm_cutoffs', 'cpm_cutoff_cust'];
 router.get('/cpm/overview', h((req, res) => {
   const files = cpmRefresh(req.query.reread === '1');
   const year = Number(req.query.year) || new Date().getFullYear();

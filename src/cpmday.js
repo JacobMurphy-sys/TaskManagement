@@ -125,6 +125,13 @@ function cutoffs() {
   let rows = []; try { rows = db.all("SELECT substr(deadline, 12, 5) AS t, COUNT(*) AS n FROM plan_history_jobs WHERE first_seen >= ? AND deadline IS NOT NULL AND length(deadline) >= 16 GROUP BY t ORDER BY n DESC LIMIT 6", [ymd(from)]); } catch { /* none */ }
   return rows.filter((r) => /^\d{2}:\d{2}$/.test(r.t) && r.n >= 3).map((r) => r.t).sort();
 }
+// the shipment times shown: the ones set on the tab ([{ time: '17:00', label: 'PostNL' }]), else the learned ones
+function shipTimes() {
+  const set = json(setting('cpm_cutoffs', ''), null);
+  const learned = cutoffs().map((time) => ({ time, label: '' }));
+  const own = Array.isArray(set) ? set.filter((x) => x && /^\d{1,2}:\d{2}$/.test(String(x.time || ''))).map((x) => ({ time: String(x.time).padStart(5, '0'), label: String(x.label || '').slice(0, 30) })).sort((a, b) => a.time.localeCompare(b.time)) : null;
+  return { times: own || learned, own: !!own, learned };
+}
 
 // each customer's shipping cut-off: its commonest one lately (daily work, by cards) — 'TRI' → hours (16.5
 // for 16:30); '*' the commonest of all
@@ -345,8 +352,11 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
   // demand, load and the backlog carried from hour to hour; the same in cards (capacity × the hour's OEE);
   // and what was really persoed in an average working day's hours
   const act = actualDay(cards, year, month);
-  const cuts = customerCutoffs(); const cutoffOf = (tri) => (cuts.has(tri) ? cuts.get(tri) : cuts.has('*') ? cuts.get('*') : null);
-  for (const r of rows) r.cutoff = cutoffOf(r.trigram);
+  // each customer's cut-off: typed in for it on the tab, else its commonest lately, else the commonest of all
+  const cuts = customerCutoffs(); const typedCut = json(setting('cpm_cutoff_cust', '{}'), {}); const hrs = (t) => Number(t.slice(0, 2)) + Number(t.slice(3, 5)) / 60;
+  const cutoffOf = (tri) => (tri && /^\d{2}:\d{2}$/.test(typedCut[tri] || '') ? hrs(typedCut[tri]) : cuts.has(tri) ? cuts.get(tri) : cuts.has('*') ? cuts.get('*') : null);
+  for (const r of rows) { r.cutoff = cutoffOf(r.trigram); r.cutoff_typed = (r.trigram && typedCut[r.trigram]) || null; r.cutoff_learned = cuts.has(r.trigram) ? cuts.get(r.trigram) : cuts.has('*') ? cuts.get('*') : null; }
+  const ship = shipTimes();
   const out = {};
   for (const t of T) {
     const cDaily = H.map((_, i) => rows.filter((r) => r.tech === t).reduce((a, r) => a + r.cards_hours[i], 0));
@@ -377,7 +387,7 @@ function day({ year, month, changes = [], useFlex = true, cards = null, full = t
       rnwHours: Object.fromEntries(T.map((t) => [t, rnwByTech[t].window ? rnwByTech[t].hours : []])), sizes: orderSizes(cards), allowed: (m, r) => (m.only?.length ? allowed(m, r) : 1), cutoffOf });
   } catch (err) { warnings.push(`The work-order run couldn't be worked out: ${err.message}`); }
   return { blocks, year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), shifts, hph, full,
-    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, tech: out, cutoffs: cutoffs(), warnings: [...new Set(warnings)],
+    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, warnings: [...new Set(warnings)],
     learned: { runs: rs.length, renewals: [...rnw.values()].reduce((a, x) => a + x.qty, 0) }, forecast_as_of: plan.forecast_as_of, flex: useFlex };
 }
 

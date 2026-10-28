@@ -1631,6 +1631,13 @@ async function waitForServer() {
             const sq3 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
             sq3.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'ARR%'").run(); for (const r of reads) sq3.prepare('DELETE FROM plan_history_reads WHERE file_modified = ?').run(r); sq3.close();
           }
+          // shipment times set on the tab (shown, labelled), a customer's own cut-off typed in
+          await call('PUT', '/cpm/settings', { cpm_cutoffs: JSON.stringify([{ time: '17:00', label: 'PostNL' }, { time: '08:00', label: '' }, { time: 'nope' }]), cpm_cutoff_cust: JSON.stringify({ KBC: '11:00' }) });
+          const dc = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`);
+          assert.deepEqual([dc.cutoffs, dc.cutoff_labels, dc.ship_times.own], [['08:00', '17:00'], ['', 'PostNL'], true], 'the shipment times set, sorted, a wrong one dropped');
+          assert.equal(dc.rows.find((r) => r.trigram === 'KBC').cutoff, 11, 'KBC\'s own cut-off');
+          await call('PUT', '/cpm/settings', { cpm_cutoffs: '', cpm_cutoff_cust: '{}' });
+          assert.equal((await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`)).ship_times.own, false, 'back to the learned ones');
           await call('PUT', '/cpm/day/renewals', { trigram: 'KBC', tech: 'DOD', share: null }); await call('PUT', '/cpm/settings', { cpm_rnw_hours: '{}' });
           await call('DELETE', '/cpm/customers/KBC'); await call('DELETE', '/cpm/customers/AES');
           await call('PUT', '/cpm/settings', { cpm_machines: '{}' }); await call('PATCH', '/settings', { kpi_fc_benelux: '', kpi_fc_amex: '' });
