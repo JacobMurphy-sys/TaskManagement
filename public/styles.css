@@ -1459,3 +1459,4 @@ table.log.cpm-rp { width: auto; } table.log.cpm-rp th, table.log.cpm-rp td { pad
 .cpm-late-note { border: 1px solid var(--danger); background: var(--danger-soft); border-radius: 8px; padding: 8px 12px; margin: 8px 0; color: var(--text); }
 .cpm-late-note > div { margin-top: 3px; } .cpm-late-ok { color: var(--ok, #2e8b57); margin: 6px 0; }
 tr.cpm-g-late td.cpm-g-name { box-shadow: inset 3px 0 0 var(--danger); }
+.cpm-cut-in.cpm-cut-def { color: var(--muted); font-style: italic; }

@@ -161,15 +161,20 @@ function renewalShares(cards) {
   return out;
 }
 // the shipping cut-offs work orders had lately: ['08:00', '12:00', …], the commonest first (at most 6)
+// a deadline at 23:59 or 00:00 is a date with no time given (the end of the day), not a shipment time
+const noTime = (t) => t === '23:59' || t === '00:00';
+// customers with no cut-off of their own (typed, or learned from their work orders) ship at this time
+const defaultCutoff = () => { const t = String(setting('cpm_cutoff_default', '17:00') || ''); return /^\d{1,2}:\d{2}$/.test(t) ? t.padStart(5, '0') : '17:00'; };
 function cutoffs() {
   const from = new Date(); from.setDate(from.getDate() - LOOKBACK);
   let rows = []; try { rows = db.all("SELECT substr(deadline, 12, 5) AS t, COUNT(*) AS n FROM plan_history_jobs WHERE first_seen >= ? AND deadline IS NOT NULL AND length(deadline) >= 16 GROUP BY t ORDER BY n DESC LIMIT 6", [ymd(from)]); } catch { /* none */ }
-  return rows.filter((r) => /^\d{2}:\d{2}$/.test(r.t) && r.n >= 3).map((r) => r.t).sort();
+  return rows.filter((r) => /^\d{2}:\d{2}$/.test(r.t) && !noTime(r.t) && r.n >= 3).map((r) => r.t).sort();
 }
 // the shipment times shown: the ones set on the tab ([{ time: '17:00', label: 'PostNL' }]), else the learned ones
 function shipTimes() {
   const set = json(setting('cpm_cutoffs', ''), null);
-  const learned = cutoffs().map((time) => ({ time, label: '' }));
+  const learned = cutoffs().map((time) => ({ time, label: '' })); const def = defaultCutoff();
+  if (!learned.some((x) => x.time === def)) { learned.push({ time: def, label: 'default' }); learned.sort((a, b) => a.time.localeCompare(b.time)); } // customers with none ship then
   const own = Array.isArray(set) ? set.filter((x) => x && /^\d{1,2}:\d{2}$/.test(String(x.time || ''))).map((x) => ({ time: String(x.time).padStart(5, '0'), label: String(x.label || '').slice(0, 30) })).sort((a, b) => a.time.localeCompare(b.time)) : null;
   return { times: own || learned, own: !!own, learned };
 }
@@ -181,7 +186,7 @@ function customerCutoffs() {
   let rows = []; try { rows = db.all("SELECT customer, substr(deadline, 12, 5) AS t, SUM(qty) AS q FROM plan_history_jobs WHERE first_seen >= ? AND deadline IS NOT NULL AND length(deadline) >= 16 AND customer IS NOT NULL AND (prio IS NULL OR lower(prio) NOT LIKE 'low%') GROUP BY customer, t", [ymd(from)]); } catch { /* none */ }
   const best = new Map(); const all = new Map();
   for (const r of rows) {
-    if (!/^\d{2}:\d{2}$/.test(r.t)) continue; const h = Number(r.t.slice(0, 2)) + Number(r.t.slice(3)) / 60; const tri = String(r.customer).toUpperCase();
+    if (!/^\d{2}:\d{2}$/.test(r.t) || noTime(r.t)) continue; const h = Number(r.t.slice(0, 2)) + Number(r.t.slice(3)) / 60; const tri = String(r.customer).toUpperCase();
     if (!best.has(tri) || best.get(tri).q < r.q) best.set(tri, { h, q: r.q }); all.set(h, (all.get(h) || 0) + r.q);
   }
   const out = new Map([...best].map(([k, v]) => [k, v.h]));
@@ -435,8 +440,9 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
   const act = actualDay(cards, year, month);
   // each customer's cut-off: typed in for it on the tab, else its commonest lately, else the commonest of all
   const cuts = customerCutoffs(); const typedCut = json(setting('cpm_cutoff_cust', '{}'), {}); const hrs = (t) => Number(t.slice(0, 2)) + Number(t.slice(3, 5)) / 60;
-  const cutoffOf = (tri) => (tri && /^\d{2}:\d{2}$/.test(typedCut[tri] || '') ? hrs(typedCut[tri]) : cuts.has(tri) ? cuts.get(tri) : cuts.has('*') ? cuts.get('*') : null);
-  for (const r of rows) { r.cutoff = cutoffOf(r.trigram); r.cutoff_typed = (r.trigram && typedCut[r.trigram]) || null; r.cutoff_learned = cuts.has(r.trigram) ? cuts.get(r.trigram) : cuts.has('*') ? cuts.get('*') : null; }
+  const defCut = defaultCutoff(); // its own (typed, else learned), else the default shipment time
+  const cutoffOf = (tri) => (tri && /^\d{2}:\d{2}$/.test(typedCut[tri] || '') ? hrs(typedCut[tri]) : tri && cuts.has(tri) ? cuts.get(tri) : hrs(defCut));
+  for (const r of rows) { r.cutoff = cutoffOf(r.trigram); r.cutoff_typed = (r.trigram && typedCut[r.trigram]) || null; r.cutoff_learned = r.trigram && cuts.has(r.trigram) ? cuts.get(r.trigram) : null; r.cutoff_default = !r.cutoff_typed && r.cutoff_learned === null; }
   const ship = shipTimes();
   const out = {};
   for (const t of T) {
@@ -468,7 +474,7 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
       rnwHours: Object.fromEntries(T.map((t) => [t, rnwByTech[t].window ? rnwByTech[t].hours : []])), sizes: orderSizes(cards), allowed: (m, r) => (m.only?.length ? allowed(m, r) : 1), cutoffOf });
   } catch (err) { warnings.push(`The work-order run couldn't be worked out: ${err.message}`); }
   return { blocks, year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), shifts, hph, full,
-    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, day_shape: shape, peak_source: pv ? pv.source : null, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, capacity_by_machine: Object.fromEntries(T.map((t) => [t, [...byM[t]].map(([name, per]) => ({ name, per }))])), tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, manual: json(setting('cpm_day_manual', '{}'), {}), warnings: [...new Set(warnings)],
+    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, day_shape: shape, peak_source: pv ? pv.source : null, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, capacity_by_machine: Object.fromEntries(T.map((t) => [t, [...byM[t]].map(([name, per]) => ({ name, per }))])), tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, cutoff_default: defCut, manual: json(setting('cpm_day_manual', '{}'), {}), warnings: [...new Set(warnings)],
     learned: { runs: rs.length, renewals: [...rnw.values()].reduce((a, x) => a + x.qty, 0) }, forecast_as_of: plan.forecast_as_of, flex: useFlex };
 }
 

@@ -1683,6 +1683,17 @@ async function waitForServer() {
           assert.equal(dc.rows.find((r) => r.trigram === 'KBC').cutoff, 11, 'KBC\'s own cut-off');
           await call('PUT', '/cpm/settings', { cpm_cutoffs: '', cpm_cutoff_cust: '{}' });
           assert.equal((await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`)).ship_times.own, false, 'back to the learned ones');
+          // deadlines at 23:59 (a date, no time) aren't a shipment time; a customer with none ships at the default
+          { const sq6 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); const now6 = new Date().toISOString().slice(0, 16);
+            for (let i = 0; i < 4; i++) sq6.prepare("INSERT INTO plan_history_jobs (key, wo, customer, qty, prio, first_seen, last_seen, deadline) VALUES (?, ?, 'KBC', 100, 'High', ?, ?, ?)").run(`CUT${i}`, `CUT${i}`, now6, now6, `${now6.slice(0, 10)}T23:59`);
+            sq6.close();
+            const dd = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); const kr6 = dd.rows.find((r) => r.trigram === 'KBC');
+            assert.ok(!dd.cutoffs.includes('23:59') && dd.cutoffs.includes('17:00') && kr6.cutoff === 17 && kr6.cutoff_default === true && kr6.cutoff_learned === null, `23:59 left out, KBC at the default 17:00 (${dd.cutoffs})`);
+            await call('PUT', '/cpm/settings', { cpm_cutoff_default: '15:30' });
+            const dd2 = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`);
+            assert.ok(dd2.rows.find((r) => r.trigram === 'KBC').cutoff === 15.5 && dd2.cutoffs.includes('15:30') && dd2.cutoff_default === '15:30', 'the default changed on the tab');
+            await call('PUT', '/cpm/settings', { cpm_cutoff_default: '17:00' });
+            const sq7 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); sq7.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'CUT%'").run(); sq7.close(); }
           await call('PUT', '/cpm/day/renewals', { trigram: 'KBC', tech: 'DOD', share: null }); await call('PUT', '/cpm/settings', { cpm_rnw_hours: '{}' });
           await call('DELETE', '/cpm/customers/KBC'); await call('DELETE', '/cpm/customers/AES');
           await call('PUT', '/cpm/settings', { cpm_machines: '{}' }); await call('PATCH', '/settings', { kpi_fc_benelux: '', kpi_fc_amex: '' });
