@@ -7,7 +7,7 @@
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <!-- lets Edge / Chrome install it as an app: its own window and taskbar icon -->
   <link rel="manifest" href="manifest.webmanifest">
-  <meta name="theme-color" content="#2f6fdb">
+  <meta name="theme-color" content="#430099">
   <link rel="stylesheet" href="styles.css">
   <script>
     // Apply a chosen light/dark theme before the page draws (no flash).
@@ -39,16 +39,18 @@
         <a href="#/kpi" data-nav="kpi" title="Reporting: the weekly ops report (A3), its database and sources">📊<span class="lbl"> Reporting</span></a>
         <a href="#/planning" data-nav="planning" title="Production: perso, Matching and insights">🏭<span class="lbl"> Production</span></a>
         <a href="#/cpm" data-nav="cpm" title="Capacity planning: forecasts against capacity, flex and scenarios">📐<span class="lbl"> Capacity</span></a>
-        <a href="#/report" data-nav="report" title="Archive: the status report">🗄<span class="lbl"> <i>Archive</i></span></a>
-        <a href="#/contacts" data-nav="contacts" title="Contacts">📇<span class="lbl"> Contacts</span></a>
       </nav>
       <div class="spacer"></div>
       <input id="search" type="search" placeholder="Search…  ( / )" autocomplete="off">
-      <button data-action="quick-note" title="Quick note (N)">📝<span class="lbl wide-only"> Quick note</span></button>
+      <button data-action="quick-note" title="Quick note (N)">📝</button>
+      <div id="notices" class="top-menu" hidden><button id="notices-btn" type="button" aria-haspopup="true">⚠</button><div id="notices-panel" class="top-menu-panel notices-panel" hidden></div></div>
       <a id="bell" href="#/dashboard" title="Due / overdue tasks">🔔 <span id="bell-count" class="count" hidden>0</span></a>
       <div class="top-menu">
         <button id="menu-btn" data-action="toggle-menu" aria-haspopup="true" aria-expanded="false" title="More">⋯</button>
         <div id="top-menu" class="top-menu-panel" hidden>
+          <a href="#/contacts" data-nav="contacts">📇 Contacts</a>
+          <a href="#/report" data-nav="report">📰 Status report</a>
+          <hr>
           <a href="#/log" data-nav="log">🕘 Activity log</a>
           <a href="#/backups" data-nav="backups">💾 Backups</a>
           <a href="#/settings" data-nav="settings">⚙ Settings</a>

@@ -119,6 +119,8 @@ When an update changes how data is stored, the app upgrades your database automa
 
 ## 2. Everyday use
 
+**Finding your way around:** the purple bar at the top holds the main pages (with less room, only the page you're on keeps its name — hover an icon for the others); 📇 Contacts, 📰 Status report, the activity log, backups and settings are under **⋯**. On a page, the main action is a button and the rest are under its own **⋯** (or **⚙ View** for display options). Warnings and tips for the page you're on, and recent error messages, are under the **⚠** chip next to the 🔔 — its count shows how many; a button in a warning works from there. A heading's longer explanation is behind its **ⓘ**. A project's charter, baseline and budget sit in one row of tiles under its name.
+
 - **New project:** click **+ New** in the sidebar. List the baseline tasks one per line. The baseline is set automatically.
 - **Add a note as you go:** type in the bar at the top of the project and press **Enter**. Notes are time-stamped. To attach a note to a specific task, pick the task in the drop-down first.
 - **Add a task:** type in the *Add a task…* box and press **Enter**. Shortcuts you can include in the text:

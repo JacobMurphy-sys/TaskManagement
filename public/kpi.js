@@ -36,13 +36,15 @@ async function renderKpi(arg, tab) {
       <div class="seg"><a href="#/kpi/${snap?.id || ''}" class="${view === 'a3' ? 'on' : ''}">Weekly Ops Report</a><a href="#/kpi/${snap?.id || 0}/database" class="${view === 'database' ? 'on' : ''}">Database</a><a href="#/kpi/sources" title="Where the workbook, the source files and the forecasts are">Sources</a></div>
       <div class="spacer"></div>
       <a class="button primary" href="#/kpi/prepare" title="Read the latest exports, fill in the week, build its A3 and save it — step by step">▶ Prepare this week</a>
-      ${settings.kpi_workbook_path ? '<button data-kpi="load-path" title="Read the workbook from where it\'s saved (Excel\'s own copy of the week)">📥 Load from Excel</button>' : ''}
-      <label class="button" title="Load a copy of the workbook from a file">📂 File…<input type="file" accept=".xlsm,.xlsx" hidden id="kpi-file"></label>
-      ${snap && view === 'a3' ? `<button data-kpi="save" ${settings.kpi_export_dir ? '' : 'disabled title="Set the export folder on Sources first"'}>💾 Save A3 to folder</button>
-        <button data-kpi="download" title="Download the A3 (values only, charts as pictures)">⬇ A3</button>` : ''}
+      ${ddMenu('⋯', `
+        ${snap && view === 'a3' ? `<button data-kpi="save" ${settings.kpi_export_dir ? '' : 'disabled title="Set the export folder on Sources first"'}>💾 Save the A3 to its folder</button>
+          <button data-kpi="download">⬇ Download the A3 (values, charts as pictures)</button><hr>` : ''}
+        ${settings.kpi_workbook_path ? '<button data-kpi="load-path">📥 Load the week from Excel</button>' : ''}
+        <label>📂 Load the workbook from a file…<input type="file" accept=".xlsm,.xlsx" hidden id="kpi-file"></label>
+        ${snap ? '<hr><button class="danger" data-kpi="delete">🗑 Remove this week</button>' : ''}`, { title: 'Save or download the A3, load from Excel, remove the week' })}
     </div>
     ${setupMissing ? `<div class="kpi-actions"><div class="kpi-action"><span>⚠ ${!settings.kpi_workbook_path ? 'Set where the CI workbook is saved' : 'Set the folder the A3 is saved in'} to load weeks and save the A3.</span><a class="button small" href="#/kpi/sources">Go to Sources</a></div></div>` : ''}
-    ${notes.actions.length ? `<div class="kpi-actions">${notes.actions.map((a) => `<div class="kpi-action"><span>⚠ ${a.text}</span>${a.buttons}</div>`).join('')}</div>` : ''}
+    ${notes.actions.map((a) => `<div class="kpi-action notice"><span>${a.text}</span> ${a.buttons}</div>`).join('')}
     ${snap ? `<div class="kpi-meta small muted${view === 'a3' ? ' sticky' : ''}">${esc(snap.week)} · ${snap.origin === 'ci' ? `built ${esc(fmtDateTime(snap.loaded_at))} from the source figures` : `loaded ${esc(fmtDateTime(snap.loaded_at))} from Excel`}
         <details class="kpi-info"><summary title="Where this A3 came from">ⓘ</summary><div class="kpi-info-pop card">${notes.info.map((t) => `<div>${t}</div>`).join('')}</div></details>
         <button class="link small" data-kpi="rebuild" title="${snap.origin === 'ci' ? 'Build it again from the latest source figures' : 'Replace the Excel copy with the CI Manager\'s own figures for this week'}">🔄 ${snap.origin === 'ci' ? 'Rebuild' : 'Build from sources instead'}</button>
@@ -51,7 +53,7 @@ async function renderKpi(arg, tab) {
         <span class="spacer"></span>
         ${view === 'a3' ? `<button class="${kpiState.editing ? 'primary' : ''} small" data-kpi="edit" ${snap.views.a3.edit ? '' : 'disabled title="Load this week again (📥) to edit it — it was loaded before editing was possible"'}>✎ ${kpiState.editing ? 'Done editing' : 'Edit A3'}${Object.keys(snap.edits || {}).length ? ` <span class="chip">${Object.keys(snap.edits).length}</span>` : ''}</button>` : ''}
         ${sheetShown ? '' : '<!--'}<span class="kpi-zoom">🔍 <input type="range" id="kpi-zoom" min="25" max="150" step="5"> <button class="link small" data-kpi="fit">Fit</button></span>${sheetShown ? '' : '-->'}
-        <button class="link small danger" data-kpi="delete" title="Remove this week from the CI Manager">Remove week</button></div>
+        </div>
       ${view === 'a3' && kpiState.editing ? `<div class="kc-note kpi-edit-bar">✎ <b>Editing ${esc(snap.week)}</b> — click a text box to change it, a coloured figure to set it green, yellow or red, or a trend arrow to pick ▲ ▬ ▼ (each with its colour).
           Changes are kept with this week (also after 🔄 Rebuild) and go into the saved A3. <span class="kpi-ed-key">Changed by hand</span>
           ${snap.text_from ? `<button class="small" data-kpi="copy-text" title="Fill this week's text boxes with the text typed for ${esc(snap.text_from)}">⇩ Start from ${esc(snap.text_from)}'s text</button>` : ''}
@@ -561,8 +563,8 @@ async function renderKpiSources() {
         Only files saved since the last read are read again. Nothing is changed in any file.</p>
       <label class="row small"><input type="checkbox" id="kc-weekends" ${calc.split_weekends ? 'checked' : ''}>
         Count Saturdays and Sundays of a week split across two months in their own month's part (W…_1 / W…_2). Excel leaves them out.</label>
-      ${calc.split_weekends ? '<div class="kc-note">Weekend work in split weeks is counted, so those weeks differ from Excel\'s figures by exactly that work.</div>' : ''}
-      ${unlisted.length && !calc.split_weekends ? `<div class="kc-note">⚠ Not in Excel's report: weekend work in split weeks — ${unlisted.map((u) => `<b>${esc(u.week)}</b> ${esc(u.source === 'remakes' ? `${u.qty} scrap` : `${(u.qty / 1000).toFixed(1)}K ${u.source === 'perso' ? 'persoed' : 'shipped'}`)}`).join(', ')}.</div>` : ''}
+      ${calc.split_weekends ? '<div class="kc-note notice notice-info">Weekend work in split weeks is counted, so those weeks differ from Excel\'s figures by exactly that work.</div>' : ''}
+      ${unlisted.length && !calc.split_weekends ? `<div class="kc-note notice">Not in Excel's report: weekend work in split weeks — ${unlisted.map((u) => `<b>${esc(u.week)}</b> ${esc(u.source === 'remakes' ? `${u.qty} scrap` : `${(u.qty / 1000).toFixed(1)}K ${u.source === 'perso' ? 'persoed' : 'shipped'}`)}`).join(', ')}.</div>` : ''}
       <h3 class="kc-sub">Customer forecasts <span class="muted small">— read each time an A3 is built (month and year forecast per customer, the forecast rows)</span></h3>
       <table class="log"><thead><tr><th>Forecast</th><th>File</th><th>File saved</th></tr></thead><tbody>
         ${(calc.forecasts || []).map((f) => `<tr><td><b>${esc(f.label)}</b><div class="small muted">${esc(f.default_file)} · sheet ${esc(f.sheet)}</div></td>
@@ -645,11 +647,11 @@ function wireKpiShared() {
 
 // Rows of the OTD report that aren't counted, or whose date and typed week disagree.
 function kpiOtdChecksHtml(calc) {
-  return `${calc.otd_uncounted?.length ? `<div class="kc-note">⚠ ${calc.otd_uncounted.length} OTD row${calc.otd_uncounted.length === 1 ? ' isn\'t' : 's aren\'t'} counted in any week (${(calc.otd_uncounted.reduce((t, r) => t + (r.qty || 0), 0) / 1000).toFixed(1)}K):
+  return `${calc.otd_uncounted?.length ? `<div class="kc-note notice">${calc.otd_uncounted.length} OTD row${calc.otd_uncounted.length === 1 ? ' isn\'t' : 's aren\'t'} counted in any week (${(calc.otd_uncounted.reduce((t, r) => t + (r.qty || 0), 0) / 1000).toFixed(1)}K):
           the Week column is empty, isn't a week number, or names a split week without saying which part (_1 / _2). Excel doesn't count them either. Fill in the week in the OTD report and read it again.
         <details><summary class="small">Show them</summary><table class="log small"><thead><tr><th>Customer</th><th>Type</th><th class="num">Volume</th><th>Date</th><th>Week typed</th><th>Month</th><th>Reason</th><th>Why</th><th>Week of the date</th></tr></thead><tbody>
         ${calc.otd_uncounted.map((c) => `<tr><td>${esc(c.customer || '')}</td><td>${esc(c.type || '')}</td><td class="num">${(c.qty || 0).toLocaleString('en-GB')}</td><td>${esc(c.date || '')}</td><td>${esc(c.week_typed || '—')}</td><td>${esc(c.month ?? '')}</td><td>${esc(c.reason || '')}</td><td>${esc(c.why)}</td><td class="muted">${esc(c.date_week || '')}</td></tr>`).join('')}</tbody></table></details></div>` : ''}
-      ${calc.otd_checks?.length ? `<div class="kc-note">⚠ ${calc.otd_checks.length} row${calc.otd_checks.length === 1 ? '' : 's'} in the OTD report have a date that doesn't fall in the week typed next to it${calc.otd_checks.every((c) => c.swapped) ? ' — in every case the day and month are swapped (e.g. 8 March entered for 3 August)' : ''}. The typed week is used, as Excel does.
+      ${calc.otd_checks?.length ? `<div class="kc-note notice">${calc.otd_checks.length} row${calc.otd_checks.length === 1 ? '' : 's'} in the OTD report have a date that doesn't fall in the week typed next to it${calc.otd_checks.every((c) => c.swapped) ? ' — in every case the day and month are swapped (e.g. 8 March entered for 3 August)' : ''}. The typed week is used, as Excel does.
         <details><summary class="small">Show them</summary><table class="log small"><thead><tr><th>Customer</th><th>Type</th><th class="num">Qty</th><th>Date entered</th><th>Week typed</th><th>Week of that date</th></tr></thead><tbody>
         ${calc.otd_checks.map((c) => `<tr><td>${esc(c.customer || '')}</td><td>${esc(c.type || '')}</td><td class="num">${c.qty.toLocaleString('en-GB')}</td><td>${esc(c.date)}${c.swapped ? ' <span class="muted">(day/month swapped?)</span>' : ''}</td><td>${esc(c.typed_week)}</td><td>${esc(c.date_week)}</td></tr>`).join('')}</tbody></table></details></div>` : ''}`;
 }

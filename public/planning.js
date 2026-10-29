@@ -221,7 +221,7 @@ async function renderPlanning() {
         <div class="kdb-tile"><div class="kdb-tile-l">On time — last 7 days</div><div class="kdb-tile-v ${h.week.on_time_pct === null ? '' : h.week.on_time_pct >= 98 ? 'kdb-ok' : 'kdb-bad'}">${h.week.on_time_pct === null ? '—' : `${h.week.on_time_pct}%`}</div><div class="kdb-tile-s">done by the cut-off</div></div>
         <div class="kdb-tile"><div class="kdb-tile-l">Lead time</div><div class="kdb-tile-v">${h.week.lead_hours === null ? '—' : fmtSpan(h.week.lead_hours * 60)}</div><div class="kdb-tile-s">first seen → done, average</div></div>
         <div class="kdb-tile"><div class="kdb-tile-l">History</div><div class="kdb-tile-v">${n(h.reads)}</div><div class="kdb-tile-s">${h.since ? `exports since ${esc(fmtDateTime(h.since))}` : 'exports recorded'}</div></div></div>
-      ${h.reads < 2 ? '<div class="kc-note">The history builds up from now: each new version of the linked export is recorded (checked every 10 minutes), and a job is counted as done when it\'s gone from the next export — to within the export interval.</div>' : ''}
+      ${h.reads < 2 ? '<div class="kc-note notice notice-info">The history builds up from now: each new version of the linked export is recorded (checked every 10 minutes), and a job is counted as done when it\'s gone from the next export — to within the export interval.</div>' : ''}
       <div class="card"><h3 class="pl-h">${unitOf[0].toUpperCase()}${unitOf.slice(1)} done per day <span class="muted small">— last ${h.days} days · green on time · red after the cut-off${h.daily.some((d) => d.unknown_cards) ? ' · grey: not known whether on time' : ''}</span></h3>
         ${h.done_by ? `<p class="small muted" style="margin:0 0 6px">${(() => { const b = h.done_by; const all = b.runs + b.export + b.gap; return all ? `Done times: <b>${Math.round((b.runs / all) * 100)}%</b> from the ⏱ timing report (the end of the job's last run)${b.export ? `, ${n(b.export)} job${b.export === 1 ? '' : 's'} from when ${b.export === 1 ? 'it' : 'they'} left the export (no runs)` : ''}${b.gap ? `, ${n(b.gap)} done while the export wasn't being read (no runs) — on time only where that's certain, and left out of the pace` : ''}.` : ''; })()}</p>` : ''}
         <div class="pl-hist">${h.daily.map((d) => `<div class="pl-hist-col" title="${esc(d.date)}: ${n(d.jobs)} jobs, ${n(d.cards)} ${unitOf} (${n(d.on_time_cards)} on time)">
@@ -256,7 +256,7 @@ async function renderPlanning() {
         <div class="kdb-tile"><div class="kdb-tile-l">Lead time</div><div class="kdb-tile-v">${h.week.lead_hours === null ? '—' : fmtSpan(h.week.lead_hours * 60)}</div><div class="kdb-tile-s">imported → last ${data ? 'produced' : 'run'}, average</div></div>
         <div class="kdb-tile"><div class="kdb-tile-l">${rep}</div><div class="kdb-tile-v">${n(h.reads)}</div><div class="kdb-tile-s">${data ? `rows · newest production date ${esc(dayOnly(h.last))}` : `runs · newest ended ${esc(when(h.last))}`}</div></div></div>
       <p class="small muted pl-same">🟰 Built only from the ${rep}${data ? ' — the report Power BI uses' : ' (every run since 1 January)'}, so it's the same on every PC that has read it — compare the newest ${data ? 'production date' : 'run'} above to check you're on the same report. Last read here ${esc(when(h.read_at))}.</p>
-      ${chk}${data ? '' : `<div class="kc-note admin-only">📊 For the same cards persoed as Power BI, link <b>DailyPersoData</b> (the report it uses) in <button class="link" data-pl="setup-pdata">⚙ Setup</button>.</div>`}
+      ${chk}${data ? '' : `<div class="kc-note notice notice-info admin-only">📊 For the same cards persoed as Power BI, link <b>DailyPersoData</b> (the report it uses) in <button class="link" data-pl="setup-pdata">⚙ Setup</button>.</div>`}
       <div class="card"><h3 class="pl-h">Cards persoed per day <span class="muted small">— last ${h.days} days, by ${data ? 'Production Date' : 'the day each run ended'} · green by the due date · red after it${h.daily.some((d) => d.unknown_cards) ? ' · grey: no due date in the report' : ''}</span></h3>
         <div class="pl-hist">${h.daily.map((d) => `<div class="pl-hist-col" title="${esc(d.date)}: ${n(d.cards)} cards persoed (${n(d.on_time_cards)} by their due date), ${n(d.jobs)} jobs">
           <div class="pl-hist-n">${d.cards ? kfmt(d.cards) : ''}</div>
@@ -548,8 +548,8 @@ async function renderPlanning() {
   };
   const ottoHtml = () => {
     const os = ot.source; const allO = [...ot.running, ...ot.queue];
-    if (os.status === 'missing') return `<div class="kc-note">⚠ Can't find <code>${esc(os.file)}</code> — check the Matching path in ⚙ Setup.</div>`;
-    if (os.status === 'error') return `<div class="kc-note">⚠ Couldn't read <code>${esc(os.file)}</code>: ${esc(os.error)}</div>`;
+    if (os.status === 'missing') return `<div class="kc-note notice">Can't find <code>${esc(os.file)}</code> — check the Matching path in ⚙ Setup.</div>`;
+    if (os.status === 'error') return `<div class="kc-note notice">Couldn't read <code>${esc(os.file)}</code>: ${esc(os.error)}</div>`;
     if (os.status !== 'ok') return '<div class="card lib-empty"><h2>Matching</h2><p>Set where the Matching export is saved in ⚙ Setup (or try it with 📂 Load file…). Each Matching job is matched to its perso work order by the start of its Name, so you can see which are still waiting on perso.</p></div>';
     const of = store.get('planOttoFilter', {}) || {};
     const om = (o) => (!of.customer || o.customer === of.customer) && (!of.waiting || (of.waiting === 'perso' ? o.perso_open : !o.perso_open))
@@ -608,10 +608,12 @@ async function renderPlanning() {
       <div class="spacer"></div>
       ${state.mode === 'planner' ? '<span id="pl-presence" class="pl-presence" title="Others with the planner open">👤 just you</span>' : ''}
       <span class="small muted">${(half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).status === 'ok' ? `${esc((half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).name)} · saved ${esc(fmtDateTime((half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).modified))}${(half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).uploaded ? ' (uploaded copy)' : ''}` : ''}</span>
-      <button data-pl="refresh" title="Read the export again if it has changed">🔄 Refresh</button>
-      <label class="button" title="Try it with a copy of the ${half === 'otto' ? 'Matching' : 'open work orders'} export">📂 Load file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
-      ${half === 'perso' ? '<button class="admin-only" data-pl="mods" title="Priority modifiers: customers and work order types that go first">⚖ Modifiers</button>' : ''}
-      <button class="admin-only" data-pl="setup" title="Where the export is, and the capacity">⚙ Setup</button>
+      <button data-pl="refresh" title="Read the export again if it has changed">🔄</button>
+      ${half === 'perso' && src.status === 'ok' ? '<button class="primary" data-pl="print" title="A plan per cell (DOD, Emboss, Laser) of the work orders still open, as a PDF to print and hand out">📄 Generate plan</button>' : ''}
+      ${ddMenu('⋯', `
+        <label title="Try it with a copy of the ${half === 'otto' ? 'Matching' : 'open work orders'} export">📂 Load a file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
+        ${half === 'perso' ? '<button class="admin-only" data-pl="mods">⚖ Priority modifiers</button>' : ''}
+        <button class="admin-only" data-pl="setup">⚙ Setup — the export, machines and capacity</button>`, { title: 'Load a file, priority modifiers, setup' })}
     </div>
     <div id="pl-changed" class="pl-changed" hidden></div>
     ${half === 'perso' ? modsHtml() : ''}
@@ -679,9 +681,9 @@ ${half === 'otto' ? ottoSetup() : `
 `}
     </div>
     ${half === 'otto' ? ottoHtml() : half === 'disp' ? dispHtml() : `
-    ${src.status === 'ok' && cdb.status === 'ok' && (p.unknown_articles?.length || p.no_speed) ? `<div class="kc-note">⚠ ${[p.unknown_articles.length ? `${p.unknown_articles.length} card article${p.unknown_articles.length === 1 ? ' isn\'t' : 's aren\'t'} in the card database (${esc(p.unknown_articles.slice(0, 6).join(', '))}${p.unknown_articles.length > 6 ? ', …' : ''})` : '', p.no_speed ? `${p.no_speed} card line${p.no_speed === 1 ? ' has no speed of its own' : 's have no speed of their own'} — ${cap.rate ? 'the flat rate is used' : 'the average of the others is used (≈)'}` : ''].filter(Boolean).join(' · ')}. <button class="small" data-pl="nospeed">🔎 Show which</button> <button class="link small admin-only" data-pl="setup">⚙ Speeds</button></div>` : ''}
-    ${src.status === 'missing' ? `<div class="kc-note">⚠ Can't find <code>${esc(src.file)}</code> — check the path in ⚙ Setup.</div>` : ''}
-    ${src.status === 'error' ? `<div class="kc-note">⚠ Couldn't read <code>${esc(src.file)}</code>: ${esc(src.error)}</div>` : ''}
+    ${src.status === 'ok' && cdb.status === 'ok' && (p.unknown_articles?.length || p.no_speed) ? `<div class="kc-note notice">${[p.unknown_articles.length ? `${p.unknown_articles.length} card article${p.unknown_articles.length === 1 ? ' isn\'t' : 's aren\'t'} in the card database (${esc(p.unknown_articles.slice(0, 6).join(', '))}${p.unknown_articles.length > 6 ? ', …' : ''})` : '', p.no_speed ? `${p.no_speed} card line${p.no_speed === 1 ? ' has no speed of its own' : 's have no speed of their own'} — ${cap.rate ? 'the flat rate is used' : 'the average of the others is used (≈)'}` : ''].filter(Boolean).join(' · ')}. <button class="small" data-pl="nospeed">🔎 Show which</button> <button class="link small admin-only" data-pl="setup">⚙ Speeds</button></div>` : ''}
+    ${src.status === 'missing' ? `<div class="kc-note notice">Can't find <code>${esc(src.file)}</code> — check the path in ⚙ Setup.</div>` : ''}
+    ${src.status === 'error' ? `<div class="kc-note notice">Couldn't read <code>${esc(src.file)}</code>: ${esc(src.error)}</div>` : ''}
     ${src.status === 'none' ? '<div class="card lib-empty"><h2>Production planning</h2><p>Set where the open work orders export is saved in ⚙ Setup (or try it with 📂 Load file…). The work orders are put in order by their deadline — the due date at the shipper\'s cut-off — and, with a capacity, each one\'s finish is projected.</p></div>' : ''}
     ${src.status === 'ok' ? `
     <div class="pl-tiles-row"><div class="kdb-tiles pl-tiles">
@@ -690,7 +692,7 @@ ${half === 'otto' ? ottoSetup() : `
       <div class="kdb-tile"><div class="kdb-tile-l">Due today</div><div class="kdb-tile-v ${dueToday.length ? 'kdb-warn' : ''}">${n(dueToday.length)}</div><div class="kdb-tile-s">${n(sum(dueToday))} cards</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Overdue cards</div><div class="kdb-tile-v ${overdue.length ? 'kdb-bad' : 'kdb-ok'}">${n(sum(overdue))}</div><div class="kdb-tile-s">${n(overdue.length)} job${overdue.length === 1 ? '' : 's'}${p.backlog?.catch_up?.catch_days ? ` · caught up in ~${p.backlog.catch_up.catch_days} d` : ''}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Projected late</div><div class="kdb-tile-v ${late.length ? 'kdb-bad' : p.projected ? 'kdb-ok' : ''}">${p.projected ? n(late.length) : '—'}</div><div class="kdb-tile-s">${esc(capText)}</div></div>
-    </div><button class="primary pl-generate" data-pl="print" title="A plan per cell (DOD, Emboss, Laser) of the work orders still open, as a PDF to print and hand out">📄 Generate plan</button></div>
+    </div></div>
     ${src.status === 'ok' ? viewsRow() : ''}
     ${view === 'gantt' ? '<div class="card pl-gantt-card"><div id="pl-gantt-info" class="small"></div><div id="pl-gantt"></div></div>' : ''}
     ${view === 'load' ? `${loadHtml()}${capCard}` : ''}

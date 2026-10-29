@@ -82,9 +82,66 @@ function toast(msg, type = '') {
   const el = document.createElement('div');
   el.className = `toast ${type}`;
   el.textContent = msg;
+  if (type === 'error') { // errors stay a little longer, can be closed, and are kept under ⚠ in the top bar
+    el.insertAdjacentHTML('afterbegin', '<span class="toast-ico">⚠</span>');
+    const x = document.createElement('button'); x.className = 'toast-x'; x.textContent = '✕'; x.title = 'Close'; x.onclick = () => el.remove(); el.append(x);
+    noticeErrors.unshift({ msg: String(msg), at: new Date() }); noticeErrors.length = Math.min(noticeErrors.length, 8); collectNotices();
+  }
   $('#toasts').append(el);
-  setTimeout(() => el.remove(), type === 'error' ? 6000 : 2500);
+  setTimeout(() => el.remove(), type === 'error' ? 8000 : 2500);
 }
+
+// ---- a dropdown menu: a button that opens a small panel of actions (the buttons inside keep their own
+// ids and data-action, so they work as before); closes on a click outside or on one of its items
+function ddMenu(label, items, { title = '', cls = '', right = true } = {}) {
+  return `<details class="dd ${cls}"><summary class="button" title="${esc(title)}">${label}</summary><div class="dd-panel ${right ? 'right' : ''}">${items}</div></details>`;
+}
+document.addEventListener('click', (e) => {
+  for (const d of document.querySelectorAll('details.dd[open]')) {
+    if (!d.contains(e.target)) d.open = false;
+    else if (e.target.closest('.dd-panel') && e.target.closest('button, a') && !e.target.closest('[data-dd-keep]')) setTimeout(() => { d.open = false; }, 0);
+  }
+}, true);
+
+// ---- notices: the page's warnings and tips (anything marked .notice) and recent errors, gathered under one
+// ⚠ chip in the top bar instead of boxes across the page; a button in a notice works from the list
+const noticeErrors = [];
+function collectNotices() {
+  const wrap = $('#notices'); if (!wrap) return;
+  const found = $$('#main .notice');
+  let k = 0;
+  const items = found.map((n) => { n.classList.add('notice-src'); n.dataset.nid = n.dataset.nid || `n${Date.now().toString(36)}${k++}`;
+    n.querySelectorAll('button, a, input, select').forEach((b, i) => { b.dataset.nref = i; });
+    return { id: n.dataset.nid, html: n.innerHTML, kind: n.classList.contains('notice-info') ? 'info' : 'warn' }; });
+  const warn = items.filter((x) => x.kind === 'warn'); const info = items.filter((x) => x.kind === 'info');
+  const n = warn.length + noticeErrors.length;
+  wrap.hidden = !items.length && !noticeErrors.length;
+  $('#notices-btn').className = noticeErrors.length ? 'has-err' : warn.length ? 'has-warn' : 'has-info';
+  $('#notices-btn').innerHTML = `${noticeErrors.length || warn.length ? '⚠' : 'ℹ'}<span class="ncount">${n || info.length}</span>`;
+  $('#notices-btn').title = `${warn.length ? `${warn.length} warning${warn.length === 1 ? '' : 's'} on this page` : ''}${noticeErrors.length ? `${warn.length ? ' · ' : ''}${noticeErrors.length} recent error${noticeErrors.length === 1 ? '' : 's'}` : ''}${info.length ? `${warn.length || noticeErrors.length ? ' · ' : ''}${info.length} tip${info.length === 1 ? '' : 's'}` : ''}`;
+  const sec = (title, list) => (list.length ? `<div class="nt-h">${title}</div>${list.map((x) => `<div class="nt-item" data-nfor="${x.id}">${x.html}</div>`).join('')}` : '');
+  $('#notices-panel').innerHTML = sec('On this page', warn) + sec('Recent errors', noticeErrors.map((e) => ({ id: '', html: `<span class="nt-err">${esc(e.msg)}</span> <span class="muted small">${e.at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>` })))
+    + sec('Tips', info) + (noticeErrors.length ? '<div class="nt-foot"><button class="link small" id="notices-clear">Clear the errors</button></div>' : '');
+  const clr = $('#notices-clear'); if (clr) clr.onclick = (e) => { e.stopPropagation(); noticeErrors.length = 0; collectNotices(); };
+}
+// a click on a button or link in the list: the same one on the page
+document.addEventListener('click', (e) => {
+  const it = e.target.closest('#notices-panel .nt-item'); const ctl = e.target.closest('#notices-panel [data-nref]');
+  if (it && ctl) { e.preventDefault(); e.stopPropagation(); const src = $(`#main [data-nid="${it.dataset.nfor}"]`); const orig = src && src.querySelector(`[data-nref="${ctl.dataset.nref}"]`); $('#notices-panel').hidden = true; if (orig) orig.click(); return; }
+  if (e.target.closest('#notices-btn')) { $('#notices-panel').hidden = !$('#notices-panel').hidden; return; }
+  if (!e.target.closest('#notices')) { const p = $('#notices-panel'); if (p) p.hidden = true; }
+}, true);
+// a section heading's long explanation behind a small ⓘ (opens on a click), short ones stay as they are
+function compactHints() {
+  for (const sp of $$('#main h2 > span.muted.small:not(.hint-done), #main h3 > span.muted.small:not(.hint-done), #main h3 > span.small.muted:not(.hint-done)')) {
+    sp.classList.add('hint-done'); const txt = sp.textContent.replace(/^\s*[—–-]\s*/, '').trim();
+    if (txt.length <= 70 || sp.querySelector('input, select, button')) continue;
+    const d = document.createElement('details'); d.className = 'hint'; d.innerHTML = `<summary title="${esc(txt.slice(0, 300))}">ⓘ</summary><div class="hint-pop">${sp.innerHTML.replace(/^\s*[—–-]\s*/, '')}</div>`;
+    sp.replaceWith(d);
+  }
+}
+document.addEventListener('click', (e) => { for (const d of $$('details.hint[open]')) if (!d.contains(e.target)) d.open = false; }, true);
+new MutationObserver(() => { clearTimeout(collectNotices.t); collectNotices.t = setTimeout(() => { collectNotices(); compactHints(); }, 60); }).observe(document.getElementById('main'), { childList: true, subtree: true });
 
 // ---- dates -----------------------------------------------------------
 
@@ -441,8 +498,7 @@ async function renderDashboard() {
   main().innerHTML = `
     <div class="row" style="margin-bottom:14px"><h1 style="margin:0">Home</h1><div class="spacer"></div>
       <span class="muted">${esc(fmtDate(new Date()))}</span>
-      ${modOk('report') ? '<a class="button" href="#/report">📰 Status report</a>' : ''}
-      ${modOk('projects') ? '<a class="button" href="/api/export.xlsx" title="Download everything as an Excel workbook">⬇ Export to Excel</a>' : ''}</div>
+      ${modOk('report') || modOk('projects') ? ddMenu('⋯', `${modOk('report') ? '<a href="#/report">📰 Status report</a>' : ''}${modOk('projects') ? '<a href="/api/export.xlsx">⬇ Everything as an Excel workbook</a>' : ''}`, { title: 'Status report, Excel export' }) : ''}</div>
 
     <div class="kpis">
       ${!modOk('projects') ? '' : kpi('Active projects', active.length, [onHold && `${onHold} on hold`, recentlyDone && `${recentlyDone} completed this month`].filter(Boolean).join(' · '), 'dash-projects')}
@@ -804,11 +860,9 @@ async function renderProject(id, tab) {
     <div class="project-head">
       <div class="title">
         <h1>${esc(p.name)} <span class="muted small">${esc(p.project_code || '')}</span></h1>
-        ${p.sponsor || p.leader ? `<div class="small muted">${p.leader ? `Leader: <b>${esc(p.leader)}</b>` : ''}${p.sponsor ? ` · Sponsor: <b>${esc(p.sponsor)}</b>` : ''}${p.category ? ` · ${esc(p.category)}` : ''}</div>` : ''}
-        ${p.escalated_from ? `<div class="small" style="margin-bottom:4px"><a href="#/idea/${p.escalated_from.id}">💡 Escalated from ${esc(p.escalated_from.ref)}</a></div>` : ''}
-        ${p.description ? `<div class="pre muted">${linkify(p.description)}</div>` : ''}
-        <div class="small muted" style="margin-top:4px">Created ${esc(fmtDateTime(p.created_at))} · Updated ${esc(fmtDateTime(p.updated_at))}
-          ${p.completed_at ? ` · Completed ${esc(fmtDateTime(p.completed_at))}` : ''}</div>
+        <div class="small muted" title="Created ${esc(fmtDateTime(p.created_at))} · Updated ${esc(fmtDateTime(p.updated_at))}${p.completed_at ? ` · Completed ${esc(fmtDateTime(p.completed_at))}` : ''}">${[p.leader ? `Leader <b>${esc(p.leader)}</b>` : '', p.sponsor ? `Sponsor <b>${esc(p.sponsor)}</b>` : '', p.category ? esc(p.category) : '',
+          p.escalated_from ? `<a href="#/idea/${p.escalated_from.id}">💡 from ${esc(p.escalated_from.ref)}</a>` : '', p.completed_at ? `completed ${esc(fmtShortDate(p.completed_at))}` : `updated ${esc(fmtShortDate(p.updated_at))}`].filter(Boolean).join(' · ')}</div>
+        ${p.description ? `<div class="pre muted small proj-desc">${linkify(p.description)}</div>` : ''}
       </div>
       <div class="meta">
         <select data-action="project-field" data-field="status" title="Status">${options(PSTATUS, p.status)}</select>
@@ -816,18 +870,22 @@ async function renderProject(id, tab) {
         ${p.due_at ? dueChip({ ...p, status: p.status === 'completed' ? 'done' : '' }) : ''}
         ${p.due_at ? `<span class="resched-slot" data-resched="project:${p.id}"></span>` : ''}
         <button data-action="edit-project">✎ Edit</button>
-        <button data-action="history" data-kind="projects" data-id="${p.id}" data-title="${esc(p.name)}" title="Every change to this project, with who made it — and ↩ Put back">🕘</button>
-        <button data-action="remind-project" title="Project reminder">🔔</button>
-        <a class="button" href="#/report/${p.id}" title="Status report for this project">📰 Report</a>
-        <a class="button" href="/api/export.xlsx?scope=project&id=${p.id}" title="Download this project as an Excel workbook">⬇ Excel</a>
+        ${ddMenu('⋯', `
+          <button data-action="history" data-kind="projects" data-id="${p.id}" data-title="${esc(p.name)}">🕘 History of changes</button>
+          <button data-action="remind-project">🔔 Set a reminder</button>
+          <hr>
+          <button data-action="log-cost">💰 Log a cost</button>
+          <button data-action="add-phase">🧭 Add a phase</button>
+          <button data-action="set-baseline">📌 ${p.baseline_set_at ? 'Re-baseline' : 'Set the baseline'}</button>
+          <hr>
+          <a href="#/report/${p.id}">📰 Status report</a>
+          <a href="/api/export.xlsx?scope=project&id=${p.id}">⬇ Download as Excel</a>`, { title: 'More: history, reminder, costs, phases, baseline, report, Excel' })}
       </div>
     </div>
     ${tabs}
     ${tab === 'charter' ? '<div id="charter-root"></div>' : `
-    ${charterNudge(p)}
-    ${baselineBox(p)}
-    ${budgetBox(p)}
-    ${phasesBox(p)}
+    ${projSummary(p)}
+    ${p.charter.phases.length ? phasesBox(p) : ''}
     <div class="quick-note">
       <textarea id="note-input" placeholder="Add a note to this project… (Enter to save, Shift+Enter for a new line; lines starting [ ] become tasks)"></textarea>
       <select id="note-task" title="Attach note to a task (optional)">
@@ -900,14 +958,35 @@ const noteToast = (note) => (note.created_tasks?.length
   ? `Note added · ${note.created_tasks.length} task${note.created_tasks.length === 1 ? '' : 's'} created from [ ] lines`
   : 'Note added');
 
-function budgetBox(p) {
+// the project at a glance, one row of small tiles: its charter, its baseline and its budget (with the costs
+// listed below when shown)
+function projSummary(p) {
+  const c = p.charter.completeness; const cur = projCur(p);
+  const charter = `<a class="ps-tile ${c.pct < 100 ? 'ps-warn' : ''}" href="#/project/${p.id}/charter" title="${c.missing_required.length ? `Missing: ${esc(c.missing_required.join(', '))}` : 'Open the charter'}">
+    <span class="ps-l">📋 Charter</span><span class="ps-v">${c.pct}%</span>${charterMeter(c)}</a>`;
+  let baseline;
+  if (!p.baseline_set_at) baseline = `<div class="ps-tile"><span class="ps-l">📌 Baseline</span><span class="ps-v muted">none</span><button class="link small" data-action="set-baseline">Set it</button></div>`;
+  else { const snap = p.baseline_snapshot || {}; const baseIds = new Set((snap.tasks || []).map((t) => t.id)); const added = p.tasks.filter((t) => !t.is_baseline).length;
+    const days = p.baseline_due_at && p.due_at && p.baseline_due_at !== p.due_at ? Math.round((new Date(p.due_at) - new Date(p.baseline_due_at)) / 86400000) : 0;
+    baseline = `<div class="ps-tile" title="Baseline set ${esc(fmtDateTime(p.baseline_set_at))} · due then ${p.baseline_due_at ? esc(fmtDate(p.baseline_due_at)) : '—'}"><span class="ps-l">📌 Baseline</span>
+      <span class="ps-v">${baseIds.size} task${baseIds.size === 1 ? '' : 's'}${added ? ` <span class="small muted">+${added} since</span>` : ''}</span>
+      <span class="small ${days > 0 ? 'chip overdue' : 'muted'}">${days ? `${days > 0 ? '+' : ''}${days} day${Math.abs(days) === 1 ? '' : 's'} vs plan` : `due ${p.baseline_due_at ? esc(fmtShortDate(p.baseline_due_at)) : '—'}`}</span></div>`; }
+  const spent = p.spent || 0; const budget = p.budget; const has = budget !== null && budget !== undefined; const pct = has && budget ? Math.round((spent / budget) * 100) : null; const over = has && spent > budget;
+  const money_ = `<div class="ps-tile ps-budget ${over ? 'ps-bad' : ''}"><span class="ps-l">💰 Budget</span>
+    <span class="ps-v">${money(spent, cur)}${has ? ` <span class="small muted">of ${money(budget, cur)}</span>` : ''}</span>
+    ${has ? `<span class="meter wide ${over ? 'over' : pct >= 90 ? 'near' : ''}" title="${pct}% spent"><span style="width:${Math.min(pct, 100)}%"></span></span>` : '<button class="link small" data-action="edit-project">Set a budget</button>'}
+    ${(p.unconverted || []).length ? `<span class="chip overdue" title="Costs in another currency with no amount in ${esc(cur)} — set it on each cost">⚠ ${p.unconverted.map((u) => money(u.amount, u.currency)).join(' + ')} not counted</span>` : ''}
+    <span class="ps-acts"><button class="link small" data-action="log-cost" title="Log a cost">＋</button>${p.costs.length ? `<button class="link small" data-action="toggle-costs">${store.get('showCosts', false) ? 'hide' : `${p.costs.length} cost${p.costs.length === 1 ? '' : 's'}`}</button>` : ''}</span></div>`;
+  return `<div class="proj-summary">${charter}${baseline}${money_}</div>${p.costs.length && store.get('showCosts', false) ? budgetBox(p, true) : ''}`;
+}
+function budgetBox(p, costsOnly = false) {
   const spent = p.spent || 0;
   const budget = p.budget;
   const pct = budget ? Math.round((spent / budget) * 100) : null;
   const over = budget !== null && budget !== undefined && spent > budget;
   const level = over ? 'over' : pct !== null && pct >= 90 ? 'near' : '';
-  const showCosts = store.get('showCosts', false); const cur = projCur(p);
-  return `<div class="baseline-box budget-box">
+  const showCosts = costsOnly || store.get('showCosts', false); const cur = projCur(p);
+  return `${costsOnly ? '' : `<div class="baseline-box budget-box">
     <span>💰 Budget: <b>${budget !== null && budget !== undefined ? money(budget, cur) : '—'}</b></span>
     <span>Spent: <b>${money(spent, cur)}</b>${pct !== null ? ` <span class="muted">(${pct}%)</span>` : ''}</span>
     ${budget !== null && budget !== undefined ? `
@@ -917,7 +996,7 @@ function budgetBox(p) {
     ${(p.unconverted || []).length ? `<span class="chip overdue" title="Costs in another currency with no amount in the project's — set it on each cost (Show costs), or add the rate in ⚙ Settings before logging">⚠ Not counted: ${p.unconverted.map((u) => money(u.amount, u.currency)).join(' + ')}</span>` : ''}
     <button class="link" data-action="log-cost">＋ Log a cost</button>
     ${p.costs.length ? `<button class="link" data-action="toggle-costs">${showCosts ? 'Hide' : 'Show'} ${p.costs.length} cost${p.costs.length === 1 ? '' : 's'}</button>` : ''}
-  </div>
+  </div>`}
   ${p.costs.length && showCosts ? `<div class="card costs-card"><table class="log">
     <thead><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th></th></tr></thead>
     <tbody>${p.costs.map((c) => `<tr><td class="nowrap">${esc(c.spent_on ? fmtShortDate(`${c.spent_on}T12:00`) : '')}</td>
