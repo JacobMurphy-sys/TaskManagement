@@ -192,6 +192,15 @@ async function waitForServer() {
     // ---- Notes create tasks from "[ ]" lines
     const np = await call('POST', '/projects', { ...CHARTER, name: 'Features project', budget: '£2,000' });
     assert.equal(np.budget, 2000, 'budget parsed');
+    // a project's own currency: its budget and costs in it; blank goes back to the app's
+    assert.equal(np.currency, null, 'the app\'s currency unless set');
+    const npc = await call('PATCH', `/projects/${np.id}`, { currency: ' ¥  ', budget: 2500 });
+    assert.equal(npc.currency, '¥', 'currency trimmed');
+    const dep = await call('POST', `/projects/${np.id}/costs`, { description: 'Deposit', amount: 120, spent_on: '2026-10-01' });
+    const npLog = (await call('GET', `/audit?project_id=${np.id}`)).map((e) => e.summary).join(' | ');
+    assert.ok(/budget: [^¥\d]+2,000\.00 → ¥2,500\.00/i.test(npLog) && /Cost added: ¥120\.00/.test(npLog) && /currency: the app's \(.+?\) → ¥/.test(npLog), `history in the project's currency: ${npLog}`);
+    assert.equal((await call('PATCH', `/projects/${np.id}`, { currency: '' })).currency, null, 'blank: back to the app\'s');
+    await call('PATCH', `/projects/${np.id}`, { budget: 2000 }); await call('DELETE', `/costs/${dep.id}`);
     const meeting = await call('POST', '/notes', { project_id: np.id,
       body: 'Kick-off meeting\n[ ] Chase finance for data !high @2026-10-20\n- [ ] Book room *weekly\n[x] already done\nplain line' });
     assert.equal(meeting.created_tasks.length, 2, 'two checklist lines became tasks');

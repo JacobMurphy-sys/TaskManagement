@@ -40,8 +40,8 @@ function reportModel(r) {
       phaseFact,
       `${p.done_count}/${p.task_count} tasks done${p.task_count ? ` (${Math.round((p.done_count / p.task_count) * 100)}%)` : ''}`,
       p.due_at ? `due ${fmtDate(p.due_at)}${slip ? ` (${slip > 0 ? '+' : ''}${slip} days vs baseline)` : ''}` : null,
-      p.budget !== null && p.budget !== undefined ? `spent ${rMoney(p.spent, r.currency)} of ${rMoney(p.budget, r.currency)} budget` : (p.spent ? `spent ${rMoney(p.spent, r.currency)}` : null),
-      p.spent_in_period ? `${rMoney(p.spent_in_period, r.currency)} spent this period` : null,
+      p.budget !== null && p.budget !== undefined ? `spent ${rMoney(p.spent, p.currency || r.currency)} of ${rMoney(p.budget, p.currency || r.currency)} budget` : (p.spent ? `spent ${rMoney(p.spent, p.currency || r.currency)}` : null),
+      p.spent_in_period ? `${rMoney(p.spent_in_period, p.currency || r.currency)} spent this period` : null,
     ].filter(Boolean);
     const t = (x) => x.title + (x.parent_id ? ' (subtask)' : '') + (x.owner ? ` [${x.owner}]` : '');
     const sections = [

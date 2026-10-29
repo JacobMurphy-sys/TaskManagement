@@ -62,6 +62,7 @@ const TABLES = {
     updated_at        TEXT    NOT NULL DEFAULT (${NOW}),
     completed_at      TEXT,
     budget            REAL    ${moneyCheck('budget')},
+    currency          TEXT,   -- its budget and costs' currency symbol; none: the app's
     project_code      TEXT,
     sponsor           TEXT,
     leader            TEXT,

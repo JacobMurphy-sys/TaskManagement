@@ -37,7 +37,7 @@ It needs nothing except **Node.js**. The data is kept in a single **SQLite** dat
 | Meeting notes → tasks | In any project note, lines starting `[ ]` become tasks when you save (on a task's note they become subtasks). Shortcuts work on those lines, e.g. `[ ] Chase finance !high @fri`. |
 | Waiting on | Record who a task is waiting on; the app tracks for how long. Shown on the task, in the dashboard's **Waiting on others** card and in the report. |
 | Recurring tasks | Set a task to repeat (daily, weekdays, weekly, every 2 weeks, monthly, quarterly, yearly). Ticking it off creates the next one, with fresh copies of its subtasks. |
-| Budget vs actual | Give a project a budget (escalated ideas bring their cost across) and log costs against it; the project shows spent, remaining and a warning when over. |
+| Budget vs actual | Give a project a budget (escalated ideas bring their cost across) and log costs against it; the project shows spent, remaining and a warning when over. Each project can have its own currency (✎ Edit › Currency; blank: the app's) — its budget, costs, charter, report lines, history and Excel export use it. |
 | Excel export | Download everything, one project, or all ideas as a real `.xlsx` workbook (Projects, Tasks, Ideas, Notes and Costs sheets, with filters and proper dates). |
 | Links | Web links and file paths in notes and descriptions become clickable. A path such as `\\server\share\file.xlsx` opens File Explorer with the file selected (wrap paths containing spaces in "quotes"). |
 
@@ -137,7 +137,7 @@ When an update changes how data is stored, the app upgrades your database automa
 - **Repeating tasks:** add `*weekly` (or `*daily`, `*weekdays`, `*fortnightly`, `*monthly`, `*quarterly`, `*yearly`) when adding a task, or set *Repeats* in the task window.
 - **Waiting on someone:** fill in *Waiting on* in the task window (names you've used are suggested). Clear it when they've replied.
 - **Gantt:** give tasks a *Start date* and *Due date* in the task window, or drag on the chart. A task with only a due date shows as a ◆ milestone. Add dependencies under *Depends on* in the task window.
-- **Costs:** use *＋ Log a cost* under the project heading; *Show costs* lists them. Set the budget with ✎ Edit.
+- **Costs:** use *＋ Log a cost* under the project heading; *Show costs* lists them. Set the budget — and, if it isn't the app's, the project's currency — with ✎ Edit.
 - **Report:** open **📰 Report**, pick the period, then *Copy as text* and paste into your email. Use *✓ Mark as sent* so *Since last report* starts from there next time.
 - **Excel:** *⬇ Export to Excel* on the dashboard (everything), *⬇ Excel* on a project page (that project) or on Ideation (all ideas).
 - **Archive rather than delete:** set a finished project's status to *Archived* to hide it. **Show archived** in the sidebar brings it back.
@@ -400,7 +400,7 @@ Anything with a date can be moved while keeping its earlier dates: tasks, projec
 - **Open an idea** by clicking its row. Edit any field (changes save automatically), change its status (*Rejected* and *Implemented* close it), add time-stamped notes, and see its full history.
 - **Impact and effort** (1–5 each) give a **value score** out of 25 (impact × (6 − effort)). Sort the list by *Best value first*, or switch to **▦ Quick wins** to see ideas in a 2×2 grid: quick wins, big projects, fill-ins and ones to reconsider.
 - **🚀 Escalate to project** creates a project from the idea. You confirm the name, description, priority and dates, and can list the first (baseline) tasks. The project's timeline gets a summary note (submitter, area, cost) and, optionally, copies of the idea's notes. The idea is marked *Escalated* and the two link to each other.
-- **⚙ Settings** manages the *Area* list. Add areas, rename them, or untick *Active* to hide one without affecting ideas that already use it. You can also set the currency symbol used for costs here (default £).
+- **⚙ Settings** manages the *Area* list. Add areas, rename them, or untick *Active* to hide one without affecting ideas that already use it. You can also set the currency symbol used for costs here (default £) — the app's, for idea costs and for every project that doesn't set its own.
 
 ---
 

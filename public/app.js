@@ -906,13 +906,13 @@ function budgetBox(p) {
   const pct = budget ? Math.round((spent / budget) * 100) : null;
   const over = budget !== null && budget !== undefined && spent > budget;
   const level = over ? 'over' : pct !== null && pct >= 90 ? 'near' : '';
-  const showCosts = store.get('showCosts', false);
+  const showCosts = store.get('showCosts', false); const cur = projCur(p);
   return `<div class="baseline-box budget-box">
-    <span>💰 Budget: <b>${budget !== null && budget !== undefined ? money(budget) : '—'}</b></span>
-    <span>Spent: <b>${money(spent)}</b>${pct !== null ? ` <span class="muted">(${pct}%)</span>` : ''}</span>
+    <span>💰 Budget: <b>${budget !== null && budget !== undefined ? money(budget, cur) : '—'}</b></span>
+    <span>Spent: <b>${money(spent, cur)}</b>${pct !== null ? ` <span class="muted">(${pct}%)</span>` : ''}</span>
     ${budget !== null && budget !== undefined ? `
       <span class="meter wide ${level}" title="${pct}% of the budget spent"><span style="width:${Math.min(pct, 100)}%"></span></span>
-      <span>${over ? `<span class="chip overdue">⚠ Over budget by ${money(spent - budget)}</span>` : `Remaining: <b>${money(budget - spent)}</b>`}</span>`
+      <span>${over ? `<span class="chip overdue">⚠ Over budget by ${money(spent - budget, cur)}</span>` : `Remaining: <b>${money(budget - spent, cur)}</b>`}</span>`
       : '<button class="link" data-action="edit-project">Set a budget</button>'}
     <button class="link" data-action="log-cost">＋ Log a cost</button>
     ${p.costs.length ? `<button class="link" data-action="toggle-costs">${showCosts ? 'Hide' : 'Show'} ${p.costs.length} cost${p.costs.length === 1 ? '' : 's'}</button>` : ''}
@@ -920,9 +920,9 @@ function budgetBox(p) {
   ${p.costs.length && showCosts ? `<div class="card costs-card"><table class="log">
     <thead><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th></th></tr></thead>
     <tbody>${p.costs.map((c) => `<tr><td class="nowrap">${esc(c.spent_on ? fmtShortDate(`${c.spent_on}T12:00`) : '')}</td>
-      <td>${linkify(c.description)}</td><td class="num nowrap">${money(c.amount)}</td>
+      <td>${linkify(c.description)}</td><td class="num nowrap">${money(c.amount, cur)}</td>
       <td><button class="icon" data-action="delete-cost" data-id="${c.id}" title="Delete">✕</button></td></tr>`).join('')}</tbody>
-    <tfoot><tr><th colspan="2">Total</th><th class="num">${money(spent)}</th><th></th></tr></tfoot></table></div>` : ''}`;
+    <tfoot><tr><th colspan="2">Total</th><th class="num">${money(spent, cur)}</th><th></th></tr></tfoot></table></div>` : ''}`;
 }
 
 function costDialog(p) {
@@ -930,7 +930,7 @@ function costDialog(p) {
     <div class="modal-head"><h2 style="margin:0">💰 Log a cost — ${esc(p.name)}</h2><button class="icon" data-action="close-modal">✕</button></div>
     <form id="cost-form" class="form-grid">
       <label class="f full">Description<input type="text" name="description" required placeholder="e.g. Movers deposit, PO 4411"></label>
-      <label class="f">Amount (${esc(state.settings.currency)})<input type="number" name="amount" min="0" step="0.01" required></label>
+      <label class="f">Amount (${esc(projCur(p))})<input type="number" name="amount" min="0" step="0.01" required></label>
       <label class="f">Date<input type="date" name="spent_on" value="${dateKey(new Date())}"></label>
       <div class="full row"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button>
         <button class="primary" type="submit">Add cost</button></div>
@@ -1085,8 +1085,10 @@ const scoreTitle = (i) => (ideaScore(i) === null ? 'Set impact and effort to sco
   : `Impact ${i.impact} × (6 − effort ${i.effort}) = ${ideaScore(i)}`);
 const IDEA_SORTS = { newest: 'Newest first', value: 'Best value first', due: 'Due date', cost: 'Cost (highest first)' };
 
-const money = (v) => (v === null || v === undefined || v === '' ? ''
-  : `${state.settings.currency}${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+// cur: a project's own currency (projCur), else the app's
+const projCur = (p) => (p && p.currency) || state.settings.currency;
+const money = (v, cur = state.settings.currency) => (v === null || v === undefined || v === '' ? ''
+  : `${cur}${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const ideaStatusPill = (s) => `<span class="pill istatus-${s}">${IDEA_STATUS[s] || esc(s)}</span>`;
 // Colour the due date only while the idea is still open.
 const ideaDue = (i) => (i.due_at ? dueChip({ ...i, status: OPEN_IDEA_STATUSES.includes(i.status) ? '' : 'done' }) : '');
@@ -1431,7 +1433,7 @@ async function renderSettings() {
         <label class="f">Appearance <span class="muted small">${ACCT.account ? '— yours, kept with your account' : ''}</span>
           <select id="theme-choice" style="max-width:220px">${options({ auto: 'Automatic (follow Windows)', light: '☀ Light', dark: '🌙 Dark' }, store.get('theme', 'auto'))}</select></label>
         <p class="small muted">People and departments for owners and attendees are on the <a href="#/contacts">📇 Contacts</a> page.</p>
-        <label class="f">Currency symbol for idea costs
+        <label class="f">Currency symbol — idea costs, and project budgets and costs unless a project sets its own
           <input type="text" id="currency" value="${esc(settings.currency)}" maxlength="5" style="max-width:120px"></label>
       </div>
       ${await acctSettingsHtml()}
@@ -1660,7 +1662,8 @@ async function projectForm(p = {}) {
       <label class="f">Priority<select name="priority">${options(PRIORITY, p.priority || 2)}</select></label>
       <label class="f">Start date<input type="date" name="start_date" value="${esc(p.start_date || (isNew ? new Date().toLocaleDateString('sv') : ''))}"></label>
       <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(p.due_at)}"></label>
-      <label class="f">Budget (${esc(state.settings.currency)})<input type="number" name="budget" min="0" step="0.01" value="${p.budget ?? ''}" placeholder="optional"></label>
+      <label class="f"><span class="f-l">Budget (<span id="pf-cur">${esc(projCur(p))}</span>)</span><input type="number" name="budget" min="0" step="0.01" value="${p.budget ?? ''}" placeholder="optional"></label>
+      <label class="f" title="This project's budget and costs in another currency than the app's — blank: the app's (${esc(state.settings.currency)}, set in Settings)">Currency<input type="text" name="currency" maxlength="5" list="pf-curs" value="${esc(p.currency || '')}" placeholder="${esc(state.settings.currency)} (the app's)" style="max-width:160px"><datalist id="pf-curs">${['£', '€', '$', 'CHF ', 'kr ', 'zł ', '¥'].map((c) => `<option value="${c}">`).join('')}</datalist></label>
       ${isNew ? `
         <label class="f full">Baseline tasks — one per line (you can add more at any time)
           <textarea name="baseline_tasks" rows="5" placeholder="Gather requirements&#10;Draft proposal&#10;Review with manager"></textarea></label>
@@ -1677,6 +1680,7 @@ async function projectForm(p = {}) {
       </div>
     </form>`, { wide: isNew });
   if (isNew) enhanceContactFields($('#project-form'), null);
+  $('#project-form [name=currency]').addEventListener('input', (e) => { $('#pf-cur').textContent = e.target.value.trim() || state.settings.currency; });
   $('#project-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target));

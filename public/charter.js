@@ -145,8 +145,8 @@ function renderCharterTab(root, p) {
           <div class="ch-row3">${small('policy_deployment', 'Policy deployment', 'lk-policy')}${small('category', 'Category', 'lk-category')}
             ${small('gm_effect', 'Gross margin effect')}</div>
           <div class="ch-row3 ch-id">${small('project_code', 'Project ID')}
-            <div class="ch-box"><label>Budget</label><div class="ch-static">${p.budget !== null && p.budget !== undefined ? money(p.budget) : '—'}
-              <span class="small muted">· spent ${money(p.spent || 0)}</span></div></div>
+            <div class="ch-box"><label>Budget</label><div class="ch-static">${p.budget !== null && p.budget !== undefined ? money(p.budget, projCur(p)) : '—'}
+              <span class="small muted">· spent ${money(p.spent || 0, projCur(p))}</span></div></div>
             <div class="ch-box"><label>Due date</label><div class="ch-static">${p.due_at ? esc(fmtDate(p.due_at)) : '—'}</div></div></div>
           <div class="ch-box"><label>Improvement KPIs</label>
             <table class="ch-table"><thead><tr><th>KPI</th><th>Unit</th><th>Baseline</th><th>Target</th><th>Current</th><th></th></tr></thead><tbody>

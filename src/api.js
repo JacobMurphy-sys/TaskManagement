@@ -83,6 +83,7 @@ function pick(body, keys) {
     if (body[k] === undefined) continue;
     let v = body[k] === '' ? null : body[k];
     if (k === 'due_at') v = toDueIso(v);
+    if (k === 'currency' && v !== null) { v = String(v).trim().slice(0, 5) || null; } // a project's own currency symbol (blank: the app's)
     if (k === 'remind_at') v = toIso(v, k);
     if (k === 'held_at') v = toIso(v, 'meeting date/time');
     if (k === 'duration_min' && v !== null) {
@@ -132,7 +133,7 @@ const normAudit = (e) => ({ ...e, old_data: parseJson(e.old_data), new_data: par
 
 const CHARTER_TEXT = ['project_code', 'sponsor', 'leader', 'policy_deployment', 'category', 'gm_effect', 'problem',
   'goals', 'in_scope', 'out_scope', 'benefits_quantified', 'benefits_other'];
-const PROJECT_FIELDS = ['name', 'description', 'status', 'priority', 'start_date', 'due_at', 'budget', ...CHARTER_TEXT];
+const PROJECT_FIELDS = ['name', 'description', 'status', 'priority', 'start_date', 'due_at', 'budget', 'currency', ...CHARTER_TEXT];
 
 // A project needs the core of its charter; checked on create, and on edit for fields being changed.
 function checkCharter(fields, creating) {
@@ -3495,7 +3496,7 @@ const XL = {
     { header: 'Problem definition', type: 'wrap', width: 50 }, { header: 'Goals', type: 'wrap', width: 50 },
     { header: 'In scope', type: 'wrap', width: 40 }, { header: 'Out of scope', type: 'wrap', width: 40 },
     { header: 'Quantified benefits', type: 'wrap', width: 40 }, { header: 'Other benefits', type: 'wrap', width: 40 },
-    { header: 'Charter complete', width: 10 },
+    { header: 'Charter complete', width: 10 }, { header: 'Currency', width: 9 },
   ],
   tasks: [
     { header: 'Project', width: 26 }, { header: 'Phase', width: 20 }, { header: 'Task', width: 40 }, { header: 'Subtask of', width: 26 },
@@ -3537,7 +3538,7 @@ const XL = {
   ],
   costs: [
     { header: 'Project', width: 30 }, { header: 'Date', type: 'date', width: 11 },
-    { header: 'Description', width: 40 }, { header: 'Amount', type: 'money', width: 12 },
+    { header: 'Description', width: 40 }, { header: 'Amount', type: 'money', width: 12 }, { header: 'Currency', width: 9 },
   ],
 };
 const label = (map, v) => map[v] || v || '';
@@ -3559,7 +3560,7 @@ function exportSheets(scope, id) {
       p.task_count, p.done_count, p.overdue_count, p.budget, p.spent, p.created_at, p.completed_at, p.description,
       p.project_code, p.sponsor, p.leader, p.policy_deployment, p.category, p.gm_effect, p.problem, p.goals,
       p.in_scope, p.out_scope, p.benefits_quantified, p.benefits_other,
-      `${charter.completeness(p, charterExtras(p.id)).pct}%`]) });
+      `${charter.completeness(p, charterExtras(p.id)).pct}%`, p.currency || getSettings().currency]) });
     const tRows = db.all(`SELECT t.*, p.name AS project_name, par.title AS parent_title, ph.name AS phase_name FROM tasks t
       LEFT JOIN projects p ON p.id = t.project_id LEFT JOIN tasks par ON par.id = t.parent_id
       LEFT JOIN project_phases ph ON ph.id = t.phase_id
@@ -3610,9 +3611,9 @@ function exportSheets(scope, id) {
   notes.sort((a, b) => b.created_at.localeCompare(a.created_at));
   sheets.push({ name: 'Notes', columns: XL.notes, rows: notes.map((n) => [n.created_at, n.owner, n.task, n.body]) });
   if (scope !== 'ideas') {
-    const costs = db.all(`SELECT c.*, p.name AS project_name FROM project_costs c JOIN projects p ON p.id = c.project_id
+    const costs = db.all(`SELECT c.*, p.name AS project_name, p.currency FROM project_costs c JOIN projects p ON p.id = c.project_id
       ${projWhere} ORDER BY p.name COLLATE NOCASE, c.spent_on`, projParams);
-    sheets.push({ name: 'Costs', columns: XL.costs, rows: costs.map((c) => [c.project_name, c.spent_on, c.description, c.amount]) });
+    sheets.push({ name: 'Costs', columns: XL.costs, rows: costs.map((c) => [c.project_name, c.spent_on, c.description, c.amount, c.currency || getSettings().currency]) });
   }
   return sheets;
 }
@@ -3683,7 +3684,7 @@ router.get('/report', h((req, res) => {
     return {
       id: p.id, name: p.name, status: p.status, priority: p.priority, due_at: p.due_at,
       baseline_due_at: p.baseline_due_at, baseline_set_at: p.baseline_set_at,
-      task_count: p.task_count, done_count: p.done_count, budget: p.budget, spent: p.spent,
+      task_count: p.task_count, done_count: p.done_count, budget: p.budget, spent: p.spent, currency: p.currency || null,
       phases: projectPhases(p.id).map((ph) => ({ id: ph.id, name: ph.name, status: ph.status, due_at: ph.due_at,
         baseline_due_at: ph.baseline_due_at, completed_at: ph.completed_at, task_count: ph.task_count, done_count: ph.done_count })),
       completed: tasks('WHERE t.project_id = ? AND t.completed_at BETWEEN ? AND ? ORDER BY t.completed_at', [p.id, start, end]),
@@ -4107,7 +4108,7 @@ const STATUS_LABEL = { todo: 'To do', in_progress: 'In progress', blocked: 'Bloc
   open: 'Open', new: 'New', reviewing: 'Under review', approved: 'Approved', rejected: 'Rejected',
   implemented: 'Implemented', escalated: 'Escalated to project' };
 const PRIORITY_LABEL = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Critical' };
-const FIELD_LABEL = { title: 'title', name: 'name', description: 'description', status: 'status',
+const FIELD_LABEL = { title: 'title', name: 'name', description: 'description', status: 'status', currency: 'currency',
   priority: 'priority', due_at: 'due date', start_date: 'start date', parent_id: 'parent task',
   remind_at: 'reminder time', message: 'message', body: 'text',
   submitted_by: 'submitted by', area_id: 'area', cost: 'cost', value: 'value', active: 'active',
@@ -4122,7 +4123,8 @@ const LONG_TEXT = ['notes', 'description', 'body', 'problem', 'goals', 'in_scope
 const REPEAT_LABEL = { daily: 'Daily', weekdays: 'Weekdays', weekly: 'Weekly', fortnightly: 'Every 2 weeks',
   monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' };
 
-function fmtValue(field, v) {
+function fmtValue(field, v, currency = null) {
+  if (field === 'currency' && (v === null || v === undefined || v === '')) return `the app's (${getSettings().currency})`;
   if (v === null || v === undefined || v === '') return '(none)';
   if (field === 'status') return STATUS_LABEL[v] || v;
   if (field === 'priority') return PRIORITY_LABEL[v] || v;
@@ -4130,7 +4132,7 @@ function fmtValue(field, v) {
   if (field === 'active') return v ? 'yes' : 'no';
   if (field === 'recurrence') return REPEAT_LABEL[v] || v;
   if (field === 'phase_id') return db.get('SELECT name FROM project_phases WHERE id = ?', [v])?.name || `phase #${v}`;
-  if (field in MONEY_FIELDS) return `${getSettings().currency}${Number(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (field in MONEY_FIELDS) return `${currency || getSettings().currency}${Number(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (field === 'created_at') return new Date(v).toLocaleDateString(undefined, { dateStyle: 'medium' });
   if (field === 'due_at') return new Date(v).toLocaleDateString(undefined, { dateStyle: 'medium' });
   if (field === 'start_date' || field === 'spent_on') return new Date(`${v}T12:00`).toLocaleDateString(undefined, { dateStyle: 'medium' });
@@ -4161,7 +4163,7 @@ function describeAudit(e) {
     return `Dependency ${verb}: "${title(d.task_id)}" waits for "${title(d.depends_on_id)}"`;
   }
   if (e.table_name === 'project_costs' && e.action !== 'UPDATE') {
-    return `Cost ${e.action === 'INSERT' ? 'added' : 'deleted'}: ${fmtValue('amount', d.amount)} ${d.description ? `"${d.description}"` : ''}`.trim();
+    return `Cost ${e.action === 'INSERT' ? 'added' : 'deleted'}: ${fmtValue('amount', d.amount, db.get('SELECT currency FROM projects WHERE id = ?', [d.project_id])?.currency)} ${d.description ? `"${d.description}"` : ''}`.trim();
   }
   const name = d.title || d.name || d.key || d.description || (d.body && fmtValue('body', d.body)) || '';
   const named = name ? ` "${name}"` : '';
@@ -4181,6 +4183,7 @@ function describeAudit(e) {
     if (JSON.stringify(a) !== JSON.stringify(b)) {
       if (field === 'project_code' && !a) continue; // assigned automatically on creation
       if (LONG_TEXT.includes(field)) changes.push(`${text} edited`);
+      else if (e.table_name === 'projects' && field in MONEY_FIELDS) changes.push(`${text}: ${fmtValue(field, a, e.old_data?.currency)} → ${fmtValue(field, b, e.new_data?.currency)}`); // in the project's own currency
       else changes.push(`${text}: ${fmtValue(field, a)} → ${fmtValue(field, b)}`);
     }
   }
