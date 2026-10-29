@@ -1626,7 +1626,8 @@ async function waitForServer() {
             { const S0 = da.tech.DOD.smooth; const rs = da.rows.filter((r) => r.tech === 'DOD');
               assert.ok(Math.abs(S0.late_at.reduce((a, b) => a + b, 0) - S0.late) < 1e-6 && Math.abs(rs.reduce((a, r) => a + r.late, 0) - S0.late) < 1e-6 && Math.abs(rs.reduce((a, r) => a + r.late_cards, 0) - S0.late_cards) < 1e-6 && rs.every((r) => Array.isArray(r.late_hours)), 'late work: by the hour and by customer, the same total'); }
             const smd = da.tech.DOD.smooth; const sum = (a) => a.reduce((x, y) => x + y, 0);
-            assert.ok(Math.abs(sum(smd.need) - sum(da.tech.DOD.need)) < 0.01 && Math.abs(sum(smd.cards.total) - sum(da.tech.DOD.cards.total)) < 0.01, 'smoothing keeps the day');
+            assert.ok(Math.abs(sum(smd.need) + smd.rnw_deferred - sum(da.tech.DOD.need)) < 0.01 && Math.abs(sum(smd.cards.total) + smd.rnw_deferred_cards - sum(da.tech.DOD.cards.total)) < 0.01, 'smoothing keeps the day (renewals that don\'t fit put off to another day)');
+            assert.ok(Math.abs(sum(smd.daily) - sum(da.tech.DOD.daily)) < 0.01 && smd.renewals.every((v, i) => v < 1e-9 || smd.need[i] <= da.tech.DOD.capacity[i] + 1e-6), 'daily work first, all of it; renewals only in capacity left over');
             assert.ok(smd.peak <= Math.max(...da.tech.DOD.load.map((v) => v || 0)) + 1e-9, 'and its peak no higher');
             assert.ok(smd.need.every((v, i) => v <= da.tech.DOD.capacity[i] + 1e-6 || v <= da.tech.DOD.need[i] + 1e-6), 'nothing pushed over capacity that wasn\'t already');
             const krs = da.tech.DOD && da.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');

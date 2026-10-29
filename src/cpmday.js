@@ -199,8 +199,11 @@ function customerCutoffs() {
 // cut-off (after the cut-off it came in after: the next day's) is still done at the next spare capacity,
 // and counted late; what fits nowhere in the 24 hours stays where it came in, over capacity.
 // rows: the technology's rows; base: the renewals per hour (need); cap: capacity per hour (need)
+// daily work comes first: carried over into the next hour with spare capacity ahead of the renewals (Low
+// priority, which can be rescheduled); the renewals then take what's left, from their window on — what
+// doesn't fit in the day is put off to another day (deferred, not late)
 function smoothDay(H, rows, base, cap, cutoffOf) {
-  const load = base.slice(); const cards = Array(24).fill(0); const perRow = rows.map(() => Array(24).fill(0)); const packets = [];
+  const load = Array(24).fill(0); const cards = Array(24).fill(0); const perRow = rows.map(() => Array(24).fill(0)); const packets = [];
   rows.forEach((r, k) => r.hours.forEach((amt, i) => {
     if (amt <= 1e-9) return;
     const cut = cutoffOf(r.trigram); let delta = cut === null ? 24 : (cut - H[i] + 24) % 24; if (delta <= 0) delta = 24;
@@ -217,7 +220,11 @@ function smoothDay(H, rows, base, cap, cutoffOf) {
     }
     if (left > 1e-9) { put(p.i, left); unplaced += left; late += left; lateAt[p.i] += left; lateRow[p.k][p.i] += left; } // not done within the day: late too
   }
-  return { load, cards, perRow, late, unplaced, lateAt, lateRow };
+  const rnw = Array(24).fill(0); let deferred = 0; // the renewals, around the daily work
+  base.forEach((amt, i) => { let left = amt;
+    for (let s = i; s < 24 && left > 1e-9; s++) { const free = Math.max(0, cap[s] - load[s]); if (free <= 1e-9) continue; const v = Math.min(free, left); load[s] += v; rnw[s] += v; left -= v; }
+    if (left > 1e-9) deferred += left; });
+  return { load, cards, perRow, late, unplaced, lateAt, lateRow, rnw, deferred };
 }
 
 // each customer's typical work order: the median size (cards) of its work orders lately, per technology
@@ -276,10 +283,12 @@ function runBlocks({ H, rows, machines, workedAt, factor, rnwHours, sizes, allow
     for (const m of ms) {
       if (!on) continue;
       if (m.job && !inWindow(m.job)) { queue.unshift(m.job); m.job = null; } // a renewal out of its window goes back, part done, and the machine takes daily work
+      const fits = (o) => m.techs.includes(o.tech) && m.speed[o.tech] > 0 && (!m.only?.length || allowed(m, o.r) > 0) && inWindow(o);
+      if (m.job?.kind === 'renewal' && queue.some((o) => o.kind === 'daily' && fits(o))) { queue.push(m.job); m.job = null; } // daily work waiting: the renewal steps aside (Low priority, it can wait)
       let tl = STEP; // the minute: one order after another in it
       while (tl > 1e-12) {
         if (!m.job) { // the first waiting order it may run
-          const k = queue.findIndex((o) => m.techs.includes(o.tech) && m.speed[o.tech] > 0 && (!m.only?.length || allowed(m, o.r) > 0) && inWindow(o));
+          let k = queue.findIndex((o) => o.kind === 'daily' && fits(o)); if (k < 0) k = queue.findIndex(fits); // daily work first, in the order it came in; then renewals
           if (k < 0) break; m.job = queue.splice(k, 1)[0]; if (m.job.start === undefined) m.job.start = t + (STEP - tl); m.job.machine = m.name;
         }
         const o = m.job; const perH = m.speed[o.tech] * (m.avail ?? 1) * factor; if (!(perH > 0)) break;
@@ -457,11 +466,13 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
     const effCap = cap[t].map((c, i) => c * (need[i] > 0.5 ? cards_[i] / need[i] : dayRatio));
     // smoothed: the daily work moved within its hours before the cut-off, to stay under capacity
     const tr = rows.filter((r) => r.tech === t); const sm = smoothDay(H, tr, renewals, cap[t], cutoffOf);
-    const sDaily = sm.load.map((v, i) => v - renewals[i]); const sNeed = sm.load; const sCards = sm.cards.map((v, i) => v + cRnw[i]);
+    const rRatio = rnwByTech[t].need > 1e-9 ? rCards / rnwByTech[t].need : 0; const sRnwCards = sm.rnw.map((v) => v * rRatio); // renewal cards per capacity needed
+    const sDaily = sm.load.map((v, i) => v - sm.rnw[i]); const sNeed = sm.load; const sCards = sm.cards.map((v, i) => v + sRnwCards[i]);
     let sc = 0; const sBack = sNeed.map((v, i) => { sc = Math.max(0, sc + v - cap[t][i]); return sc; });
     tr.forEach((r, k) => { r.smoothed = sm.perRow[k]; r.smoothed_cards = sm.perRow[k].map((v) => v * r.oee); r.late_hours = sm.lateRow[k]; r.late = sm.lateRow[k].reduce((a, b) => a + b, 0); r.late_cards = r.late * r.oee; });
     const smooth = { daily: sDaily, need: sNeed, load: sNeed.map((v, i) => (cap[t][i] ? v / cap[t][i] : v ? null : 0)), backlog: sBack,
-      cards: { daily: sm.cards, total: sCards, capacity: cap[t].map((c, i) => c * (sNeed[i] > 0.5 ? sCards[i] / sNeed[i] : dayRatio)) },
+      renewals: sm.rnw, rnw_deferred: sm.deferred, rnw_deferred_cards: sm.deferred * rRatio,
+      cards: { daily: sm.cards, renewals: sRnwCards, total: sCards, capacity: cap[t].map((c, i) => c * (sNeed[i] > 0.5 ? sCards[i] / sNeed[i] : dayRatio)) },
       peak: Math.max(...sNeed.map((v, i) => (cap[t][i] ? v / cap[t][i] : 0))), hours_over: sNeed.filter((v, i) => v > cap[t][i] + 0.5).length, over: sNeed.reduce((a, v, i) => a + Math.max(0, v - cap[t][i]), 0), late: sm.late, late_at: sm.lateAt, late_cards: tr.reduce((a, r) => a + r.late_cards, 0), late_customers: [...new Set(tr.filter((r) => r.late_cards > 0.5).map((r) => r.trigram || r.name))], unplaced: sm.unplaced, end_backlog: sc };
     out[t] = { daily, renewals, need, capacity: cap[t], idle: idle[t], backlog, smooth,
       cards: { daily: cDaily, renewals: cRnw, total: cards_, capacity: effCap, actual: act.per[t] ? H.map((h) => act.per[t][h]) : null, oee: dayRatio }, load: need.map((v, i) => (cap[t][i] ? v / cap[t][i] : v ? null : 0)),
