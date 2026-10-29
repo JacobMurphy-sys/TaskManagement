@@ -1460,3 +1460,15 @@ table.log.cpm-rp { width: auto; } table.log.cpm-rp th, table.log.cpm-rp td { pad
 .cpm-late-note > div { margin-top: 3px; } .cpm-late-ok { color: var(--ok, #2e8b57); margin: 6px 0; }
 tr.cpm-g-late td.cpm-g-name { box-shadow: inset 3px 0 0 var(--danger); }
 .cpm-cut-in.cpm-cut-def { color: var(--muted); font-style: italic; }
+.cpm-foldall { margin: -4px 0 6px; text-align: right; color: var(--muted); }
+.cpm-fold-h { cursor: pointer; user-select: none; }
+.cpm-fold-btn { background: none; border: 0; padding: 0 8px 0 0; margin: 0; font-size: 17px; line-height: 1; color: var(--muted); cursor: pointer; display: inline-block; transition: transform .15s; vertical-align: 1px; }
+.cpm-folded .cpm-fold-btn { transform: rotate(-90deg); }
+.card.cpm-folded > :not(:first-child) { display: none !important; }
+.card.cpm-folded > :first-child:not(h3) > :not(:has(h3)):not(h3) { display: none !important; }
+.card.cpm-folded { padding-bottom: 10px; }
+.card.cpm-folded h3 .muted.small, .card.cpm-folded h3 > .small { display: none; }
+.card.cpm-late-note { border: 1px solid var(--danger); background: var(--danger-soft); padding: 8px 12px; }
+.cpm-late-h { font-size: 14px; margin: 0; } .card.cpm-late-note .small.muted { color: var(--text); opacity: .75; font-weight: 400; }
+details.cpm-sub { margin-top: 6px; } details.cpm-sub > summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--muted); padding: 4px 0; user-select: none; }
+details.cpm-sub > summary:hover { color: var(--text); }
