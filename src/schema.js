@@ -63,6 +63,7 @@ const TABLES = {
     completed_at      TEXT,
     budget            REAL    ${moneyCheck('budget')},
     currency          TEXT,   -- its budget and costs' currency symbol; none: the app's
+    next_action       TEXT,   -- one line: the talking point for its next review
     project_code      TEXT,
     sponsor           TEXT,
     leader            TEXT,
@@ -678,6 +679,49 @@ const TABLES = {
     updated_at      TEXT    NOT NULL DEFAULT (${NOW}),
     UNIQUE (week)`,
 
+  // 👥 per person (by name, as used for owners): the talking point for their next review, and a colour
+  // of their own (none: one picked from the name)
+  people_focus: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL COLLATE NOCASE,
+    next_action TEXT,
+    colour      TEXT    CHECK (colour IS NULL OR colour GLOB '#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]'),
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    UNIQUE (name)`,
+
+  // 💶 CAPEX planner: pending investments and larger projects
+  capex: `
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    ref            TEXT,
+    title          TEXT    NOT NULL,
+    category       TEXT    NOT NULL,
+    owner          TEXT    NOT NULL,
+    amount         REAL    NOT NULL ${moneyCheck('amount')},
+    currency       TEXT,
+    planned_date   TEXT    NOT NULL ${dateCheck('planned_date')},
+    justification  TEXT    NOT NULL,
+    status         TEXT    NOT NULL DEFAULT 'draft'
+                   CHECK (status IN ('draft', 'submitted', 'approved', 'ordered', 'installed', 'closed', 'rejected', 'on_hold')),
+    priority       INTEGER NOT NULL DEFAULT 2 CHECK (priority BETWEEN 1 AND 4),
+    description    TEXT,
+    sponsor        TEXT,
+    department     TEXT,
+    supplier       TEXT,
+    quote_ref      TEXT,
+    annual_saving  REAL,
+    payback_months REAL,
+    risk_if_not    TEXT,
+    approved_on    TEXT    ${dateCheck('approved_on')},
+    approved_by    TEXT,
+    po_number      TEXT,
+    actual_cost    REAL,
+    project_id     INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+    next_action    TEXT,
+    notes          TEXT,
+    created_at     TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at     TEXT    NOT NULL DEFAULT (${NOW})`,
+
   library_docs: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     path        TEXT    NOT NULL,
@@ -831,7 +875,7 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_overrides', 'kpi_rows_added', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags', 'plan_disp_delays', 'plan_disp_delay_jobs', 'cpm_customers', 'cpm_scenarios'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_overrides', 'kpi_rows_added', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags', 'plan_disp_delays', 'plan_disp_delay_jobs', 'cpm_customers', 'cpm_scenarios', 'people_focus', 'capex'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');

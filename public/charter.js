@@ -242,6 +242,7 @@ async function promoteDialog(t) {
 // ---- standalone Tasks page ----------------------------------------------------------
 
 async function renderTasks() {
+  if (store.get('tasksScope', 'standalone') === 'all') return renderAllTasks();
   const list = await api.get('/tasks?standalone=1');
   const board = store.get('standaloneView', 'list') === 'board';
   const hideDone = store.get('hideDoneStandalone', false);
@@ -251,7 +252,7 @@ async function renderTasks() {
   const pseudo = { baseline_set_at: null };
   main().innerHTML = `
     <div class="kanban-tools"><h1 style="margin:0">✅ Tasks</h1>
-      <span class="muted small">${open} open · ad-hoc work that doesn't need a project</span><div class="spacer"></div>
+      ${tasksScopeSeg('standalone')}<span class="muted small">${open} open · ad-hoc work that doesn't need a project</span><div class="spacer"></div>
       ${board ? '' : `<label class="small muted row"><input type="checkbox" data-action="toggle-hide-done-standalone" ${hideDone ? 'checked' : ''}> Hide completed</label>`}
       <div class="seg" role="group" aria-label="View">
         <button data-action="standalone-view" data-view="list" class="${board ? '' : 'on'}">☰ List</button>
@@ -280,6 +281,41 @@ async function renderTasks() {
       await setTaskStatus(t.id, status, t.subtask_count - t.subtask_done);
     });
   }
+}
+
+// ✅ the Tasks page's two views: the standalone tasks, or every open task (projects' too, subtasks among them)
+const tasksScopeSeg = (on) => `<div class="seg" role="group" aria-label="Which tasks"><button type="button" data-tasks-scope="standalone" class="${on === 'standalone' ? 'on' : ''}" title="Ad-hoc tasks outside projects">Standalone</button><button type="button" data-tasks-scope="all" class="${on === 'all' ? 'on' : ''}" title="Every open task, in projects or not — filter by person or project">All open tasks</button></div>`;
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-tasks-scope]'); if (!b) return; store.set('tasksScope', b.dataset.tasksScope); route(); });
+
+async function renderAllTasks() {
+  const all = await api.get('/tasks?open=1');
+  const who = store.get('tasksPerson', '') || ''; const proj = store.get('tasksProject', '') || ''; const sort = store.get('tasksSort', 'due');
+  const everyone = [...new Set(all.flatMap((t) => splitOwners(t.owner)))].filter((n, i, a) => a.findIndex((x) => sameName(x, n)) === i).sort((a, b) => a.localeCompare(b));
+  const projects = [...new Map(all.filter((t) => t.project_id).map((t) => [t.project_id, t.project_name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  let list = all.filter((t) => (!who || (who === '—' ? !t.owner : splitOwners(t.owner).some((o) => sameName(o, who)))) && (!proj || String(t.project_id || 0) === proj));
+  const SORTS = { due: ['Due date', (a, b) => String(a.due_at || '9').localeCompare(String(b.due_at || '9')) || b.priority - a.priority],
+    priority: ['Priority', (a, b) => b.priority - a.priority || String(a.due_at || '9').localeCompare(String(b.due_at || '9'))],
+    age: ['Open longest', (a, b) => String(a.created_at).localeCompare(String(b.created_at))],
+    owner: ['Owner', (a, b) => String(a.owner || '~').localeCompare(String(b.owner || '~')) || String(a.due_at || '9').localeCompare(String(b.due_at || '9'))],
+    project: ['Project', (a, b) => String(a.project_name || '~').localeCompare(String(b.project_name || '~')) || String(a.due_at || '9').localeCompare(String(b.due_at || '9'))] };
+  list = list.sort((SORTS[sort] || SORTS.due)[1]);
+  // grouped by owner when sorted by owner, by project when sorted by project
+  const groupKey = sort === 'owner' ? (t) => splitOwners(t.owner)[0] || '' : sort === 'project' ? (t) => t.project_name || '' : null;
+  let body = '';
+  if (groupKey) { const groups = new Map(); for (const t of list) { const k = groupKey(t); (groups.get(k) || groups.set(k, []).get(k)).push(t); }
+    body = [...groups].map(([k, ts]) => `<h3 class="tasks-group">${sort === 'owner' ? (k ? personChip(k) : '<span class="muted">No owner</span>') : esc(k || '✅ Standalone tasks')} <span class="small muted">${ts.length}</span></h3><ul class="mini">${ts.map(miniTask).join('')}</ul>`).join('');
+  } else body = `<ul class="mini">${list.map(miniTask).join('')}</ul>`;
+  const overdue = list.filter((t) => t.due_at && t.due_at < new Date().toISOString()).length;
+  main().innerHTML = `
+    <div class="kanban-tools"><h1 style="margin:0">✅ Tasks</h1>${tasksScopeSeg('all')}
+      <label class="person-pick" title="One person's open tasks">${who && who !== '—' ? personDot(who) : '👤'}<select id="tasks-person"><option value="">Everyone</option><option value="—" ${who === '—' ? 'selected' : ''}>No owner</option>${everyone.map((n) => `<option ${sameName(n, who) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+      <label class="person-pick" title="One project's open tasks">🗂<select id="tasks-project"><option value="">All projects</option><option value="0" ${proj === '0' ? 'selected' : ''}>✅ Standalone</option>${projects.map(([id, n]) => `<option value="${id}" ${String(id) === proj ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+      <label class="person-pick" title="Order">↕<select id="tasks-sort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sort ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <div class="spacer"></div><span class="muted small">${list.length} open${overdue ? ` · <b class="pl-late">${overdue} overdue</b>` : ''} · ↳ = a subtask</span></div>
+    <div class="card all-tasks">${list.length ? body : '<div class="empty">Nothing open here.</div>'}</div>`;
+  $('#tasks-person').onchange = (e) => { store.set('tasksPerson', e.target.value); route(); };
+  $('#tasks-project').onchange = (e) => { store.set('tasksProject', e.target.value); route(); };
+  $('#tasks-sort').onchange = (e) => { store.set('tasksSort', e.target.value); route(); };
 }
 
 // ---- Settings: pick-lists and the Excel template ----------------------------------------

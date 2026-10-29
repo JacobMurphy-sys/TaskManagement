@@ -12,6 +12,7 @@ const { parseQuick, nextOccurrence, shiftKey, dateKey } = require('./dates');
 const { buildXlsx } = require('./xlsx');
 const { RECURRENCES } = require('./schema');
 const charter = require('./charter');
+const { focus: focusOf } = require('./focus');
 const prod = require('./prodactual');
 const planLearn = require('./planlearn');
 const planFind = require('./planfind');
@@ -62,10 +63,10 @@ function parseMoney(v, label) {
   return Math.round(n * 100) / 100;
 }
 
-const MONEY_FIELDS = { cost: 'Cost', budget: 'Budget', amount: 'Amount', amount_project: 'Amount in the project\'s currency' };
+const MONEY_FIELDS = { cost: 'Cost', budget: 'Budget', amount: 'Amount', amount_project: 'Amount in the project\'s currency', annual_saving: 'Annual saving', actual_cost: 'Actual cost' };
 // a cost against its project's budget: as it is in the project's currency, else converted (not converted: not counted)
 const COST_IN_PROJECT = 'CASE WHEN c.currency IS NULL THEN c.amount ELSE c.amount_project END';
-const DATE_FIELDS = { start_date: 'start date', spent_on: 'date' };
+const DATE_FIELDS = { start_date: 'start date', spent_on: 'date', planned_date: 'planned date', approved_on: 'approval date' };
 
 // A task can have several owners, stored as one "Sam Patel, Maintenance" string so
 // every list, export and report shows them as they are. Split on commas/semicolons.
@@ -135,7 +136,7 @@ const normAudit = (e) => ({ ...e, old_data: parseJson(e.old_data), new_data: par
 
 const CHARTER_TEXT = ['project_code', 'sponsor', 'leader', 'policy_deployment', 'category', 'gm_effect', 'problem',
   'goals', 'in_scope', 'out_scope', 'benefits_quantified', 'benefits_other'];
-const PROJECT_FIELDS = ['name', 'description', 'status', 'priority', 'start_date', 'due_at', 'budget', 'currency', ...CHARTER_TEXT];
+const PROJECT_FIELDS = ['name', 'description', 'status', 'priority', 'start_date', 'due_at', 'budget', 'currency', 'next_action', ...CHARTER_TEXT];
 
 // A project needs the core of its charter; checked on create, and on edit for fields being changed.
 function checkCharter(fields, creating) {
@@ -149,7 +150,7 @@ const TASK_FIELDS = ['title', 'description', 'status', 'priority', 'due_at', 'so
 const PHASE_FIELDS = ['name', 'description', 'status', 'start_date', 'due_at'];
 
 const TASK_SELECT = `
-  SELECT t.*, p.name AS project_name, ph.name AS phase_name,
+  SELECT t.*, p.name AS project_name, ph.name AS phase_name, (SELECT pt.title FROM tasks pt WHERE pt.id = t.parent_id) AS parent_title,
          (SELECT count(*) FROM tasks s WHERE s.parent_id = t.id) AS subtask_count,
          (SELECT count(*) FROM tasks s WHERE s.parent_id = t.id AND s.status = 'done') AS subtask_done,
          (SELECT count(*) FROM notes n WHERE n.task_id = t.id) AS note_count,
@@ -191,7 +192,11 @@ router.get('/projects', h((req, res) => {
     GROUP BY p.id
     ORDER BY (p.status = 'active') DESC, p.priority DESC, p.due_at IS NULL, p.due_at, p.name COLLATE NOCASE`,
   [nowIso()]);
-  res.json(rows.map((p) => ({ ...normProject(p), charter_pct: charter.completeness(p, charterExtras(p.id)).pct })));
+  // the people on each: leader, sponsor, team and the owners of its open tasks (for the person filter)
+  const teamOf = new Map(); for (const r of db.all('SELECT project_id, name FROM project_team')) (teamOf.get(r.project_id) || teamOf.set(r.project_id, []).get(r.project_id)).push(r.name);
+  const ownersOf = new Map(); for (const r of db.all("SELECT project_id, owner FROM tasks WHERE owner IS NOT NULL AND status <> 'done' AND project_id IS NOT NULL")) (ownersOf.get(r.project_id) || ownersOf.set(r.project_id, []).get(r.project_id)).push(...splitOwners(r.owner));
+  res.json(rows.map((p) => ({ ...normProject(p), charter_pct: charter.completeness(p, charterExtras(p.id)).pct,
+    team_names: normOwners(teamOf.get(p.id) || []) || null, task_owners: normOwners(ownersOf.get(p.id) || []) || null })));
 }));
 
 // Team, KPIs and milestone rows that complete a project's charter.
@@ -552,6 +557,91 @@ router.get('/contacts/teams', h((req, res) => {
     people.set(key, person);
   }
   res.json([...people.values()]);
+}));
+
+// ---- 💶 CAPEX planner --------------------------------------------------------------------------------
+const capex = require('./capex');
+const CAPEX_SELECT = 'SELECT c.*, p.name AS project_name FROM capex c LEFT JOIN projects p ON p.id = c.project_id';
+function capexFields(body, current = null) {
+  const f = pick(body, capex.FIELDS);
+  if (f.status !== undefined && f.status !== null && !capex.STATUS[f.status]) throw new HttpError(400, 'Unknown status');
+  if (f.priority !== undefined && f.priority !== null) { f.priority = Number(f.priority); if (!(f.priority >= 1 && f.priority <= 4)) throw new HttpError(400, 'Priority is 1–4'); }
+  if (f.payback_months !== undefined && f.payback_months !== null) { const n = Number(f.payback_months); if (!Number.isFinite(n) || n < 0) throw new HttpError(400, 'Payback must be a number of months'); f.payback_months = n; }
+  if (f.project_id !== undefined) f.project_id = f.project_id ? Number(f.project_id) : null;
+  if (f.currency !== undefined && f.currency !== null) f.currency = String(f.currency).trim().slice(0, 5) || null;
+  for (const k of ['title', 'category', 'owner', 'justification']) if (f[k] !== undefined && f[k] !== null) f[k] = String(f[k]).trim() || null;
+  // what has to be filled in (when creating; when changing, it can't be emptied)
+  const missing = Object.entries(capex.REQUIRED).filter(([k]) => (current ? k in f && (f[k] === null || f[k] === '') : f[k] === undefined || f[k] === null || f[k] === '')).map(([, l]) => l);
+  if (missing.length) throw new HttpError(400, `Needed: ${missing.join(', ')}`);
+  return f;
+}
+router.get('/capex', h((req, res) => res.json({ items: db.all(`${CAPEX_SELECT} ORDER BY c.planned_date, c.id`), categories: capex.CATEGORIES, statuses: capex.STATUS, required: capex.REQUIRED,
+  categories_used: db.all('SELECT DISTINCT category FROM capex ORDER BY category').map((r) => r.category) })));
+router.post('/capex', h((req, res) => {
+  const f = capexFields(req.body);
+  const row = db.tx(() => { const r = insertRow('capex', f); db.run('UPDATE capex SET ref = ? WHERE id = ?', [`CAPEX-${String(r.id).padStart(4, '0')}`, r.id]); return r; });
+  res.status(201).json(db.get(`${CAPEX_SELECT} WHERE c.id = ?`, [row.id]));
+}));
+router.patch('/capex/:id', h((req, res) => {
+  const cur = db.get('SELECT * FROM capex WHERE id = ?', [req.params.id]); if (!cur) throw notFound('Investment');
+  updateRow('capex', cur.id, capexFields(req.body, cur));
+  res.json(db.get(`${CAPEX_SELECT} WHERE c.id = ?`, [cur.id]));
+}));
+router.delete('/capex/:id', h((req, res) => {
+  const { changes } = db.run('DELETE FROM capex WHERE id = ?', [req.params.id]); if (!changes) throw notFound('Investment');
+  res.status(204).end();
+}));
+const capexStamp = () => new Date().toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+// the items an export is of: all, or ?status=open|<status>, ?ids=1,2
+const capexItems = (q) => db.all(`${CAPEX_SELECT} ORDER BY c.planned_date, c.id`).filter((x) => (!q.ids || String(q.ids).split(',').map(Number).includes(x.id))
+  && (!q.status || (q.status === 'open' ? capex.OPEN.includes(x.status) : x.status === q.status)));
+const sendFile = (res, buf, type, name) => { res.setHeader('Content-Type', type); res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '')}"; filename*=UTF-8''${encodeURIComponent(name)}`); res.send(buf); };
+router.get('/capex/export.xlsx', h((req, res) => sendFile(res, capex.workbook(capexItems(req.query), { currency: getSettings().currency, stamp: capexStamp() }),
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', `CAPEX ${new Date().toISOString().slice(0, 10)}.xlsx`)));
+router.get('/capex/overview.pdf', h(async (req, res) => sendFile(res, await capex.overview(capexItems(req.query), { currency: getSettings().currency, stamp: capexStamp() }), 'application/pdf', `CAPEX plan ${new Date().toISOString().slice(0, 10)}.pdf`)));
+router.get('/capex/:id/onepager.pdf', h(async (req, res) => {
+  const x = db.get(`${CAPEX_SELECT} WHERE c.id = ?`, [req.params.id]); if (!x) throw notFound('Investment');
+  sendFile(res, await capex.onePager(x, { currency: getSettings().currency, stamp: capexStamp() }), 'application/pdf', `${x.ref} ${x.title}.pdf`.replace(/[\\/:*?"<>|]/g, ' ').slice(0, 120));
+}));
+
+// ---- 👥 People: each person's open work, their next action and colour --------------------------------
+
+// everyone who has open work or a part in a live project, plus the People contacts list
+router.get('/people/overview', h((req, res) => {
+  const now = nowIso(); const week = new Date(Date.now() + 7 * 86400000).toISOString();
+  const open = tasks("WHERE t.status <> 'done' AND (p.id IS NULL OR p.status IN ('active', 'on_hold')) ORDER BY t.due_at IS NULL, t.due_at, t.priority DESC");
+  const projs = db.all(`SELECT p.id, p.name, p.status, p.priority, p.due_at, p.leader, p.sponsor, p.next_action,
+      (SELECT count(*) FROM tasks t WHERE t.project_id = p.id AND t.status <> 'done' AND t.due_at < ?) AS overdue_count,
+      (SELECT count(*) FROM tasks t WHERE t.project_id = p.id AND t.status <> 'done') AS open_count
+    FROM projects p WHERE p.status IN ('active', 'on_hold') ORDER BY p.due_at IS NULL, p.due_at`, [now]);
+  const team = db.all("SELECT m.project_id, m.name, m.role FROM project_team m JOIN projects p ON p.id = m.project_id WHERE p.status IN ('active', 'on_hold')");
+  const focus = new Map(db.all('SELECT * FROM people_focus').map((f) => [f.name.toLowerCase(), f]));
+  const people = new Map(); const add = (n) => { const name = String(n || '').trim(); if (!name) return null; const k = name.toLowerCase(); return people.get(k) || people.set(k, { name, tasks: [], projects: [] }).get(k); };
+  for (const t of open) for (const o of splitOwners(t.owner)) add(o).tasks.push(t);
+  for (const p of projs) {
+    const role = (n, r) => { for (const o of splitOwners(n)) { const x = add(o); if (!x.projects.some((y) => y.id === p.id && y.role === r)) x.projects.push({ ...p, role: r }); } };
+    role(p.leader, 'Leader'); role(p.sponsor, 'Sponsor');
+    for (const m of team.filter((x) => x.project_id === p.id)) if (!splitOwners(p.leader).concat(splitOwners(p.sponsor)).some((o) => o.toLowerCase() === m.name.trim().toLowerCase())) role(m.name, m.role || 'Team');
+  }
+  for (const i of db.all("SELECT i.name FROM name_list_items i JOIN name_lists l ON l.id = i.list_id WHERE lower(l.name) = 'people' AND i.active = 1")) add(i.name);
+  for (const f of focus.values()) if (f.next_action) add(f.name);
+  const out = [...people.values()].map((x) => { const f = focus.get(x.name.toLowerCase()) || {};
+    return { ...x, colour: f.colour || null, next_action: f.next_action || null, next_action_at: f.next_action ? f.updated_at : null,
+      counts: { open: x.tasks.length, overdue: x.tasks.filter((t) => t.due_at && t.due_at < now).length, week: x.tasks.filter((t) => t.due_at && t.due_at >= now && t.due_at < week).length,
+        blocked: x.tasks.filter((t) => t.status === 'blocked').length, waiting: x.tasks.filter((t) => t.waiting_on).length, projects: new Set(x.projects.map((p) => p.id)).size } }; })
+    .sort((a, b) => b.counts.overdue - a.counts.overdue || b.counts.open - a.counts.open || a.name.localeCompare(b.name));
+  res.json(out);
+}));
+// the colours set by hand (the rest are picked from the name in the browser)
+router.get('/people/colours', h((req, res) => res.json(db.all('SELECT name, colour FROM people_focus WHERE colour IS NOT NULL'))));
+// a person's next action and/or colour: { name, next_action?, colour? }
+router.put('/people/focus', h((req, res) => {
+  const name = String(req.body?.name || '').trim(); if (!name) throw new HttpError(400, 'Whose? A name is needed');
+  const f = {};
+  if (req.body.next_action !== undefined) f.next_action = String(req.body.next_action || '').trim().slice(0, 300) || null;
+  if (req.body.colour !== undefined) { const c = String(req.body.colour || '').trim(); if (c && !/^#[0-9a-fA-F]{6}$/.test(c)) throw new HttpError(400, 'A colour is #RRGGBB'); f.colour = c || null; }
+  const row = db.get('SELECT * FROM people_focus WHERE name = ?', [name]);
+  res.json(row ? fresh('people_focus', updateRow('people_focus', row.id, f)) : fresh('people_focus', insertRow('people_focus', { name, ...f })));
 }));
 
 // ---- Settings → People & departments ------------------------------------------------
@@ -1170,8 +1260,19 @@ router.get('/dashboard', h((req, res) => {
       LEFT JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id
       ORDER BY n.created_at DESC LIMIT 15`),
     reminders: db.all(`${REMINDER_SELECT} WHERE r.status = 'pending' ORDER BY r.remind_at LIMIT 20`),
+    focus: focusFor(req.query.focus_person || null),
   });
 }));
+// 🎯 today's and this week's focus — everyone's, or one person's (the tasks they own, the projects they lead)
+function focusFor(person) {
+  const all = tasks("WHERE t.status <> 'done' AND (p.id IS NULL OR p.status = 'active')");
+  const projs = db.all(`SELECT p.*, (SELECT count(*) FROM tasks t WHERE t.project_id = p.id AND t.status <> 'done' AND t.due_at < ?) AS overdue_count,
+      (SELECT count(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'blocked') AS blocked_count,
+      (SELECT json_object('name', ph.name, 'due_at', ph.due_at) FROM project_phases ph WHERE ph.project_id = p.id AND ph.status = 'open' ORDER BY ph.sort_order, ph.id LIMIT 1) AS current_phase
+    FROM projects p WHERE p.status = 'active'`, [nowIso()]).map((p) => ({ ...p, current_phase: parseJson(p.current_phase) }));
+  const mine = (owner) => !person || ownsTask(owner, person);
+  return { person, ...focusOf({ tasks: all.filter((t) => mine(t.owner)), projects: projs.filter((p) => !person || ownsTask(p.leader, person)) }) };
+}
 
 // ------------------------------------------------------------------ ideation
 

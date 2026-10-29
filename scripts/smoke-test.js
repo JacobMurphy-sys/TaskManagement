@@ -252,6 +252,67 @@ async function waitForServer() {
     assert.equal((await call('GET', `/projects/${np.id}`)).links.length, 1);
     await call('DELETE', `/task-links/${link.id}`);
 
+    // ---- 🎯 focus: today's and this week's, each with why
+    {
+      const { focus } = require('../src/focus');
+      const now = new Date('2026-10-28T09:00:00'); const at = (d, h = 12) => new Date(new Date(now).setDate(now.getDate() + d)).setHours(h, 0, 0, 0) && new Date(new Date(now).setDate(now.getDate() + d)).toISOString();
+      const f = focus({ now, tasks: [
+        { id: 1, title: 'Late', status: 'todo', priority: 2, due_at: at(-3), created_at: at(-10) },
+        { id: 2, title: 'Today', status: 'todo', priority: 2, due_at: at(0), created_at: at(-2) },
+        { id: 3, title: 'Chase', status: 'todo', priority: 2, waiting_on: 'Supplier', waiting_since: at(-5), created_at: at(-9) },
+        { id: 4, title: 'Blocked', status: 'blocked', priority: 2, created_at: at(-4) },
+        { id: 5, title: 'Thursday', status: 'todo', priority: 2, due_at: at(2), created_at: at(-1) },
+        { id: 6, title: 'Stale', status: 'todo', priority: 2, created_at: at(-60) },
+        { id: 7, title: 'Done', status: 'done', priority: 4, due_at: at(-1), created_at: at(-5) },
+        { id: 8, title: 'Sub', parent_title: 'Parent', status: 'todo', priority: 2, due_at: at(0), created_at: at(-1) }],
+        projects: [{ id: 9, name: 'Proj', status: 'active', overdue_count: 2, blocked_count: 0, due_at: at(5), leader: 'Sam' }] });
+      assert.deepEqual(f.day.map((x) => x.id), [1, 2, 8, 3], 'today: late first, then due today, then who to chase');
+      assert.ok(f.day[0].reasons.includes('overdue 3 d') && f.day.find((x) => x.id === 3).reasons.includes('chase Supplier (5 d)') && f.day.find((x) => x.id === 8).parent_title === 'Parent', 'with why, a subtask with its parent');
+      const wk = f.week.map((x) => `${x.kind}:${x.id}`);
+      assert.ok(wk.includes('task:4') && wk.includes('task:5') && wk.includes('task:6') && wk.includes('project:9') && !wk.includes('task:1') && !wk.includes('task:7'), `this week: blocked, coming up, open too long and a project to talk about (${wk})`);
+      assert.ok(f.week.find((x) => x.kind === 'project').reasons.includes('no next action set'), 'a project needing talking about, without a next action, says so');
+    }
+    // ---- 👥 people: next actions, colours, each person's open work; subtasks carry their parent
+    {
+      const pa = await call('PATCH', `/projects/${np.id}`, { next_action: 'Agree the budget with finance', leader: 'Riley Owner' });
+      assert.equal(pa.next_action, 'Agree the budget with finance', 'a project\'s next action');
+      const parent = await call('POST', '/tasks', { project_id: np.id, title: 'Parent for people', owner: 'Riley Owner', due_at: new Date(Date.now() - 86400000).toISOString() });
+      const kid = await call('POST', '/tasks', { project_id: np.id, parent_id: parent.id, title: 'Kid for people', owner: 'Riley Owner, Quinn Helper' });
+      assert.equal((await call('GET', '/dashboard')).overdue.find((t) => t.id === parent.id)?.title, 'Parent for people');
+      assert.equal((await call('GET', '/tasks?open=1')).find((t) => t.id === kid.id).parent_title, 'Parent for people', 'a subtask knows its parent');
+      await call('PUT', '/people/focus', { name: 'Riley Owner', next_action: 'Talk about the overdue parent', colour: '#be185d' });
+      await assert.rejects(call('PUT', '/people/focus', { name: 'Riley Owner', colour: 'pink' }), /400/);
+      const ov = await call('GET', '/people/overview'); const ro = ov.find((x) => x.name === 'Riley Owner'); const qh = ov.find((x) => x.name === 'Quinn Helper');
+      assert.ok(ro && ro.next_action === 'Talk about the overdue parent' && ro.colour === '#be185d' && ro.counts.open === 2 && ro.counts.overdue === 1 && ro.projects.some((x) => x.id === np.id && x.role === 'Leader' && x.next_action === 'Agree the budget with finance'), `Riley's open work: ${JSON.stringify(ro?.counts)}`);
+      assert.ok(qh && qh.tasks.some((t) => t.id === kid.id), 'a task with two owners is both of theirs');
+      assert.ok((await call('GET', '/people/colours')).some((c) => c.name === 'Riley Owner' && c.colour === '#be185d'), 'colours set by hand are shared');
+      const fr = (await call('GET', `/dashboard?focus_person=${encodeURIComponent('Riley Owner')}`)).focus;
+      assert.ok(fr.person === 'Riley Owner' && fr.day.some((x) => x.id === parent.id) && fr.day.concat(fr.week).every((x) => x.kind === 'project' || /Riley Owner/.test(x.owner)), 'one person\'s focus');
+      const pl = (await call('GET', '/projects')).find((x) => x.id === np.id);
+      assert.ok(/Quinn Helper/.test(pl.task_owners) && pl.next_action, 'the board knows who\'s on each project');
+      await call('DELETE', `/tasks/${parent.id}`); await call('PATCH', `/projects/${np.id}`, { leader: CHARTER.leader });
+    }
+    // ---- 💶 CAPEX: the essentials required, a ref each, the Excel register and the one-pagers
+    {
+      await assert.rejects(call('POST', '/capex', { title: 'Half' }), /Needed: Category, Requested by, Estimated cost, Planned date, Business justification/);
+      const c1 = await call('POST', '/capex', { title: 'New printer', category: 'Capacity / growth', owner: 'Riley Owner', amount: '£120,000', planned_date: '2027-03-01', justification: 'Peak over capacity', annual_saving: 30000, status: 'submitted' });
+      const c2 = await call('POST', '/capex', { title: 'Chiller', category: 'Replacement', owner: 'Quinn Helper', amount: 20000, currency: '€', planned_date: '2026-12-10', justification: 'End of life', status: 'ordered', actual_cost: 21500 });
+      assert.deepEqual([c1.ref, c1.amount, c1.status, c2.ref, c2.currency], ['CAPEX-' + String(c1.id).padStart(4, '0'), 120000, 'submitted', 'CAPEX-' + String(c2.id).padStart(4, '0'), '€']);
+      await assert.rejects(call('PATCH', `/capex/${c1.id}`, { justification: '  ' }), /Needed: Business justification/);
+      await assert.rejects(call('PATCH', `/capex/${c1.id}`, { status: 'maybe' }), /400/);
+      assert.equal((await call('PATCH', `/capex/${c1.id}`, { status: 'approved', approved_on: '2026-11-02', approved_by: 'Pat Boss' })).status, 'approved');
+      const list = await call('GET', '/capex'); assert.ok(list.items.length === 2 && list.required.title && list.categories.includes('Replacement'));
+      const xl = Buffer.from(await (await fetch(`${BASE}/capex/export.xlsx`, { headers: { 'X-Requested-With': 'TaskManager' } })).arrayBuffer());
+      const { readBook } = require('../src/xlsxread'); const bk = readBook(xl);
+      assert.deepEqual(bk.sheets.map((x) => x.name), ['Summary', 'Register']);
+      const reg = bk.sheet('Register'); const sumS = bk.sheet('Summary');
+      assert.ok(reg.cells.get('B5')?.v === 'Chiller' && reg.cells.get('B6')?.v === 'New printer' && /YEAR/.test(reg.cells.get('L5').f) && /SUMIFS\('Register'!/.test([...sumS.cells.values()].find((c) => c.f && /SUMIFS/.test(c.f)).f), 'the register (by planned date) and a summary of formulas over it');
+      for (const u of [`/capex/${c1.id}/onepager.pdf`, '/capex/overview.pdf?status=open']) { const r = await fetch(BASE + u, { headers: { 'X-Requested-With': 'TaskManager' } }); const b = Buffer.from(await r.arrayBuffer());
+        assert.ok(r.ok && b.slice(0, 5).toString() === '%PDF-' && (b.toString('latin1').match(/\/Type \/Page[^s]/g) || []).length === 1, `${u}: a one-page PDF`); }
+      await call('DELETE', `/capex/${c2.id}`); await call('DELETE', `/capex/${c1.id}`);
+      assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'capex' && e.action === 'DELETE'), 'CAPEX changes are in the activity log');
+    }
+
     // ---- Costs
     await call('POST', `/projects/${np.id}/costs`, { description: 'Room hire', amount: '350', spent_on: '2026-10-01' });
     await call('POST', `/projects/${np.id}/costs`, { description: 'Catering', amount: 120.5 });
@@ -2471,13 +2532,14 @@ async function waitForServer() {
       assert.equal((await sam('GET', '/plan/find?q=ab')).status, 200, 'planning');
       assert.equal((await sam('GET', '/prod?source=perso')).status, 200, '⏱ Timing is Production\'s (Insights)');
       assert.equal((await sam('GET', '/tasks')).status, 200, 'the basic pack');
+      assert.ok((await sam('GET', '/capex')).status === 403 && (await sam('GET', '/people/overview')).status === 403 && (await sam('GET', '/people/colours')).status === 200, 'CAPEX and 👥 People are Management\'s; everyone sees the colours');
       assert.deepEqual((await sam('GET', '/search?q=Sam')).data.ideas, [], 'search leaves out what Sam can\'t use');
       const sq = (await sam('GET', '/search?q=Sam')).data;
       assert.ok(sq.contacts.length === 0 && sq.reporting.length === 0 && Array.isArray(sq.production), 'only Sam\'s modules: production yes, contacts and reporting no');
       assert.equal((await sam('PATCH', `/accounts/${samId}`, { modules: ['management'] })).status, 403, 'only admins give modules');
       assert.equal((await admin('GET', '/kpi/snapshots')).status, 200, 'admins have them all');
       r = await admin('POST', '/accounts', { username: 'mgr', person: 'Max Manager', password: 'mgr-pass-1', modules: ['projects', 'kpi', 'report'] });
-      assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'management', 'archive'], ['projects', 'kpi', 'report']], 'modules from the start; the old ones (projects, kpi, report) carried over');
+      assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'management', 'archive'], ['projects', 'kpi', 'team', 'capex', 'report']], 'modules from the start; the old ones (projects, kpi, report) carried over');
       // 🔒 the setup is for admins; your own appearance is yours
       assert.equal((await sam('PATCH', '/settings', { currency: '$' })).status, 403, 'settings are for admins');
       assert.equal((await sam('PATCH', '/settings', { report_last_sent: new Date().toISOString() })).status, 200, 'but the report can be marked sent');

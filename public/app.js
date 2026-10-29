@@ -275,7 +275,21 @@ function waitingChip(t) {
   const d = t.waiting_since ? daysSince(t.waiting_since) : null;
   return `<span class="chip waiting" title="Waiting on ${esc(t.waiting_on)}${t.waiting_since ? ` since ${esc(fmtDate(t.waiting_since))}` : ''}">⏳ ${esc(t.waiting_on)}${d !== null ? ` · ${d}d` : ''}</span>`;
 }
-const ownerChip = (t) => (t.owner ? `<span class="small muted" title="Owner${t.owner.includes(',') ? 's' : ''}">👤 ${esc(t.owner)}</span>` : '');
+// 🎨 each person a colour of their own: set by hand on 👥 People, else picked from their name (the same
+// name always gets the same colour), shown as a small coloured badge with their initials
+const PERSON_COLS = ['#430099', '#7382e6', '#0e7490', '#b45309', '#be185d', '#15803d', '#6d28d9', '#0369a1', '#c2410c', '#4d7c0f', '#a21caf', '#9f1239', '#0f766e', '#7c2d12'];
+function personColour(name) {
+  const k = String(name || '').trim().toLowerCase(); if (!k) return '#8a8a9a';
+  const set = state.personColours?.get(k); if (set) return set;
+  let h = 0; for (const ch of k) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return PERSON_COLS[h % PERSON_COLS.length];
+}
+const initials = (name) => { const w = String(name || '').trim().split(/\s+/).filter((x) => /^[\p{L}\p{N}]/u.test(x)); return ((w[0]?.[0] || '') + (w.length > 1 ? w[w.length - 1][0] : w[0]?.[1] || '')).toUpperCase(); };
+const personDot = (name) => `<i class="pdot" style="--pc:${personColour(name)}" title="${esc(name)}">${esc(initials(name))}</i>`;
+const personChip = (name, cls = '') => `<span class="pchip ${cls}" style="--pc:${personColour(name)}">${personDot(name)}<span>${esc(name)}</span></span>`;
+const peopleChips = (v) => splitOwners(v).map((n) => personChip(n)).join(' ');
+async function loadPersonColours() { try { state.personColours = new Map((await api.get('/people/colours')).map((x) => [x.name.toLowerCase(), x.colour])); } catch { state.personColours = new Map(); } }
+const ownerChip = (t) => (t.owner ? `<span class="owners" title="Owner${t.owner.includes(',') ? 's' : ''}">${peopleChips(t.owner)}</span>` : '');
 const repeatChip = (t) => (t.recurrence ? `<span class="small muted" title="Repeats: ${REPEAT[t.recurrence]}">🔁</span>` : '');
 const SHORTCUTS_HELP = 'Shortcuts: <code>!high</code> <code>!crit</code> · <code>@today</code> <code>@fri</code> <code>@2026-10-31</code> · <code>*weekly</code> <code>*monthly</code>';
 
@@ -359,6 +373,8 @@ async function route() {
     if (view === 'project') await renderProject(rest[0], rest[1]);
     else if (view === 'tasks') await renderTasks();
     else if (view === 'kanban') await renderKanban();
+    else if (view === 'team') await renderTeam();
+    else if (view === 'capex') await renderCapex(rest[0]);
     else if (view === 'ideas') await renderIdeas();
     else if (view === 'idea') await renderIdea(rest[0]);
     else if (view === 'settings') await renderSettings();
@@ -404,9 +420,9 @@ function phaseLine(p) {
 }
 
 function miniTask(t) {
-  return `<li class="${t.status === 'done' ? 'done' : ''}">
+  return `<li class="${t.status === 'done' ? 'done' : ''} ${t.parent_id ? 'is-sub' : ''}">
     <input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${t.subtask_count - t.subtask_done}" ${t.status === 'done' ? 'checked' : ''}>
-    <span class="t" data-action="open-task" data-id="${t.id}">${esc(t.title)}</span>
+    <span class="t" data-action="open-task" data-id="${t.id}">${t.parent_id ? `<span class="sub-mark" title="Subtask of ${esc(t.parent_title || '')}">↳ ${esc(t.parent_title || 'subtask')} ›</span> ` : ''}${esc(t.title)}</span>
     ${t.project_id ? `<a class="small" href="#/project/${t.project_id}">${esc(t.project_name)}</a>` : '<a class="small muted" href="#/tasks">✅ Tasks</a>'}
     ${prioPill(t.priority)} ${dueChip(t)} ${ownerChip(t)} ${waitingChip(t)} ${repeatChip(t)}
   </li>`;
@@ -456,9 +472,17 @@ function taskListHtml(list, p, hideDone) {
 }
 
 async function renderDashboard() {
-  const [d] = await Promise.all([api.get('/dashboard'), loadProjects()]);
+  const who = store.get('homePerson', '') || '';
+  const [d0] = await Promise.all([api.get(`/dashboard${who ? `?focus_person=${encodeURIComponent(who)}` : ''}`), loadProjects()]);
+  // 👤 one person's view: the tasks they own, the projects they're on
+  const mineT = (t) => !who || splitOwners(t.owner).some((o) => sameName(o, who));
+  const onProj = (p) => !who || [p.leader, p.sponsor, p.team_names, p.task_owners].some((v) => splitOwners(v).some((o) => sameName(o, who)));
+  const d = { ...d0, ...Object.fromEntries(['overdue', 'today', 'week', 'blocked', 'waiting', 'high_priority'].map((k) => [k, d0[k].filter(mineT)])) };
+  const everyone = [...new Set([...state.projects.filter((p) => ['active', 'on_hold'].includes(p.status)).flatMap((p) => [p.leader, p.sponsor, p.team_names, p.task_owners].flatMap(splitOwners)),
+    ...['overdue', 'today', 'week', 'blocked', 'waiting', 'high_priority'].flatMap((k) => d0[k].flatMap((t) => splitOwners(t.owner)))].map((n) => n.trim()))]
+    .filter((n, i, a) => a.findIndex((x) => sameName(x, n)) === i).sort((a, b) => a.localeCompare(b));
   const ongoing = state.projects
-    .filter((p) => p.status === 'active' || p.status === 'on_hold')
+    .filter((p) => (p.status === 'active' || p.status === 'on_hold') && onProj(p))
     .map((p) => ({ ...p, health: projectHealth(p) }))
     .sort((a, b) => HEALTH_ORDER[a.health.key] - HEALTH_ORDER[b.health.key] || b.priority - a.priority
       || String(a.due_at || '9').localeCompare(String(b.due_at || '9')));
@@ -482,7 +506,8 @@ async function renderDashboard() {
       p.in_progress_count && `<span class="small muted">▶ ${p.in_progress_count} in progress</span>`,
     ].filter(Boolean).join(' ');
     return `<tr class="clickable" data-action="open-project" data-id="${p.id}">
-      <td><b>${esc(p.name)}</b>${phaseLine(p) ? `<div class="small muted">${phaseLine(p)}</div>` : ''}</td>
+      <td><b>${esc(p.name)}</b>${phaseLine(p) ? `<div class="small muted">${phaseLine(p)}</div>` : ''}${p.next_action ? `<div class="next-action small" title="Next action">▶ ${esc(p.next_action)}</div>` : ''}</td>
+      <td>${p.leader ? peopleChips(p.leader) : '<span class="small muted">—</span>'}</td>
       <td class="nowrap"><span class="health health-${p.health.key}" title="${esc(p.health.why)}">${p.health.icon} ${p.health.label}</span></td>
       <td>${prioPill(p.priority)}</td>
       <td class="nowrap"><div class="meter" title="${p.done_count} of ${p.task_count} tasks done (${pct}%)"><div style="width:${pct}%"></div></div>
@@ -496,7 +521,9 @@ async function renderDashboard() {
   };
 
   main().innerHTML = `
-    <div class="row" style="margin-bottom:14px"><h1 style="margin:0">Home</h1><div class="spacer"></div>
+    <div class="row" style="margin-bottom:14px"><h1 style="margin:0">Home</h1>
+      <label class="person-pick" title="One person's tasks, projects and focus — for a 1:1 or a review">${who ? personDot(who) : '👤'}<select id="home-person"><option value="">Everyone</option>${ACCT.account?.person ? `<option value="${esc(ACCT.account.person)}" ${sameName(who, ACCT.account.person) ? 'selected' : ''}>Me (${esc(ACCT.account.person)})</option>` : ''}${everyone.filter((n) => !ACCT.account?.person || !sameName(n, ACCT.account.person)).map((n) => `<option ${sameName(n, who) ? 'selected' : ''}>${esc(n)}</option>`).join('')}${who && !everyone.some((n) => sameName(n, who)) ? `<option selected>${esc(who)}</option>` : ''}</select></label>
+      <div class="spacer"></div>
       <span class="muted">${esc(fmtDate(new Date()))}</span>
       ${modOk('report') || modOk('projects') ? ddMenu('⋯', `${modOk('report') ? '<a href="#/report">📰 Status report</a>' : ''}${modOk('projects') ? '<a href="/api/export.xlsx">⬇ Everything as an Excel workbook</a>' : ''}`, { title: 'Status report, Excel export' }) : ''}</div>
 
@@ -510,10 +537,12 @@ async function renderDashboard() {
       ${!modOk('ideas') ? '' : kpi('Open ideas', d.ideas.open, d.ideas.cost ? `${money(d.ideas.cost)} total cost` : '', 'ideas')}
     </div>
 
-    ${!modOk('projects') ? '' : `<h2 class="dash-heading">Projects</h2>
+    ${focusCard(d.focus, who)}
+
+    ${!modOk('projects') ? '' : `<h2 class="dash-heading">Projects${who ? ` <span class="small muted" style="text-transform:none;letter-spacing:0">— ${esc(who)}'s</span>` : ''}</h2>
     <div class="card" id="dash-projects" style="overflow-x:auto">
       ${ongoing.length ? `<table class="log dash-projects">
-        <thead><tr><th>Project</th><th>Health</th><th>Priority</th><th>Progress</th><th>Open issues</th><th>Next task due</th><th>Project due</th><th title="How much of the project charter is filled in">Charter</th><th>Last activity</th></tr></thead>
+        <thead><tr><th>Project <span class="small muted">· ▶ next action</span></th><th>Leader</th><th>Health</th><th>Priority</th><th>Progress</th><th>Open issues</th><th>Next task due</th><th>Project due</th><th title="How much of the project charter is filled in">Charter</th><th>Last activity</th></tr></thead>
         <tbody>${ongoing.map(projectRow).join('')}</tbody></table>
         <div class="small muted" style="margin-top:8px">⚠ At risk = overdue tasks or past its due date · ◐ Watch = blocked tasks or due within 7 days · ✓ On track = neither</div>`
         : '<div class="empty">No ongoing projects. <button class="link" data-action="new-project">Create one</button></div>'}
@@ -543,6 +572,29 @@ async function renderDashboard() {
           <div class="small muted">${esc(fmtDateTime(n.created_at))} · ${n.project_id ? `<a href="#/project/${n.project_id}">${esc(n.project_name)}</a>` : '<a href="#/tasks">✅ Tasks</a>'}${n.task_title ? ` · <a href="javascript:void 0" data-action="open-task" data-id="${n.task_id}">${esc(n.task_title)}</a>` : ''}</div>
           <div class="pre">${linkify(n.body)}</div></li>`, 'No notes yet')}
     </div>`;
+  $('#home-person').onchange = (e) => { store.set('homePerson', e.target.value); route(); };
+  $$('[data-focus-tab]').forEach((b) => { b.onclick = () => { store.set('focusTab', b.dataset.focusTab); $$('[data-focus-tab]').forEach((x) => x.classList.toggle('on', x === b)); $$('[data-focus-list]').forEach((l) => { l.hidden = l.dataset.focusList !== b.dataset.focusTab; }); }; });
+}
+
+// 🎯 a few things to look at first: today's (late, due, started, people to chase) and this week's
+// (coming up, stuck, left too long, projects that need talking about) — each with why
+function focusCard(f, who) {
+  if (!f) return '';
+  const tab = store.get('focusTab', 'day') === 'week' ? 'week' : 'day';
+  const item = (x) => `<li class="focus-item ${x.kind}">
+      ${x.kind === 'project' ? `<span class="fi-ico" title="A project to talk about">🗂</span><a class="fi-t" href="#/project/${x.id}">${esc(x.title)}</a>`
+        : `<input type="checkbox" data-action="toggle-task" data-id="${x.id}" title="Mark done"><span class="fi-t" data-action="open-task" data-id="${x.id}">${x.parent_title ? `<span class="sub-mark" title="Subtask of ${esc(x.parent_title)}">↳ ${esc(x.parent_title)} ›</span> ` : ''}${esc(x.title)}</span>`}
+      ${x.kind === 'task' && x.project_id ? `<a class="small muted" href="#/project/${x.project_id}">${esc(x.project_name)}</a>` : ''}
+      ${x.owner && !who ? peopleChips(x.owner) : ''}
+      <span class="fi-why">${x.reasons.map((r) => `<span class="why ${/overdue|past its|was due|blocked/.test(r) ? 'bad' : /today|tomorrow|chase|critical/.test(r) ? 'warn' : ''}">${esc(r)}</span>`).join('')}</span>
+      ${x.kind === 'project' && x.next_action ? `<div class="next-action small">▶ ${esc(x.next_action)}</div>` : ''}
+    </li>`;
+  const list = (k, items, empty) => `<ul class="focus-list" data-focus-list="${k}" ${tab === k ? '' : 'hidden'}>${items.length ? items.map(item).join('') : `<li class="empty">${empty}</li>`}${k === 'day' && f.more_overdue ? `<li class="small muted">… and ${f.more_overdue} more overdue — see ⚠ Overdue below</li>` : ''}</ul>`;
+  return `<div class="card focus-card"><div class="row" style="gap:10px;align-items:center"><h3 style="margin:0">🎯 Focus${who ? ` <span class="small muted">— ${esc(who)}</span>` : ''}</h3>
+      <div class="seg"><button type="button" data-focus-tab="day" class="${tab === 'day' ? 'on' : ''}">Today <b>${f.day.length}</b></button><button type="button" data-focus-tab="week" class="${tab === 'week' ? 'on' : ''}">This week <b>${f.week.length}</b></button></div>
+      <span class="small muted hide-narrow">picked from due dates, priority, what's started, who's being waited on and how long things have been open</span></div>
+    ${list('day', f.day, 'Nothing pressing today — a good day to get ahead on this week\'s list.')}
+    ${list('week', f.week, 'Nothing stands out this week.')}</div>`;
 }
 
 // ======================================================================
@@ -860,9 +912,10 @@ async function renderProject(id, tab) {
     <div class="project-head">
       <div class="title">
         <h1>${esc(p.name)} <span class="muted small">${esc(p.project_code || '')}</span></h1>
-        <div class="small muted" title="Created ${esc(fmtDateTime(p.created_at))} · Updated ${esc(fmtDateTime(p.updated_at))}${p.completed_at ? ` · Completed ${esc(fmtDateTime(p.completed_at))}` : ''}">${[p.leader ? `Leader <b>${esc(p.leader)}</b>` : '', p.sponsor ? `Sponsor <b>${esc(p.sponsor)}</b>` : '', p.category ? esc(p.category) : '',
+        <div class="small muted proj-people" title="Created ${esc(fmtDateTime(p.created_at))} · Updated ${esc(fmtDateTime(p.updated_at))}${p.completed_at ? ` · Completed ${esc(fmtDateTime(p.completed_at))}` : ''}">${[p.leader ? `Leader ${peopleChips(p.leader)}` : '', p.sponsor ? `Sponsor ${peopleChips(p.sponsor)}` : '', p.category ? esc(p.category) : '',
           p.escalated_from ? `<a href="#/idea/${p.escalated_from.id}">💡 from ${esc(p.escalated_from.ref)}</a>` : '', p.completed_at ? `completed ${esc(fmtShortDate(p.completed_at))}` : `updated ${esc(fmtShortDate(p.updated_at))}`].filter(Boolean).join(' · ')}</div>
         ${p.description ? `<div class="pre muted small proj-desc">${linkify(p.description)}</div>` : ''}
+        <label class="na-line" title="The talking point for this project's next review — one line, shown on Home, the board and 👥 People">▶ <input type="text" id="proj-next" maxlength="300" value="${esc(p.next_action || '')}" placeholder="Next action — the talking point for the next review"></label>
       </div>
       <div class="meta">
         <select data-action="project-field" data-field="status" title="Status">${options(PSTATUS, p.status)}</select>
@@ -926,6 +979,9 @@ async function renderProject(id, tab) {
       </div></div>
     </div>`}`;
 
+  // the next action: saved as it's typed (after a pause) and when leaving the box
+  const na = $('#proj-next'); let naT = null; const naSave = async () => { clearTimeout(naT); const v = na.value.trim(); if (v === (state.project.next_action || '')) return; try { await api.patch(`/projects/${p.id}`, { next_action: v }); state.project.next_action = v; na.classList.add('saved'); setTimeout(() => na.classList.remove('saved'), 900); } catch (err) { toast(err.message, 'error'); } };
+  na.addEventListener('input', () => { clearTimeout(naT); naT = setTimeout(naSave, 1200); }); na.addEventListener('change', naSave); na.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); na.blur(); } });
   if (tab === 'charter') { renderCharterTab($('#charter-root'), p); return; }
   $('#note-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveProjectNote(); }
@@ -1076,7 +1132,17 @@ async function renderKanban() {
   await loadProjects();
   const timeline = store.get('projectsView', 'board') === 'timeline';
   const doneLimit = 20;
-  const byStatus = Object.fromEntries(Object.keys(PROJECT_COLUMNS).map((st) => [st, state.projects.filter((p) => p.status === st)]));
+  // 👤 one person's projects (leader, sponsor, team, or owning one of its open tasks), and the order
+  const who = store.get('boardPerson', '') || ''; const sort = store.get('boardSort', 'priority');
+  const onProj = (p) => !who || [p.leader, p.sponsor, p.team_names, p.task_owners].some((v) => splitOwners(v).some((o) => sameName(o, who)));
+  const everyone = [...new Set(state.projects.flatMap((p) => [p.leader, p.sponsor, p.team_names, p.task_owners].flatMap(splitOwners)))].filter((n, i, a) => a.findIndex((x) => sameName(x, n)) === i).sort((a, b) => a.localeCompare(b));
+  const SORTS = { priority: ['Priority', (a, b) => b.priority - a.priority || String(a.due_at || '9').localeCompare(String(b.due_at || '9'))],
+    due: ['Due date', (a, b) => String(a.due_at || '9').localeCompare(String(b.due_at || '9'))],
+    overdue: ['Most overdue work', (a, b) => (b.overdue_count || 0) - (a.overdue_count || 0) || b.priority - a.priority],
+    activity: ['Least recent activity', (a, b) => String(a.last_activity_at || '').localeCompare(String(b.last_activity_at || ''))],
+    leader: ['Leader', (a, b) => String(a.leader || '~').localeCompare(String(b.leader || '~'))], name: ['Name', (a, b) => a.name.localeCompare(b.name)] };
+  const shownProjects = state.projects.filter(onProj).sort((SORTS[sort] || SORTS.priority)[1]);
+  const byStatus = Object.fromEntries(Object.keys(PROJECT_COLUMNS).map((st) => [st, shownProjects.filter((p) => p.status === st)]));
   byStatus.completed.sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)));
 
   const card = (p) => {
@@ -1089,8 +1155,9 @@ async function renderKanban() {
     ].filter(Boolean).join(' · ');
     return `<div class="kcard p${p.priority} ${p.status === 'completed' ? 'done' : ''}" draggable="true" data-id="${p.id}"
         data-action="open-project" title="Open project">
-      <div class="ktitle"><span>${esc(p.name)}</span></div>
+      <div class="ktitle"><span>${esc(p.name)}</span>${p.leader ? `<span class="kleads">${splitOwners(p.leader).map(personDot).join('')}</span>` : ''}</div>
       <div class="kmeta">${prioPill(p.priority)} ${p.due_at ? dueChip({ ...p, status: p.status === 'completed' ? 'done' : '' }) : ''}</div>
+      ${p.next_action && p.status !== 'completed' ? `<div class="next-action small" title="Next action">▶ ${esc(p.next_action)}</div>` : ''}
       ${phaseLine(p) ? `<div class="small" style="margin-top:6px">${phaseLine(p)}</div>` : ''}
       <div class="small muted" style="margin-top:6px">${stats}</div>
       ${p.task_count ? `<div class="progress" title="${pct}% done"><div style="width:${pct}%"></div></div>` : ''}
@@ -1104,8 +1171,10 @@ async function renderKanban() {
 
   main().innerHTML = `
     <div class="kanban-tools">
-      <h1 style="margin:0">🗂 Projects</h1><div class="spacer"></div>
-      <span class="small muted">${timeline ? 'Drag a bar to change a project\'s dates' : 'Drag a project to change its status'} · open a project for its own tasks</span>
+      <h1 style="margin:0">🗂 Projects</h1>
+      <label class="person-pick" title="One person's projects: as leader, sponsor, on the team, or owning one of its open tasks">${who ? personDot(who) : '👤'}<select id="board-person"><option value="">Everyone</option>${everyone.map((n) => `<option ${sameName(n, who) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+      ${timeline ? '' : `<label class="person-pick" title="The order within each column">↕<select id="board-sort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sort ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`}
+      <div class="spacer"></div>
       <div class="seg" role="group" aria-label="Projects view">
         <button data-action="projects-view" data-view="board" class="${timeline ? '' : 'on'}">▦ Board</button>
         <button data-action="projects-view" data-view="timeline" class="${timeline ? 'on' : ''}">▤ Timeline</button>
@@ -1123,7 +1192,9 @@ async function renderKanban() {
       }).join('')}
     </div>`}`;
 
-  if (timeline) return renderPortfolioGantt($('#gantt-root'), state.projects.filter((p) => p.status === 'active' || p.status === 'on_hold'));
+  $('#board-person').onchange = (e) => { store.set('boardPerson', e.target.value); route(); };
+  const bs = $('#board-sort'); if (bs) bs.onchange = (e) => { store.set('boardSort', e.target.value); route(); };
+  if (timeline) return renderPortfolioGantt($('#gantt-root'), shownProjects.filter((p) => p.status === 'active' || p.status === 'on_hold'));
   wireDrag(main(), async (id, status) => {
     const p = state.projects.find((x) => String(x.id) === id);
     if (!p || p.status === status) return;
@@ -2658,7 +2729,7 @@ window.addEventListener('hashchange', route);
     return;
   }
   try {
-    [state.settings] = await Promise.all([api.get('/settings'), loadProjects()]);
+    [state.settings] = await Promise.all([api.get('/settings'), loadProjects(), loadPersonColours()]);
   } catch (err) { toast(err.message, 'error'); }
   plannerLink();
   if (state.shared) await collabStart();

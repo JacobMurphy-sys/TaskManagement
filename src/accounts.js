@@ -37,7 +37,7 @@ const passwordProblem = (pw) => (String(pw || '').length < 8 ? 'Passwords need a
 // is Projects and Reporting.
 const MODULES = [
   { key: 'basic', label: 'Basic pack', icon: '📋', what: 'Home, Tasks, Calendar, Library, 📥 My work, quick notes and search', always: true, areas: [] },
-  { key: 'management', label: 'Management', icon: '🗂', what: 'Projects (the board, project pages and charters, the projects list in the sidebar) and Reporting (the weekly ops report, its database and sources)', areas: ['projects', 'kpi'] },
+  { key: 'management', label: 'Management', icon: '🗂', what: 'Projects (the board, project pages and charters, the projects list in the sidebar), 👥 People (each person\'s open work and next action), 💶 CAPEX (planned investments) and Reporting (the weekly ops report, its database and sources)', areas: ['projects', 'kpi', 'team', 'capex'] },
   { key: 'ci', label: 'Continuous Improvement', icon: '💡', what: 'Ideas: the ideas, their notes and the pipeline', areas: ['ideas'] },
   { key: 'production', label: 'Prod Management', icon: '🏭', what: 'Production: perso, Matching, Insights (🔬 Learned, 📆 D+ due out, ⏱ Timing) and 🔍 search; 📐 Capacity planning (forecasts, flex, scenarios)', areas: ['planning', 'cpm'] },
   { key: 'archive', label: 'Archive', icon: '🗄', what: 'the archived status report', areas: ['report'] },
@@ -49,7 +49,7 @@ const AREAS = MODULES.flatMap((m) => m.areas);
 const LEGACY = { projects: 'management', kpi: 'management', ideas: 'ci', planning: 'production', report: 'archive', contacts: 'admin' };
 const keysOf = (list) => new Set((Array.isArray(list) ? list : String(list || '').split(',')).map((k) => String(k).trim()).map((k) => LEGACY[k] || k));
 // the API paths each area owns (refused to an account without it)
-const MODULE_API = { ideas: /^\/(ideas|idea-notes)(\/|$)/, kpi: /^\/kpi(\/|$)/, planning: /^\/(plan|prod)(\/|$)/, cpm: /^\/cpm(\/|$)/, report: /^\/report(\/|$)/, contacts: /^\/contacts(\/|$)/ };
+const MODULE_API = { team: /^\/people\/(overview|focus)(\/|$)/, capex: /^\/capex(\/|$)/, ideas: /^\/(ideas|idea-notes)(\/|$)/, kpi: /^\/kpi(\/|$)/, planning: /^\/(plan|prod)(\/|$)/, cpm: /^\/cpm(\/|$)/, report: /^\/report(\/|$)/, contacts: /^\/contacts(\/|$)/ };
 function modulesOf(a) {
   if (!a || a.role === 'admin' || a.owner || a.modules === null || a.modules === undefined) return [...MODULE_KEYS];
   const set = keysOf(a.modules);

@@ -119,7 +119,7 @@ When an update changes how data is stored, the app upgrades your database automa
 
 ## 2. Everyday use
 
-**Finding your way around:** the purple bar at the top holds the main pages (with less room, only the page you're on keeps its name — hover an icon for the others); 📇 Contacts, 📰 Status report, the activity log, backups and settings are under **⋯**. On a page, the main action is a button and the rest are under its own **⋯** (or **⚙ View** for display options). Warnings and tips for the page you're on, and recent error messages, are under the **⚠** chip next to the 🔔 — its count shows how many; a button in a warning works from there. A heading's longer explanation is behind its **ⓘ**. A project's charter, baseline and budget sit in one row of tiles under its name.
+**Finding your way around:** the purple bar at the top holds the main pages (with less room, only the page you're on keeps its name — hover an icon for the others); 📇 Contacts, 📰 Status report, the activity log, backups and settings are under **⋯**; 👥 People and 💶 CAPEX are with the main pages for Management. On a page, the main action is a button and the rest are under its own **⋯** (or **⚙ View** for display options). Warnings and tips for the page you're on, and recent error messages, are under the **⚠** chip next to the 🔔 — its count shows how many; a button in a warning works from there. A heading's longer explanation is behind its **ⓘ**. A project's charter, baseline and budget sit in one row of tiles under its name.
 
 - **New project:** click **+ New** in the sidebar. List the baseline tasks one per line. The baseline is set automatically.
 - **Add a note as you go:** type in the bar at the top of the project and press **Enter**. Notes are time-stamped. To attach a note to a specific task, pick the task in the drop-down first.
@@ -143,6 +143,19 @@ When an update changes how data is stored, the app upgrades your database automa
 - **Report:** open **📰 Report**, pick the period, then *Copy as text* and paste into your email. Use *✓ Mark as sent* so *Since last report* starts from there next time.
 - **Excel:** *⬇ Export to Excel* on the dashboard (everything), *⬇ Excel* on a project page (that project) or on Ideation (all ideas).
 - **Archive rather than delete:** set a finished project's status to *Archived* to hide it. **Show archived** in the sidebar brings it back.
+
+### 🎯 Focus, 👥 People and next actions
+
+- **🎯 Focus** on Home: **Today** — what's overdue or due today/tomorrow, high-priority work that's close, what's been started (finish it) and people being waited on for 3+ days (chase them); **This week** — what's coming up, what's blocked, tasks open a month or more with nothing due, and projects to talk about (overdue tasks, past or near their due date, a phase ending, no next action set). Each item says why. Tick a task done from there.
+- **👤 One person's view:** pick a person at the top of Home (their focus, tasks and projects — for a 1:1 or review), on the Projects board (projects they lead, sponsor, are on the team of, or own a task in; and sort the board) and on Tasks › **All open tasks** (every open task, in projects or not, by person and project, sorted by due date, priority, age, owner or project — grouped by owner or project).
+- **Colours:** each person gets a colour of their own — picked from their name (always the same), or chosen on 👥 People — shown as a badge with their initials wherever they own a task or lead a project.
+- **▶ Next action:** one line per project (under its name; on Home, the board and 👥 People) and per person (on 👥 People) — the talking point for the next review. Saved as you type.
+- **👥 People** (Management): a card per person — their colour, open/overdue/due-this-week/blocked/waiting counts, their next action, their projects (with each one's next action) and their open tasks; ⋯ opens their Home, all their tasks or their projects.
+- **Subtasks** show among the tasks on Home, Focus, People and All open tasks — indented with a periwinkle rule and their parent named (↳ Parent ›).
+
+### 💶 CAPEX planner (Management)
+
+The pending investments and larger projects. **＋ New investment** needs the essentials — title, category, requested by, estimated cost (and currency), planned date and the business justification — and takes the business case (priority, sponsor, department, annual saving, payback — worked out from the saving when blank — a linked project, description, risk if not done, next action) and approval and purchase (supplier, quote, approved on/by, PO number, actual cost, notes). Each gets a ref (CAPEX-0001). The page shows what's pending a decision, approved, committed and delivered this year, the open pipeline by status, and the register — filtered by status, category, person, year or text. **⋯ › Excel** is the register to edit and examine (every field, inputs in yellow; quarter, payback and variance as formulas) with a summary by status, category and planned quarter as formulas over it (a section per currency); **📄** on an investment is its one-page PDF (key figures, where it stands from draft to closed, the facts and the case), and **⋯ › The plan on a page** a one-page PDF of the whole plan (totals, open investments by quarter and category, by status, and the list with next actions). Every change is in the activity log.
 
 ### 📊 Reporting: the Weekly Ops Report (A3)
 

@@ -17,6 +17,7 @@ const STYLES = {
   text: [0, 0, 0, 0], bold: [0, 1, 0, 0], header: [0, 1, 2, 1], int: [3, 0, 0, 0], intBold: [3, 1, 0, 2], pct: [9, 0, 0, 0], pctBold: [9, 1, 0, 2],
   title: [0, 2, 0, 0], note: [0, 3, 0, 0], input: [3, 4, 3, 0], inputPct: [9, 4, 3, 0], section: [0, 5, 4, 0], fixed: [3, 0, 5, 0], dec: [164, 0, 0, 0], inputDec: [164, 4, 3, 0],
   headerNum: [0, 1, 2, 1, 'right'], wrap: [0, 0, 0, 0, 'wrap'], pctSigned: [165, 0, 0, 0], date: [14, 0, 0, 0],
+  money: [4, 0, 0, 0], moneyBold: [4, 1, 0, 2], inputMoney: [4, 4, 3, 0], inputText: [0, 4, 3, 0], inputDate: [14, 4, 3, 0], inputWrap: [0, 4, 3, 0, 'wrap'],
 };
 const STYLE_IDS = Object.fromEntries(Object.keys(STYLES).map((k, i) => [k, i]));
 const STYLES_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
