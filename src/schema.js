@@ -169,6 +169,8 @@ const TABLES = {
     project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     description TEXT    NOT NULL,
     amount      REAL    NOT NULL ${moneyCheck('amount')},
+    currency    TEXT,   -- the cost's own currency; none: the project's
+    amount_project REAL,  -- in another currency: what it is in the project's (counted against its budget); none: not converted
     spent_on    TEXT    ${dateCheck('spent_on')},
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,

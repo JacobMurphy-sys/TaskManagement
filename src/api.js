@@ -62,7 +62,9 @@ function parseMoney(v, label) {
   return Math.round(n * 100) / 100;
 }
 
-const MONEY_FIELDS = { cost: 'Cost', budget: 'Budget', amount: 'Amount' };
+const MONEY_FIELDS = { cost: 'Cost', budget: 'Budget', amount: 'Amount', amount_project: 'Amount in the project\'s currency' };
+// a cost against its project's budget: as it is in the project's currency, else converted (not converted: not counted)
+const COST_IN_PROJECT = 'CASE WHEN c.currency IS NULL THEN c.amount ELSE c.amount_project END';
 const DATE_FIELDS = { start_date: 'start date', spent_on: 'date' };
 
 // A task can have several owners, stored as one "Sam Patel, Maintenance" string so
@@ -176,7 +178,7 @@ router.get('/projects', h((req, res) => {
            (SELECT min(t2.due_at) FROM tasks t2 WHERE t2.project_id = p.id AND t2.status <> 'done') AS next_due_at,
            (SELECT max(created_at) FROM notes n WHERE n.project_id = p.id) AS last_note_at,
            (SELECT max(changed_at) FROM audit_log a WHERE a.project_id = p.id) AS last_activity_at,
-           (SELECT coalesce(sum(amount), 0) FROM project_costs c WHERE c.project_id = p.id) AS spent,
+           (SELECT coalesce(sum(${COST_IN_PROJECT}), 0) FROM project_costs c WHERE c.project_id = p.id) AS spent,
            (SELECT count(*) FROM project_phases ph WHERE ph.project_id = p.id) AS phase_count,
            (SELECT count(*) FROM project_phases ph WHERE ph.project_id = p.id AND ph.status = 'done') AS phases_done,
            (SELECT json_object('id', ph.id, 'name', ph.name, 'due_at', ph.due_at, 'position',
@@ -262,7 +264,8 @@ router.get('/projects/:id', h((req, res) => {
     tasks: tasks('WHERE t.project_id = ? ORDER BY t.sort_order, t.id', [project.id]),
     links: db.all('SELECT id, task_id, depends_on_id FROM task_links WHERE project_id = ?', [project.id]),
     costs: db.all('SELECT * FROM project_costs WHERE project_id = ? ORDER BY spent_on DESC, id DESC', [project.id]),
-    spent: db.get('SELECT coalesce(sum(amount), 0) AS n FROM project_costs WHERE project_id = ?', [project.id]).n,
+    spent: db.get(`SELECT coalesce(sum(${COST_IN_PROJECT}), 0) AS n FROM project_costs c WHERE project_id = ?`, [project.id]).n,
+    unconverted: db.all('SELECT currency, sum(amount) AS amount, count(*) AS n FROM project_costs WHERE project_id = ? AND currency IS NOT NULL AND amount_project IS NULL GROUP BY currency', [project.id]),
     escalated_from: db.get('SELECT id, ref, title FROM ideas WHERE project_id = ?', [project.id]) || null,
   });
 }));
@@ -2580,7 +2583,7 @@ router.post('/plan/upload', express.raw({ type: '*/*', limit: '50mb' }), h((req,
 // ------------------------------------------------------------------ settings & areas
 
 const SETTING_DEFAULTS = {
-  currency: '£', report_last_sent: '',
+  currency: '£', fx_rates: '{}', report_last_sent: '',
   // Weekly KPIs: where the CI workbook is, its sheets, and where the A3 copy is saved
   // ({year} {yy} {wk} {week} are filled in from the reporting week).
   kpi_workbook_path: '', kpi_a3_sheet: 'A3 Weekly Report', kpi_db_sheet: 'Database', kpi_week_cell: 'B2',
@@ -3368,17 +3371,36 @@ router.get('/projects/:id/charter.xlsx', h((req, res) => {
 
 // ------------------------------------------------------------------ project costs
 
+// exchange rates set in Settings: { '€': 0.86, '$': 0.74 } — what one of each is in the app's currency
+const fxRates = () => { const o = Object.fromEntries(Object.entries(parseJson(getSetting('fx_rates')) || {}).map(([k, v]) => [k.trim(), Number(v)])); o[getSettings().currency.trim()] = 1; return o; };
+// a cost's currency and its amount in the project's currency: the project's own currency is stored as none;
+// another one converted at the rates set (amount_project given: as given; no rate: not converted)
+function costCurrency(f, project, before = null) {
+  const pc = (project.currency || getSettings().currency).trim();
+  const cur = f.currency !== undefined ? (f.currency === null ? null : String(f.currency).trim().slice(0, 5) || null) : before ? before.currency : null;
+  const out = { currency: cur && cur !== pc ? cur : null };
+  if (!out.currency) out.amount_project = null;
+  else if (f.amount_project !== undefined && f.amount_project !== null) out.amount_project = f.amount_project;
+  else if (f.amount_project === null && before && f.amount === undefined && f.currency === undefined) out.amount_project = null;
+  else { const r = fxRates(); const amt = f.amount !== undefined ? Number(f.amount) : before.amount;
+    out.amount_project = r[out.currency] > 0 && r[pc] > 0 ? Math.round(((amt * r[out.currency]) / r[pc]) * 100) / 100 : null; }
+  return out;
+}
 router.post('/projects/:id/costs', h((req, res) => {
-  if (!db.get('SELECT 1 FROM projects WHERE id = ?', [req.params.id])) throw notFound('Project');
-  const f = pick(req.body, ['description', 'amount', 'spent_on']);
+  const project = db.get('SELECT * FROM projects WHERE id = ?', [req.params.id]);
+  if (!project) throw notFound('Project');
+  const f = pick(req.body, ['description', 'amount', 'spent_on', 'currency', 'amount_project']);
   if (!f.description || !String(f.description).trim()) throw new HttpError(400, 'Description is required');
   if (f.amount === null || f.amount === undefined) throw new HttpError(400, 'Amount is required');
-  res.status(201).json(insertRow('project_costs', { ...f, spent_on: f.spent_on || dateKey(new Date()), project_id: Number(req.params.id) }));
+  res.status(201).json(insertRow('project_costs', { ...f, ...costCurrency(f, project), spent_on: f.spent_on || dateKey(new Date()), project_id: Number(req.params.id) }));
 }));
 
 router.patch('/costs/:id', h((req, res) => {
-  const row = fresh('project_costs', updateRow('project_costs', req.params.id, pick(req.body, ['description', 'amount', 'spent_on'])));
-  if (!row) throw notFound('Cost');
+  const before = db.get('SELECT * FROM project_costs WHERE id = ?', [req.params.id]);
+  if (!before) throw notFound('Cost');
+  const f = pick(req.body, ['description', 'amount', 'spent_on', 'currency', 'amount_project']);
+  const cc = f.currency !== undefined || f.amount !== undefined || f.amount_project !== undefined ? costCurrency(f, db.get('SELECT * FROM projects WHERE id = ?', [before.project_id]), before) : {};
+  const row = fresh('project_costs', updateRow('project_costs', req.params.id, { ...f, ...cc }));
   res.json(row);
 }));
 
@@ -3539,6 +3561,7 @@ const XL = {
   costs: [
     { header: 'Project', width: 30 }, { header: 'Date', type: 'date', width: 11 },
     { header: 'Description', width: 40 }, { header: 'Amount', type: 'money', width: 12 }, { header: 'Currency', width: 9 },
+    { header: 'In the project\'s currency', type: 'money', width: 14 }, { header: 'Project currency', width: 9 },
   ],
 };
 const label = (map, v) => map[v] || v || '';
@@ -3552,7 +3575,7 @@ function exportSheets(scope, id) {
         (SELECT count(*) FROM tasks t WHERE t.project_id = p.id) AS task_count,
         (SELECT count(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'done') AS done_count,
         (SELECT count(*) FROM tasks t WHERE t.project_id = p.id AND t.status <> 'done' AND t.due_at < ?) AS overdue_count,
-        (SELECT coalesce(sum(amount), 0) FROM project_costs c WHERE c.project_id = p.id) AS spent
+        (SELECT coalesce(sum(${COST_IN_PROJECT}), 0) FROM project_costs c WHERE c.project_id = p.id) AS spent
       FROM projects p ${projWhere} ORDER BY p.status = 'archived', p.name COLLATE NOCASE`, [nowIso(), ...projParams]);
     if (scope === 'project' && !projects.length) throw notFound('Project');
     sheets.push({ name: 'Projects', columns: XL.projects, rows: projects.map((p) => [
@@ -3611,9 +3634,10 @@ function exportSheets(scope, id) {
   notes.sort((a, b) => b.created_at.localeCompare(a.created_at));
   sheets.push({ name: 'Notes', columns: XL.notes, rows: notes.map((n) => [n.created_at, n.owner, n.task, n.body]) });
   if (scope !== 'ideas') {
-    const costs = db.all(`SELECT c.*, p.name AS project_name, p.currency FROM project_costs c JOIN projects p ON p.id = c.project_id
+    const costs = db.all(`SELECT c.*, p.name AS project_name, p.currency AS project_currency FROM project_costs c JOIN projects p ON p.id = c.project_id
       ${projWhere} ORDER BY p.name COLLATE NOCASE, c.spent_on`, projParams);
-    sheets.push({ name: 'Costs', columns: XL.costs, rows: costs.map((c) => [c.project_name, c.spent_on, c.description, c.amount, c.currency || getSettings().currency]) });
+    sheets.push({ name: 'Costs', columns: XL.costs, rows: costs.map((c) => [c.project_name, c.spent_on, c.description, c.amount, c.currency || c.project_currency || getSettings().currency,
+      c.currency ? c.amount_project : c.amount, c.project_currency || getSettings().currency]) });
   }
   return sheets;
 }
@@ -3654,7 +3678,7 @@ router.get('/report', h((req, res) => {
   const projects = db.all(`SELECT p.*,
       (SELECT count(*) FROM tasks t WHERE t.project_id = p.id) AS task_count,
       (SELECT count(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'done') AS done_count,
-      (SELECT coalesce(sum(amount), 0) FROM project_costs c WHERE c.project_id = p.id) AS spent
+      (SELECT coalesce(sum(${COST_IN_PROJECT}), 0) FROM project_costs c WHERE c.project_id = p.id) AS spent
     FROM projects p
     WHERE (p.status IN ('active', 'on_hold')
        OR EXISTS (SELECT 1 FROM audit_log a WHERE a.project_id = p.id AND a.changed_at BETWEEN ? AND ?)) ${projectFilter}
@@ -3695,7 +3719,7 @@ router.get('/report', h((req, res) => {
         WHERE n.project_id = ? AND n.created_at BETWEEN ? AND ? ORDER BY n.created_at`, [p.id, start, end]),
       meetings: meetingList('m.project_id = ? AND m.held_at BETWEEN ? AND ?', [p.id, start, end], 'm.held_at')
         .map((m) => ({ id: m.id, title: m.title, held_at: m.held_at, task_title: m.task_title, action_count: m.action_count, actions_done: m.actions_done })),
-      spent_in_period: db.get(`SELECT coalesce(sum(amount), 0) AS n FROM project_costs
+      spent_in_period: db.get(`SELECT coalesce(sum(${COST_IN_PROJECT}), 0) AS n FROM project_costs c
         WHERE project_id = ? AND spent_on BETWEEN ? AND ?`, [p.id, from, to]).n,
       blocked: tasks(`WHERE ${open} AND t.status = 'blocked' ORDER BY t.due_at IS NULL, t.due_at`, [p.id]),
       overdue: tasks(`WHERE ${open} AND t.due_at < ? ORDER BY t.due_at`, [p.id, now]),
@@ -4113,7 +4137,7 @@ const FIELD_LABEL = { title: 'title', name: 'name', description: 'description', 
   remind_at: 'reminder time', message: 'message', body: 'text',
   submitted_by: 'submitted by', area_id: 'area', cost: 'cost', value: 'value', active: 'active',
   waiting_on: 'waiting on', proposed_solution: 'proposed solution', resolution: 'resolution', benefit: 'benefit', created_at: 'submission date', recurrence: 'repeats', budget: 'budget', impact: 'impact', effort: 'effort',
-  amount: 'amount', spent_on: 'date', project_code: 'project ID', sponsor: 'sponsor', leader: 'project leader',
+  amount: 'amount', amount_project: 'amount in the project\'s currency', spent_on: 'date', project_code: 'project ID', sponsor: 'sponsor', leader: 'project leader',
   policy_deployment: 'policy deployment', category: 'category', gm_effect: 'gross margin effect',
   problem: 'problem definition', goals: 'goals', in_scope: 'in scope', out_scope: 'out of scope',
   benefits_quantified: 'quantified benefits', benefits_other: 'other benefits', role: 'role', capacity: 'capacity',
@@ -4132,7 +4156,7 @@ function fmtValue(field, v, currency = null) {
   if (field === 'active') return v ? 'yes' : 'no';
   if (field === 'recurrence') return REPEAT_LABEL[v] || v;
   if (field === 'phase_id') return db.get('SELECT name FROM project_phases WHERE id = ?', [v])?.name || `phase #${v}`;
-  if (field in MONEY_FIELDS) return `${currency || getSettings().currency}${Number(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (field in MONEY_FIELDS) { const c = String(currency || getSettings().currency).trim(); return `${/[A-Za-z.]$/.test(c) ? `${c} ` : c}${Number(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; }
   if (field === 'created_at') return new Date(v).toLocaleDateString(undefined, { dateStyle: 'medium' });
   if (field === 'due_at') return new Date(v).toLocaleDateString(undefined, { dateStyle: 'medium' });
   if (field === 'start_date' || field === 'spent_on') return new Date(`${v}T12:00`).toLocaleDateString(undefined, { dateStyle: 'medium' });
@@ -4163,7 +4187,7 @@ function describeAudit(e) {
     return `Dependency ${verb}: "${title(d.task_id)}" waits for "${title(d.depends_on_id)}"`;
   }
   if (e.table_name === 'project_costs' && e.action !== 'UPDATE') {
-    return `Cost ${e.action === 'INSERT' ? 'added' : 'deleted'}: ${fmtValue('amount', d.amount, db.get('SELECT currency FROM projects WHERE id = ?', [d.project_id])?.currency)} ${d.description ? `"${d.description}"` : ''}`.trim();
+    return `Cost ${e.action === 'INSERT' ? 'added' : 'deleted'}: ${fmtValue('amount', d.amount, d.currency || db.get('SELECT currency FROM projects WHERE id = ?', [d.project_id])?.currency)} ${d.description ? `"${d.description}"` : ''}`.trim();
   }
   const name = d.title || d.name || d.key || d.description || (d.body && fmtValue('body', d.body)) || '';
   const named = name ? ` "${name}"` : '';
@@ -4184,6 +4208,9 @@ function describeAudit(e) {
       if (field === 'project_code' && !a) continue; // assigned automatically on creation
       if (LONG_TEXT.includes(field)) changes.push(`${text} edited`);
       else if (e.table_name === 'projects' && field in MONEY_FIELDS) changes.push(`${text}: ${fmtValue(field, a, e.old_data?.currency)} → ${fmtValue(field, b, e.new_data?.currency)}`); // in the project's own currency
+      else if (e.table_name === 'project_costs' && field === 'currency') changes.push(`${text}: ${a || 'the project\'s'} → ${b || 'the project\'s'}`);
+      else if (e.table_name === 'project_costs' && field in MONEY_FIELDS) { const pc = db.get('SELECT currency FROM projects WHERE id = ?', [d.project_id])?.currency; const cur = (x) => (field === 'amount' && x?.currency) || pc;
+        changes.push(`${text}: ${fmtValue(field, a, cur(e.old_data))} → ${fmtValue(field, b, cur(e.new_data))}`); } // a cost's amount in its own currency
       else changes.push(`${text}: ${fmtValue(field, a)} → ${fmtValue(field, b)}`);
     }
   }

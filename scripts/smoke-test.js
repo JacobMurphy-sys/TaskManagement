@@ -259,6 +259,22 @@ async function waitForServer() {
     const npd = await call('GET', `/projects/${np.id}`);
     assert.equal(npd.spent, 470.5);
     assert.equal(npd.costs.length, 2);
+    // a cost in another currency: converted at the rates in Settings (or as typed) and counted; no rate: not counted
+    { const app0 = (await call('GET', '/settings')).currency; await call('PATCH', '/settings', { currency: '£', fx_rates: JSON.stringify({ '€': 0.8, '$': 0.75 }) });
+      const ce = await call('POST', `/projects/${np.id}/costs`, { description: 'Hotel', amount: 100, currency: '€' });
+      const cd = await call('POST', `/projects/${np.id}/costs`, { description: 'Tool', amount: 200, currency: '$', amount_project: 140 });
+      const cx = await call('POST', `/projects/${np.id}/costs`, { description: 'Taxi', amount: 50, currency: 'zł ' });
+      const cs = await call('POST', `/projects/${np.id}/costs`, { description: 'Same', amount: 10, currency: '£' });
+      assert.deepEqual([ce.currency, ce.amount_project, cd.amount_project, cx.currency, cx.amount_project, cs.currency], ['€', 80, 140, 'zł', null, null], 'converted at the rate, as typed, no rate, the project\'s own');
+      let pd = await call('GET', `/projects/${np.id}`);
+      assert.equal(pd.spent, 470.5 + 80 + 140 + 10, 'spent in the project\'s currency'); assert.deepEqual(pd.unconverted.map((u) => [u.currency, u.amount]), [['zł', 50]], 'what isn\'t counted');
+      await call('PATCH', `/costs/${cx.id}`, { amount_project: 11 }); pd = await call('GET', `/projects/${np.id}`);
+      assert.ok(pd.spent === 470.5 + 80 + 140 + 10 + 11 && !pd.unconverted.length, 'set by hand: counted');
+      await call('PATCH', `/costs/${ce.id}`, { amount: 200 }); assert.equal((await call('GET', `/projects/${np.id}`)).costs.find((c) => c.id === ce.id).amount_project, 160, 'a new amount converted again');
+      const lg = (await call('GET', `/audit?project_id=${np.id}`)).map((e) => e.summary).join(' | ');
+      assert.ok(/Cost added: €100\.00 "Hotel"/.test(lg) && /amount: €100\.00 → €200\.00/.test(lg), `the history in the cost's currency: ${lg}`);
+      for (const c of [ce, cd, cx, cs]) await call('DELETE', `/costs/${c.id}`);
+      await call('PATCH', '/settings', { currency: app0, fx_rates: '{}' }); }
 
     // ---- Idea scores
     const scored = await call('POST', '/ideas', { title: 'Scored idea', impact: 5, effort: 1, cost: 300 });

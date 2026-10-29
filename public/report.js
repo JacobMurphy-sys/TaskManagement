@@ -21,7 +21,7 @@ function reportRange(period, custom, lastSent) {
 }
 
 const rDate = (key) => new Date(`${key}T12:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-const rMoney = (v, cur) => `${cur}${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const rMoney = (v, cur) => `${/[A-Za-z.]$/.test(String(cur).trim()) ? `${String(cur).trim()} ` : String(cur).trim()}${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 // Turns the API result into sections, shared by the page, the text and the Word versions.
 function reportModel(r) {

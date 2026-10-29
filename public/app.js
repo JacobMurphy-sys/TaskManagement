@@ -914,13 +914,14 @@ function budgetBox(p) {
       <span class="meter wide ${level}" title="${pct}% of the budget spent"><span style="width:${Math.min(pct, 100)}%"></span></span>
       <span>${over ? `<span class="chip overdue">⚠ Over budget by ${money(spent - budget, cur)}</span>` : `Remaining: <b>${money(budget - spent, cur)}</b>`}</span>`
       : '<button class="link" data-action="edit-project">Set a budget</button>'}
+    ${(p.unconverted || []).length ? `<span class="chip overdue" title="Costs in another currency with no amount in the project's — set it on each cost (Show costs), or add the rate in ⚙ Settings before logging">⚠ Not counted: ${p.unconverted.map((u) => money(u.amount, u.currency)).join(' + ')}</span>` : ''}
     <button class="link" data-action="log-cost">＋ Log a cost</button>
     ${p.costs.length ? `<button class="link" data-action="toggle-costs">${showCosts ? 'Hide' : 'Show'} ${p.costs.length} cost${p.costs.length === 1 ? '' : 's'}</button>` : ''}
   </div>
   ${p.costs.length && showCosts ? `<div class="card costs-card"><table class="log">
     <thead><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th></th></tr></thead>
     <tbody>${p.costs.map((c) => `<tr><td class="nowrap">${esc(c.spent_on ? fmtShortDate(`${c.spent_on}T12:00`) : '')}</td>
-      <td>${linkify(c.description)}</td><td class="num nowrap">${money(c.amount, cur)}</td>
+      <td>${linkify(c.description)}</td><td class="num nowrap">${money(c.amount, c.currency || cur)}${c.currency ? `<div class="small ${c.amount_project === null ? '' : 'muted'}">${c.amount_project === null ? `<button class="link small" data-action="convert-cost" data-id="${c.id}" data-cur="${esc(c.currency)}" data-amount="${c.amount}" title="Not counted against the budget until it's in the project's currency">⚠ not counted — set in ${esc(cur)}</button>` : `= ${money(c.amount_project, cur)}`}</div>` : ''}</td>
       <td><button class="icon" data-action="delete-cost" data-id="${c.id}" title="Delete">✕</button></td></tr>`).join('')}</tbody>
     <tfoot><tr><th colspan="2">Total</th><th class="num">${money(spent, cur)}</th><th></th></tr></tfoot></table></div>` : ''}`;
 }
@@ -930,15 +931,23 @@ function costDialog(p) {
     <div class="modal-head"><h2 style="margin:0">💰 Log a cost — ${esc(p.name)}</h2><button class="icon" data-action="close-modal">✕</button></div>
     <form id="cost-form" class="form-grid">
       <label class="f full">Description<input type="text" name="description" required placeholder="e.g. Movers deposit, PO 4411"></label>
-      <label class="f">Amount (${esc(projCur(p))})<input type="number" name="amount" min="0" step="0.01" required></label>
+      <label class="f">Amount<input type="number" name="amount" min="0" step="0.01" required></label>
+      <label class="f" title="The currency it was paid in — blank: the project's (${esc(projCur(p))})">Currency<input type="text" name="currency" maxlength="5" list="cost-curs" value="${esc(projCur(p).trim())}" style="max-width:140px">${curList('cost-curs')}</label>
       <label class="f">Date<input type="date" name="spent_on" value="${dateKey(new Date())}"></label>
+      <label class="f full" id="cost-conv" hidden><span class="f-l">In the project's currency (${esc(projCur(p))}) — counted against its budget; <span id="cost-rate"></span></span><input type="number" name="amount_project" min="0" step="0.01" style="max-width:200px"></label>
       <div class="full row"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button>
         <button class="primary" type="submit">Add cost</button></div>
     </form>`);
   $('#cost-form [name=description]').focus();
+  // another currency: what it is in the project's, worked out at the rates in Settings until typed over
+  const pc = projCur(p).trim(); let typed = false; const F = (n) => $(`#cost-form [name=${n}]`);
+  const conv = () => { const cur = F('currency').value.trim() || pc; const other = cur !== pc; $('#cost-conv').hidden = !other; if (!other) return;
+    const v = fxConvert(F('amount').value || 0, cur, pc); $('#cost-rate').textContent = v === null ? `no rate for ${cur} in ⚙ Settings — type it, or leave it blank (then it isn't counted)` : `worked out at the rate in ⚙ Settings (1 ${cur} = ${fxConvert(1, cur, pc)} ${pc}) — change it if it was different`;
+    if (!typed) F('amount_project').value = v === null || !F('amount').value ? '' : v; };
+  F('currency').addEventListener('input', conv); F('amount').addEventListener('input', conv); F('amount_project').addEventListener('input', () => { typed = true; });
   $('#cost-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const f = Object.fromEntries(new FormData(e.target));
+    const f = Object.fromEntries(new FormData(e.target)); if ($('#cost-conv').hidden || f.amount_project === '') delete f.amount_project;
     try {
       await api.post(`/projects/${p.id}/costs`, f);
       closeModal();
@@ -1087,8 +1096,15 @@ const IDEA_SORTS = { newest: 'Newest first', value: 'Best value first', due: 'Du
 
 // cur: a project's own currency (projCur), else the app's
 const projCur = (p) => (p && p.currency) || state.settings.currency;
+// exchange rates from Settings: what one of each currency is in the app's ({ '€': 0.86 }); the app's own is 1
+const fxRates = () => { let o = {}; try { o = JSON.parse(state.settings.fx_rates || '{}') || {}; } catch { /* none */ } o = Object.fromEntries(Object.entries(o).map(([k, v]) => [k.trim(), v])); o[state.settings.currency.trim()] = 1; return o; };
+const fxConvert = (amount, from, to) => { const r = fxRates(); from = String(from).trim(); to = String(to).trim(); return r[from] > 0 && r[to] > 0 ? Math.round(((Number(amount) * r[from]) / r[to]) * 100) / 100 : null; };
+const CURRENCIES = ['£', '€', '$', 'CHF', 'kr', 'zł', '¥'];
+const fxRow = (c, v) => `<div class="row fx-row" style="gap:6px;align-items:center;margin-top:4px">1 <input type="text" class="fx-c" maxlength="5" list="fx-curs" value="${esc(c)}" placeholder="€" style="max-width:80px">${curList('fx-curs')} = <input type="number" class="fx-v" min="0" step="0.0001" value="${esc(String(v))}" style="max-width:120px"> ${esc(state.settings.currency)} <button type="button" class="icon fx-rm" title="Remove">✕</button></div>`;
+const curList = (id) => `<datalist id="${id}">${[...new Set([...CURRENCIES, ...Object.keys(fxRates())])].map((c) => `<option value="${esc(c)}">`).join('')}</datalist>`;
+const curSym = (c) => { const x = String(c || '').trim(); return /[A-Za-z.]$/.test(x) ? `${x} ` : x; }; // CHF 10.00, €10.00
 const money = (v, cur = state.settings.currency) => (v === null || v === undefined || v === '' ? ''
-  : `${cur}${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+  : `${curSym(cur)}${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const ideaStatusPill = (s) => `<span class="pill istatus-${s}">${IDEA_STATUS[s] || esc(s)}</span>`;
 // Colour the due date only while the idea is still open.
 const ideaDue = (i) => (i.due_at ? dueChip({ ...i, status: OPEN_IDEA_STATUSES.includes(i.status) ? '' : 'done' }) : '');
@@ -1435,6 +1451,9 @@ async function renderSettings() {
         <p class="small muted">People and departments for owners and attendees are on the <a href="#/contacts">📇 Contacts</a> page.</p>
         <label class="f">Currency symbol — idea costs, and project budgets and costs unless a project sets its own
           <input type="text" id="currency" value="${esc(settings.currency)}" maxlength="5" style="max-width:120px"></label>
+        <div class="f"><span>Exchange rates — for costs logged in another currency than their project's (what one of each is in ${esc(settings.currency)}); a cost keeps the rate it was logged at</span>
+          <div id="fx-rows">${Object.entries(fxRates()).filter(([c]) => c !== settings.currency).map(([c, v]) => fxRow(c, v)).join('')}</div>
+          <div class="row" style="gap:8px;margin-top:4px"><button type="button" class="small" id="fx-add">＋ Add a rate</button><span class="small muted" id="fx-saved"></span></div></div>
       </div>
       ${await acctSettingsHtml()}
       ${serverCardHtml()}
@@ -1468,6 +1487,11 @@ async function renderSettings() {
     if (e.key === 'Enter') actions['add-area']().catch((err) => toast(err.message, 'error'));
   });
   $('#theme-choice').addEventListener('change', (e) => setTheme(e.target.value));
+  const fxSave = async () => { const o = {}; for (const r of $$('.fx-row')) { const c = r.querySelector('.fx-c').value.trim(); const v = Number(String(r.querySelector('.fx-v').value).replace(',', '.'));
+      if (c.trim() && v > 0 && c !== state.settings.currency) o[c] = v; }
+    state.settings = await api.patch('/settings', { fx_rates: JSON.stringify(o) }); $('#fx-saved').textContent = 'Saved'; };
+  const fxWire = () => { $$('.fx-row input').forEach((i) => { i.onchange = () => fxSave().catch((err) => toast(err.message, 'error')); }); $$('.fx-rm').forEach((b) => { b.onclick = () => { b.closest('.fx-row').remove(); fxSave().catch((err) => toast(err.message, 'error')); }; }); };
+  fxWire(); $('#fx-add').onclick = () => { $('#fx-rows').insertAdjacentHTML('beforeend', fxRow('', '')); fxWire(); $$('.fx-c').pop().focus(); };
   $('#currency').addEventListener('change', async (e) => {
     state.settings = await api.patch('/settings', { currency: e.target.value || '£' });
     toast('Currency saved');
@@ -1663,7 +1687,7 @@ async function projectForm(p = {}) {
       <label class="f">Start date<input type="date" name="start_date" value="${esc(p.start_date || (isNew ? new Date().toLocaleDateString('sv') : ''))}"></label>
       <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(p.due_at)}"></label>
       <label class="f"><span class="f-l">Budget (<span id="pf-cur">${esc(projCur(p))}</span>)</span><input type="number" name="budget" min="0" step="0.01" value="${p.budget ?? ''}" placeholder="optional"></label>
-      <label class="f" title="This project's budget and costs in another currency than the app's — blank: the app's (${esc(state.settings.currency)}, set in Settings)">Currency<input type="text" name="currency" maxlength="5" list="pf-curs" value="${esc(p.currency || '')}" placeholder="${esc(state.settings.currency)} (the app's)" style="max-width:160px"><datalist id="pf-curs">${['£', '€', '$', 'CHF ', 'kr ', 'zł ', '¥'].map((c) => `<option value="${c}">`).join('')}</datalist></label>
+      <label class="f" title="This project's budget and costs in another currency than the app's — blank: the app's (${esc(state.settings.currency)}, set in Settings)">Currency<input type="text" name="currency" maxlength="5" list="pf-curs" value="${esc(p.currency || '')}" placeholder="${esc(state.settings.currency)} (the app's)" style="max-width:160px">${curList('pf-curs')}</label>
       ${isNew ? `
         <label class="f full">Baseline tasks — one per line (you can add more at any time)
           <textarea name="baseline_tasks" rows="5" placeholder="Gather requirements&#10;Draft proposal&#10;Review with manager"></textarea></label>
@@ -2072,6 +2096,13 @@ const actions = {
   'ideas-view': (el) => { store.set('ideaFilter', { ...store.get('ideaFilter', {}), view: el.dataset.view }); route(); },
   'log-cost': () => costDialog(state.project),
   'toggle-costs': () => { store.set('showCosts', !store.get('showCosts', false)); route(); },
+  'convert-cost': async (el) => {
+    const pc = projCur(state.project); const guess = fxConvert(el.dataset.amount, el.dataset.cur, pc);
+    const v = prompt(`${el.dataset.cur.trim()}${Number(el.dataset.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} in ${pc.trim()} (what it came to) — counted against the budget:`, guess ?? '');
+    if (v === null || v.trim() === '') return;
+    await api.patch(`/costs/${el.dataset.id}`, { amount_project: v });
+    await refresh();
+  },
   'delete-cost': async (el) => {
     if (!confirm('Delete this cost? (The activity log keeps a record.)')) return;
     await api.del(`/costs/${el.dataset.id}`);
