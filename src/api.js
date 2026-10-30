@@ -4233,7 +4233,7 @@ const STATUS_LABEL = { todo: 'To do', in_progress: 'In progress', blocked: 'Bloc
   open: 'Open', new: 'New', reviewing: 'Under review', approved: 'Approved', rejected: 'Rejected',
   implemented: 'Implemented', escalated: 'Escalated to project' };
 const PRIORITY_LABEL = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Critical' };
-const FIELD_LABEL = { title: 'title', name: 'name', description: 'description', status: 'status', currency: 'currency',
+const FIELD_LABEL = { title: 'title', name: 'name', description: 'description', status: 'status', currency: 'currency', next_action: 'next action', colour: 'colour', category: 'category', planned_date: 'planned date', justification: 'justification', approved_on: 'approved on', approved_by: 'approved by', po_number: 'PO number', supplier: 'supplier',
   priority: 'priority', due_at: 'due date', start_date: 'start date', parent_id: 'parent task',
   remind_at: 'reminder time', message: 'message', body: 'text',
   submitted_by: 'submitted by', area_id: 'area', cost: 'cost', value: 'value', active: 'active',
@@ -4273,7 +4273,8 @@ function describeAudit(e) {
   const label = { projects: 'Project', tasks: d.parent_id ? 'Subtask' : 'Task', notes: 'Note', reminders: 'Reminder',
     ideas: `Idea${d.ref ? ` ${d.ref}` : ''}`, idea_notes: 'Idea note', areas: 'Area', settings: 'Setting',
     project_costs: 'Cost', task_links: 'Dependency', project_team: 'Team member', project_kpis: 'KPI',
-    lookups: 'List item', project_phases: 'Phase', meetings: 'Meeting', attachments: 'Attachment' }[e.table_name] || e.table_name;
+    lookups: 'List item', project_phases: 'Phase', meetings: 'Meeting', attachments: 'Attachment', people_focus: 'Person',
+    capex: `Investment${d.ref ? ` ${d.ref}` : ''}`, cpm_customers: 'Capacity customer', cpm_scenarios: 'Scenario', name_lists: 'Contacts list', name_list_items: 'Contact' }[e.table_name] || e.table_name;
   if (e.table_name === 'project_phases' && e.action === 'UPDATE' && e.old_data?.status !== e.new_data?.status) {
     return `Phase "${d.name}" ${e.new_data.status === 'done' ? 'completed ✓' : 'reopened'}`;
   }

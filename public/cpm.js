@@ -723,7 +723,7 @@ async function cpmScenarios(body) {
     <div class="cpm-scen-edit">${sc ? `<div class="card"><div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
         <input type="text" id="cpm-sc-title" value="${esc(sc.name)}" ${sc.mine ? '' : 'disabled'} style="font-weight:700;flex:1;min-width:220px">
         ${sc.mine ? `<label class="row small"><input type="checkbox" id="cpm-sc-share" ${sc.shared ? 'checked' : ''}> share with Prod Management</label>` : `<span class="small muted">${esc(sc.owner_name || 'Someone')}'s — read only</span>`}
-        <button class="small" id="cpm-sc-compare">📊 Compare on Overview</button><button class="small" id="cpm-sc-copy">⧉ Copy</button>${sc.mine ? '<button class="small" id="cpm-sc-del">🗑</button>' : ''}</div>
+        <button class="small" id="cpm-sc-compare">📊 Compare on Overview</button>${ddMenu('⋯', `<button id="cpm-sc-copy">⧉ Make a copy</button>${sc.mine ? '<hr><button class="danger" id="cpm-sc-del">🗑 Delete this scenario</button>' : ''}`, { title: 'Copy or delete' })}</div>
         <textarea id="cpm-sc-notes" rows="2" placeholder="Notes — what it's for" ${sc.mine ? '' : 'disabled'} style="margin-top:6px">${esc(sc.notes || '')}</textarea></div>
       <div id="cpm-sc-warn">${scWarn.length ? `<div class="kc-note">⚠ ${scWarn.map(esc).join('<br>⚠ ')}</div>` : ''}</div>
       <div id="cpm-changes">${sc.changes.map(changeHtml).join('') || '<p class="muted">No changes yet — add one below.</p>'}</div>

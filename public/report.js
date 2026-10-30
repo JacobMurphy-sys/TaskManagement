@@ -160,8 +160,7 @@ async function renderReport(projectFromRoute) {
     </div>
     <div class="kanban-tools report-tools">
       <button class="primary" data-r="copy">📋 Copy as text</button>
-      <button data-r="word">⬇ Word</button>
-      <button data-r="print">🖨 Print / PDF</button>
+      ${ddMenu('⬇ Download', '<button data-r="word">⬇ Word document</button><button data-r="print">🖨 Print or save as PDF</button>', { title: 'Word, print or PDF', right: false })}
       <button data-r="sent" title="Remember now as the last report date, for 'Since last report'">✓ Mark as sent</button>
       <span class="small muted">${settings.report_last_sent ? `Last marked as sent ${esc(fmtDateTime(settings.report_last_sent))}` : 'Not marked as sent yet'}</span>
     </div>

@@ -29,7 +29,7 @@
     --tech-dod: #2fb5b5; --tech-laser: #b083e0; --tech-emboss: #c9c9c9;
     --bg: #141320; --panel: #1d1b2b; --panel-2: #242236; --text: #e8e6f2; --muted: #9a97b3;
     --border: #322f48; --accent: #9ea9f2; --accent-2: #7382e6; --accent-soft: #2c2752; --danger: #ec6a6a;
-    --brand: #2e0a6b; --brand-2: #7382e6;
+    --brand: #2e0a6b; --brand-2: #7382e6; --btn: #5f33cf;
     --danger-soft: #3b2226; --warn: #f0a445; --warn-soft: #3a2e1b; --ok: #4cc27a; --ok-soft: #1c3527;
     --p1: #8a94a6; --p2: #9ea9f2; --p3: #f0a445; --p4: #ec6a6a;
     --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.3);
@@ -40,7 +40,7 @@
   --tech-dod: #2fb5b5; --tech-laser: #b083e0; --tech-emboss: #c9c9c9;
     --bg: #141320; --panel: #1d1b2b; --panel-2: #242236; --text: #e8e6f2; --muted: #9a97b3;
     --border: #322f48; --accent: #9ea9f2; --accent-2: #7382e6; --accent-soft: #2c2752; --danger: #ec6a6a;
-    --brand: #2e0a6b; --brand-2: #7382e6;
+    --brand: #2e0a6b; --brand-2: #7382e6; --btn: #5f33cf;
     --danger-soft: #3b2226; --warn: #f0a445; --warn-soft: #3a2e1b; --ok: #4cc27a; --ok-soft: #1c3527;
     --p1: #8a94a6; --p2: #9ea9f2; --p3: #f0a445; --p4: #ec6a6a;
     --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.3);
@@ -73,13 +73,13 @@ button {
   padding: 5px 11px; cursor: pointer;
 }
 button:hover { border-color: var(--accent); }
-button.primary, a.button.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+button.primary, a.button.primary { background: var(--btn, var(--brand)); border-color: var(--btn, var(--brand)); color: #fff; }
 button.primary:hover, a.button.primary:hover { background: #5a1bc0; border-color: #5a1bc0; }
 button.danger { color: var(--danger); }
 button.link { border: 0; background: none; color: var(--accent); padding: 2px 4px; }
 button.icon { border: 0; background: none; padding: 2px 5px; color: var(--muted); }
 button.icon:hover { color: var(--accent); }
-input[type=text], input[type=password], input[type=search], input[type=number], input[type=datetime-local], input[type=date], select, textarea {
+input[type=text], input[type=password], input[type=search], input[type=number], input[type=datetime-local], input[type=date], input[type=url], input[type=email], input[type=tel], input[type=time], input[type=month], select, textarea {
   background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; width: 100%;
 }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
@@ -354,7 +354,7 @@ summary.button { background: var(--panel); border: 1px solid var(--border); bord
 summary.button:hover { border-color: var(--accent); }
 label.button { display: inline-block; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 5px 11px; white-space: nowrap; }
 label.button:hover { border-color: var(--accent); }
-a.button.primary, label.button.primary, a.button.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+a.button.primary, label.button.primary, a.button.primary { background: var(--btn, var(--brand)); border-color: var(--btn, var(--brand)); color: #fff; }
 button.primary:hover, a.button.primary:hover { background: #5a1bc0; border-color: #5a1bc0; }
 
 /* ---------- waiting on, links */
@@ -1612,3 +1612,31 @@ details.hint > summary:hover, details.hint[open] > summary { background: var(--a
 .cx-sec { font-weight: 700; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 3px; margin-top: 6px; }
 .cx-table td { vertical-align: middle; }
 .dash-projects td:first-child { min-width: 240px; }
+
+/* ---- a form label's hint: small and grey, never as loud as what's typed */
+label.f > .small, label.f > .muted, label.f > small, label.f > span.small, label.f > span.muted, div.f > .small, div.f > .muted { font-size: 12px !important; color: var(--muted) !important; font-weight: 400; }
+label.f > .small.pl-late, label.f > .small.pl-ok { color: inherit !important; }
+label.f > .small.pl-late { color: var(--danger) !important; } label.f > .small.pl-ok { color: var(--ok) !important; }
+
+/* ---- long help: the first sentence, more… for the rest */
+details.help { margin: 4px 0 8px; } details.help > summary { list-style: none; cursor: pointer; } details.help > summary::-webkit-details-marker { display: none; }
+.help-more { color: var(--accent); font-size: 12px; white-space: nowrap; } details.help[open] .help-first, details.help[open] .help-more { display: none; }
+details.help[open] > summary::before { content: '▾ less'; color: var(--accent); font-size: 12px; }
+.help-body { margin-top: 2px; }
+
+/* ---- folding sections inside a card */
+details.fold-sec { border-top: 1px solid var(--border); padding: 4px 0; } details.fold-sec:first-of-type { border-top: 0; }
+details.fold-sec > summary { cursor: pointer; font-weight: 650; font-size: 14px; padding: 8px 0; list-style: none; display: flex; align-items: center; gap: 6px; }
+details.fold-sec > summary::-webkit-details-marker { display: none; }
+details.fold-sec > summary::before { content: '▸'; color: var(--muted); transition: transform .15s; display: inline-block; width: 12px; }
+details.fold-sec[open] > summary::before { transform: rotate(90deg); }
+details.fold-sec > summary .muted { font-weight: 400; }
+
+/* ---- ⚙ Settings tabs */
+.settings-tabs { margin: 0 0 14px; }
+
+/* ---- tables: headings that stay in view, a quiet hover, compact buttons in rows */
+table.log tbody tr:hover > td { background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
+table.log td > button:not(.icon):not(.link), table.log td > a.button { padding: 2px 9px; font-size: 12px; }
+.log-days tr.log-day th { background: var(--panel-2); color: var(--accent); font-size: 12px; text-transform: none; padding: 6px 8px; position: static; }
+label.f > .f-l .muted, label.f > .f-l .small { font-size: 12px; color: var(--muted); }

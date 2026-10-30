@@ -141,7 +141,57 @@ function compactHints() {
   }
 }
 document.addEventListener('click', (e) => { for (const d of $$('details.hint[open]')) if (!d.contains(e.target)) d.open = false; }, true);
-new MutationObserver(() => { clearTimeout(collectNotices.t); collectNotices.t = setTimeout(() => { collectNotices(); compactHints(); }, 60); }).observe(document.getElementById('main'), { childList: true, subtree: true });
+// ⚙ Settings, one group at a time: tabs over its cards, grouped by what they're about
+function settingsTabs() {
+  const GROUPS = [['general', 'General', /^(areas|general)\b/i], ['accounts', 'Accounts & server', /account|server|sign|update/i], ['lists', 'Lists & team pack', /team pack|categor|policy/i], ['charter', 'Charter template', /charter/i]];
+  const cards = $$('#main .card').filter((c) => c.querySelector(':scope > h2') && !c.parentElement.closest('.card'));
+  const groupOf = (c) => { const t = c.querySelector(':scope > h2').textContent; return (GROUPS.find(([, , re]) => re.test(t)) || ['other', 'Other'])[0]; };
+  const used = GROUPS.filter(([k]) => cards.some((c) => groupOf(c) === k)).concat(cards.some((c) => groupOf(c) === 'other') ? [['other', 'Other']] : []);
+  let tab = store.get('settingsTab', 'general'); if (!used.some(([k]) => k === tab)) tab = used[0]?.[0];
+  const show = () => { for (const c of cards) c.hidden = groupOf(c) !== tab; $$('[data-set-tab]').forEach((b) => b.classList.toggle('on', b.dataset.setTab === tab)); };
+  $$('#main .settings-tabs').forEach((x) => x.remove());
+  $('#main h1').insertAdjacentHTML('afterend', `<div class="seg settings-tabs">${used.map(([k, l]) => `<button type="button" data-set-tab="${k}">${l}</button>`).join('')}</div>`);
+  $$('[data-set-tab]').forEach((b) => { b.onclick = () => { tab = b.dataset.setTab; store.set('settingsTab', tab); show(); }; });
+  show();
+}
+// a label's text and its hint kept together above its box (so boxes side by side line up)
+function joinLabels(root = document) {
+  for (const l of root.querySelectorAll('#main label.f:not(.lj), #modal label.f:not(.lj)')) {
+    l.classList.add('lj'); const box = l.querySelector(':scope > input, :scope > select, :scope > textarea, :scope > .owner-picker'); if (!box) continue;
+    const before = []; for (let n = l.firstChild; n && n !== box; n = n.nextSibling) before.push(n);
+    if (!before.some((n) => n.nodeType === 1 && n.matches('.muted, .small, small')) || before.some((n) => n.nodeType === 1 && n.matches('.f-l, input, select, textarea'))) continue;
+    const span = document.createElement('span'); span.className = 'f-l'; for (const n of before) span.append(n); l.prepend(span);
+  }
+}
+// a long help paragraph: its first sentence, the rest behind “more…”
+function compactHelp() {
+  joinLabels();
+  for (const el of $$('#main p.small.muted:not(.help-done), #main p.muted:not(.help-done), #main div.small.muted:not(.help-done)')) {
+    el.classList.add('help-done');
+    if (el.closest('table, .dd-panel, .hint-pop, .notice, details.help, .kdb-tile, .ps-tile, form, .focus-card, label') || el.querySelector('input, select, textarea, button, table')) continue;
+    const txt = el.textContent.replace(/\s+/g, ' ').trim(); if (txt.length < 200) continue;
+    // the first sentence (at a full stop, a colon or a dash) stays, up to ~140 characters of it
+    const m = txt.match(/^(.{40,140}?[.:;!?])\s/) || txt.match(/^(.{40,120}?)\s[—–-]\s/); const first = m ? m[1] : `${txt.slice(0, 110).replace(/\s\S*$/, '')}…`;
+    const d = document.createElement('details'); d.className = `help ${el.className.replace('help-done', '')}`; d.style.cssText = el.style.cssText;
+    d.innerHTML = `<summary><span class="help-first">${esc(first)}</span> <span class="help-more">more…</span></summary><div class="help-body">${el.innerHTML}</div>`;
+    el.replaceWith(d);
+  }
+}
+// a container's sections, each under its h3: folding, remembered (key → which are open)
+function foldSections(root, key, { open = [] } = {}) {
+  if (!root || root.dataset.sectioned) return; root.dataset.sectioned = '1';
+  const saved = store.get(`sec_${key}`, null); const isOpen = (k) => (saved ? !!saved[k] : open.includes(k));
+  const heads = [...root.children].filter((c) => c.matches('h3.sec, h3.pl-h, h2.sec'));
+  heads.forEach((h, i) => {
+    const k = h.dataset.sec || h.textContent.replace(/\s+/g, ' ').trim().slice(0, 40);
+    const d = document.createElement('details'); d.className = 'fold-sec'; d.open = isOpen(k);
+    const sum = document.createElement('summary'); sum.innerHTML = h.innerHTML; d.append(sum);
+    h.before(d); let n = h.nextSibling; h.remove();
+    while (n && !(n.nodeType === 1 && heads.includes(n))) { const next = n.nextSibling; d.append(n); n = next; }
+    d.addEventListener('toggle', () => { const o = store.get(`sec_${key}`, null) || Object.fromEntries(heads.map((x, j) => [x.dataset.sec || x.textContent.replace(/\s+/g, ' ').trim().slice(0, 40), j === i ? d.open : isOpen(x.dataset.sec || x.textContent.replace(/\s+/g, ' ').trim().slice(0, 40))])); o[k] = d.open; store.set(`sec_${key}`, o); });
+  });
+}
+new MutationObserver(() => { clearTimeout(collectNotices.t); collectNotices.t = setTimeout(() => { collectNotices(); compactHints(); compactHelp(); }, 60); }).observe(document.getElementById('main'), { childList: true, subtree: true });
 
 // ---- dates -----------------------------------------------------------
 
@@ -1649,6 +1699,7 @@ async function renderSettings() {
   const extra = document.createElement('div');
   main().append(extra);
   await renderCharterSettings(extra);
+  settingsTabs();
 }
 
 // ======================================================================
@@ -1656,22 +1707,26 @@ async function renderSettings() {
 // ======================================================================
 
 async function renderLog() {
-  const pid = store.get('logProject', '');
+  const pid = store.get('logProject', ''); const q = store.get('logQ', '');
   const rows = await api.get(`/audit?limit=500${pid ? `&project_id=${pid}` : ''}`);
   const names = Object.fromEntries(state.projects.map((p) => [p.id, p.name]));
   main().innerHTML = `
     <div class="kanban-tools"><h1 style="margin:0">Activity log</h1><div class="spacer"></div>
-      <select id="log-project"><option value="">All projects</option>
+      <input type="search" id="log-q" placeholder="Find in the log…" value="${esc(q)}" style="max-width:240px">
+      <select id="log-project" style="width:auto;max-width:280px"><option value="">All projects</option>
         ${state.projects.map((p) => `<option value="${p.id}" ${String(p.id) === String(pid) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
     <p class="muted small">Every insert, change and delete is recorded by the database itself — including edits made directly in DBeaver. Showing the latest 500.</p>
-    <div class="card" style="overflow-x:auto"><table class="log">
-      <thead><tr><th>When</th>${rows.some((r) => r.changed_by) ? '<th>Who</th>' : ''}<th>Project</th><th>What</th></tr></thead>
-      <tbody>${rows.map((r, _, all) => `<tr>
-        <td class="nowrap">${esc(fmtDateTime(r.changed_at))}</td>${all.some((x) => x.changed_by) ? `<td class="nowrap">${esc(r.changed_by || '')}</td>` : ''}
-        <td>${r.project_id ? (names[r.project_id] ? `<a href="#/project/${r.project_id}">${esc(names[r.project_id])}</a>` : `#${r.project_id}`) : ''}</td>
-        <td>${esc(r.summary)}</td></tr>`).join('')}</tbody>
+    <div class="card" style="overflow-x:auto"><table class="log log-days">
+      <thead><tr><th>Time</th>${rows.some((r) => r.changed_by) ? '<th>Who</th>' : ''}<th>Project</th><th>What</th></tr></thead>
+      <tbody>${(() => { const who = rows.some((x) => x.changed_by); let day = '';
+        return rows.filter((r) => !q || `${r.summary} ${names[r.project_id] || ''} ${r.changed_by || ''}`.toLowerCase().includes(q.toLowerCase())).map((r) => {
+          const dk = new Date(r.changed_at).toDateString(); const head = dk !== day ? `<tr class="log-day"><th colspan="${who ? 4 : 3}">${esc(fmtDate(r.changed_at))}</th></tr>` : ''; day = dk;
+          return `${head}<tr><td class="nowrap muted">${esc(new Date(r.changed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}</td>${who ? `<td class="nowrap">${r.changed_by ? personChip(r.changed_by) : ''}</td>` : ''}
+            <td>${r.project_id ? (names[r.project_id] ? `<a href="#/project/${r.project_id}">${esc(names[r.project_id])}</a>` : `#${r.project_id}`) : ''}</td>
+            <td>${esc(r.summary)}</td></tr>`; }).join(''); })()}</tbody>
     </table>${rows.length ? '' : '<div class="empty">No activity yet.</div>'}</div>`;
   $('#log-project').addEventListener('change', (e) => { store.set('logProject', e.target.value); renderLog(); });
+  let qt = null; $('#log-q').oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => { store.set('logQ', e.target.value); renderLog().then(() => { const i = $('#log-q'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }); }, 300); };
 }
 
 async function renderBackups() {
@@ -1819,6 +1874,7 @@ function openModal(html, opts = {}) {
   $('#modal-body').innerHTML = html;
   if (!modal().open) modal().showModal();
   reschedHydrate($('#modal-body'));
+  joinLabels();
 }
 function closeModal() { modal().close(); }
 modal().addEventListener('close', () => { if (state.modalDirty) { state.modalDirty = false; refresh(); } });
@@ -1979,6 +2035,13 @@ async function taskModal(id) {
       <button class="primary" data-action="close-modal">Done</button>
     </div>`);
 
+  // the task's side sections (depends on, meetings, reminders) folded while they're empty
+  for (const sec of $$('#modal .section')) {
+    const h = sec.firstElementChild; if (!h || h.tagName !== 'H3' || !/^(Depends on|Meetings|Reminders)/.test(h.textContent.trim())) continue;
+    const d = document.createElement('details'); d.className = 'fold-sec'; d.open = !!sec.querySelector('li:not(.empty)');
+    const sum = document.createElement('summary'); sum.innerHTML = `${h.innerHTML}${d.open ? '' : ' <span class="muted small">— none</span>'}`; d.append(sum); h.remove();
+    while (sec.firstChild) d.append(sec.firstChild); sec.append(d);
+  }
   const flagSaved = () => {
     const flag = $('#saved-flag');
     flag?.classList.add('show');

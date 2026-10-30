@@ -619,15 +619,13 @@ async function renderPlanning() {
     ${half === 'perso' ? modsHtml() : ''}
     ${src.status === 'ok' ? '' : '<div class="card only-not-admin"><p>🏭 Planning isn\'t set up yet: an admin links the open work orders export in ⚙ Setup.</p></div>'}
     <div class="card pl-setup admin-only" id="pl-setup" ${src.status === 'ok' && !store.get('planSetupOpen', false) ? 'hidden' : ''}>
-      <div class="row"><h2 style="margin:0">Setup</h2><div class="spacer"></div>
-        <a class="button small" href="/api/plan/setup" download title="Machines, speeds, OEE, modifiers, card tags, pins and these settings — to move them to the shared planner (or back)">⬇ Export setup</a>
-        <a class="button small" href="/api/plan/setup?history=1" download title="The setup plus the history built up from the exports (the pace, catch-up and on-time figures) and the ⏱ Production runs — so a new install starts where this one is">⬇ Export setup + history</a>
-        <label class="button small" title="Replace this setup with one exported before">⬆ Import setup…<input type="file" accept=".json" hidden id="pl-setup-file"></label></div>
+      <div class="row"><h2 style="margin:0">Setup</h2><div class="spacer"></div>${ddMenu('⋯', `<a href="/api/plan/setup" download title="Machines, speeds, OEE, modifiers, card tags, pins and these settings — to move them to the shared planner (or back)">⬇ Export setup</a><a href="/api/plan/setup?history=1" download title="The setup plus the history built up from the exports (the pace, catch-up and on-time figures) and the ⏱ Production runs — so a new install starts where this one is">⬇ Export setup + history</a><label title="Replace this setup with one exported before">⬆ Import setup…<input type="file" accept=".json" hidden id="pl-setup-file"></label>`, { title: 'Export or import the setup' })}</div>
       ${p.shared_setup ? `<p class="small muted" style="margin:6px 0 0">📦 From the network: <span title="${esc(p.shared_setup.file)}">${esc(p.shared_setup.file.split(/[\\/]/).pop())}</span>, ${esc(fmtDateTime(p.shared_setup.at))} —
         ${p.shared_setup.setup ? 'setup applied' : 'this install\'s own setup kept'}${p.shared_setup.history ? `; history added: ${n(p.shared_setup.history.reads)} exports, ${n(p.shared_setup.history.jobs + p.shared_setup.history.jobs_updated)} jobs, ${n(p.shared_setup.history.prod_runs)} production runs` : ''}.
         A newer planning-setup file next to CIManager-Setup.bat is picked up by itself.</p>` : ''}
       ${state.mode === 'planner' ? '' : `<label class="f full" style="margin:10px 0">Shared planner address <span class="muted small">(optional) — when Planning runs on a server for everyone, its address, e.g. http://servername:3100. The Planning tab then opens it.</span>
         <input type="url" name="planner_url" class="pl-setting-any" value="${esc(settings.planner_url || '')}" placeholder="http://servername:3100"></label>`}
+      <h3 class="pl-h" data-sec="sources">📂 Sources <span class="muted small">— the exports and the card database</span></h3>
       <div class="form-grid">
         <label class="f full">Open work orders export (where it's saved)<input type="text" name="plan_src" value="${esc(settings.plan_src || '')}" placeholder="e.g. S:\\…\\Source Data\\OpenPersoWorkorders_PerAx.xlsx">
           <span class="small muted">Read again whenever it's saved (e.g. the hourly SSRS export). Nothing in it is changed.</span></label>
@@ -641,6 +639,9 @@ async function renderPlanning() {
         <label class="f full">Card database (Access) — the Cards table gives each card article's type, material and print sides<input type="text" name="plan_db" value="${esc(settings.plan_db || '')}" placeholder="e.g. S:\\…\\Cards.accdb">
           <span class="small ${cdb.status === 'error' || cdb.status === 'missing' ? 'pl-late' : 'muted'}">${cdb.status === 'ok' ? `✔ ${n(cdb.count)} cards in the ${esc(cdb.table)} table · saved ${esc(fmtDateTime(cdb.modified))} — read again whenever it's saved` : cdb.status === 'missing' ? '⚠ Can\'t find this file' : cdb.status === 'error' ? `⚠ ${esc(cdb.error)}` : 'Read only — nothing in the database is changed. It can stay open in Access.'}</span></label>
         <label class="f">Table<input type="text" name="plan_db_table" value="${esc(settings.plan_db_table || 'Cards')}"></label>
+      </div>
+      <h3 class="pl-h" data-sec="rules">⚙ Planning rules <span class="muted small">— rates, buffers, working day</span></h3>
+      <div class="form-grid">
         <label class="f">Flat rate — cards per hour for cards without a speed<input type="number" min="0" step="1" name="plan_rate" value="${esc(settings.plan_rate || '')}" placeholder="optional"></label>
         ${useMachines ? '' : `<label class="f">Lines running <span class="muted small">(until machines are set)</span><input type="number" min="1" step="1" name="plan_lines" value="${esc(settings.plan_lines || '1')}"></label>`}
         <label class="f">Ready before the cut-off (minutes) <span class="muted small">— packing and dispatch</span><input type="number" min="0" step="5" name="plan_buffer" value="${esc(settings.plan_buffer || '0')}"></label>
@@ -784,6 +785,7 @@ ${half === 'otto' ? ottoSetup() : `
     if (!res.ok) toast(d.error || res.statusText, 'error'); else toast(`${file.name} loaded${({ otto: settings.plan_otto_src, disp: settings.plan_disp_src }[half] ?? settings.plan_src) ? ' — the linked export is still used; clear its path to use this copy' : ''}`);
     renderPlanning();
   });
+  foldSections($('#pl-setup'), 'plsetup', { open: ['sources'] }); // the setup in folding groups
   $('#pl-setup-file')?.addEventListener('change', async (e) => {
     const file = e.target.files[0]; if (!file) return;
     let body; try { body = JSON.parse(await file.text()); } catch { toast('That isn\'t a planning setup file', 'error'); return; }
