@@ -80,7 +80,7 @@ function acctPasswordDialog(forced = false) {
 // The top bar for a signed-in person: 📥 My work (with what's new), and their menu.
 function acctChrome() {
   const nav = $('#topnav');
-  if (nav && !$('[data-nav="mine"]', nav)) nav.insertAdjacentHTML('afterbegin', '<a href="#/mine" data-nav="mine" title="What\'s assigned to you">📥<span class="lbl"> My work</span> <span id="mine-count" class="count" hidden>0</span></a>');
+  if (nav && !$('[data-nav="mine"]', nav)) nav.insertAdjacentHTML('afterbegin', '<a href="#/mine" data-nav="mine" title="What\'s assigned to you"><span class="ico">📥</span><span class="lbl"> My work</span> <span id="mine-count" class="count" hidden>0</span></a>');
   const menu = $('#top-menu');
   if (menu && !$('[data-action="sign-out"]', menu)) {
     menu.insertAdjacentHTML('afterbegin', `<div class="small muted" style="padding:4px 10px">Signed in as <b>${esc(ACCT.account.person)}</b> (${esc(ACCT.account.username)}${ACCT.account.owner ? ', host' : ACCT.account.role === 'admin' ? ', admin' : ''})</div>

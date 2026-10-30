@@ -100,13 +100,14 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); c
 #sidebar a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 
 /* top bar: page tabs, search, quick note, alerts, ⋯ menu */
-#topnav { display: flex; flex: 0 1 auto; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+#topnav { display: flex; flex: 1 1 auto; gap: 1px 2px; min-width: 0; flex-wrap: wrap; } /* every tab named; a second row rather than hidden names */
 #topnav::-webkit-scrollbar { display: none; }
 #topnav a, .top-menu-panel a { padding: 6px 10px; border-radius: 6px; white-space: nowrap; text-decoration: none; }
+#topnav a { padding: 5px 8px; font-size: 13.5px; }
 .top-menu-panel a { color: var(--text); }
 .top-menu-panel a:hover { background: var(--panel-2); }
 .top-menu-panel a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-#topbar #search { flex: 0 1000 220px; min-width: 120px; } /* shrinks before the tabs do */
+#topbar #search { flex: none; width: 150px; transition: width .2s; } #topbar #search:focus { width: 260px; } /* small until it's used, so the tabs have the room */
 .top-menu { position: relative; }
 #menu-btn { font-weight: 700; padding: 5px 12px; }
 #menu-btn.active { border-color: var(--accent); color: var(--accent); }
@@ -323,10 +324,10 @@ div.f > span:first-child:not(:only-child) > .muted { font-size: inherit; }
 table.dash-projects td { vertical-align: middle; }
 
 /* ---------- narrow screens */
-@media (max-width: 1500px) { #topbar .wide-only { display: none; } #topnav a { padding: 6px 7px; } }
+@media (max-width: 1500px) { #topbar .wide-only { display: none; } #topnav a { padding: 5px 6px; } }
+@media (min-width: 701px) and (max-width: 1600px) { #topnav .ico { display: none; } #topnav .lbl { margin-left: -.25em; } } /* names only, so they fit on one row */
 /* not much room: icons only, but the page you're on keeps its name */
-@media (max-width: 1600px) { #topnav a:not(.active) .lbl { display: none; } #topnav a:not(.active) { padding: 6px 8px; font-size: 1.05rem; } }
-@media (max-width: 1300px) { #topnav .lbl { display: none; } #topnav a { padding: 6px 8px; font-size: 1.05rem; } }
+@media (max-width: 700px) { #topnav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } #topnav .lbl { display: none; } #topnav a { padding: 6px 8px; font-size: 1.05rem; } } /* a phone: icons only */
 @media (max-width: 900px) {
   .grid.two { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr 1fr; }
@@ -1646,3 +1647,4 @@ label.f > .f-l .muted, label.f > .f-l .small { font-size: 12px; color: var(--mut
 .na-auto.bad { background: var(--danger-soft); color: var(--danger); }
 .na-line input::placeholder { color: var(--muted); font-style: italic; }
 #main > .na-line { margin: -6px 0 12px; }
+@media (min-width: 701px) and (max-width: 1400px) { #topbar #search { width: 96px; } #topbar #search:focus { width: 220px; } #topnav a { padding: 5px 5px; } #topbar { gap: 8px; padding: 7px 12px; } }
