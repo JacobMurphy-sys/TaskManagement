@@ -1580,7 +1580,8 @@ details.hint > summary:hover, details.hint[open] > summary { background: var(--a
 .person-pick { display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; } .person-pick select { width: auto; max-width: 220px; }
 @media (max-width: 900px) { .hide-narrow { display: none; } }
 
-.na-line { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--accent); font-weight: 600; max-width: 720px; }
+.na-line { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--accent); font-weight: 600; max-width: 820px; width: 100%; }
+.na-line input { flex: 1; min-width: 0; }
 .na-line input { border: 1px dashed transparent; background: var(--accent-soft); color: var(--text); font-weight: 500; padding: 4px 8px; }
 .na-line input:hover { border-color: var(--brand-2); } .na-line input:focus { background: var(--panel); }
 .na-line input.saved { outline: 2px solid var(--ok); }
@@ -1640,3 +1641,8 @@ table.log tbody tr:hover > td { background: color-mix(in srgb, var(--accent-soft
 table.log td > button:not(.icon):not(.link), table.log td > a.button { padding: 2px 9px; font-size: 12px; }
 .log-days tr.log-day th { background: var(--panel-2); color: var(--accent); font-size: 12px; text-transform: none; padding: 6px 8px; position: static; }
 label.f > .f-l .muted, label.f > .f-l .small { font-size: 12px; color: var(--muted); }
+.next-action.auto { color: var(--muted); font-weight: 400; font-style: italic; }
+.na-auto { font-style: normal; font-size: 10.5px; padding: 0 6px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); margin-left: 4px; white-space: nowrap; }
+.na-auto.bad { background: var(--danger-soft); color: var(--danger); }
+.na-line input::placeholder { color: var(--muted); font-style: italic; }
+#main > .na-line { margin: -6px 0 12px; }

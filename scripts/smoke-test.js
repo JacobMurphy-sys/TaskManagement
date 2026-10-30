@@ -288,6 +288,16 @@ async function waitForServer() {
       assert.ok((await call('GET', '/people/colours')).some((c) => c.name === 'Riley Owner' && c.colour === '#be185d'), 'colours set by hand are shared');
       const fr = (await call('GET', `/dashboard?focus_person=${encodeURIComponent('Riley Owner')}`)).focus;
       assert.ok(fr.person === 'Riley Owner' && fr.day.some((x) => x.id === parent.id) && fr.day.concat(fr.week).every((x) => x.kind === 'project' || /Riley Owner/.test(x.owner)), 'one person\'s focus');
+      // ▶ none typed: the most pressing open item — the earliest due, overdue first
+      const ro2 = (await call('GET', '/people/overview')).find((x) => x.name === 'Quinn Helper');
+      assert.ok(ro2.next_action === null && ro2.next_auto && ro2.next_auto.title === 'Kid for people' && ro2.next_auto.parent_title === 'Parent for people', `Quinn's automatic next action: ${JSON.stringify(ro2.next_auto)}`);
+      const roA = (await call('GET', '/people/overview')).find((x) => x.name === 'Riley Owner');
+      assert.ok(roA.next_auto.title === 'Parent for people' && roA.next_auto.overdue === true, 'the overdue one first');
+      await call('PATCH', `/projects/${np.id}`, { next_action: '' });
+      const pj = await call('GET', `/projects/${np.id}`); const pjl = (await call('GET', '/projects')).find((x) => x.id === np.id);
+      const firstDue = pj.tasks.filter((t) => t.status !== 'done' && t.due_at).sort((a, b) => a.due_at.localeCompare(b.due_at))[0];
+      assert.ok(pj.next_action === null && pj.next_auto.title === firstDue.title && pjl.next_auto.title === firstDue.title, `the project's: its earliest-due open task (${pj.next_auto?.title})`);
+      await call('PATCH', `/projects/${np.id}`, { next_action: 'Agree the budget with finance' });
       const pl = (await call('GET', '/projects')).find((x) => x.id === np.id);
       assert.ok(/Quinn Helper/.test(pl.task_owners) && pl.next_action, 'the board knows who\'s on each project');
       await call('DELETE', `/tasks/${parent.id}`); await call('PATCH', `/projects/${np.id}`, { leader: CHARTER.leader });

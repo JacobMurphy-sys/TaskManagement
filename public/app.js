@@ -337,6 +337,15 @@ function personColour(name) {
 const initials = (name) => { const w = String(name || '').trim().split(/\s+/).filter((x) => /^[\p{L}\p{N}]/u.test(x)); return ((w[0]?.[0] || '') + (w.length > 1 ? w[w.length - 1][0] : w[0]?.[1] || '')).toUpperCase(); };
 const personDot = (name) => `<i class="pdot" style="--pc:${personColour(name)}" title="${esc(name)}">${esc(initials(name))}</i>`;
 const personChip = (name, cls = '') => `<span class="pchip ${cls}" style="--pc:${personColour(name)}">${personDot(name)}<span>${esc(name)}</span></span>`;
+// ▶ a next action: the one typed, else the automatic one (the most pressing open item), marked as such
+const autoWhen = (a) => (a?.due_at ? `${a.overdue ? 'overdue' : 'due'} ${fmtShortDate(a.due_at)}` : '');
+const autoText = (a) => (a ? `${a.parent_title ? `${a.parent_title} › ` : ''}${a.title}` : '');
+function nextLine(typed, auto, cls = 'small') {
+  if (typed) return `<div class="next-action ${cls}" title="Next action">▶ ${esc(typed)}</div>`;
+  if (!auto) return '';
+  return `<div class="next-action auto ${cls}" title="Automatic: the most pressing open ${auto.kind === 'capex' ? 'investment' : 'task'} — type a next action to replace it">▶ ${esc(autoText(auto))} <span class="na-auto ${auto.overdue ? 'bad' : ''}">auto${auto.due_at ? ` · ${esc(autoWhen(auto))}` : ''}</span></div>`;
+}
+const autoPlaceholder = (auto, fallback) => (auto ? `auto: ${autoText(auto)}${auto.due_at ? ` · ${autoWhen(auto)}` : ''}` : fallback);
 const peopleChips = (v) => splitOwners(v).map((n) => personChip(n)).join(' ');
 async function loadPersonColours() { try { state.personColours = new Map((await api.get('/people/colours')).map((x) => [x.name.toLowerCase(), x.colour])); } catch { state.personColours = new Map(); } }
 const ownerChip = (t) => (t.owner ? `<span class="owners" title="Owner${t.owner.includes(',') ? 's' : ''}">${peopleChips(t.owner)}</span>` : '');
@@ -556,7 +565,7 @@ async function renderDashboard() {
       p.in_progress_count && `<span class="small muted">▶ ${p.in_progress_count} in progress</span>`,
     ].filter(Boolean).join(' ');
     return `<tr class="clickable" data-action="open-project" data-id="${p.id}">
-      <td><b>${esc(p.name)}</b>${phaseLine(p) ? `<div class="small muted">${phaseLine(p)}</div>` : ''}${p.next_action ? `<div class="next-action small" title="Next action">▶ ${esc(p.next_action)}</div>` : ''}</td>
+      <td><b>${esc(p.name)}</b>${phaseLine(p) ? `<div class="small muted">${phaseLine(p)}</div>` : ''}${nextLine(p.next_action, p.next_auto)}</td>
       <td>${p.leader ? peopleChips(p.leader) : '<span class="small muted">—</span>'}</td>
       <td class="nowrap"><span class="health health-${p.health.key}" title="${esc(p.health.why)}">${p.health.icon} ${p.health.label}</span></td>
       <td>${prioPill(p.priority)}</td>
@@ -637,7 +646,7 @@ function focusCard(f, who) {
       ${x.kind === 'task' && x.project_id ? `<a class="small muted" href="#/project/${x.project_id}">${esc(x.project_name)}</a>` : ''}
       ${x.owner && !who ? peopleChips(x.owner) : ''}
       <span class="fi-why">${x.reasons.map((r) => `<span class="why ${/overdue|past its|was due|blocked/.test(r) ? 'bad' : /today|tomorrow|chase|critical/.test(r) ? 'warn' : ''}">${esc(r)}</span>`).join('')}</span>
-      ${x.kind === 'project' && x.next_action ? `<div class="next-action small">▶ ${esc(x.next_action)}</div>` : ''}
+      ${x.kind === 'project' ? nextLine(x.next_action, x.next_auto) : ''}
     </li>`;
   const list = (k, items, empty) => `<ul class="focus-list" data-focus-list="${k}" ${tab === k ? '' : 'hidden'}>${items.length ? items.map(item).join('') : `<li class="empty">${empty}</li>`}${k === 'day' && f.more_overdue ? `<li class="small muted">… and ${f.more_overdue} more overdue — see ⚠ Overdue below</li>` : ''}</ul>`;
   return `<div class="card focus-card"><div class="row" style="gap:10px;align-items:center"><h3 style="margin:0">🎯 Focus${who ? ` <span class="small muted">— ${esc(who)}</span>` : ''}</h3>
@@ -965,7 +974,6 @@ async function renderProject(id, tab) {
         <div class="small muted proj-people" title="Created ${esc(fmtDateTime(p.created_at))} · Updated ${esc(fmtDateTime(p.updated_at))}${p.completed_at ? ` · Completed ${esc(fmtDateTime(p.completed_at))}` : ''}">${[p.leader ? `Leader ${peopleChips(p.leader)}` : '', p.sponsor ? `Sponsor ${peopleChips(p.sponsor)}` : '', p.category ? esc(p.category) : '',
           p.escalated_from ? `<a href="#/idea/${p.escalated_from.id}">💡 from ${esc(p.escalated_from.ref)}</a>` : '', p.completed_at ? `completed ${esc(fmtShortDate(p.completed_at))}` : `updated ${esc(fmtShortDate(p.updated_at))}`].filter(Boolean).join(' · ')}</div>
         ${p.description ? `<div class="pre muted small proj-desc">${linkify(p.description)}</div>` : ''}
-        <label class="na-line" title="The talking point for this project's next review — one line, shown on Home, the board and 👥 People">▶ <input type="text" id="proj-next" maxlength="300" value="${esc(p.next_action || '')}" placeholder="Next action — the talking point for the next review"></label>
       </div>
       <div class="meta">
         <select data-action="project-field" data-field="status" title="Status">${options(PSTATUS, p.status)}</select>
@@ -985,6 +993,7 @@ async function renderProject(id, tab) {
           <a href="/api/export.xlsx?scope=project&id=${p.id}">⬇ Download as Excel</a>`, { title: 'More: history, reminder, costs, phases, baseline, report, Excel' })}
       </div>
     </div>
+    <label class="na-line" title="The talking point for this project's next review — one line, shown on Home, the board and 👥 People. Empty: its most pressing open task, worked out (type to set your own)">▶ <input type="text" id="proj-next" maxlength="300" value="${esc(p.next_action || '')}" placeholder="${esc(autoPlaceholder(p.next_auto, 'Next action — the talking point for the next review'))}"></label>
     ${tabs}
     ${tab === 'charter' ? '<div id="charter-root"></div>' : `
     ${projSummary(p)}
@@ -1207,7 +1216,7 @@ async function renderKanban() {
         data-action="open-project" title="Open project">
       <div class="ktitle"><span>${esc(p.name)}</span>${p.leader ? `<span class="kleads">${splitOwners(p.leader).map(personDot).join('')}</span>` : ''}</div>
       <div class="kmeta">${prioPill(p.priority)} ${p.due_at ? dueChip({ ...p, status: p.status === 'completed' ? 'done' : '' }) : ''}</div>
-      ${p.next_action && p.status !== 'completed' ? `<div class="next-action small" title="Next action">▶ ${esc(p.next_action)}</div>` : ''}
+      ${p.status !== 'completed' ? nextLine(p.next_action, p.next_auto) : ''}
       ${phaseLine(p) ? `<div class="small" style="margin-top:6px">${phaseLine(p)}</div>` : ''}
       <div class="small muted" style="margin-top:6px">${stats}</div>
       ${p.task_count ? `<div class="progress" title="${pct}% done"><div style="width:${pct}%"></div></div>` : ''}

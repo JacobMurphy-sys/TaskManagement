@@ -78,6 +78,18 @@ function normOwners(v) {
   return list.length ? list.join(', ') : null;
 }
 const ownsTask = (owner, name) => splitOwners(owner).some((o) => o.toLowerCase() === String(name).trim().toLowerCase());
+// ▶ the next action when none is typed: the most pressing open item — the earliest due (overdue first),
+// else one in progress, else the highest priority and oldest. items: tasks and/or CAPEX investments.
+function autoNext(items) {
+  const open = items.filter((x) => x && x.status !== 'done' && x.status !== 'closed');
+  if (!open.length) return null;
+  const rank = (x) => [x.due_at ? 0 : 1, x.due_at || '', x.status === 'in_progress' ? 0 : 1, -(x.priority || 2), x.created_at || ''];
+  const best = open.slice().sort((a, b) => { const ra = rank(a); const rb = rank(b); for (let i = 0; i < ra.length; i++) { if (ra[i] < rb[i]) return -1; if (ra[i] > rb[i]) return 1; } return 0; })[0];
+  return { title: best.title, due_at: best.due_at || null, kind: best.kind || 'task', id: best.id, parent_title: best.parent_title || null, project_name: best.project_name || null, overdue: !!(best.due_at && best.due_at < nowIso()) };
+}
+// open CAPEX investments as items with a due date (their planned date), for a person's next action
+const capexItems_ = () => { try { return db.all("SELECT id, ref, title, owner, planned_date, priority, created_at, status FROM capex WHERE status IN ('draft', 'submitted', 'approved', 'ordered', 'on_hold')")
+  .map((c) => ({ kind: 'capex', id: c.id, title: `${c.ref} ${c.title}`, owner: c.owner, due_at: c.planned_date ? `${c.planned_date}T12:00:00.000Z` : null, priority: c.priority, created_at: c.created_at, status: 'todo' })); } catch { return []; } };
 
 // Picks only allowed keys from a body, turning '' into null and normalising values.
 function pick(body, keys) {
@@ -195,8 +207,9 @@ router.get('/projects', h((req, res) => {
   // the people on each: leader, sponsor, team and the owners of its open tasks (for the person filter)
   const teamOf = new Map(); for (const r of db.all('SELECT project_id, name FROM project_team')) (teamOf.get(r.project_id) || teamOf.set(r.project_id, []).get(r.project_id)).push(r.name);
   const ownersOf = new Map(); for (const r of db.all("SELECT project_id, owner FROM tasks WHERE owner IS NOT NULL AND status <> 'done' AND project_id IS NOT NULL")) (ownersOf.get(r.project_id) || ownersOf.set(r.project_id, []).get(r.project_id)).push(...splitOwners(r.owner));
+  const openOf = new Map(); for (const t of tasks("WHERE t.status <> 'done' AND t.project_id IS NOT NULL")) (openOf.get(t.project_id) || openOf.set(t.project_id, []).get(t.project_id)).push(t);
   res.json(rows.map((p) => ({ ...normProject(p), charter_pct: charter.completeness(p, charterExtras(p.id)).pct,
-    team_names: normOwners(teamOf.get(p.id) || []) || null, task_owners: normOwners(ownersOf.get(p.id) || []) || null })));
+    team_names: normOwners(teamOf.get(p.id) || []) || null, task_owners: normOwners(ownersOf.get(p.id) || []) || null, next_auto: autoNext(openOf.get(p.id) || []) })));
 }));
 
 // Team, KPIs and milestone rows that complete a project's charter.
@@ -267,6 +280,7 @@ router.get('/projects/:id', h((req, res) => {
     ...normProject(project),
     charter: { ...extras, completeness: charter.completeness(project, extras) },
     tasks: tasks('WHERE t.project_id = ? ORDER BY t.sort_order, t.id', [project.id]),
+    next_auto: autoNext(tasks("WHERE t.project_id = ? AND t.status <> 'done'", [project.id])),
     links: db.all('SELECT id, task_id, depends_on_id FROM task_links WHERE project_id = ?', [project.id]),
     costs: db.all('SELECT * FROM project_costs WHERE project_id = ? ORDER BY spent_on DESC, id DESC', [project.id]),
     spent: db.get(`SELECT coalesce(sum(${COST_IN_PROJECT}), 0) AS n FROM project_costs c WHERE project_id = ?`, [project.id]).n,
@@ -625,8 +639,13 @@ router.get('/people/overview', h((req, res) => {
   }
   for (const i of db.all("SELECT i.name FROM name_list_items i JOIN name_lists l ON l.id = i.list_id WHERE lower(l.name) = 'people' AND i.active = 1")) add(i.name);
   for (const f of focus.values()) if (f.next_action) add(f.name);
+  const openByProj = new Map(); for (const t of open) if (t.project_id) (openByProj.get(t.project_id) || openByProj.set(t.project_id, []).get(t.project_id)).push(t);
+  for (const p of projs) p.next_auto = autoNext(openByProj.get(p.id) || []);
+  for (const x of people.values()) for (const pr of x.projects) pr.next_auto = projs.find((p) => p.id === pr.id)?.next_auto || null;
+  const cx = capexItems_();
   const out = [...people.values()].map((x) => { const f = focus.get(x.name.toLowerCase()) || {};
     return { ...x, colour: f.colour || null, next_action: f.next_action || null, next_action_at: f.next_action ? f.updated_at : null,
+      next_auto: autoNext([...x.tasks, ...cx.filter((c) => ownsTask(c.owner, x.name))]),
       counts: { open: x.tasks.length, overdue: x.tasks.filter((t) => t.due_at && t.due_at < now).length, week: x.tasks.filter((t) => t.due_at && t.due_at >= now && t.due_at < week).length,
         blocked: x.tasks.filter((t) => t.status === 'blocked').length, waiting: x.tasks.filter((t) => t.waiting_on).length, projects: new Set(x.projects.map((p) => p.id)).size } }; })
     .sort((a, b) => b.counts.overdue - a.counts.overdue || b.counts.open - a.counts.open || a.name.localeCompare(b.name));
@@ -1271,7 +1290,10 @@ function focusFor(person) {
       (SELECT json_object('name', ph.name, 'due_at', ph.due_at) FROM project_phases ph WHERE ph.project_id = p.id AND ph.status = 'open' ORDER BY ph.sort_order, ph.id LIMIT 1) AS current_phase
     FROM projects p WHERE p.status = 'active'`, [nowIso()]).map((p) => ({ ...p, current_phase: parseJson(p.current_phase) }));
   const mine = (owner) => !person || ownsTask(owner, person);
-  return { person, ...focusOf({ tasks: all.filter((t) => mine(t.owner)), projects: projs.filter((p) => !person || ownsTask(p.leader, person)) }) };
+  const openByProj = new Map(); for (const t of all) if (t.project_id) (openByProj.get(t.project_id) || openByProj.set(t.project_id, []).get(t.project_id)).push(t);
+  const f = focusOf({ tasks: all.filter((t) => mine(t.owner)), projects: projs.filter((p) => !person || ownsTask(p.leader, person)) });
+  for (const x of f.week) if (x.kind === 'project' && !x.next_action) x.next_auto = autoNext(openByProj.get(x.id) || []);
+  return { person, ...f };
 }
 
 // ------------------------------------------------------------------ ideation
