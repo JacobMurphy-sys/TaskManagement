@@ -67,6 +67,12 @@ function docMeta(src) {
   return { props, tags: [...tags], aliases };
 }
 
+// %%comments%% and <!-- comments --> taken out, except inside code blocks (Obsidian shows those as they are)
+function withoutComments(src) {
+  return String(src).split(/((?:^|\n)(?:```|~~~)[^\n]*\n[\s\S]*?\n(?:```|~~~)[^\n]*(?=\n|$))/)
+    .map((part, i) => (i % 2 ? part : part.replace(/%%[\s\S]*?%%/g, '').replace(/<!--[\s\S]*?-->/g, ''))).join('');
+}
+
 // Plain text of a note, for search results.
 const toPlainText = (src) => parseFrontmatter(String(src).replace(/\r\n?/g, '\n')).body
   .replace(/%%[\s\S]*?%%/g, '').replace(/```[^\n]*\n?/g, '').replace(/^\s*>\s?(\[![^\]]*\][+-]?)?/gm, '')
@@ -414,7 +420,7 @@ function renderMarkdown(src, ctx = {}) {
   // Sheets Extended table features, unless the note opts out like it does in Obsidian.
   const sheetsOn = ctx.sheets !== false && !/^(true|yes)$/i.test(String(props['disable-sheet'] ?? ''));
   const st = { ctx, headings: [], slugs: new Map(), footnotes: new Map(), fnOrder: [], sheets: sheetsOn };
-  const lines = body.replace(/%%[\s\S]*?%%/g, '').replace(/<!--[\s\S]*?-->/g, '').split('\n')
+  const lines = withoutComments(body).split('\n')
     .map((l) => l.replace(/\t/g, '    ').replace(/\s\^[A-Za-z0-9-]+\s*$/, '')); // drop ^block-ids
   let html = blocks(lines, st);
   const notes = st.fnOrder.filter((id) => st.footnotes.has(id));
