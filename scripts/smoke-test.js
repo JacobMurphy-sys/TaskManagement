@@ -2615,7 +2615,7 @@ async function waitForServer() {
       assert.equal((await sam('PATCH', `/accounts/${samId}`, { modules: ['management'] })).status, 403, 'only admins give modules');
       { // 🧩 Library notes for some modules or rights only, and parts of a note
         const vault2 = [
-          { path: 'Guide/Start.md', text: 'Everyone reads this.\n%% for: Prod Management %%\nSee [[Plan production]].\n%% end %%\n%% for: Management %%\nSee [[Weekly report]].\n%% end %%\n%% for: right:server %%\nServer bit\n%% end %%\nThe end.' },
+          { path: 'Guide/Start.md', text: 'Everyone reads this.\n%% for: Prod Management %%\nSee [[Plan production]].\n%% end %%\n%% for: Management %%\nSee [[Weekly report]].\n%% end %%\n%% for: right:server %%\nServer bit\n%% end %%\nThe end.\n```\n%% for: Management %%\nexample kept\n%% end %%\n```' },
           { path: 'Guide/Plan production.md', text: '---\nmodules: [Prod Management]\n---\nPlanning steps' },
           { path: 'Guide/Weekly report.md', text: '---\nmodules: management\n---\nA3 steps' },
           { path: 'Guide/Run the server.md', text: '---\nrights: [server]\n---\nServer steps' },
@@ -2629,6 +2629,7 @@ async function waitForServer() {
         assert.equal((await sam('GET', `/library/docs/${id('Weekly report')}`)).status, 404, 'not opened by link either');
         const start = (await sam('GET', `/library/docs/${id('Start')}`)).data.html;
         assert.ok(start.includes('Plan production') && !start.includes('Weekly report') && !start.includes('Server bit') && start.includes('The end'), 'only the parts for Sam\'s modules');
+        assert.ok(start.includes('example kept') && start.includes('%% for: Management %%'), 'markers inside a code block are shown as they are');
         const startAdmin = (await admin('GET', `/library/docs/${id('Start')}`)).data;
         assert.ok(startAdmin.html.includes('Weekly report') && startAdmin.html.includes('Server bit'), 'an admin sees every part');
         assert.deepEqual((await admin('GET', `/library/docs/${id('Plan production')}`)).data.audience, ['Prod Management'], 'who it is for, for the chip');

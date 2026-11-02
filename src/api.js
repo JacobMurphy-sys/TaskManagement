@@ -4087,8 +4087,11 @@ const libViewer = (req) => (accounts.enabled() && req ? { mods: new Set(accounts
 const libCanSee = (aud, v) => !v || ((!aud.modules.length || aud.modules.some((m) => v.mods.has(m))) && (!aud.rights.length || aud.rights.some((r) => v.rights.has(r))));
 // a note's text with the "%% for: … %%" parts this person may not see taken out
 function libForViewer(body, v) {
-  const out = []; let hide = false;
+  const out = []; let hide = false; let fence = null;
   for (const line of String(body).split('\n')) {
+    const f = line.match(/^\s*(```|~~~)/); // inside a code block the lines are shown as they are
+    if (f) fence = fence ? (fence === f[1] ? null : fence) : f[1];
+    if (fence || f) { if (!hide) out.push(line); continue; }
     const open = line.match(/^\s*%%\s*for:\s*(.+?)\s*%%\s*$/i);
     if (open) { const toks = libList(open[1]); hide = !!v && !toks.some((t) => (t.startsWith('right:') ? v.rights.has(t.slice(6).trim()) : v.mods.has(LIB_MOD.get(t) || t))); continue; }
     if (/^\s*%%\s*end\s*%%\s*$/i.test(line)) { hide = false; continue; }
