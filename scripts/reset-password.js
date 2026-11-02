@@ -1,4 +1,4 @@
-// Sets a CI Manager account's password, on the server, e.g. when the only admin has forgotten theirs:
+// Sets a SITHUB account's password, on the server, e.g. when the only admin has forgotten theirs:
 //   node scripts/reset-password.js <username> <new password>
 // (run in the app folder; the app can keep running). The new password must be changed at the next
 // sign-in. Without arguments it lists the accounts.

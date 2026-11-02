@@ -1,4 +1,4 @@
-// 👥 Several people on one CI Manager (the shared server, src/collab.js):
+// 👥 Several people on one SITHUB (the shared server, src/collab.js):
 // - your name, asked once, so others see who's here and who changed what;
 // - 👥 in the top bar: who else has it open, and where; on a page someone else is on, a line says so;
 // - when someone else changes what you're looking at: lists refresh by themselves (unless you're in
@@ -47,7 +47,7 @@ function collabDialog(html, cls = '') {
 // ---- your name ----------------------------------------------------------------------------------
 function collabAskName(again = false) {
   return new Promise((resolve) => {
-    const d = collabDialog(`<form method="dialog" class="cd-name"><h3 style="margin-top:0">👋 ${again ? 'Your name' : 'Who\'s using the CI Manager?'}</h3>
+    const d = collabDialog(`<form method="dialog" class="cd-name"><h3 style="margin-top:0">👋 ${again ? 'Your name' : 'Who\'s using SITHUB?'}</h3>
       <p class="small muted">Several people use this copy. Your name shows others who's here and who changed what, and goes in the history of each change. It's kept in this browser.</p>
       <input type="text" name="n" required maxlength="60" value="${esc(me.name)}" placeholder="e.g. Sam Taylor" autocomplete="name">
       <div class="row" style="margin-top:10px"><span class="spacer"></span>${again ? '<button value="cancel" formnovalidate>Cancel</button>' : ''}<button class="primary" value="ok">Save</button></div></form>`);
@@ -92,7 +92,7 @@ function collabChip() {
   const names = [...new Set(COLLAB.others.map((o) => o.name))];
   el.hidden = false;
   el.innerHTML = names.length ? `👥 <span class="collab-n">${names.length}</span>` : '👤';
-  el.title = names.length ? `Also here:\n${COLLAB.others.map((o) => `${o.name} — ${collabWhere(o)}`).join('\n')}` : 'Nobody else has the CI Manager open';
+  el.title = names.length ? `Also here:\n${COLLAB.others.map((o) => `${o.name} — ${collabWhere(o)}`).join('\n')}` : 'Nobody else has SITHUB open';
 }
 function collabHere() {
   const el = $('#collab-here'); if (!el) return;

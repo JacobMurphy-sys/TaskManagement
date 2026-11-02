@@ -26,7 +26,7 @@ function readBackup(source, name = typeof source === 'string' ? source : '') {
     try {
       src = new DatabaseSync(tmp, { readOnly: true });
       const have = new Set(src.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name));
-      if (!have.has('projects') || !have.has('tasks')) throw new BadBackup('This database is not a CI Manager backup');
+      if (!have.has('projects') || !have.has('tasks')) throw new BadBackup('This database is not a SITHUB backup');
       const tables = {};
       for (const t of TABLE_NAMES) tables[t] = have.has(t) ? src.prepare(`SELECT * FROM ${t}`).all().map((r) => ({ ...r })) : [];
       return { created, tables, counts: summarize(tables) };
@@ -41,7 +41,7 @@ function readBackup(source, name = typeof source === 'string' ? source : '') {
   let data;
   try { data = JSON.parse(buf.toString('utf8')); } catch { data = null; }
   if (!data || typeof data.tables !== 'object' || !Array.isArray(data.tables.projects)) {
-    throw new BadBackup(`${name ? `"${path.basename(name)}" is` : 'That is'} not a CI Manager backup (.db or .json)`);
+    throw new BadBackup(`${name ? `"${path.basename(name)}" is` : 'That is'} not a SITHUB backup (.db or .json)`);
   }
   return { created: data.created_at || created, tables: data.tables, counts: summarize(data.tables) };
 }

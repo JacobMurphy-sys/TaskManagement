@@ -1,5 +1,5 @@
 'use strict';
-// Weekly KPIs worked out by the CI Manager itself, straight from the source files
+// Weekly KPIs worked out by SITHUB itself, straight from the source files
 // (the hourly SSRS exports), instead of waiting for Excel to refresh. First pass:
 // volumes — cards and PIN mailers personalised and shipped, and scrap (remakes).
 //

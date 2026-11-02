@@ -1,17 +1,17 @@
 @echo off
-REM CI Manager - one-stop install and update.
+REM SITHUB - one-stop install and update.
 REM
-REM Put this file in the folder you want the CI Manager in (e.g. C:\CIManager) and
+REM Put this file in the folder you want SITHUB in (e.g. C:\CIManager) and
 REM double-click it. Needs Node.js 22.13+ and Git. It:
 REM   1. checks Node.js and Git;
 REM   2. first run: downloads the code from GitHub into the "app" folder next to this file;
 REM      later runs: stops the app, backs up your data and pulls the latest version;
 REM   3. installs the dependencies;
-REM   4. refreshes itself, makes a "CI Manager" shortcut with the CI Manager icon next to this
+REM   4. refreshes itself, makes a "SITHUB" shortcut with SITHUB icon next to this
 REM      file (and on the desktop), and writes "READ ME - where things are" (.txt for Notepad,
 REM      .md for Obsidian);
 REM   5. starts the app (and, on the first install, asks whether to start it at log-in).
-REM Updating happens by itself: each time the CI Manager shortcut starts the app, it checks
+REM Updating happens by itself: each time SITHUB shortcut starts the app, it checks
 REM GitHub and, if there's a newer version, runs this file to update first. Run it by hand to
 REM update straight away. Your data is kept outside the app folder
 REM (%LOCALAPPDATA%\CIManager), so installing or updating never touches it.
@@ -34,7 +34,7 @@ copy /y "%~f0" "%TEMP%\cimanager-setup.bat" >nul
 "%TEMP%\cimanager-setup.bat" --run "%~f0"
 
 :main
-title CI Manager - setup
+title SITHUB - setup
 set "SELF=%~2"
 for %%F in ("%SELF%") do set "BASEDIR=%%~dpF"
 set "BASEDIR=%BASEDIR:~0,-1%"
@@ -67,13 +67,13 @@ if exist "%SRCDIR%\cimanager-team*.json" set "SHAREDDIR=%SRCUNC%"
 if defined SHAREDDEF set "SHAREDDIR=%SRCUNC%"
 REM The shared server: a cimanager-server.json next to this file ({"url": "http://server:3000"},
 REM written by server-install.bat) means everyone uses the one copy on the server - this then just
-REM gives a CI Manager shortcut to it instead of installing a copy here.
+REM gives a SITHUB shortcut to it instead of installing a copy here.
 if defined REMOTE if exist "%SRCDIR%\cimanager-server.json" goto :client
 if not defined REMOTE if exist "%BASEDIR%\package.json" if exist "%BASEDIR%\.git\" set "INPLACE=1"
 if defined INPLACE (set "APP=%BASEDIR%") else (set "APP=%BASEDIR%\app")
 
 echo.
-echo CI Manager setup
+echo SITHUB setup
 if defined REMOTE echo   Run from the network - installing on this computer.
 echo   Folder: %BASEDIR%
 echo   Code:   %APP%
@@ -93,7 +93,7 @@ echo.
 if exist "%APP%\.git\" goto :update
 
 REM ---- first run: download the code ---------------------------------------
-echo [2/6] Downloading the CI Manager from GitHub...
+echo [2/6] Downloading SITHUB from GitHub...
 if exist "%APP%\" (
   dir /b /a "%APP%" | findstr . >nul && goto :app_not_empty
 )
@@ -105,7 +105,7 @@ goto :install
 
 REM ---- later runs: stop, back up, pull -------------------------------------
 :update
-echo [2/6] Updating the CI Manager...
+echo [2/6] Updating SITHUB...
 cd /d "%APP%"
 call :read_env
 call :is_listening
@@ -113,7 +113,7 @@ if errorlevel 1 (
   echo       Not running.
   goto :backup
 )
-echo       Stopping the running CI Manager on port %PORT%...
+echo       Stopping the running SITHUB on port %PORT%...
 curl -s -m 5 -X POST -H "X-Requested-With: TaskManager" http://127.0.0.1:%PORT%/api/shutdown >nul 2>&1
 for /l %%i in (1,1,10) do (
   call :is_listening
@@ -166,12 +166,12 @@ if defined SHAREDDIR if exist "%SRCDIR%\cimanager-team*.json" echo       Team pa
 REM The newest copy of this file comes with the code - keep the one in this folder up to date
 REM (not the one on the network: that stays as it was handed out).
 if not defined INPLACE if exist "%APP%\CIManager-Setup.bat" copy /y "%APP%\CIManager-Setup.bat" "%LOCALSELF%" >nul
-REM First install: ask whether it should start by itself at log-in (a CI Manager shortcut in
+REM First install: ask whether it should start by itself at log-in (a SITHUB shortcut in
 REM the Windows Startup folder; updates keep it up to date, and deleting it turns it off).
 set "MKSTART=$false"
 if not defined FRESH goto :startup_asked
 echo.
-choice /c YN /m "      Start the CI Manager automatically when you log in to Windows"
+choice /c YN /m "      Start SITHUB automatically when you log in to Windows"
 if not errorlevel 2 set "MKSTART=$true"
 :startup_asked
 call :make_shortcuts
@@ -182,13 +182,13 @@ echo [5/6] Writing READ ME - where things are (.txt and .md)...
 call :write_readme
 
 echo.
-echo [6/6] Starting the CI Manager...
+echo [6/6] Starting SITHUB...
 REM Tell the launcher not to check for updates again: this run just did.
 set "CIM_NOUPDATE=1"
 if exist "%APP%\start-hidden.vbs" (
   wscript "%APP%\start-hidden.vbs"
 ) else (
-  start "CI Manager" "%APP%\start.bat"
+  start "SITHUB" "%APP%\start.bat"
 )
 
 echo.
@@ -199,7 +199,7 @@ if defined FAILED (
 )
 if defined FRESH (
   echo Installed in %BASEDIR%.
-  echo Next time, start it from the CI Manager shortcut on the desktop.
+  echo Next time, start it from SITHUB shortcut on the desktop.
   echo It updates itself when it starts, whenever there's a newer version. "READ ME - where things are" (.txt or .md) there says what is kept where.
   pause
 ) else (
@@ -219,19 +219,20 @@ if not defined SERVERURL (
   exit /b 1
 )
 echo.
-echo CI Manager - the shared copy
-echo   Everyone uses the one CI Manager at %SERVERURL%
-echo   Nothing is installed on this computer: you get a CI Manager shortcut that opens it.
+echo SITHUB - the shared copy
+echo   Everyone uses the one SITHUB at %SERVERURL%
+echo   Nothing is installed on this computer: you get a SITHUB shortcut that opens it.
 if exist "%SRCDIR%\cimanager.ico" copy /y "%SRCDIR%\cimanager.ico" "%BASEDIR%\cimanager.ico" >nul
 REM Opened in its own window (Edge's app mode) when Edge is there, else in the usual browser.
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$w=New-Object -ComObject WScript.Shell; $u='%SERVERURL%'; $ico='%BASEDIR%\cimanager.ico'; $e=@(${env:ProgramFiles(x86)}+'\Microsoft\Edge\Application\msedge.exe', $env:ProgramFiles+'\Microsoft\Edge\Application\msedge.exe') | Where-Object { Test-Path $_ } | Select-Object -First 1; function L($p){ $s=$w.CreateShortcut($p); if ($e) { $s.TargetPath=$e; $s.Arguments='--app='+$u } else { $s.TargetPath=$env:SystemRoot+'\explorer.exe'; $s.Arguments=$u }; if (Test-Path $ico) { $s.IconLocation=$ico+',0' }; $s.Description='Open the CI Manager'; $s.Save() }; L ([Environment]::GetFolderPath('Desktop')+'\CI Manager.lnk'); L ('%BASEDIR%'+'\CI Manager.lnk')" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$w=New-Object -ComObject WScript.Shell; $u='%SERVERURL%'; $ico='%BASEDIR%\cimanager.ico'; $e=@(${env:ProgramFiles(x86)}+'\Microsoft\Edge\Application\msedge.exe', $env:ProgramFiles+'\Microsoft\Edge\Application\msedge.exe') | Where-Object { Test-Path $_ } | Select-Object -First 1; function L($p){ $s=$w.CreateShortcut($p); if ($e) { $s.TargetPath=$e; $s.Arguments='--app='+$u } else { $s.TargetPath=$env:SystemRoot+'\explorer.exe'; $s.Arguments=$u }; if (Test-Path $ico) { $s.IconLocation=$ico+',0' }; $s.Description='Open SITHUB'; $s.Save() }; foreach ($dir in @([Environment]::GetFolderPath('Desktop'), '%BASEDIR%')) { L ($dir+'\SITHUB.lnk'); Remove-Item ($dir+'\CI Manager.lnk') -ErrorAction SilentlyContinue }" >nul 2>&1
 if errorlevel 1 (
   echo   Couldn't make the shortcut - open %SERVERURL% in your browser and add it to your favourites.
 ) else (
-  echo   Shortcut: CI Manager, on the desktop. To pin it: right-click it ^> Pin to taskbar.
+  echo   Shortcut: SITHUB, on the desktop. To pin it: right-click it ^> Pin to taskbar.
 )
 REM A copy of its own from before: no longer started at log-in. Its data stays where it is.
 set "OLDSTART=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\CI Manager.lnk"
+if exist "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\SITHUB.lnk" set "OLDSTART=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\SITHUB.lnk"
 if exist "%OLDSTART%" (
   del "%OLDSTART%" >nul 2>&1
   echo   Your own copy no longer starts when you log in. Its data is kept in %LOCALAPPDATA%\CIManager.
@@ -247,7 +248,7 @@ echo Node.js was not found. Install it from https://nodejs.org (the LTS version)
 pause
 exit /b 1
 :old_node
-for /f "delims=" %%v in ('node -v') do echo Node.js %%v is too old - the CI Manager needs 22.13 or newer.
+for /f "delims=" %%v in ('node -v') do echo Node.js %%v is too old - SITHUB needs 22.13 or newer.
 echo Install the current LTS from https://nodejs.org and run this again.
 pause
 exit /b 1
@@ -256,7 +257,7 @@ echo Git was not found. Install it from https://git-scm.com and run this again.
 pause
 exit /b 1
 :app_not_empty
-echo "%APP%" already exists but is not a copy of the CI Manager from GitHub.
+echo "%APP%" already exists but is not a copy of SITHUB from GitHub.
 echo Move or rename it, then run this again.
 pause
 exit /b 1
@@ -297,19 +298,19 @@ copy /y "%TEMP%\cimanager-env.tmp" "%APP%\.env" >nul
 exit /b 0
 
 :make_shortcuts
-REM A .bat file can't have an icon of its own, so the app is started from a "CI Manager" shortcut
-REM with the CI Manager icon (app\assets): in this folder, and on the desktop (on the first
+REM A .bat file can't have an icon of its own, so the app is started from a "SITHUB" shortcut
+REM with SITHUB icon (app\assets): in this folder, and on the desktop (on the first
 REM install, or refreshed if it's still there). Starting it also updates it when there's a
 REM newer version, and it's stopped from inside the app, so that's the only one needed.
 REM It runs start-hidden.vbs through wscript.exe so Windows offers "Pin to taskbar" for it
 REM (it won't for a shortcut straight to a script).
 set "MKDESK=$false"
 if defined FRESH set "MKDESK=$true"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$w=New-Object -ComObject WScript.Shell; $a='%APP%'; $q=[char]34; function L($p){$s=$w.CreateShortcut($p); $s.TargetPath=$env:SystemRoot+'\System32\wscript.exe'; $s.Arguments=$q+$a+'\start-hidden.vbs'+$q; $s.WorkingDirectory=$a; $s.IconLocation=$a+'\assets\cimanager.ico,0'; $s.Description='Start the CI Manager'; $s.Save()}; L ('%BASEDIR%'+'\CI Manager.lnk'); $d=[Environment]::GetFolderPath('Desktop')+'\CI Manager.lnk'; if (%MKDESK% -or (Test-Path $d)) { L $d }; $st=[Environment]::GetFolderPath('Startup')+'\CI Manager.lnk'; if (%MKSTART% -or (Test-Path $st)) { L $st }" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$w=New-Object -ComObject WScript.Shell; $a='%APP%'; $q=[char]34; function L($p){$s=$w.CreateShortcut($p); $s.TargetPath=$env:SystemRoot+'\System32\wscript.exe'; $s.Arguments=$q+$a+'\start-hidden.vbs'+$q; $s.WorkingDirectory=$a; $s.IconLocation=$a+'\assets\cimanager.ico,0'; $s.Description='Start SITHUB'; $s.Save()}; function M($dir,$make){ $n=$dir+'\SITHUB.lnk'; $o=$dir+'\CI Manager.lnk'; if ($make -or (Test-Path $n) -or (Test-Path $o)) { L $n }; if (Test-Path $o) { Remove-Item $o -ErrorAction SilentlyContinue } }; M '%BASEDIR%' $true; M ([Environment]::GetFolderPath('Desktop')) %MKDESK%; M ([Environment]::GetFolderPath('Startup')) %MKSTART%" >nul 2>&1
 if errorlevel 1 goto :bat_launchers
-echo       Shortcut: CI Manager
-if "%MKDESK%"=="$true" echo       Desktop shortcut: CI Manager
-if "%MKSTART%"=="$true" echo       Starts when you log in: yes ^(the CI Manager shortcut in shell:startup^)
+echo       Shortcut: SITHUB
+if "%MKDESK%"=="$true" echo       Desktop shortcut: SITHUB
+if "%MKSTART%"=="$true" echo       Starts when you log in: yes ^(SITHUB shortcut in shell:startup^)
 REM Shortcuts an earlier version made, no longer needed.
 if exist "%BASEDIR%\Update CI Manager.lnk" del "%BASEDIR%\Update CI Manager.lnk"
 if exist "%BASEDIR%\Stop CI Manager.lnk" del "%BASEDIR%\Stop CI Manager.lnk"

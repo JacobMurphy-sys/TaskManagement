@@ -9,7 +9,7 @@ const dog = require('./watchdog').start();
 const lock = require('./instancelock').acquire(config.dbFile, { port: config.port });
 if (!lock.ok) {
   const by = lock.by || {};
-  const msg = `The ${config.mode === 'planner' ? 'planner' : 'CI Manager'} database ${config.dbFile} is already in use`
+  const msg = `The ${config.mode === 'planner' ? 'planner' : 'SITHUB'} database ${config.dbFile} is already in use`
     + `${by.user ? ` by ${by.user}` : ''}${by.host ? ` on ${by.host}` : ''}${by.started ? ` (since ${new Date(by.started).toLocaleString()})` : ''}.`
     + `${by.host && by.port ? ` Open http://${by.host}:${by.port} in a browser instead of starting another copy.` : ''}`
     + ` If that copy has really stopped, wait two minutes and try again (or delete ${lock.file}).`;
@@ -35,7 +35,7 @@ const jsonLarge = express.json({ limit: '80mb' });
 // Routes that read their own (larger) body — the planning setup + history, a plan sheet, the team
 // pack — are left alone here: once a body is read, their own limit would never get a say.
 const OWN_BODY = /^\/api\/(plan\/setup|plan\/sheet|team-pack)$/;
-app.use((req, res, next) => (OWN_BODY.test(req.path) ? next() : (req.path.startsWith('/api/library/import') || /^\/api\/kpi\/snapshots\/\d+\/export$/.test(req.path) ? jsonLarge : jsonSmall)(req, res, next)));
+app.use((req, res, next) => (OWN_BODY.test(req.path) ? next() : (req.path.startsWith('/api/library/import') || (req.path === '/api/tickets' && req.method === 'POST') || /^\/api\/kpi\/snapshots\/\d+\/export$/.test(req.path) ? jsonLarge : jsonSmall)(req, res, next)));
 
 // Large answers (the planning list runs to megabytes) go compressed: a fraction of the data to
 // move, which matters most for the shared planner over the network.
@@ -110,7 +110,7 @@ app.post('/api/presence', (req, res) => res.json({ ...collab.here(req.body, req)
 // Used by the "Stop server" button and stop-server.vbs (the app may have no console window).
 app.post('/api/shutdown', (req, res, next) => {
   // on a server several people use, nobody can switch it off from a browser
-  if (config.shared && !collab.isLocal(req)) return res.status(403).json({ error: `The shared ${config.mode === 'planner' ? 'planner' : 'CI Manager'} can only be stopped on the server itself` });
+  if (config.shared && !collab.isLocal(req)) return res.status(403).json({ error: `The shared ${config.mode === 'planner' ? 'planner' : 'SITHUB'} can only be stopped on the server itself` });
   next();
 }, (req, res) => {
   log.info('Shutdown requested');
@@ -132,7 +132,7 @@ app.use((err, req, res, next) => {
 });
 
 const server = app.listen(config.port, config.host, () => {
-  log.info(`${config.mode === 'planner' ? 'CI Planner' : 'CI Manager'} running at http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);
+  log.info(`${config.mode === 'planner' ? 'SITHUB Planner' : 'SITHUB'} running at http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);
   log.info(`Database file: ${config.dbFile}`);
   dog.doing('starting up: reading the shared files (team pack, planning setup, shared paths)');
   if (config.mode !== 'planner') {
@@ -161,14 +161,14 @@ server.on('error', (err) => {
   const req = require('http').get({ host, port: config.port, path: '/api/health', timeout: 4000 }, (res) => {
     let body = ''; res.on('data', (c) => { body += c; });
     res.on('end', () => said(body.includes('taskmanager')
-      ? `Port ${config.port} is in use: the CI Manager is already running — open http://localhost:${config.port} in your browser.`
-      : `Port ${config.port} is in use by another program (not the CI Manager). Close it, or set PORT=3001 (say) in the .env file in the app folder.`));
+      ? `Port ${config.port} is in use: SITHUB is already running — open http://localhost:${config.port} in your browser.`
+      : `Port ${config.port} is in use by another program (not SITHUB). Close it, or set PORT=3001 (say) in the .env file in the app folder.`));
   });
   req.on('timeout', () => req.destroy(new Error('timeout')));
   req.on('error', (e) => said(e.message === 'timeout'
-    ? `Port ${config.port} is held by a copy of the CI Manager (or another program) that isn't answering — probably frozen. `
+    ? `Port ${config.port} is held by a copy of SITHUB (or another program) that isn't answering — probably frozen. `
       + 'Double-click stop-server.vbs in the app folder: it offers to end it. (Or Task Manager > Details > node.exe > End task.) Then start again.'
-    : `Port ${config.port} is already in use — is the CI Manager already running? (Or set PORT in .env.)`));
+    : `Port ${config.port} is already in use — is SITHUB already running? (Or set PORT in .env.)`));
 });
 
 backup.schedule();

@@ -2,7 +2,7 @@
 // 📊 DailyPersoData — the report the Power BI cards-persoed figures come from: one row per job, machine
 // and shift (Production Date + Production Time, e.g. "22:00 - 06:00"), with Qty Persoed, Job Waste and
 // Remake. Perso's 📈 History and the ⏳ Backlog's pace add up its Qty Persoed by Production Date, so the
-// CI Manager shows what Power BI shows. (The ⏱ timing report, with each run's start and end, still drives
+// SITHUB shows what Power BI shows. (The ⏱ timing report, with each run's start and end, still drives
 // the Gantt, speeds and anomalies.) Each read replaces the rows for the days the report covers.
 const fs = require('fs');
 const path = require('path');

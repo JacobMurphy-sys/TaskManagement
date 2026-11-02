@@ -176,6 +176,23 @@ const TABLES = {
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
 
+  // 🎫 Bug reports, feature requests and questions sent from the app (💬 in the top bar), with where
+  // they were sent from; a screenshot is kept as a file in DATA_DIR/tickets.
+  tickets: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind        TEXT    NOT NULL DEFAULT 'bug' CHECK (kind IN ('bug', 'feature', 'question')),
+    title       TEXT    NOT NULL,
+    description TEXT,
+    status      TEXT    NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'triaged', 'in_progress', 'done', 'wont_do')),
+    priority    INTEGER NOT NULL DEFAULT 2 CHECK (priority BETWEEN 1 AND 4),
+    reporter    TEXT,
+    page        TEXT,
+    context     TEXT,
+    screenshot  TEXT,
+    reply       TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
   // The additive "log as I go" notes on a project (optionally tied to a task).
   notes: `
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -876,7 +893,7 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_overrides', 'kpi_rows_added', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags', 'plan_disp_delays', 'plan_disp_delay_jobs', 'cpm_customers', 'cpm_scenarios', 'people_focus', 'capex'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_overrides', 'kpi_rows_added', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags', 'plan_disp_delays', 'plan_disp_delay_jobs', 'cpm_customers', 'cpm_scenarios', 'people_focus', 'capex', 'tickets'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');

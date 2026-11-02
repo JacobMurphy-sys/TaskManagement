@@ -1,19 +1,19 @@
 @echo off
-REM Makes this computer the CI Manager server: one copy everyone on the network opens in their
+REM Makes this computer SITHUB server: one copy everyone on the network opens in their
 REM browser. Run it once, as administrator, on the server, after CIManager-Setup.bat has installed
 REM the app here. It:
 REM   1. sets the app to answer the network (HOST=0.0.0.0 in .env) and where its data lives;
 REM   2. opens its port in Windows Firewall (domain and private networks only);
-REM   3. makes a scheduled task, "CI Manager server", that runs server-run.bat at start-up under a
+REM   3. makes a scheduled task, "SITHUB server", that runs server-run.bat at start-up under a
 REM      Windows account of your choice (it needs access to the network folders the app reads);
 REM   4. writes, in a "for-the-share" folder, cimanager-server.json and the icon: put both next to
-REM      CIManager-Setup.bat on the share, and running that setup then just gives people a CI Manager
+REM      CIManager-Setup.bat on the share, and running that setup then just gives people a SITHUB
 REM      shortcut to the server instead of installing a copy of their own.
 REM Running it again changes the settings; nothing is lost.
 setlocal EnableExtensions
 cd /d "%~dp0"
 set "APP=%CD%"
-title CI Manager - server setup
+title SITHUB - server setup
 
 net session >nul 2>&1
 if errorlevel 1 (
@@ -28,7 +28,7 @@ if errorlevel 1 (
   exit /b 1
 )
 if not exist "%APP%\src\server.js" (
-  echo Run this from the CI Manager's app folder ^(the one with src\server.js^).
+  echo Run this from SITHUB's app folder ^(the one with src\server.js^).
   pause
   exit /b 1
 )
@@ -42,7 +42,7 @@ if exist ".env" for /f "usebackq eol=# tokens=1,* delims==" %%a in (".env") do (
 if not defined DATA set "DATA=%ProgramData%\CIManager"
 
 echo.
-echo CI Manager - server setup
+echo SITHUB - server setup
 echo   App:  %APP%
 echo.
 echo [1/5] Port and data folder
@@ -60,7 +60,7 @@ REM The data of a copy that ran here for one person can be the shared copy's sta
 if exist "%DATA%\taskmgr.db" goto :data_done
 if not exist "%LOCALAPPDATA%\CIManager\taskmgr.db" goto :data_done
 echo.
-echo       There's a CI Manager database for %USERNAME% on this computer:
+echo       There's a SITHUB database for %USERNAME% on this computer:
 echo       %LOCALAPPDATA%\CIManager
 choice /c YN /m "      Start the shared copy from it (copied, the original is kept)"
 if errorlevel 2 goto :data_done
@@ -71,8 +71,8 @@ echo       Copied into %DATA%.
 
 echo.
 echo [2/5] Windows Firewall: port %PORT% for the company network
-netsh advfirewall firewall delete rule name="CI Manager" >nul 2>&1
-netsh advfirewall firewall add rule name="CI Manager" dir=in action=allow protocol=TCP localport=%PORT% profile=domain,private >nul
+netsh advfirewall firewall delete rule name="SITHUB" >nul 2>&1
+netsh advfirewall firewall add rule name="SITHUB" dir=in action=allow protocol=TCP localport=%PORT% profile=domain,private >nul
 if errorlevel 1 (echo       WARNING: couldn't add the firewall rule.) else (echo       Allowed: TCP %PORT% on domain and private networks.)
 
 echo.
@@ -83,7 +83,7 @@ set "ACCT=%USERDOMAIN%\%USERNAME%"
 set /p "NEWACCT=      Windows account to run it as [%ACCT%]: "
 if defined NEWACCT set "ACCT=%NEWACCT%"
 echo       Windows asks for that account's password, so it can run when nobody is logged on:
-schtasks /Create /TN "CI Manager server" /TR "\"%APP%\server-run.bat\"" /SC ONSTART /DELAY 0001:00 /RU "%ACCT%" /RP * /RL HIGHEST /F
+schtasks /Create /TN "SITHUB server" /TR "\"%APP%\server-run.bat\"" /SC ONSTART /DELAY 0001:00 /RU "%ACCT%" /RP * /RL HIGHEST /F
 if errorlevel 1 (
   echo       WARNING: couldn't make the scheduled task - see the message above.
   set "FAILED=1"
@@ -103,8 +103,8 @@ echo       Copy both next to CIManager-Setup.bat on the share.
 echo.
 echo [5/5] Starting it now
 call :stop_local
-schtasks /Run /TN "CI Manager server" >nul 2>&1
-if errorlevel 1 (echo       Couldn't start the task - restart the computer, or start "CI Manager server" in Task Scheduler.) else (echo       Started. Give it a few seconds, then open %URL%)
+schtasks /Run /TN "SITHUB server" >nul 2>&1
+if errorlevel 1 (echo       Couldn't start the task - restart the computer, or start "SITHUB server" in Task Scheduler.) else (echo       Started. Give it a few seconds, then open %URL%)
 
 echo.
 if defined FAILED (echo Finished with problems - read the messages above.) else (echo Done. Everyone can now open %URL%)

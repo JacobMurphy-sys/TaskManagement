@@ -557,8 +557,8 @@ function buildA3Package(book, sheet, cf, { title = 'A3', sheetName = 'Snapshot' 
     + '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
     + '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>', 'utf8');
   const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-  files['docProps/core.xml'] = Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${xmlEsc(title)}</dc:title><dc:creator>CI Manager</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`, 'utf8');
-  files['docProps/app.xml'] = Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>CI Manager</Application></Properties>', 'utf8');
+  files['docProps/core.xml'] = Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${xmlEsc(title)}</dc:title><dc:creator>SITHUB</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`, 'utf8');
+  files['docProps/app.xml'] = Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>SITHUB</Application></Properties>', 'utf8');
   files['xl/workbook.xml'] = Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
     + `<workbookPr${book.date1904 ? ' date1904="1"' : ''}/><bookViews><workbookView/></bookViews><sheets><sheet name="${xmlAttr(sheetName)}" sheetId="1" r:id="rId1"/></sheets><calcPr calcId="191029"/></workbook>`, 'utf8');
   files['xl/_rels/workbook.xml.rels'] = Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
@@ -622,7 +622,7 @@ function loadWeek(buf, { a3Sheet = 'A3 Weekly Report', dbSheet = 'Database', wee
   const views = { a3: sheetView(book, a3, a3cf) };
   views.a3.edit = editKinds(book, a3, views.a3);
   if (dbs) views.database = sheetView(book, dbs, conditionalStyles(book, dbs));
-  // Raw values of the Database sheet, to check the CI Manager's own figures against.
+  // Raw values of the Database sheet, to check SITHUB's own figures against.
   const values = dbs ? Object.fromEntries([...dbs.cells.values()].filter((c) => c.v !== null && c.v !== '' && c.t !== 'e').map((c) => [c.r, c.v])) : {};
   const parts = weekParts(week);
   const pkg = buildA3Package(book, a3, a3cf, { title: `A3 Weekly Report ${week}` });
@@ -706,11 +706,11 @@ function forecastSheet(tpl, table, buf, spec) {
   return { name: tpl.name, cells, maxRow, maxCol, rows: new Map(), cols: [], merges: [], recalc: true, read: { rows: height - 1, columns: width, overlap } };
 }
 
-// ---- the A3 for any week, worked out by the CI Manager -----------------------------------
+// ---- the A3 for any week, worked out by SITHUB -----------------------------------
 
 // The workbook (the last one loaded) is the template: its Database and A3 formulas are
 // re-run for `week`, with the Database weekly block (rows from 63, week code in column B)
-// and the top-5 scrap and top-10 shipped figures taken from the CI Manager's own data.
+// and the top-5 scrap and top-10 shipped figures taken from SITHUB's own data.
 // data: { weeks: [{ week, perso_ps, … }], topScrap(week), shippedFor(customer, year, month?), columns: { key: 'D', … } }
 // Parts that still come only from Excel (this month's customer forecast, typed text) are
 // listed in `flags`.

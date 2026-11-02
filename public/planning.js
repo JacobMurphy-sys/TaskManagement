@@ -1231,7 +1231,7 @@ function printDialog(p, mode, settings = {}, half = 'perso') {
       title: otto ? 'Matching plan' : 'Production plan', fileLabel: otto ? 'Matching plan' : 'Production plan' });
     // the window opens now (a click), the PDF follows when it's ready
     const w = window.open('', '_blank');
-    if (!w) { toast('Allow pop-ups for CI Manager to open the plan', 'error'); return; }
+    if (!w) { toast('Allow pop-ups for SITHUB to open the plan', 'error'); return; }
     closeModal();
     if (opts.output === 'html') { w.document.open(); w.document.write(planSheetHtml(model)); w.document.close(); w.focus(); setTimeout(() => w.print(), 300); return; }
     w.document.write('<p style="font:16px Arial,sans-serif;margin:40px">Making the plan…</p>');

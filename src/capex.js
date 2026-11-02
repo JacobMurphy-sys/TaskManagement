@@ -92,7 +92,7 @@ const fmtMoney = (v, cur) => (v === null || v === undefined || v === '' ? '—' 
 const fmtDate = (d) => (d ? new Date(`${String(d).slice(0, 10)}T12:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 
 function pdfDoc(title, landscape = false) {
-  const doc = new PDFDocument({ size: 'A4', layout: landscape ? 'landscape' : 'portrait', margin: 36, info: { Title: clean(title), Creator: 'CI Manager' } });
+  const doc = new PDFDocument({ size: 'A4', layout: landscape ? 'landscape' : 'portrait', margin: 36, info: { Title: clean(title), Creator: 'SITHUB' } });
   const chunks = []; doc.on('data', (c) => chunks.push(c));
   const done = new Promise((resolve) => doc.on('end', () => resolve(Buffer.concat(chunks))));
   doc.page.margins.bottom = 0; // one page: nothing written near the foot starts another
@@ -108,7 +108,7 @@ function band(doc, title, sub, right) {
 }
 function foot(doc, stamp) {
   const y = doc.page.height - 26;
-  doc.font('Helvetica').fontSize(7.5).fillColor(MUTED).text(`CI Manager · CAPEX planner · printed ${clean(stamp)}`, 36, y, { width: doc.page.width - 72, align: 'right', lineBreak: false });
+  doc.font('Helvetica').fontSize(7.5).fillColor(MUTED).text(`SITHUB · CAPEX planner · printed ${clean(stamp)}`, 36, y, { width: doc.page.width - 72, align: 'right', lineBreak: false });
 }
 
 // one investment on a page

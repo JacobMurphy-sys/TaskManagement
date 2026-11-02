@@ -1106,7 +1106,7 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .pl-group-late td { color: var(--danger); }
 .pl-group-later td { color: var(--muted, #6b7280); }
 
-/* 🏭 CI Planner: Planning on its own */
+/* 🏭 SITHUB Planner: Planning on its own */
 body.planner-mode #sidebar, body.planner-mode .menu-toggle, body.planner-mode #topnav a:not([data-nav="planning"]),
 body.planner-mode #search, body.planner-mode [data-action="quick-note"], body.planner-mode #bell,
 body.planner-mode #top-menu a[data-nav="settings"], body.planner-mode #top-menu a[data-nav="contacts"], body.planner-mode #top-menu a[data-nav="report"], body.planner-mode .stop-server { display: none !important; }
@@ -1658,3 +1658,25 @@ label.f > .f-l .muted, label.f > .f-l .small { font-size: 12px; color: var(--mut
 .qn-foot { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-top: auto; padding-top: 6px; }
 .qn-body { margin-top: 4px; max-height: 7.5em; overflow: hidden; overflow-wrap: anywhere; }
 .qn-preview { max-height: 9em; overflow: auto; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; background: var(--bg); }
+
+/* 🎫 tickets */
+.tk-shot { margin-top: 10px; border: 2px dashed var(--border); border-radius: 8px; padding: 12px; min-height: 52px; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; text-align: center; }
+.tk-shot:focus, .tk-shot.over { border-color: var(--brand-2); outline: none; }
+.tk-shot img { max-width: 100%; max-height: 240px; border-radius: 4px; }
+.tk-shot .tk-shot-x { position: absolute; top: 4px; right: 4px; background: var(--panel); }
+.tk-shot kbd { font-size: 11px; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; background: var(--panel); }
+.tk-list { display: grid; gap: 10px; margin-top: 12px; }
+.tk-card { padding: 12px 14px; }
+.tk-card.tk-closed { opacity: .7; }
+.tk-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tk-head .spacer { flex: 1; }
+.tk-head select { width: auto; }
+.tk-kind { font-size: 18px; }
+.tk-desc { margin-top: 6px; overflow-wrap: anywhere; }
+.tk-thumb { max-width: 320px; max-height: 180px; margin-top: 8px; border: 1px solid var(--border); border-radius: 6px; }
+.tk-reply-line { margin-top: 8px; }
+.tk-reply-show { margin-top: 8px; padding: 6px 10px; border-left: 3px solid var(--brand-2); background: var(--accent-soft); border-radius: 4px; }
+.tk-ctx { margin-top: 6px; }
+.pill.tk-new { background: var(--accent-soft); color: var(--accent); }
+.pill.tk-done { background: #e3f4e8; color: #238446; }
+.pill.tk-wont_do { background: #eee; color: #666; }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CI Manager</title>
+  <title>SITHUB</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <!-- lets Edge / Chrome install it as an app: its own window and taskbar icon -->
   <link rel="manifest" href="manifest.webmanifest">
@@ -16,7 +16,7 @@
 </head>
 <body>
   <aside id="sidebar">
-    <div class="brand">✔ CI Manager</div>
+    <div class="brand">✔ SITHUB</div>
     <div id="clock" class="small muted"></div>
     <div class="side-head">
       <span>Projects</span>
@@ -45,6 +45,7 @@
       <div class="spacer"></div>
       <input id="search" type="search" placeholder="Search…  ( / )" autocomplete="off">
       <button data-action="quick-note" title="Quick note (N)">📝</button>
+      <button data-action="ticket" title="Report a bug, ask for a feature or a question">💬</button>
       <div id="notices" class="top-menu" hidden><button id="notices-btn" type="button" aria-haspopup="true">⚠</button><div id="notices-panel" class="top-menu-panel notices-panel" hidden></div></div>
       <a id="bell" href="#/dashboard" title="Due / overdue tasks">🔔 <span id="bell-count" class="count" hidden>0</span></a>
       <div class="top-menu">
@@ -52,6 +53,7 @@
         <div id="top-menu" class="top-menu-panel" hidden>
           <a href="#/contacts" data-nav="contacts">📇 Contacts</a>
           <a href="#/report" data-nav="report">📰 Status report</a>
+          <a href="#/tickets" data-nav="tickets">🎫 Tickets — bugs and requests</a>
           <hr>
           <a href="#/log" data-nav="log">🕘 Activity log</a>
           <a href="#/backups" data-nav="backups">💾 Backups</a>
@@ -61,7 +63,7 @@
             <span class="track"><span class="knob">☀</span></span><span>Dark mode</span></button>
           <button id="notify-btn" data-action="enable-notifications" hidden>🔔 Enable desktop alerts</button>
           <hr>
-          <button class="stop-server" data-action="stop-server" title="Shut down the CI Manager">⏻ Stop server</button>
+          <button class="stop-server" data-action="stop-server" title="Shut down SITHUB">⏻ Stop server</button>
         </div>
       </div>
     </header>
@@ -93,6 +95,7 @@
   <script src="collab.js"></script>
   <script src="accounts.js"></script>
   <script src="reschedule.js"></script>
+  <script src="tickets.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

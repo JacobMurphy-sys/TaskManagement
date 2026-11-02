@@ -1,4 +1,4 @@
-' Starts the CI Manager in the background (no console window) and opens it
+' Starts SITHUB in the background (no console window) and opens it
 ' in your browser. If it's already running, it just opens the browser.
 ' Before starting, it checks GitHub for a newer version; if there is one, CIManager-Setup.bat
 ' updates it (in a window, so you can see it) and starts it. AUTO_UPDATE=0 in .env turns that off.
@@ -14,7 +14,7 @@ url = "http://localhost:" & ReadPort() & "/"
 
 If Not IsRunning() Then
   If sh.Run("cmd /c where node", 0, True) <> 0 Then
-    MsgBox "Node.js was not found. Install it from https://nodejs.org and try again.", vbExclamation, "CI Manager"
+    MsgBox "Node.js was not found. Install it from https://nodejs.org and try again.", vbExclamation, "SITHUB"
     WScript.Quit 1
   End If
 
@@ -32,8 +32,8 @@ If Not IsRunning() Then
 
   ' First run: install dependencies (this window is visible so you can see progress).
   If Not fso.FolderExists(dir & "\node_modules") Then
-    If sh.Run("cmd /c echo Installing CI Manager dependencies... && npm install", 1, True) <> 0 Then
-      MsgBox "'npm install' failed. Try running start.bat to see the error.", vbExclamation, "CI Manager"
+    If sh.Run("cmd /c echo Installing SITHUB dependencies... && npm install", 1, True) <> 0 Then
+      MsgBox "'npm install' failed. Try running start.bat to see the error.", vbExclamation, "SITHUB"
       WScript.Quit 1
     End If
   End If
@@ -56,16 +56,16 @@ If Not IsRunning() Then
     End If
   End If
   If Not IsRunning() Then
-    MsgBox "The CI Manager didn't start." & vbCrLf & vbCrLf & _
+    MsgBox "SITHUB didn't start." & vbCrLf & vbCrLf & _
       "Run start.bat to see the error, or check the newest file in " & sh.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\CIManager\logs" & _
-      " (the app's log; logs in the app folder are only the shared server's).", vbExclamation, "CI Manager"
+      " (the app's log; logs in the app folder are only the shared server's).", vbExclamation, "SITHUB"
     WScript.Quit 1
   End If
 End If
 
 sh.Run url
 
-' True if the CI Manager answers on its port.
+' True if SITHUB answers on its port.
 Function IsRunning()
   Dim http
   IsRunning = False
@@ -107,7 +107,7 @@ End Function
 ' ---- a copy that's frozen: it holds the port but doesn't answer ------------------------------
 ' Asks scripts\free-port.js (Node, run hidden, the way the app itself is started), which finds the
 ' frozen copy from the app's own lock file. Returns its exit code: 0 port free, 1 running fine,
-' 10 a frozen CI Manager, 11 another program, 12 ended, 13 couldn't end.
+' 10 a frozen SITHUB, 11 another program, 12 ended, 13 couldn't end.
 Function PortCheck(endIt)
   Dim sh2, cmd
   Set sh2 = CreateObject("WScript.Shell")
@@ -117,18 +117,18 @@ Function PortCheck(endIt)
   PortCheck = sh2.Run(cmd, 0, True)
 End Function
 
-' Offers to end a frozen CI Manager. True when it was ended (the port is free).
+' Offers to end a frozen SITHUB. True when it was ended (the port is free).
 Function EndFrozen(port)
   EndFrozen = False
   Select Case PortCheck(False)
     Case 10
-      If MsgBox("The CI Manager seems to be frozen: it still holds port " & port & " but isn't answering." & vbCrLf & vbCrLf & _
-        "End it now? Anything saved is kept; a change made in the last moments before it froze may be lost.", vbYesNo + vbExclamation, "CI Manager") = vbYes Then
+      If MsgBox("SITHUB seems to be frozen: it still holds port " & port & " but isn't answering." & vbCrLf & vbCrLf & _
+        "End it now? Anything saved is kept; a change made in the last moments before it froze may be lost.", vbYesNo + vbExclamation, "SITHUB") = vbYes Then
         EndFrozen = (PortCheck(True) = 12)
-        If Not EndFrozen Then MsgBox "It couldn't be ended. Restarting Windows frees the port.", vbExclamation, "CI Manager"
+        If Not EndFrozen Then MsgBox "It couldn't be ended. Restarting Windows frees the port.", vbExclamation, "SITHUB"
       End If
     Case 11
-      MsgBox "Port " & port & " is in use by another program, not the CI Manager." & vbCrLf & vbCrLf & _
-        "Close that program, or put PORT=3001 (say) in the .env file in the app folder.", vbExclamation, "CI Manager"
+      MsgBox "Port " & port & " is in use by another program, not SITHUB." & vbCrLf & vbCrLf & _
+        "Close that program, or put PORT=3001 (say) in the .env file in the app folder.", vbExclamation, "SITHUB"
   End Select
 End Function

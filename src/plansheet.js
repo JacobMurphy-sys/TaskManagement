@@ -26,7 +26,7 @@ const clean = (s) => String(s ?? '').replace(/≈/g, '~').replace(/[▶►]/g, '
 function renderPlanPdf(model) {
   const side = model.layout === 'side';
   const doc = new PDFDocument({ size: 'A4', layout: side ? 'landscape' : 'portrait', margin: M, autoFirstPage: false, bufferPages: true,
-    info: { Title: clean(model.title || 'Production plan'), Creator: 'CI Manager' } });
+    info: { Title: clean(model.title || 'Production plan'), Creator: 'SITHUB' } });
   const chunks = [];
   doc.on('data', (c) => chunks.push(c));
   const done = new Promise((resolve) => doc.on('end', () => resolve(Buffer.concat(chunks))));

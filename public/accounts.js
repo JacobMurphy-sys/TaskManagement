@@ -38,7 +38,7 @@ function renderSignIn(msg = '') {
   document.body.classList.add('signin-page');
   document.getElementById('signin')?.remove();
   document.body.insertAdjacentHTML('beforeend', `<div class="signin" id="signin"><form class="card signin-card" id="signin-form">
-      <h1>✔ CI Manager</h1><p class="muted small">Sign in with the account you were given.</p>
+      <h1>✔ SITHUB</h1><p class="muted small">Sign in with the account you were given.</p>
       <label class="f">Username<input type="text" name="username" autocomplete="username" required autofocus></label>
       <label class="f">Password<input type="password" name="password" autocomplete="current-password" required></label>
       <div class="signin-msg" id="signin-msg">${esc(msg)}</div>
@@ -156,7 +156,7 @@ async function acctSettingsHtml() {
       <datalist id="acct-people">${people.map((n) => `<option value="${esc(n)}">`).join('')}</datalist></form>`;
   if (!ACCT.enabled) {
     return `<div class="card acct-card"><h2>👤 Accounts</h2>
-      <p class="small muted">Accounts are <b>off</b>: anyone who can reach the CI Manager uses it, as now. Make your own account first (as the admin) to turn sign-in on — from then on everyone signs in,
+      <p class="small muted">Accounts are <b>off</b>: anyone who can reach SITHUB uses it, as now. Make your own account first (as the admin) to turn sign-in on — from then on everyone signs in,
         and each account is linked to a person in the contacts, so <b>📥 My work</b> shows them the tasks they own and the projects they lead, sponsor or are on the team of, and what's new for them.</p>
       ${form(true)}</div>`;
   }
@@ -224,7 +224,7 @@ function acctSettingsWire(rerender) {
 function serverCardHtml() {
   if (!ACCT.enabled || !acctRight('server')) return '';
   return `<div class="card"><h2>🖥 Server</h2>
-    <p class="small muted">Look after the shared CI Manager from your own PC: read its log, or restart it. Restarting checks for an update and installs it first; everyone's pages reconnect by themselves after a few seconds.</p>
+    <p class="small muted">Look after the shared SITHUB from your own PC: read its log, or restart it. Restarting checks for an update and installs it first; everyone's pages reconnect by themselves after a few seconds.</p>
     <div class="row" style="gap:8px;flex-wrap:wrap"><button data-srv="log">📜 Server log</button><button data-srv="restart">🔄 Restart (and update)</button></div></div>`;
 }
 async function serverLog(onlyProblems = false) {
@@ -239,7 +239,7 @@ async function serverLog(onlyProblems = false) {
   $('#srv-again').addEventListener('click', () => serverLog($('#srv-problems').checked));
 }
 async function serverRestart() {
-  if (!confirm('Restart the CI Manager for everyone?\n\nIt checks for an update and installs it, then starts again — usually within a minute. Anything being typed on other PCs and not yet saved may be lost.')) return;
+  if (!confirm('Restart SITHUB for everyone?\n\nIt checks for an update and installs it, then starts again — usually within a minute. Anything being typed on other PCs and not yet saved may be lost.')) return;
   try { await api.post('/server/restart', {}); } catch (err) { toast(err.message, 'error'); return; }
   toast('Restarting — this page reloads when it\'s back');
   const started = Date.now();

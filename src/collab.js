@@ -1,5 +1,5 @@
 'use strict';
-// 👥 Several people on one CI Manager (the shared server): who's here and what they're looking at,
+// 👥 Several people on one SITHUB (the shared server): who's here and what they're looking at,
 // what others have just changed (so open pages can say so, or refresh), and no silent overwrites
 // of text two people were editing at once.
 //

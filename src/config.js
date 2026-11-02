@@ -25,7 +25,7 @@ const num = (v, fallback) => (v === undefined || v === '' || Number.isNaN(Number
 // code can never touch it. Windows: %LOCALAPPDATA%\CIManager.
 const base = env.LOCALAPPDATA || os.homedir();
 const defaultDataDir = path.join(base, env.LOCALAPPDATA ? 'CIManager' : '.cimanager');
-// Before the app was renamed to CI Manager its data folder was ...\TaskManager.
+// Before the app was renamed to SITHUB its data folder was ...\TaskManager.
 const oldDataDir = path.join(base, env.LOCALAPPDATA ? 'TaskManager' : '.taskmanager');
 
 // Moves the old data folder to the new name on first start. If it can't be moved

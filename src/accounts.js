@@ -1,5 +1,5 @@
 'use strict';
-// 👤 Accounts for the shared CI Manager. Off until the first account is made: until then everyone
+// 👤 Accounts for the shared SITHUB. Off until the first account is made: until then everyone
 // who can reach the app uses it as before. Once there's one, every browser signs in.
 // - Each account is linked to a person (a name in the contacts lists), the name used as task owner,
 //   project leader, sponsor or team member: their work is gathered for them (📥 My work, in api.js).
@@ -70,13 +70,14 @@ function moduleGate(req, res, next) {
 
 // ---- admin rights ---------------------------------------------------------------------------------
 // The host account (the owner: the first account made) has everything and is the one that hands out
-// admin rights. An admin has all four rights; another account can be given some of them, so day-to-day
+// admin rights. An admin has all the rights; another account can be given some of them, so day-to-day
 // fixing can be done from your own PC rather than on the server.
 const RIGHTS = [
   { key: 'setup', label: 'Change the setup', icon: '⚙', what: 'Settings, Planning setup and modifiers, applying learned speeds, KPI sources, importing the library, the team pack' },
   { key: 'accounts', label: 'Manage accounts', icon: '👤', what: 'add, turn off and remove accounts, set new passwords and choose their modules (not the host\'s, and not admin rights)' },
   { key: 'backups', label: 'Backups', icon: '💾', what: 'make a backup and restore one — from any PC, not only on the server' },
   { key: 'server', label: 'Server', icon: '🖥', what: 'read the server\'s log and restart it (picking up an update) from any PC' },
+  { key: 'tickets', label: 'Handle tickets', icon: '🎫', what: 'set the status of bug reports and feature requests, and answer them' },
 ];
 const RIGHT_KEYS = RIGHTS.map((r) => r.key);
 function rightsOf(a) {
@@ -156,7 +157,7 @@ function gate(req, res, next) {
   if (!enabled()) return next();
   // the launcher's Stop on the server itself, and making the first account (only when there's none)
   if (req.path === '/shutdown' && isLocal(req)) return next();
-  return res.status(401).json({ error: 'Sign in to the CI Manager', signin: true });
+  return res.status(401).json({ error: 'Sign in to SITHUB', signin: true });
 }
 const needRight = (req, key) => { if (enabled() && !hasRight(req, key)) { const e = new Error(`That needs the “${RIGHTS.find((r) => r.key === key).label}” right — ask the host`); e.status = 403; throw e; } };
 

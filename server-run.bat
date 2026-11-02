@@ -1,5 +1,5 @@
 @echo off
-REM Runs the CI Manager as the shared server - started by the "CI Manager server" scheduled task
+REM Runs SITHUB as the shared server - started by the "SITHUB server" scheduled task
 REM that server-install.bat makes (at start-up, whether anyone is logged on or not).
 REM - Before starting, and whenever the app asks (it checks each night, at UPDATE_HOUR, default 3,
 REM   when nobody has it open), it updates to the newest version: data backed up first, then
@@ -24,7 +24,7 @@ call :log "Server runner started"
 :loop
 node scripts\check-update.js
 if errorlevel 10 call :update
-call :log "Starting the CI Manager"
+call :log "Starting SITHUB"
 node src\server.js
 set "CODE=%errorlevel%"
 if "%CODE%"=="0" (

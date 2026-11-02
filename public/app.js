@@ -434,6 +434,7 @@ async function route() {
     else if (view === 'kanban') await renderKanban();
     else if (view === 'team') await renderTeam();
     else if (view === 'capex') await renderCapex(rest[0]);
+    else if (view === 'tickets') await renderTickets();
     else if (view === 'ideas') await renderIdeas();
     else if (view === 'idea') await renderIdea(rest[0]);
     else if (view === 'settings') await renderSettings();
@@ -2340,6 +2341,7 @@ const actions = {
   'edit-phase': (el) => phaseDialog(state.project, state.project.charter.phases.find((ph) => String(ph.id) === el.dataset.id)),
   'close-modal': () => closeModal(),
   'quick-note': () => quickNoteDialog(),
+  ticket: () => ticketDialog(),
   'qn-assign': async (el) => { const n = await quickNoteById(el.dataset.id); if (n) assignNoteDialog(n); else refresh(); },
   'qn-edit': async (el) => { const n = await quickNoteById(el.dataset.id); if (n) quickNoteDialog(n); else refresh(); },
   'qn-delete': async (el) => {
@@ -2517,10 +2519,10 @@ const actions = {
   'change-password': () => acctPasswordDialog(false),
   'sign-out': async () => { await api.post('/auth/logout', {}); location.reload(); },
   'stop-server': async () => {
-    if (!confirm('Stop the CI Manager? Reminders won\'t pop up until you start it again.')) return;
+    if (!confirm('Stop SITHUB? Reminders won\'t pop up until you start it again.')) return;
     await api.post('/shutdown');
     document.body.innerHTML = `<div class="card" style="margin:40px auto;max-width:480px">
-      <h2>CI Manager stopped</h2>
+      <h2>SITHUB stopped</h2>
       <p>Start it again by double-clicking <b>start-hidden.vbs</b> (or <b>start.bat</b>) in the app folder.</p></div>`;
   },
 };
@@ -2821,7 +2823,7 @@ async function pollAlerts() {
   const count = a.due_tasks.filter((t) => new Date(t.due_at) < new Date()).length + a.reminders.length;
   $('#bell-count').hidden = !count;
   $('#bell-count').textContent = count;
-  document.title = count ? `(${count}) CI Manager` : 'CI Manager';
+  document.title = count ? `(${count}) SITHUB` : 'SITHUB';
 }
 
 // ======================================================================
@@ -2844,10 +2846,10 @@ window.addEventListener('hashchange', route);
   // 👤 with accounts on: signed in, or the sign-in page instead of the app
   if (!(await acctInit())) return;
   if (state.mode === 'planner') {
-    // 🏭 CI Planner: Planning on its own, shared by several people
+    // 🏭 SITHUB Planner: Planning on its own, shared by several people
     document.body.classList.add('planner-mode');
-    document.title = 'CI Planner';
-    $('#sidebar .brand').textContent = '🏭 CI Planner';
+    document.title = 'SITHUB Planner';
+    $('#sidebar .brand').textContent = '🏭 SITHUB Planner';
     if (!me.name && !ACCT.account) { const n = (prompt('Your name — so others using the planner can see who\'s here:') || '').trim(); if (n) me.setName(n); }
     try { state.settings = await api.get('/settings'); } catch (err) { toast(err.message, 'error'); }
     await route();

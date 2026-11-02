@@ -3,7 +3,7 @@
 // answer, and a new start fails with "port already in use". This watches from a separate thread.
 // When the app hasn't ticked for STUCK_S seconds it writes to the log what it was doing (the
 // request it was last handling). After KILL_S seconds it ends the app, which frees the port.
-// server-run.bat then starts it again; on a PC the CI Manager shortcut starts it again.
+// server-run.bat then starts it again; on a PC the SITHUB shortcut starts it again.
 //
 //   const dog = require('./watchdog').start({ log });   dog.doing('GET /api/…')   // what's being handled
 

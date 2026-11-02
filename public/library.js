@@ -316,7 +316,7 @@ document.addEventListener('click', (e) => {
   const vault = b.dataset.vault; const now = b.dataset.name;
   openModal(`<div class="modal-head"><h2 style="margin:0">✎ Rename ${folder ? 'folder' : 'note'}</h2><button class="icon" data-action="close-modal">✕</button></div>
     <label class="f">New name<input id="lib-ren-name" maxlength="200" value="${esc(now)}"></label>
-    <p class="small muted">Changes the name in the CI Manager only: the ${folder ? 'folder' : 'note'} keeps its name in your Obsidian vault, and updates from the vault keep this one.
+    <p class="small muted">Changes the name in SITHUB only: the ${folder ? 'folder' : 'note'} keeps its name in your Obsidian vault, and updates from the vault keep this one.
       ${folder ? '' : `Links to it work with both names.`}${now !== vault ? ` In the vault it's called <b>${esc(vault)}</b>.` : ''}</p>
     <div class="row" style="margin-top:10px">${now !== vault ? '<button id="lib-ren-reset">Back to the vault\'s name</button>' : ''}<div class="spacer"></div>
       <button data-action="close-modal">Cancel</button><button class="primary" id="lib-ren-save">Rename</button></div>`);
@@ -359,7 +359,7 @@ function libraryImportDialog() {
     <p>Choose the vault folder (the one that contains the hidden <code>.obsidian</code> folder). Every note (<code>.md</code>) is copied in
       with its folders, together with images, PDFs and other attachments. Obsidian's settings, plugins and trash are left out,
       and nothing in your vault is changed.</p>
-    <p class="small muted">The browser will ask you to confirm “uploading” the files — they only go to the CI Manager on this PC.
+    <p class="small muted">The browser will ask you to confirm “uploading” the files — they only go to SITHUB on this PC.
       ${has ? 'Notes changed since last time are refreshed, new ones added and ones deleted from the vault removed.' : 'Import again at any time to pick up changes.'}</p>
     <div class="row"><label class="button primary">📁 Choose vault folder…<input type="file" id="vault-pick" webkitdirectory multiple hidden></label></div>
     <div id="vault-progress" style="margin-top:12px"></div>

@@ -254,7 +254,7 @@ function buildCpmWorkbook({ base, scenarios = [], period, flex, sources, CARD_FI
   const ab = sheet('Scenarios & notes'); ab.width(1, 26); ab.width(2, 100);
   ab.set(1, 1, 'Scenarios and notes', 'title'); let r = 3;
   const kv = (k2, v) => { ab.set(r, 1, k2, 'bold'); ab.set(r, 2, v, 'wrap'); r++; };
-  kv('Made', `${made} from CI Manager › 📐 Capacity`); kv('Forecast', `as read in ${base.forecast_as_of || '—'}${flex ? ', flex applied (each customer\'s actual ÷ forecast in earlier years)' : ', no flex'}`);
+  kv('Made', `${made} from SITHUB › 📐 Capacity`); kv('Forecast', `as read in ${base.forecast_as_of || '—'}${flex ? ', flex applied (each customer\'s actual ÷ forecast in earlier years)' : ', no flex'}`);
   kv('Working time', `${base.shifts} shifts × ${base.hours} productive hours a shift on Production's working days, less the holidays set`);
   kv('Speeds', base.techs.map((t) => `${t} ${base.speeds[t] || '—'}/h (${base.speed_from?.[t] || 'none'})`).join(' · '));
   kv('How it\'s worked out', 'Capacity needed = forecast × split ÷ OEE. Capacity = hours × availability × speed; a machine running several technologies gives its hours to whichever is short (shared evenly when neither is). By week, a month\'s forecast is spread over its working days.');

@@ -8,6 +8,7 @@ const config = require('./config');
 const { execFile, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { parseQuick, nextOccurrence, shiftKey, dateKey } = require('./dates');
 const { buildXlsx } = require('./xlsx');
 const { RECURRENCES } = require('./schema');
@@ -1125,6 +1126,82 @@ router.delete('/attachments/:id', h((req, res) => {
   res.status(204).end();
 }));
 
+// ------------------------------------------------------------------ 🎫 tickets
+// Bug reports, feature requests and questions from 💬 in the top bar. Anyone can send one and see them all;
+// the status and the answer are set by someone with the "Handle tickets" right (anyone, with accounts off).
+const TICKET_DIR = path.join(config.dataDir, 'tickets');
+const TICKET_KINDS = ['bug', 'feature', 'question'];
+const TICKET_STATUS = ['new', 'triaged', 'in_progress', 'done', 'wont_do'];
+const ticketRef = (id) => `TCK-${String(id).padStart(4, '0')}`;
+const appVersion = (() => { // the version and the commit it was installed from, for the ticket
+  let v = ''; try { v = require('../package.json').version; } catch { /* none */ }
+  try { const head = fs.readFileSync(path.join(config.ROOT, '.git', 'HEAD'), 'utf8').trim(); const ref = head.startsWith('ref:') ? fs.readFileSync(path.join(config.ROOT, '.git', head.slice(5).trim()), 'utf8').trim() : head; v += ` (${ref.slice(0, 7)})`; } catch { /* not a clone */ }
+  return v;
+})();
+const normTicket = (t) => t && { ...t, ref: ticketRef(t.id), context: parseJson(t.context) || {}, has_screenshot: !!t.screenshot, screenshot: undefined };
+const ticketReporter = (req) => { let who = String(req.get('X-User-Name') || ''); try { who = decodeURIComponent(who); } catch { /* as sent */ } return (req.account?.person || who || '').slice(0, 80) || null; };
+
+router.get('/tickets', h((req, res) => res.json({
+  tickets: db.all('SELECT * FROM tickets ORDER BY id DESC').map(normTicket),
+  can_handle: accounts.hasRight(req, 'tickets'),
+})));
+router.post('/tickets', h((req, res) => {
+  const b = req.body || {};
+  const title = String(b.title || '').trim().slice(0, 200);
+  if (!title) throw new HttpError(400, 'Give the ticket a short title');
+  const kind = TICKET_KINDS.includes(b.kind) ? b.kind : 'bug';
+  const context = { version: appVersion, browser: String(b.browser || req.get('User-Agent') || '').slice(0, 300), screen: String(b.screen || '').slice(0, 40),
+    user: ticketReporter(req), computer: collab.isLocal(req) ? os.hostname() : req.ip, errors: Array.isArray(b.errors) ? b.errors.slice(-5).map((x) => String(x).slice(0, 300)) : [] };
+  const t = insertRow('tickets', { kind, title, description: String(b.description || '').trim().slice(0, 20000) || null, reporter: ticketReporter(req),
+    page: String(b.page || '').slice(0, 300) || null, context: JSON.stringify(context), priority: kind === 'bug' && b.blocking ? 3 : 2 });
+  // a pasted or chosen screenshot (data:image/png;base64,…), kept as a file
+  const m = String(b.screenshot || '').match(/^data:image\/(png|jpeg|jpg|webp|gif);base64,([A-Za-z0-9+/=]+)$/);
+  if (m) {
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length > 15 * 1024 * 1024) throw new HttpError(400, 'The screenshot is too large (15 MB at most)');
+    fs.mkdirSync(TICKET_DIR, { recursive: true });
+    const file = `${ticketRef(t.id)}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
+    fs.writeFileSync(path.join(TICKET_DIR, file), buf);
+    updateRow('tickets', t.id, { screenshot: file });
+  }
+  log.info(`Ticket ${ticketRef(t.id)} (${kind}) from ${context.user || 'someone'}: ${title}`);
+  res.status(201).json(normTicket(fresh('tickets', t)));
+}));
+router.patch('/tickets/:id', h((req, res) => {
+  if (!accounts.hasRight(req, 'tickets')) throw new HttpError(403, 'Handling tickets needs the “Handle tickets” right — ask an admin');
+  const f = pick(req.body, ['status', 'priority', 'reply', 'kind']);
+  if (f.status !== undefined && !TICKET_STATUS.includes(f.status)) throw new HttpError(400, 'Invalid status');
+  if (f.kind !== undefined && !TICKET_KINDS.includes(f.kind)) throw new HttpError(400, 'Invalid kind');
+  const row = fresh('tickets', updateRow('tickets', req.params.id, f));
+  if (!row) throw notFound('Ticket');
+  res.json(normTicket(row));
+}));
+router.delete('/tickets/:id', h((req, res) => {
+  if (!accounts.hasRight(req, 'tickets')) throw new HttpError(403, 'Handling tickets needs the “Handle tickets” right — ask an admin');
+  const t = db.get('SELECT * FROM tickets WHERE id = ?', [req.params.id]);
+  if (!t) throw notFound('Ticket');
+  db.run('DELETE FROM tickets WHERE id = ?', [t.id]);
+  if (t.screenshot) fs.rmSync(path.join(TICKET_DIR, t.screenshot), { force: true });
+  res.status(204).end();
+}));
+router.get('/tickets/:id/screenshot', h((req, res) => {
+  const t = db.get('SELECT screenshot FROM tickets WHERE id = ?', [req.params.id]);
+  if (!t?.screenshot) throw notFound('Screenshot');
+  res.sendFile(path.join(TICKET_DIR, path.basename(t.screenshot)));
+}));
+// all tickets as an Excel sheet, to work through them elsewhere
+router.get('/tickets/export.xlsx', h((req, res) => {
+  const rows = db.all('SELECT * FROM tickets ORDER BY id').map(normTicket);
+  const head = ['Ref', 'Kind', 'Title', 'Status', 'Priority', 'Reporter', 'Sent', 'Page', 'Description', 'Answer', 'Version', 'Browser'];
+  const data = rows.map((t) => [t.ref, t.kind, t.title, t.status.replace('_', ' '), ['', 'Low', 'Medium', 'High', 'Critical'][t.priority], t.reporter || '', t.created_at.slice(0, 16).replace('T', ' '),
+    t.page || '', t.description || '', t.reply || '', t.context.version || '', t.context.browser || '']);
+  const file = `SITHUB tickets ${dateKey(new Date())}.xlsx`;
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${file}"; filename*=UTF-8''${encodeURIComponent(file)}`);
+  const W = [11, 9, 40, 11, 9, 18, 16, 22, 60, 40, 16, 40];
+  res.send(buildXlsx([{ name: 'Tickets', columns: head.map((h, i) => ({ header: h, width: W[i] })), rows: data }]));
+}));
+
 // ------------------------------------------------------------------ notes
 
 router.post('/notes', h((req, res) => {
@@ -1495,7 +1572,7 @@ const kpi = require('./kpi');
 const zlibSync = require('zlib');
 const kpiMeta = (r) => ({ id: r.id, week: r.week, year: r.year, month: r.month, source_name: r.source_name, source_modified: r.source_modified,
   loaded_at: r.updated_at, exported_at: r.exported_at, exported_to: r.exported_to, origin: r.origin === 'ci' ? 'ci' : 'excel' });
-// The last workbook loaded is kept as the template for A3s the CI Manager builds itself.
+// The last workbook loaded is kept as the template for A3s SITHUB builds itself.
 const KPI_TEMPLATE = path.join(config.dataDir, 'kpi', 'template.xlsm');
 
 function storeWeek(buf, sourceName, sourceModified) {
@@ -1881,16 +1958,16 @@ router.get('/kpi/weeks', h((req, res) => {
     weeks: kpiData.weeksOf(year).map((w) => ({ ...w, a3: have.get(w.week) || null })) });
 }));
 
-// The CI Manager's own A3 for a week: the workbook's formulas re-run on the figures
+// SITHUB's own A3 for a week: the workbook's formulas re-run on the figures
 // worked out from the source files (see kpi.buildWeek). A week loaded from Excel is only
 // replaced when asked (replace: true).
 router.post('/kpi/build', h((req, res) => {
   const week = String(req.body.week || '').trim().toUpperCase();
   if (!kpiData.WEEK_RE.test(week)) throw new HttpError(400, 'Not a week code');
   const template = templateWorkbook();
-  if (!template) throw new HttpError(400, 'Load the workbook once (📥 Load this week) — its A3 and Database sheets are the template for the weeks the CI Manager builds');
+  if (!template) throw new HttpError(400, 'Load the workbook once (📥 Load this week) — its A3 and Database sheets are the template for the weeks SITHUB builds');
   const old = db.get('SELECT * FROM kpi_snapshots WHERE week = ?', [week]);
-  if (old && (old.origin || 'excel') === 'excel' && !req.body.replace) throw new HttpError(409, `${week} was loaded from Excel — confirm to replace it with the CI Manager's own figures`);
+  if (old && (old.origin || 'excel') === 'excel' && !req.body.replace) throw new HttpError(409, `${week} was loaded from Excel — confirm to replace it with SITHUB's own figures`);
   const year = kpi.weekParts(week).year;
   const set = getSettings();
   let w;
@@ -1901,7 +1978,7 @@ router.post('/kpi/build', h((req, res) => {
     }, { a3Sheet: set.kpi_a3_sheet, dbSheet: set.kpi_db_sheet, weekCell: set.kpi_week_cell });
   } catch (err) { throw new HttpError(400, err.message); }
   const row = {
-    week, year: w.year, month: w.month, source_name: 'CI Manager', source_modified: null, origin: 'ci', updated_at: nowIso(), exported_at: null, exported_to: null,
+    week, year: w.year, month: w.month, source_name: 'SITHUB', source_modified: null, origin: 'ci', updated_at: nowIso(), exported_at: null, exported_to: null,
     model: zlibSync.gzipSync(JSON.stringify({ views: w.views, values: w.values, sheets: w.sheets, errors: w.errors, flags: w.flags, template_week: w.template_week, writeups: w.writeups })).toString('base64'),
     pkg: w.pkg.toString('base64'),
   };
@@ -2459,7 +2536,7 @@ router.get('/team-pack', h((req, res) => {
   res.json(pack);
 }));
 function mergeTeamPack(b) {
-  if (b?.kind !== 'ci-team-pack') throw new HttpError(400, 'Not a CI Manager team pack');
+  if (b?.kind !== 'ci-team-pack') throw new HttpError(400, 'Not a SITHUB team pack');
   const out = { lists: 0, names: 0, filled: 0, lookups: 0 };
   db.tx(() => {
     for (const l of Array.isArray(b.contacts) ? b.contacts : []) {
@@ -3177,7 +3254,7 @@ router.get('/plan/hidden.xlsx', h((req, res) => {
       ['Perso', `${new Set(jobs.map((j) => j.wo)).size} work orders, ${jobs.length} jobs, ${lines.length} card lines, ${jobs.reduce((t, j) => t + j.qty, 0)} cards — see "Hidden perso" (one row per job) and "Hidden perso lines" (one per card).`],
       ['Matching', `${ottoHidden.length} Matching jobs — see "Hidden Matching".`],
       ['Dispatch', `${dispHidden.length} dispatch jobs — see "Hidden Dispatch".`],
-      ['Ran?', 'From the ⏱ timing runs kept by the CI Manager: "Ran in full" usually means the work is done but the work order was never closed; "Never ran" that it is still waiting, no longer wanted, or wrong.'],
+      ['Ran?', 'From the ⏱ timing runs kept by SITHUB: "Ran in full" usually means the work is done but the work order was never closed; "Never ran" that it is still waiting, no longer wanted, or wrong.'],
       ['Investigation', 'Fill in Cause, Action, Owner and Closed as each is resolved.'],
       ['Made', `${ymdL(now)} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`]] },
     { name: 'Hidden perso', columns: [c('Work order', 16), c('Job', 7), c('Customer', 9), c('Customer name', 20), c('Cards', 8, 'number'), c('Card lines', 9, 'number'), c('Due', 11, 'date'), c('Days ago', 8, 'number'),
@@ -3234,7 +3311,7 @@ router.get('/prod/anomalies.xlsx', h((req, res) => {
   const inv = [c('Cause', 30), c('Action', 30), c('Owner', 16), c('Closed', 11, 'date')];
   const sheets = [
     { name: 'Read me', columns: [c('', 26), c('', 100)], rows: [
-      ['What', 'Everything the CI Manager sets aside, to investigate'],
+      ['What', 'Everything SITHUB sets aside, to investigate'],
       ['Timing anomalies', `Runs from the daily timing reports between ${ymdL(from)} and ${ymdL(new Date(to.getTime() - 86400000))} that can't be right for their machine and size (strictness: ${sens}). They are left out of Timing, Learned and the planning figures.`],
       ['', `${runRows.length} run${runRows.length === 1 ? '' : 's'} in ${woRows.length} work order${woRows.length === 1 ? '' : 's'}: see "Anomalies by WO" (one row each, with columns for the investigation) and "Anomalous runs" (every run).`],
       ['Old open work orders', 'The open work orders hidden from Production for their age have their own export: the ⬇ Export them to Excel button on the hidden line in the Perso or Matching backlog.'],
@@ -3287,7 +3364,7 @@ const metaSet = (key, value) => db.run(`INSERT INTO settings (key, value) VALUES
 
 function sharedValues(doc) {
   const values = doc && typeof doc === 'object' && doc.settings && typeof doc.settings === 'object' ? doc.settings : null;
-  if (!values) throw new HttpError(400, 'Not a CI Manager shared defaults file');
+  if (!values) throw new HttpError(400, 'Not a SITHUB shared defaults file');
   return Object.fromEntries(SHARED_KEYS.filter((k) => typeof values[k] === 'string').map((k) => [k, values[k].trim()]));
 }
 
@@ -3328,7 +3405,7 @@ router.get('/settings/shared/export', h((req, res) => {
   const cur = getSettings();
   const settings = Object.fromEntries(SHARED_KEYS.filter((k) => cur[k] !== '' && cur[k] !== SETTING_DEFAULTS[k]).map((k) => [k, cur[k]]));
   res.set('Content-Disposition', 'attachment; filename="cimanager-defaults.json"');
-  res.type('application/json').send(JSON.stringify({ app: 'CI Manager', kind: 'shared-defaults', exported_at: new Date().toISOString(), settings }, null, 2));
+  res.type('application/json').send(JSON.stringify({ app: 'SITHUB', kind: 'shared-defaults', exported_at: new Date().toISOString(), settings }, null, 2));
 }));
 
 // Apply a file picked in the browser ({ doc, name }), or the shared file again ({}).
@@ -3818,7 +3895,7 @@ router.get('/export.xlsx', h((req, res) => {
     const p = db.get('SELECT name FROM projects WHERE id = ?', [req.query.id]);
     name = p.name.replace(/[^\w -]+/g, '').trim().slice(0, 40) || 'Project';
   }
-  const file = `CI Manager - ${name} - ${dateKey(new Date())}.xlsx`;
+  const file = `SITHUB - ${name} - ${dateKey(new Date())}.xlsx`;
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${file}"; filename*=UTF-8''${encodeURIComponent(file)}`);
   res.send(buildXlsx(sheets));
@@ -4377,7 +4454,7 @@ function describeAudit(e) {
   const label = { projects: 'Project', tasks: d.parent_id ? 'Subtask' : 'Task', notes: 'Note', reminders: 'Reminder',
     ideas: `Idea${d.ref ? ` ${d.ref}` : ''}`, idea_notes: 'Idea note', areas: 'Area', settings: 'Setting',
     project_costs: 'Cost', task_links: 'Dependency', project_team: 'Team member', project_kpis: 'KPI',
-    lookups: 'List item', project_phases: 'Phase', meetings: 'Meeting', attachments: 'Attachment', people_focus: 'Person',
+    lookups: 'List item', project_phases: 'Phase', meetings: 'Meeting', attachments: 'Attachment', people_focus: 'Person', tickets: 'Ticket',
     capex: `Investment${d.ref ? ` ${d.ref}` : ''}`, cpm_customers: 'Capacity customer', cpm_scenarios: 'Scenario', name_lists: 'Contacts list', name_list_items: 'Contact' }[e.table_name] || e.table_name;
   if (e.table_name === 'project_phases' && e.action === 'UPDATE' && e.old_data?.status !== e.new_data?.status) {
     return `Phase "${d.name}" ${e.new_data.status === 'done' ? 'completed ✓' : 'reopened'}`;

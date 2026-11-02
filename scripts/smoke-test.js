@@ -68,6 +68,24 @@ async function waitForServer() {
     await call('POST', '/notes', { task_id: added.id, body: 'Task-level note' });
     const timeline = await call('GET', `/projects/${p.id}/timeline`);
     assert.equal(timeline.filter((i) => i.type === 'note').length, 3, 'three notes in timeline');
+    { // 🎫 tickets: sent with where they came from and a screenshot; status and an answer set on them
+      const png1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      await assert.rejects(call('POST', '/tickets', { kind: 'bug', title: '  ' }), /short title/);
+      const t = await call('POST', '/tickets', { kind: 'bug', title: 'Gantt misses subtasks', description: 'Open a project, Gantt', page: '#/project/1', blocking: true,
+        errors: ['Something failed'], screenshot: `data:image/png;base64,${png1}` });
+      assert.equal(t.ref, `TCK-${String(t.id).padStart(4, '0')}`); assert.equal(t.status, 'new'); assert.equal(t.priority, 3, 'stops them working');
+      assert.ok(t.has_screenshot && t.context.version && t.context.errors.length === 1, 'screenshot and context kept');
+      const img = await fetch(`${BASE}/tickets/${t.id}/screenshot`); assert.equal(img.status, 200); assert.equal(img.headers.get('content-type'), 'image/png');
+      const f2 = await call('POST', '/tickets', { kind: 'nonsense', title: 'Dark mode for the A3' });
+      assert.equal(f2.kind, 'bug', 'unknown kind: a bug report');
+      const upd = await call('PATCH', `/tickets/${t.id}`, { status: 'in_progress', reply: 'Looking at it' });
+      assert.deepEqual([upd.status, upd.reply], ['in_progress', 'Looking at it']);
+      await assert.rejects(call('PATCH', `/tickets/${t.id}`, { status: 'closed' }), /Invalid status/);
+      const list = await call('GET', '/tickets'); assert.ok(list.can_handle && list.tickets.length >= 2, 'listed; with accounts off anyone handles them');
+      const x = await fetch(`${BASE}/tickets/export.xlsx`); assert.equal(x.status, 200); assert.ok((await x.arrayBuffer()).byteLength > 1000, 'Excel export');
+      await call('DELETE', `/tickets/${f2.id}`); await call('DELETE', `/tickets/${t.id}`);
+      assert.equal((await fetch(`${BASE}/tickets/${t.id}/screenshot`)).status, 404, 'screenshot gone with it');
+    }
     { // 📝 quick notes: on Home until assigned; a title of its own goes into the note, [ ] lines become tasks then
       const q1 = await call('POST', '/notes', { inbox: true, title: 'Quick Note 02/11/26 09:15', body: 'Ring the supplier\n[ ] Ask for the new price' });
       const q2 = await call('POST', '/notes', { inbox: true, title: 'Shift handover', body: 'Line 3 slow' });
@@ -972,7 +990,7 @@ async function waitForServer() {
     assert.equal((await call('GET', `/tasks/${afterRestore.id}`).catch(() => null)), null, 'data since the backup replaced');
     up2 = await upload(Buffer.from('hello'), 'notes.txt', '?check=1');
     assert.equal(up2.status, 400, 'a non-backup file is refused');
-    assert.match((await up2.json()).error, /not a CI Manager backup/);
+    assert.match((await up2.json()).error, /not a SITHUB backup/);
 
     // ---- Weekly KPIs: a small workbook like the CI one (A3 + Database, a cross-sheet
     // conditional format, a chart), loaded, viewed and exported as a disconnected A3
@@ -1310,7 +1328,7 @@ async function waitForServer() {
       assert.deepEqual(await call('POST', '/kpi/manual/from-excel', {}), { weeks: 0, fields: 0 }, 'nothing overwritten');
       assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'kpi_manual'), 'typed-in figures are audited (and backed up)');
 
-      // ---- the CI Manager's own A3 for any week: the workbook's formulas re-run on the source figures
+      // ---- SITHUB's own A3 for any week: the workbook's formulas re-run on the source figures
       const { createCalc } = require('../src/xlcalc');
       const cellsOf = (o) => ({ cells: new Map(Object.entries(o).map(([r, c]) => [r, { r, row: Number(r.slice(1)), col: r.charCodeAt(0) - 64, t: typeof c.v === 'string' ? 's' : 'n', ...c }])), maxRow: 9, maxCol: 9 });
       const fx = createCalc({
@@ -1346,7 +1364,7 @@ async function waitForServer() {
       assert.equal(yr.weeks.find((w) => w.week === 'W2639').a3.origin, 'excel');
       assert.equal(yr.weeks.find((w) => w.week === 'W2614_1').a3, null);
       const built = await call('POST', '/kpi/build', { week: 'W2614_1' });
-      assert.deepEqual([built.week, built.origin, built.source_name], ['W2614_1', 'ci', 'CI Manager']);
+      assert.deepEqual([built.week, built.origin, built.source_name], ['W2614_1', 'ci', 'SITHUB']);
       assert.deepEqual(built.flags.map((f) => f.part), ['text', 'complaints'], 'flags what still comes from the workbook');
       assert.match(built.flags[1].text, /Customer complaints aren't written up: there's no "CC Week:"/, 'and that this template has nowhere for the complaints');
       // 📐 typed text shrunk to fit its box: the size goes with the text, and back to the workbook's text clears it
@@ -1380,7 +1398,7 @@ async function waitForServer() {
       assert.equal((await call('GET', '/kpi/prepare?week=nonsense')).week, prep.default_week, 'a bad week falls back to the last finished one');
       await assert.rejects(call('POST', '/kpi/build', { week: 'W2639' }), /loaded from Excel/);
       await assert.rejects(call('POST', '/kpi/build', { week: 'nope' }), /Not a week code/);
-      assert.equal((await call('GET', '/kpi/calc?year=2026')).excel.week, 'W2639', 'the Excel comparison ignores weeks the CI Manager built');
+      assert.equal((await call('GET', '/kpi/calc?year=2026')).excel.week, 'W2639', 'the Excel comparison ignores weeks SITHUB built');
       const bx = await fetch(`${BASE}/kpi/snapshots/${built.id}/export`, { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } });
       assert.equal(bx.status, 200, 'a built week exports like any other');
       await call('DELETE', `/kpi/snapshots/${built.id}`);
@@ -2380,7 +2398,7 @@ async function waitForServer() {
       const blank = JSON.parse(JSON.stringify(extra)); blank.contacts.find((l) => l.name === 'Suppliers').items[0].detail = 'printed cards';
       await call('POST', '/team-pack', blank);
       assert.equal((await call('GET', '/name-lists')).find((l) => l.name === 'Suppliers').items[0].detail, 'cards', 'details set here aren\'t overwritten');
-      await assert.rejects(call('POST', '/team-pack', { kind: 'x' }), /Not a CI Manager team pack/);
+      await assert.rejects(call('POST', '/team-pack', { kind: 'x' }), /Not a SITHUB team pack/);
       globalThis.__teamPack = extra;
     }
 
@@ -2391,7 +2409,7 @@ async function waitForServer() {
       assert.equal(sh.file, file); assert.equal(sh.file_found, false, 'not there yet (e.g. off the network)');
       await assert.rejects(call('POST', '/settings/shared/apply', {}), /Can't reach/);
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      const write = (settings) => fs.writeFileSync(file, `\uFEFF${JSON.stringify({ app: 'CI Manager', kind: 'shared-defaults', settings })}`);
+      const write = (settings) => fs.writeFileSync(file, `\uFEFF${JSON.stringify({ app: 'SITHUB', kind: 'shared-defaults', settings })}`);
       write({ plan_src: '\\\\srv\\wo.xlsx', plan_otto_src: '\\\\srv\\otto.xlsx', kpi_a3_sheet: 'A3', currency: '$' });
       let r = await call('POST', '/settings/shared/apply', {});
       assert.deepEqual(r.changed.sort(), ['kpi_a3_sheet', 'plan_otto_src'], 'blank and built-in values are filled in');
@@ -2411,7 +2429,7 @@ async function waitForServer() {
       assert.equal(out.settings.currency, undefined); assert.equal(out.settings.kpi_db_sheet, undefined, 'built-in values are left out');
       r = await call('POST', '/settings/shared/apply', { doc: { settings: { kpi_db_sheet: 'DB' } }, name: 'paths.json' });
       assert.deepEqual(r.changed, ['kpi_db_sheet']);
-      await assert.rejects(call('POST', '/settings/shared/apply', { doc: { nope: 1 } }), /Not a CI Manager shared defaults file/);
+      await assert.rejects(call('POST', '/settings/shared/apply', { doc: { nope: 1 } }), /Not a SITHUB shared defaults file/);
       await call('PATCH', '/settings', { kpi_a3_sheet: 'A3 Weekly Report', kpi_db_sheet: 'Database', plan_otto_src: '' });
     }
 

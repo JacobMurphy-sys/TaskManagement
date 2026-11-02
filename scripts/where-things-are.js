@@ -23,8 +23,8 @@ let version = 'unknown';
 try { version = execFileSync('git', ['-C', app, 'log', '-1', '--format=%h, %cs'], { encoding: 'utf8' }).trim(); } catch { /* not a clone */ }
 const now = new Date().toLocaleString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-// The installer makes a CI Manager shortcut with the CI Manager icon, here and on the desktop.
-const launch = 'the CI Manager shortcut (on the desktop, or in this folder)';
+// The installer makes a SITHUB shortcut with the SITHUB icon, here and on the desktop.
+const launch = 'SITHUB shortcut (on the desktop, or in this folder)';
 const planner = inplace ? 'planner.bat' : 'app\\planner.bat';
 
 // The content once; rendered as plain text and as Markdown below.
@@ -34,9 +34,9 @@ const doc = [
     { files: [
       ['Start', `Double-click ${launch}. It runs in the background and opens http://localhost:${config.port} in your browser. Double-click it again to just open the browser.`],
       ['Stop', 'In the app: the top bar\'s ⋯ menu › Stop server.'],
-      ['Update', 'Automatic: each time the CI Manager shortcut starts the app, it checks for a newer version first, and if there is one, updates in a window (backing up your data first) and then starts. To update straight away, stop the app and double-click CIManager-Setup.bat. AUTO_UPDATE=0 in .env turns the automatic check off.'],
-      ['Taskbar', 'Right-click the CI Manager shortcut › Pin to taskbar (on Windows 11: Show more options › Pin to taskbar). Or, with the app open in Edge or Chrome: ⋯ menu › Apps › Install CI Manager, which gives it a window and taskbar icon of its own (it needs the app running, so start it with the shortcut or at log-in).'],
-      ['At log-in', 'If you said yes when it was installed, it starts by itself when you log in to Windows (a CI Manager shortcut in your Startup folder, kept up to date by updates). To change that: press Win+R, type shell:startup, and delete the CI Manager shortcut there, or copy one in.'],
+      ['Update', 'Automatic: each time SITHUB shortcut starts the app, it checks for a newer version first, and if there is one, updates in a window (backing up your data first) and then starts. To update straight away, stop the app and double-click CIManager-Setup.bat. AUTO_UPDATE=0 in .env turns the automatic check off.'],
+      ['Taskbar', 'Right-click SITHUB shortcut › Pin to taskbar (on Windows 11: Show more options › Pin to taskbar). Or, with the app open in Edge or Chrome: ⋯ menu › Apps › Install SITHUB, which gives it a window and taskbar icon of its own (it needs the app running, so start it with the shortcut or at log-in).'],
+      ['At log-in', 'If you said yes when it was installed, it starts by itself when you log in to Windows (a SITHUB shortcut in your Startup folder, kept up to date by updates). To change that: press Win+R, type shell:startup, and delete SITHUB shortcut there, or copy one in.'],
     ] },
   ] },
   { h: 'What is kept where', blocks: [
@@ -44,7 +44,7 @@ const doc = [
       ['(this folder)', `A copy of the program from GitHub (${repo}). Updates replace its files, so don't keep your own files in it. The only file of yours in it is .env (optional settings, below).`],
       [`${NAME}.txt / .md`, 'This file, rewritten on every update.'],
     ] : [
-      ['CI Manager', 'Shortcut: updates the app if there\'s a newer version, starts it and opens it (the desktop shortcut does the same).'],
+      ['SITHUB', 'Shortcut: updates the app if there\'s a newer version, starts it and opens it (the desktop shortcut does the same).'],
       ['CIManager-Setup.bat', 'Install and update (the shortcut runs it when there\'s an update). Refreshes itself on each run.'],
       [`${NAME}.txt / .md`, 'This file, rewritten on every update.'],
       ['app\\', 'The program, downloaded from GitHub. Replaced on every update, so don\'t keep your own files in it. The only file of yours in it is app\\.env (optional settings, below).'],
@@ -140,7 +140,7 @@ const fileUrl = (p) => (/^\\\\/.test(p) ? `file:${encodeURI(p.replace(/\\/g, '/'
 const md = (s) => s.replace(/([\\|*_`[\]])/g, '\\$1');
 function toMarkdown() {
   const L = ['---', 'tags: [ci-manager]', `updated: ${new Date().toISOString().slice(0, 10)}`, `version: "${version}"`, '---',
-    '# CI Manager: where things are', '',
+    '# SITHUB: where things are', '',
     `> [!info] Written by CIManager-Setup.bat on ${now} (version ${md(version)}).`,
     '> It is rewritten every time the setup runs. To keep notes, copy it into your vault and edit the copy.', ''];
   for (const s of doc) {

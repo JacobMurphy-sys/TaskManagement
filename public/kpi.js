@@ -29,9 +29,9 @@ async function renderKpi(arg, tab) {
       ${calc ? kpiTablesHtml(calc, dbTab) : dbTab === 'tables' ? kpiReportTablesHtml(snap) : '<div class="kpi-sheet-wrap" id="kpi-wrap"><div id="kpi-sizer"><div id="kpi-sheet"></div></div></div>'}</div>`;
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
-      ${year?.weeks?.length ? `<select id="kpi-week" title="Reporting week — any week of ${year.year}: from Excel, or built by the CI Manager from the source figures">
-          ${year.weeks.map((w) => `<option value="${w.a3 ? w.a3.id : `build:${esc(w.week)}`}" ${w.a3 && w.a3.id === snap?.id ? 'selected' : ''}>${esc(w.week)} · ${esc(w.month)}${w.a3 ? (w.a3.origin === 'ci' ? ' — CI Manager' : ' — Excel') : ''}</option>`).join('')}
-          ${weeks.filter((w) => !year.weeks.some((y) => y.a3?.id === w.id)).map((w) => `<option value="${w.id}" ${w.id === snap?.id ? 'selected' : ''}>${esc(w.week)}${w.month ? ` · ${esc(w.month)}` : ''} — ${w.origin === 'ci' ? 'CI Manager' : 'Excel'}</option>`).join('')}</select>`
+      ${year?.weeks?.length ? `<select id="kpi-week" title="Reporting week — any week of ${year.year}: from Excel, or built by SITHUB from the source figures">
+          ${year.weeks.map((w) => `<option value="${w.a3 ? w.a3.id : `build:${esc(w.week)}`}" ${w.a3 && w.a3.id === snap?.id ? 'selected' : ''}>${esc(w.week)} · ${esc(w.month)}${w.a3 ? (w.a3.origin === 'ci' ? ' — SITHUB' : ' — Excel') : ''}</option>`).join('')}
+          ${weeks.filter((w) => !year.weeks.some((y) => y.a3?.id === w.id)).map((w) => `<option value="${w.id}" ${w.id === snap?.id ? 'selected' : ''}>${esc(w.week)}${w.month ? ` · ${esc(w.month)}` : ''} — ${w.origin === 'ci' ? 'SITHUB' : 'Excel'}</option>`).join('')}</select>`
         : weeks.length ? `<select id="kpi-week" title="Reporting week">${weeks.map((w) => `<option value="${w.id}" ${w.id === snap?.id ? 'selected' : ''}>${esc(w.week)}${w.month ? ` · ${esc(w.month)}` : ''}</option>`).join('')}</select>` : ''}
       <div class="seg"><a href="#/kpi/${snap?.id || ''}" class="${view === 'a3' ? 'on' : ''}">Weekly Ops Report</a><a href="#/kpi/${snap?.id || 0}/database" class="${view === 'database' ? 'on' : ''}">Database</a><a href="#/kpi/sources" title="Where the workbook, the source files and the forecasts are">Sources</a></div>
       <div class="spacer"></div>
@@ -47,7 +47,7 @@ async function renderKpi(arg, tab) {
     ${notes.actions.map((a) => `<div class="kpi-action notice"><span>${a.text}</span> ${a.buttons}</div>`).join('')}
     ${snap ? `<div class="kpi-meta small muted${view === 'a3' ? ' sticky' : ''}">${esc(snap.week)} · ${snap.origin === 'ci' ? `built ${esc(fmtDateTime(snap.loaded_at))} from the source figures` : `loaded ${esc(fmtDateTime(snap.loaded_at))} from Excel`}
         <details class="kpi-info"><summary title="Where this A3 came from">ⓘ</summary><div class="kpi-info-pop card">${notes.info.map((t) => `<div>${t}</div>`).join('')}</div></details>
-        <button class="link small" data-kpi="rebuild" title="${snap.origin === 'ci' ? 'Build it again from the latest source figures' : 'Replace the Excel copy with the CI Manager\'s own figures for this week'}">🔄 ${snap.origin === 'ci' ? 'Rebuild' : 'Build from sources instead'}</button>
+        <button class="link small" data-kpi="rebuild" title="${snap.origin === 'ci' ? 'Build it again from the latest source figures' : 'Replace the Excel copy with SITHUB\'s own figures for this week'}">🔄 ${snap.origin === 'ci' ? 'Rebuild' : 'Build from sources instead'}</button>
         ${snap.exported_to ? ` · <span title="${esc(snap.exported_to)}">💾 saved ${esc(fmtDateTime(snap.exported_at))}</span>` : ''}
         ${snap.errors?.length ? ` · <span class="chip overdue" title="${esc(snap.errors.join('\n'))}">⚠ ${snap.errors.length} cell${snap.errors.length === 1 ? '' : 's'} with errors</span>` : ''}
         <span class="spacer"></span>
@@ -64,7 +64,7 @@ async function renderKpi(arg, tab) {
           <textarea id="kpi-notes" rows="5" placeholder="Anything to remember about ${esc(snap.week)} — what to follow up, what was said in the review, what to change next week…">${esc(snap.notes?.text || '')}</textarea></div>`}`
     : view === 'database' ? dbHtml
     : `<div class="card lib-empty"><h2>Weekly KPIs from the CI workbook</h2>
-        <p>Load the workbook after refreshing it and choosing the reporting week. The CI Manager keeps a copy of that week's
+        <p>Load the workbook after refreshing it and choosing the reporting week. SITHUB keeps a copy of that week's
           <b>A3 Weekly Report</b> and <b>Database</b> exactly as they look in Excel, and saves the A3 as a disconnected file —
           values and colours only, charts as pictures, no formulas, links or macros.</p>
         <p class="small muted">Nothing in the workbook is changed. Only the week it's showing is read, so load it once per week.</p></div>`}`;
@@ -121,12 +121,12 @@ async function renderKpi(arg, tab) {
       await route(); return;
     }
     if (what === 'rebuild') {
-      if (snap.origin !== 'ci' && !confirm(`Replace the Excel copy of ${snap.week} with an A3 built from the CI Manager's own figures?`)) return;
+      if (snap.origin !== 'ci' && !confirm(`Replace the Excel copy of ${snap.week} with an A3 built from SITHUB's own figures?`)) return;
       await kpiBuild(snap.week, snap.origin !== 'ci', b, view);
       return;
     }
     if (what === 'delete') {
-      if (!confirm(`Remove ${snap.week} from the CI Manager? The workbook and any saved A3 files aren't touched.`)) return;
+      if (!confirm(`Remove ${snap.week} from SITHUB? The workbook and any saved A3 files aren't touched.`)) return;
       await api.del(`/kpi/snapshots/${snap.id}`);
       toast(`${snap.week} removed`);
       location.hash = '#/kpi';
@@ -193,7 +193,7 @@ function kpiSetupHtml(s) {
   return `<h2 style="margin-top:0">CI workbook &amp; the saved A3 <span class="muted small">— the reporting workbook, and where each week's A3 file goes</span></h2>
     <div class="form-grid">
       <label class="f full">Workbook (where it's saved)<input type="text" name="kpi_workbook_path" value="${esc(s.kpi_workbook_path)}" placeholder="e.g. S:\\…\\CI Hub.xlsm">
-        <span class="small muted">Used by 📥 Load this week. Save the workbook in Excel after refreshing and picking the week — the CI Manager reads the values Excel saved.</span></label>
+        <span class="small muted">Used by 📥 Load this week. Save the workbook in Excel after refreshing and picking the week — SITHUB reads the values Excel saved.</span></label>
       <label class="f full">A3 folder — the one holding the week folders (WK04, WK05, …)<input type="text" name="kpi_export_dir" value="${esc(s.kpi_export_dir)}" placeholder="e.g. S:\\…\\Weekly - Monthly OPS Report\\{year}\\Weekly">
         <span class="small muted">{year} → 2026, so the same setting carries on into next year's folder. Missing folders are created.</span></label>
       <label class="f">Week folder<input type="text" name="kpi_export_sub" value="${esc(s.kpi_export_sub ?? 'WK{wk}')}" placeholder="WK{wk}"></label>
@@ -504,7 +504,7 @@ function drawPie(g, gr, box, font, hex) {
   if (gr.kind === 'doughnut') { g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.arc(cx, cy, (r * gr.holeSize) / 100, 0, Math.PI * 2); g.fill(); g.globalCompositeOperation = 'source-over'; }
 }
 
-// ---- From sources: the CI Manager's own figures, checked against Excel's ---------------------
+// ---- From sources: SITHUB's own figures, checked against Excel's ---------------------
 
 // [key, heading, group (starts a new group), typed in each week]
 // Source: the figures the KPIs are made from, in the Database sheet's order.
@@ -611,7 +611,7 @@ async function renderKpiSources() {
 function kpiSharedHtml(sh) {
   const own = sh.own?.length ? ` · <span title="${esc(sh.own.join(', '))}">${sh.own.length} set differently here, kept</span>` : '';
   const status = sh.file
-    ? (sh.file_found ? `Read from <code>${esc(sh.file)}</code> each time the CI Manager starts${sh.at ? ` — last ${esc(fmtDateTime(sh.at))}` : ''}${own}.`
+    ? (sh.file_found ? `Read from <code>${esc(sh.file)}</code> each time SITHUB starts${sh.at ? ` — last ${esc(fmtDateTime(sh.at))}` : ''}${own}.`
       : `<span style="color:var(--danger)">⚠ Can't reach <code>${esc(sh.file)}</code></span> — not on the network? The paths already here keep working.`)
     : sh.from ? `Last filled in from ${esc(sh.from)}${sh.at ? ` on ${esc(fmtDateTime(sh.at))}` : ''}${own}.` : 'No shared paths file is used on this computer.';
   return `<div class="card kpi-shared" style="margin-top:12px">
@@ -1285,7 +1285,7 @@ function kpiNotices(snap) {
   const info = []; const actions = [];
   const hasText = Object.values(snap.edits || {}).some((e) => e.text !== null && e.text !== undefined && !/^[▲▼▬]$/.test(e.text));
   if (snap.origin === 'ci') {
-    info.push(`Built ${esc(fmtDateTime(snap.loaded_at))} by the CI Manager from the source figures, with the workbook's formulas and layout${snap.template_week ? ` (template: the workbook loaded for ${esc(snap.template_week)})` : ''}.`);
+    info.push(`Built ${esc(fmtDateTime(snap.loaded_at))} by SITHUB from the source figures, with the workbook's formulas and layout${snap.template_week ? ` (template: the workbook loaded for ${esc(snap.template_week)})` : ''}.`);
   } else {
     info.push(`Loaded ${esc(fmtDateTime(snap.loaded_at))} from ${esc(snap.source_name || 'the workbook')}${snap.source_modified ? ` (saved ${esc(fmtDateTime(snap.source_modified))})` : ''}.`);
   }
