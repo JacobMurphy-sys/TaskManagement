@@ -1148,6 +1148,11 @@ router.post('/notes', h((req, res) => {
     });
     return res.status(201).json(result);
   }
+  // 📝 a quick note: kept on Home until it's assigned to a task or project ([ ] lines become tasks then)
+  if (req.body.inbox) {
+    const title = String(req.body.title || '').trim().slice(0, 200) || null;
+    return res.status(201).json(insertRow('notes', { project_id: null, task_id: null, title, body }));
+  }
   if (taskId) {
     const t = db.get('SELECT project_id FROM tasks WHERE id = ?', [taskId]);
     if (!t) throw notFound('Task');
@@ -1183,8 +1188,46 @@ function tasksFromNote(body, projectId, parentId) {
   return { text: lines.join('\n'), created };
 }
 
+// 📝 quick notes still to sort (on neither a task nor a project)
+router.get('/notes/inbox', h((req, res) => {
+  res.json(db.all('SELECT * FROM notes WHERE project_id IS NULL AND task_id IS NULL ORDER BY created_at DESC'));
+}));
+
+// 📝 a quick note assigned: onto a task, a project, or as a new task ({ task_id } | { project_id } | { new_task: { title, project_id } }).
+// A title of its own goes into the note's first line ('Quick Note …' adds nothing: the note keeps its time);
+// [ ] lines become tasks, as for a note written there.
+const AUTO_NOTE_TITLE = /^Quick Note \d{2}\/\d{2}\/\d{2} \d{2}:\d{2}$/;
+router.post('/notes/:id/assign', h((req, res) => {
+  const n = db.get('SELECT * FROM notes WHERE id = ?', [req.params.id]);
+  if (!n) throw notFound('Note');
+  const body = n.title && !AUTO_NOTE_TITLE.test(n.title) ? `${n.title}\n${n.body}` : n.body;
+  const newTask = req.body.new_task && typeof req.body.new_task === 'object' ? req.body.new_task : null;
+  const result = db.tx(() => {
+    let projectId = null; let taskId = null; let task = null;
+    if (newTask) {
+      const q = parseQuick(String(newTask.title || '').trim());
+      if (!q.title) throw new HttpError(400, 'The new task needs a title');
+      projectId = newTask.project_id || null;
+      if (projectId && !db.get('SELECT 1 FROM projects WHERE id = ?', [projectId])) throw notFound('Project');
+      task = insertRow('tasks', { project_id: projectId, title: q.title, priority: q.priority, recurrence: q.recurrence, due_at: toDueIso(q.due_at), sort_order: nextSortOrder(projectId) });
+      taskId = task.id;
+    } else if (req.body.task_id) {
+      const t = db.get('SELECT id, project_id FROM tasks WHERE id = ?', [req.body.task_id]);
+      if (!t) throw notFound('Task');
+      taskId = t.id; projectId = t.project_id;
+    } else if (req.body.project_id) {
+      if (!db.get('SELECT 1 FROM projects WHERE id = ?', [req.body.project_id])) throw notFound('Project');
+      projectId = Number(req.body.project_id);
+    } else throw new HttpError(400, 'Choose a task, a new task or a project for the note');
+    const { text, created } = tasksFromNote(body, projectId, taskId);
+    const note = fresh('notes', updateRow('notes', n.id, { project_id: projectId, task_id: taskId, body: text }));
+    return { ...note, created_tasks: created, task: task ? normTask(fresh('tasks', task)) : null };
+  });
+  res.json(result);
+}));
+
 router.patch('/notes/:id', h((req, res) => {
-  const row = fresh('notes', updateRow('notes', req.params.id, pick(req.body, ['body'])));
+  const row = fresh('notes', updateRow('notes', req.params.id, pick(req.body, ['body', 'title'])));
   if (!row) throw notFound('Note');
   res.json(row);
 }));
@@ -1277,7 +1320,9 @@ router.get('/dashboard', h((req, res) => {
       [dayStart(0), dayStart(8)], 'm.held_at, m.id'),
     recent_notes: db.all(`SELECT n.*, p.name AS project_name, t.title AS task_title FROM notes n
       LEFT JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id
-      ORDER BY n.created_at DESC LIMIT 15`),
+      WHERE n.project_id IS NOT NULL OR n.task_id IS NOT NULL ORDER BY n.created_at DESC LIMIT 15`),
+    // 📝 quick notes still to sort
+    quick_notes: db.all('SELECT * FROM notes WHERE project_id IS NULL AND task_id IS NULL ORDER BY created_at DESC'),
     reminders: db.all(`${REMINDER_SELECT} WHERE r.status = 'pending' ORDER BY r.remind_at LIMIT 20`),
     focus: focusFor(req.query.focus_person || null),
   });
@@ -3747,7 +3792,7 @@ function exportSheets(scope, id) {
   }
   const notes = [];
   if (scope !== 'ideas') {
-    notes.push(...db.all(`SELECT n.created_at, coalesce(p.name, '(standalone task)') AS owner, t.title AS task, n.body FROM notes n
+    notes.push(...db.all(`SELECT n.created_at, coalesce(p.name, CASE WHEN n.task_id IS NULL THEN '(quick note, not assigned yet)' ELSE '(standalone task)' END) AS owner, t.title AS task, CASE WHEN n.title IS NOT NULL AND n.task_id IS NULL AND n.project_id IS NULL THEN n.title || char(10) || n.body ELSE n.body END AS body FROM notes n
       LEFT JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id ${projWhere}`, projParams));
   }
   if (scope !== 'project') {
@@ -4228,7 +4273,7 @@ router.get('/search', h((req, res) => {
     tasks: tasks(`WHERE ${like('t.title')} OR ${like('t.description')} LIMIT 30`, [q, q]),
     notes: db.all(`SELECT n.*, p.name AS project_name, t.title AS task_title FROM notes n
       LEFT JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id
-      WHERE ${like('n.body')} ORDER BY n.created_at DESC LIMIT 30`, [q]),
+      WHERE ${like('n.body')} OR ${like('n.title')} ORDER BY n.created_at DESC LIMIT 30`, [q, q]),
     ideas: !accounts.canUse(req, 'ideas') ? [] : db.all(`${IDEA_SELECT} WHERE ${like('i.title')} OR ${like('i.description')} OR ${like('i.ref')}
       OR i.id IN (SELECT idea_id FROM idea_notes WHERE ${like('body')}) ORDER BY i.id DESC LIMIT 30`, [q, q, q, q]),
     library: librarySearch(term, 20),

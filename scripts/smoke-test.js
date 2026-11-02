@@ -68,6 +68,27 @@ async function waitForServer() {
     await call('POST', '/notes', { task_id: added.id, body: 'Task-level note' });
     const timeline = await call('GET', `/projects/${p.id}/timeline`);
     assert.equal(timeline.filter((i) => i.type === 'note').length, 3, 'three notes in timeline');
+    { // 📝 quick notes: on Home until assigned; a title of its own goes into the note, [ ] lines become tasks then
+      const q1 = await call('POST', '/notes', { inbox: true, title: 'Quick Note 02/11/26 09:15', body: 'Ring the supplier\n[ ] Ask for the new price' });
+      const q2 = await call('POST', '/notes', { inbox: true, title: 'Shift handover', body: 'Line 3 slow' });
+      const q3 = await call('POST', '/notes', { inbox: true, title: 'Quick Note 02/11/26 09:20', body: 'Idea for a new task' });
+      let dash = await call('GET', '/dashboard');
+      assert.deepEqual(dash.quick_notes.map((n) => n.id).sort(), [q1.id, q2.id, q3.id].sort(), 'quick notes on Home');
+      assert.ok(!dash.recent_notes.some((n) => [q1.id, q2.id, q3.id].includes(n.id)), 'not among the latest (assigned) notes');
+      const a1 = await call('POST', `/notes/${q1.id}/assign`, { task_id: added.id });
+      assert.equal(a1.task_id, added.id); assert.equal(a1.project_id, p.id, 'on the task, and its project');
+      assert.equal(a1.created_tasks.length, 1, '[ ] line became a subtask'); assert.equal(a1.created_tasks[0].parent_id, added.id);
+      assert.ok(!a1.body.startsWith('Quick Note'), 'the automatic title adds nothing to the note');
+      const a2 = await call('POST', `/notes/${q2.id}/assign`, { project_id: p.id });
+      assert.ok(a2.body.startsWith('Shift handover\nLine 3 slow'), 'its own title goes into the note');
+      const a3 = await call('POST', `/notes/${q3.id}/assign`, { new_task: { title: 'Write it up !high', project_id: null } });
+      assert.equal(a3.task.title, 'Write it up'); assert.equal(a3.task_id, a3.task.id); assert.equal(a3.project_id, null);
+      dash = await call('GET', '/dashboard');
+      assert.equal(dash.quick_notes.length, 0, 'none left to sort');
+      await assert.rejects(call('POST', `/notes/${q1.id}/assign`, {}), /Choose a task/);
+      await call('DELETE', `/notes/${a3.id}`); await call('DELETE', `/tasks/${a3.task.id}`);
+      await call('DELETE', `/notes/${a2.id}`); await call('DELETE', `/notes/${a1.id}`); await call('DELETE', `/tasks/${a1.created_tasks[0].id}`);
+    }
     assert.ok(timeline.some((i) => i.type === 'event' && /Task created "Added later"/.test(i.text)));
 
     // Reminders: one due now, one in the future.

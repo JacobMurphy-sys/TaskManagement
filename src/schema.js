@@ -181,6 +181,7 @@ const TABLES = {
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
     task_id    INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+    title      TEXT,  -- quick notes: 'Quick Note dd/mm/yy hh:mm' (or their own); neither project nor task = still to sort, on Home
     body       TEXT    NOT NULL,
     created_at TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at TEXT    NOT NULL DEFAULT (${NOW})`,

@@ -596,6 +596,7 @@ async function renderDashboard() {
       ${!modOk('ideas') ? '' : kpi('Open ideas', d.ideas.open, d.ideas.cost ? `${money(d.ideas.cost)} total cost` : '', 'ideas')}
     </div>
 
+    ${quickNotesCard(d.quick_notes || [])}
     ${focusCard(d.focus, who)}
 
     ${!modOk('projects') ? '' : `<h2 class="dash-heading">Projects${who ? ` <span class="small muted" style="text-transform:none;letter-spacing:0">— ${esc(who)}'s</span>` : ''}</h2>
@@ -634,6 +635,22 @@ async function renderDashboard() {
   $('#home-person').onchange = (e) => { store.set('homePerson', e.target.value); route(); };
   $$('[data-focus-tab]').forEach((b) => { b.onclick = () => { store.set('focusTab', b.dataset.focusTab); $$('[data-focus-tab]').forEach((x) => x.classList.toggle('on', x === b)); $$('[data-focus-list]').forEach((l) => { l.hidden = l.dataset.focusList !== b.dataset.focusTab; }); }; });
 }
+
+// 📝 quick notes still to sort: each one assigned to a task or project from here (or edited, or deleted)
+function quickNotesCard(list) {
+  if (!list.length) return '';
+  const SHOWN = 6;
+  const item = (n, i) => `<li class="qn-item"${i >= SHOWN ? ' hidden data-qn-more' : ''}>
+      <b class="qn-t" title="Written ${esc(fmtDateTime(n.created_at))}">${esc(n.title || 'Quick note')}</b>
+      <div class="pre small qn-body">${linkify(n.body)}</div>
+      <div class="qn-foot"><button class="small primary" data-action="qn-assign" data-id="${n.id}" title="Put it on a task, a new task or a project">→ Assign</button>
+        ${ddMenu('⋯', `<button data-action="qn-edit" data-id="${n.id}">✎ Edit</button><button class="danger" data-action="qn-delete" data-id="${n.id}">🗑 Delete</button>`, { right: true })}</div></li>`;
+  return `<div class="card qn-card" id="dash-quick-notes"><h3>📝 Quick notes <span class="muted small">${list.length} to sort · assign each to a task or project</span>
+      <button class="link small" data-action="quick-note" style="float:right">+ New</button></h3>
+    <ul class="qn-list">${list.map(item).join('')}</ul>
+    ${list.length > SHOWN ? `<button class="link small" onclick="this.previousElementSibling.querySelectorAll('[data-qn-more]').forEach((l) => { l.hidden = false; }); this.remove();">+ ${list.length - SHOWN} more</button>` : ''}</div>`;
+}
+const quickNoteById = async (id) => (await api.get('/notes/inbox')).find((n) => n.id === Number(id));
 
 // 🎯 a few things to look at first: today's (late, due, started, people to chase) and this week's
 // (coming up, stuck, left too long, projects that need talking about) — each with why
@@ -1836,8 +1853,8 @@ async function renderSearch(q) {
         <span class="small muted">${esc(fmtDateTime(m.held_at))}${m.project_name ? ` · ${esc(m.project_name)}` : ''}${m.task_title ? ` · ${esc(m.task_title)}` : ''}</span>
         ${m.notes_text ? `<div class="pre small">${esc(m.notes_text.slice(0, 300))}${m.notes_text.length > 300 ? '…' : ''}</div>` : ''}</li>`).join('')}</ul>`)}
       ${card('📝 Notes', r.notes, `<ul class="mini">${r.notes.map((n) => `<li style="display:block">
-        <div class="small muted">${esc(fmtDateTime(n.created_at))} · <a href="#/project/${n.project_id}">${esc(n.project_name)}</a></div>
-        <div class="pre">${esc(n.body)}</div></li>`).join('')}</ul>`)}
+        <div class="small muted">${esc(fmtDateTime(n.created_at))} · ${n.project_id ? `<a href="#/project/${n.project_id}">${esc(n.project_name)}</a>` : n.task_id ? `<a href="javascript:void 0" data-action="open-task" data-id="${n.task_id}">${esc(n.task_title || 'Task')}</a>` : '<a href="#/dashboard">📝 Quick note on Home, not assigned yet</a>'}</div>
+        ${n.title && !n.project_id && !n.task_id ? `<b>${esc(n.title)}</b>` : ''}<div class="pre">${esc(n.body)}</div></li>`).join('')}</ul>`)}
       ${modOk('contacts') ? card('📇 Contacts', r.contacts, `<ul class="mini">${r.contacts.map((c) => `<li style="display:block"><a href="#/contacts"><b>${esc(c.name)}</b></a>
         <span class="small muted">${esc([c.department, c.detail, c.list].filter(Boolean).join(' · '))}</span></li>`).join('')}</ul>`) : ''}
     </div>`;
@@ -2153,14 +2170,44 @@ function reminderDialog({ taskId, projectId, label, returnToTask }) {
   ensureNotificationPermission();
 }
 
-// Quick note: goes onto an existing task, starts a new task (standalone or in a
-// project), or onto a project as before. No project is needed.
-async function quickNoteDialog() {
+// 📝 Quick note (📝 in the top bar, or N): a time-stamped title and a box to write in, nothing else. It lands
+// on Home under 📝 Quick notes, to be assigned to a task or project later.
+const quickNoteTitle = (d = new Date()) => { const p = (n) => String(n).padStart(2, '0'); return `Quick Note ${p(d.getDate())}/${p(d.getMonth() + 1)}/${String(d.getFullYear()).slice(2)} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+// a new task from a note: its own title, else the note's first line
+const noteTaskTitle = (n) => (n.title && !/^Quick Note \d/.test(n.title) ? n.title : String(n.body || '').split(/\r?\n/).find((l) => l.trim()) || '').replace(/^\s*[-*•]?\s*\[\s?\]\s*/, '').trim().slice(0, 120);
+function quickNoteDialog(note = null) {
+  const title = note?.title || quickNoteTitle();
+  openModal(`
+    <div class="modal-head"><h2 style="margin:0">📝 <span id="qn-head">${esc(title)}</span></h2><button class="icon" data-action="close-modal">✕</button></div>
+    ${note ? `<input id="qn-title" value="${esc(title)}" maxlength="200" style="width:100%;margin-bottom:8px" title="The note's title">` : ''}
+    <textarea id="qn-body" rows="8" style="width:100%" placeholder="Write it down… (Ctrl+Enter to save)">${esc(note?.body || '')}</textarea>
+    <div class="row" style="margin-top:10px"><span class="small muted">${note ? '' : 'Lands on Home under 📝 Quick notes, to assign to a task or project later.'}</span><div class="spacer"></div>
+      <button data-action="close-modal">Cancel</button><button class="primary" id="qn-save">Save</button></div>`);
+  const save = async () => {
+    const body = $('#qn-body').value.trim();
+    if (!body) { $('#qn-body').focus(); return; }
+    try {
+      if (note) await api.patch(`/notes/${note.id}`, { body, title: $('#qn-title').value.trim() || title });
+      else await api.post('/notes', { inbox: true, title, body });
+    } catch (err) { toast(err.message, 'error'); return; }
+    toast(note ? 'Note saved' : '📝 Saved to Quick notes on Home');
+    closeModal();
+    if (state.view === 'dashboard') await refresh();
+  };
+  $('#qn-title')?.addEventListener('input', (e) => { $('#qn-head').textContent = e.target.value || title; });
+  $('#qn-save').addEventListener('click', save);
+  $('#qn-body').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save(); });
+  $('#qn-body').focus();
+}
+
+// 📝 A quick note assigned from Home: onto an existing task, as a new task (standalone or in a project), or
+// onto a project. [ ] lines in it become tasks then.
+async function assignNoteDialog(note) {
   const active = state.projects.filter((p) => p.status !== 'archived');
   const open = await api.get('/tasks?open=1');
   const byId = new Map(open.map((t) => [t.id, t]));
   const onProject = state.view === 'project' ? Number(state.projectId) : null;
-  let mode = onProject ? 'project' : store.get('lastNoteMode', open.length ? 'task' : 'new');
+  let mode = store.get('lastNoteMode', open.length ? 'task' : 'new');
   if (mode === 'task' && !open.length) mode = 'new';
   if (mode === 'project' && !active.length) mode = 'new';
   const lastTask = store.get('lastNoteTask');
@@ -2175,8 +2222,9 @@ async function quickNoteDialog() {
   };
   const projectOptions = (selected) => active.map((p) => `<option value="${p.id}" ${p.id === selected ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">📝 Quick note</h2><button class="icon" data-action="close-modal">✕</button></div>
-    <div class="row"><span class="small muted">Add to</span><div class="seg" id="qn-mode">
+    <div class="modal-head"><h2 style="margin:0">📝 Assign “${esc(note.title || 'Quick note')}”</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="pre small qn-preview">${linkify(note.body)}</div>
+    <div class="row" style="margin-top:10px"><span class="small muted">Add to</span><div class="seg" id="qn-mode">
       <button type="button" data-mode="task" ${open.length ? '' : 'disabled'}>Existing task</button>
       <button type="button" data-mode="new">New task</button>
       <button type="button" data-mode="project" ${active.length ? '' : 'disabled'}>Project</button></div></div>
@@ -2184,19 +2232,19 @@ async function quickNoteDialog() {
       <input id="qn-filter" placeholder="Filter tasks…" autocomplete="off" style="width:100%">
       <select id="qn-task" size="7" style="width:100%;margin-top:6px">${taskOptions()}</select></div>
     <div data-pane="new" style="margin-top:10px">
-      <label class="f">New task title<input id="qn-title" placeholder="Blank = first line of the note · e.g. Call supplier !high @fri"></label>
+      <label class="f">New task title<input id="qn-title" value="${esc(noteTaskTitle(note))}" placeholder="e.g. Call supplier !high @fri"></label>
       <label class="f" style="margin-top:8px">Project<select id="qn-new-project"><option value="">— None (standalone task) —</option>${projectOptions(onProject)}</select></label></div>
     <div data-pane="project" style="margin-top:10px">
       <label class="f">Project<select id="qn-project">${projectOptions(onProject || store.get('lastNoteProject'))}</select></label></div>
-    <label class="f" style="margin-top:10px">Note — time-stamped automatically<textarea id="qn-body" rows="5" placeholder="What happened? (Ctrl+Enter to save; lines starting [ ] become tasks)"></textarea></label>
+    <div class="small muted" id="qn-hint" style="margin-top:8px"></div>
     <div class="row" style="margin-top:12px"><div class="spacer"></div><button data-action="close-modal">Cancel</button>
-      <button class="primary" id="qn-save">Save note</button></div>`);
+      <button class="primary" id="qn-save">Assign</button></div>`);
   const setMode = (m) => {
     mode = m;
     $$('#qn-mode button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
     $$('[data-pane]').forEach((el) => { el.hidden = el.dataset.pane !== m; });
     const hint = { task: '[ ] lines become subtasks', new: '[ ] lines become subtasks of the new task', project: '[ ] lines become tasks' }[m];
-    $('#qn-body').placeholder = `What happened? (Ctrl+Enter to save; ${hint})`;
+    $('#qn-hint').textContent = /^\s*(?:[-*•]\s*)?\[\s?\]\s+/m.test(note.body) ? `In the note: ${hint}.` : '';
   };
   setMode(mode);
   if (!$('#qn-task').value && $('#qn-task').options.length) $('#qn-task').selectedIndex = 0;
@@ -2208,8 +2256,6 @@ async function quickNoteDialog() {
     if (!$('#qn-task').value && $('#qn-task').options.length) $('#qn-task').selectedIndex = 0;
   });
   const save = async () => {
-    const body = $('#qn-body').value.trim();
-    if (!body) { $('#qn-body').focus(); return; }
     let payload;
     if (mode === 'task') {
       const taskId = Number($('#qn-task').value);
@@ -2217,21 +2263,21 @@ async function quickNoteDialog() {
       payload = { task_id: taskId };
       store.set('lastNoteTask', taskId);
     } else if (mode === 'new') {
-      const title = $('#qn-title').value.trim() || body.split(/\r?\n/)[0].replace(/^\s*[-*•]?\s*\[\s?\]\s*/, '').slice(0, 120);
+      const title = $('#qn-title').value.trim();
+      if (!title) { $('#qn-title').focus(); return; }
       payload = { new_task: { title, project_id: Number($('#qn-new-project').value) || null } };
     } else {
       payload = { project_id: Number($('#qn-project').value) };
       store.set('lastNoteProject', payload.project_id);
     }
-    const note = await api.post('/notes', { ...payload, body });
-    if (!onProject) store.set('lastNoteMode', mode);
-    toast(note.task ? `Task “${note.task.title}” created with the note` : noteToast(note));
+    let saved; try { saved = await api.post(`/notes/${note.id}/assign`, payload); } catch (err) { toast(err.message, 'error'); return; }
+    store.set('lastNoteMode', mode);
+    toast(saved.task ? `Task “${saved.task.title}” created with the note` : noteToast(saved).replace('Note added', 'Note assigned'));
     closeModal();
     await refresh();
   };
   $('#qn-save').addEventListener('click', save);
-  $('#qn-body').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save(); });
-  $('#qn-body').focus();
+  (mode === 'task' ? $('#qn-filter') : mode === 'new' ? $('#qn-title') : $('#qn-project')).focus();
 }
 
 // ======================================================================
@@ -2294,6 +2340,13 @@ const actions = {
   'edit-phase': (el) => phaseDialog(state.project, state.project.charter.phases.find((ph) => String(ph.id) === el.dataset.id)),
   'close-modal': () => closeModal(),
   'quick-note': () => quickNoteDialog(),
+  'qn-assign': async (el) => { const n = await quickNoteById(el.dataset.id); if (n) assignNoteDialog(n); else refresh(); },
+  'qn-edit': async (el) => { const n = await quickNoteById(el.dataset.id); if (n) quickNoteDialog(n); else refresh(); },
+  'qn-delete': async (el) => {
+    if (!confirm('Delete this quick note?')) return;
+    try { await api.del(`/notes/${el.dataset.id}`); toast('Note deleted'); } catch (err) { toast(err.message, 'error'); }
+    refresh();
+  },
   'save-note': () => saveProjectNote(),
   'save-task-note': (el) => saveTaskNote(el.dataset.id),
   // In lists a title opens the task on a single click and is renamed on a double click,
