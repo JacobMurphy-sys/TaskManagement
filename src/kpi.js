@@ -396,6 +396,80 @@ function withAddedRows(view, added) {
   }
   return { ...view, cells, edit, added: added.map((a) => ({ row: a.row, left: a.col_left, right: a.col_right })) };
 }
+// ⇔ Boxes joined by hand: boxes side by side in a row that the template left as separate cells (a
+// line of a list that wasn't merged in Excel) become one box, on the page and in the saved A3.
+// Kept for the template, not a week: joins = ['D40:H40', …]. A join is used only while its cells are
+// still separate one-row boxes, so a template that changes doesn't get anything odd.
+const colNoOf = (letters) => [...letters].reduce((t, ch) => t * 26 + ch.charCodeAt(0) - 64, 0);
+function parseJoin(j) {
+  const m = String(j || '').toUpperCase().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+  if (!m || m[2] !== m[4]) return null;
+  const left = colNoOf(m[1]); const right = colNoOf(m[3]);
+  return left < right ? { row: Number(m[2]), left, right } : null;
+}
+const joinRef = (j) => `${refOf(j.row, j.left)}:${refOf(j.row, j.right)}`;
+function withJoins(view, joins) {
+  if (!view || !joins?.length) return view;
+  let cells = view.cells; const edit = { ...(view.edit || {}) }; const styles = [...view.styles];
+  const done = new Map((view.joins || []).map((j) => [joinRef(j), j]));
+  for (const j of joins.map(parseJoin).filter(Boolean)) {
+    const inRow = cells.filter((c) => c[0] === j.row && c[1] >= j.left && c[1] <= j.right).sort((a, b) => a[1] - b[1]);
+    const first = inRow[0];
+    if (!first || first[1] !== j.left || inRow.some((c) => c[4] !== 1 || c[1] + c[5] - 1 > j.right)) continue;
+    // nothing reaching into the row from above (a taller box)
+    if (cells.some((c) => c[0] < j.row && c[0] + c[4] - 1 >= j.row && c[1] <= j.right && c[1] + c[5] - 1 >= j.left)) continue;
+    if (inRow.length > 1 || first[5] !== j.right - j.left + 1) {
+      const last = inRow[inRow.length - 1];
+      // the first box's look, with the right-hand border of the last one
+      let rule = styles[first[3]].split(';').filter((x) => !x.startsWith('border-right:')).join(';');
+      const rb = styles[last[3]].split(';').find((x) => x.startsWith('border-right:'));
+      if (rb) rule += `;${rb}`;
+      let s = styles.indexOf(rule);
+      if (s < 0) { s = styles.length; styles.push(rule); }
+      cells = cells.filter((c) => !inRow.includes(c)).concat([[j.row, j.left, first[2], s, 1, j.right - j.left + 1, first[6]]]);
+      for (const c of inRow.slice(1)) delete edit[refOf(c[0], c[1])];
+    }
+    done.set(joinRef(j), { row: j.row, left: j.left, right: j.right });
+  }
+  return { ...view, cells, edit, styles, joins: [...done.values()] };
+}
+// The box to join a box (ref) with: the next one to its right in the row, when both are one-row
+// text boxes — or, with to (a column), all of them up to that column (to match the row above) →
+// { join: 'D40:H40', absorbed: [refs], replaces: [joins it takes over] } or { error }.
+function joinTarget(view, ref, to = null) {
+  const m = String(ref || '').toUpperCase().match(/^([A-Z]+)(\d+)$/);
+  if (!m) return { error: 'Not a cell' };
+  const row = Number(m[2]); const col = colNoOf(m[1]);
+  const typed = (x) => x && x[4] === 1 && (view.edit?.[refOf(x[0], x[1])] || '').includes('t');
+  const box = view.cells.find((c) => c[0] === row && c[1] === col);
+  if (!typed(box)) return { error: 'Only one-row text boxes can be joined' };
+  const absorbed = []; let right = col + box[5] - 1;
+  do {
+    const next = view.cells.filter((c) => c[0] === row && c[1] > right).sort((a, b) => a[1] - b[1])[0];
+    if (!next || (to && next[1] > to)) return { error: to ? 'The boxes don\'t line up with the row above' : 'There\'s no box to its right to join it with' };
+    if (!typed(next)) return { error: 'The box to its right isn\'t a text box you can type in (it\'s worked out, or taller), so it can\'t be joined' };
+    absorbed.push(refOf(row, next[1])); right = next[1] + next[5] - 1;
+  } while (to && right < to);
+  if (to && right !== to) return { error: 'The boxes don\'t line up with the row above' };
+  if (view.cells.some((c) => c[0] < row && c[0] + c[4] - 1 >= row && c[1] <= right && c[1] + c[5] - 1 >= col)) return { error: 'A taller box is in the way' };
+  const j = { row, left: col, right };
+  const replaces = (view.joins || []).filter((x) => x.row === row && x.left >= j.left && x.right <= j.right).map(joinRef);
+  return { join: joinRef(j), absorbed, replaces };
+}
+// The saved A3 with the joins as merged cells (those that don't overlap a merge already there).
+function joinsToPackage(pkg, joins) {
+  if (!joins?.length) return pkg;
+  const files = readZip(pkg);
+  const sPath = 'xl/worksheets/sheet1.xml';
+  let xml = files[sPath].toString('utf8');
+  const merges = [...xml.matchAll(/<mergeCell ref="([A-Z]+)(\d+):([A-Z]+)(\d+)"\s*\/>/g)]
+    .map((mm) => ({ top: Number(mm[2]), bottom: Number(mm[4]), left: colNoOf(mm[1]), right: colNoOf(mm[3]) }));
+  const add = joins.filter((j) => !merges.some((mm) => j.row >= mm.top && j.row <= mm.bottom && j.left <= mm.right && j.right >= mm.left)).map(joinRef);
+  if (!add.length) return pkg;
+  xml = withAdded(xml, { merges: add });
+  files[sPath] = Buffer.from(xml, 'utf8');
+  return zip(files);
+}
 // Where a row can go under the list a box belongs to: → { src_row, row, col_left, col_right } or { error }.
 // The list: the run of typed one-row boxes side by side in the clicked row, and the rows under it
 // laid out the same; the new row is the next one down, which must be empty in those columns.
@@ -877,4 +951,4 @@ function exportTarget(set, week) {
   return { dir, name, path: path.join(dir, name) };
 }
 
-module.exports = { colLettersOf: (n) => colLetters(n), withAddedRows, addRowTarget, addRowsToPackage, complaintsWriteUp, withAdded, loadWeek, buildWeek, applyEdits, editKinds, forecastSheet, symbolColours, SYMBOL_COLOURS, sheetView, prepareChart, buildA3Package, exportA3, weekParts, fillPattern, exportTarget, colPx, isErr, decode, parseRef, section, resolvePart, relsPathOf };
+module.exports = { colLettersOf: (n) => colLetters(n), withJoins, joinTarget, joinsToPackage, withAddedRows, addRowTarget, addRowsToPackage, complaintsWriteUp, withAdded, loadWeek, buildWeek, applyEdits, editKinds, forecastSheet, symbolColours, SYMBOL_COLOURS, sheetView, prepareChart, buildA3Package, exportA3, weekParts, fillPattern, exportTarget, colPx, isErr, decode, parseRef, section, resolvePart, relsPathOf };

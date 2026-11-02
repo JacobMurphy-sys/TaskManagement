@@ -1606,7 +1606,7 @@ router.get('/kpi/snapshots/:id', h((req, res) => {
     : db.get("SELECT week FROM kpi_edits WHERE text IS NOT NULL AND week < ? ORDER BY week DESC LIMIT 1", [r.week])?.week || null;
   const notes = db.get('SELECT text, updated_at FROM kpi_notes WHERE week = ?', [r.week]);
   const model = JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8'));
-  if (model.views?.a3) model.views.a3 = kpi.withAddedRows(model.views.a3, addedRows(r.week));
+  if (model.views?.a3) model.views.a3 = a3View(model.views.a3, r.week);
   res.json({ ...kpiMeta(r), ...model, edits, text_from: textFrom,
     notes: notes ? { text: notes.text, updated_at: notes.updated_at } : null });
 }));
@@ -1615,11 +1615,17 @@ router.get('/kpi/snapshots/:id', h((req, res) => {
 const KPI_COLORS = { green: '00B050', yellow: 'FFC000', orange: 'FFC000', red: 'FF0000' };
 // ➕ Rows added to lists on a week's A3, in the order added.
 const addedRows = (week) => db.all('SELECT src_row, row, col_left, col_right FROM kpi_rows_added WHERE week = ? ORDER BY id', [week]);
+const snapshotA3Raw = (r) => JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8')).views?.a3 || null;
 const snapshotA3 = (week) => {
   const r = db.get('SELECT model FROM kpi_snapshots WHERE week = ?', [week]);
   const a3 = r ? JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8')).views?.a3 : null;
-  return a3 ? kpi.withAddedRows(a3, addedRows(week)) : null;
+  return a3 ? a3View(a3, week) : null;
 };
+// ⇔ Boxes joined by hand on the A3 (for the template, so every week): ['D40:H40', …]
+const kpiJoins = () => { const j = parseJson(getSetting('kpi_a3_joins')); return Array.isArray(j) ? j : []; };
+// The A3 as edited: the joins, the rows added this week (laid out like the list's last row, joins and
+// all), then the joins again for the added rows themselves.
+const a3View = (a3, week) => kpi.withJoins(kpi.withAddedRows(kpi.withJoins(a3, kpiJoins()), addedRows(week)), kpiJoins());
 const kpiEdits = (week) => Object.fromEntries(db.all('SELECT ref, text, color, size FROM kpi_edits WHERE week = ? ORDER BY ref', [week]).map((e) => [e.ref.toUpperCase(), { text: e.text, color: e.color, ...(e.size ? { size: e.size } : {}) }]));
 function setKpiEdit(week, ref, f) {
   const old = db.get('SELECT * FROM kpi_edits WHERE week = ? AND ref = ?', [week, ref]);
@@ -1689,6 +1695,24 @@ router.post('/kpi/rows/:week', h((req, res) => {
   if (t.error) throw new HttpError(400, t.error);
   insertRow('kpi_rows_added', { week, ...t });
   res.status(201).json({ ...t, ref: `${kpi.colLettersOf(t.col_left)}${t.row}` });
+}));
+// ⇔ Joins a box (ref) with the next one to its right, on the A3 of every week (the template's layout).
+router.post('/kpi/joins/:week', h((req, res) => {
+  const week = editWeek(req.params.week);
+  const a3 = snapshotA3(week);
+  if (!a3?.edit) throw new HttpError(400, 'Load this week again to edit it');
+  const t = kpi.joinTarget(a3, req.body.ref, Number(req.body.to) || null);
+  if (t.error) throw new HttpError(400, t.error);
+  setSetting('kpi_a3_joins', JSON.stringify([...kpiJoins().filter((j) => !t.replaces.includes(String(j).toUpperCase())), t.join]));
+  res.json({ join: t.join });
+}));
+// Splits a joined box (ref: its first cell) back into the template's own boxes.
+router.delete('/kpi/joins/:ref', h((req, res) => {
+  const ref = String(req.params.ref).toUpperCase();
+  const left = kpiJoins().filter((j) => String(j).toUpperCase().split(':')[0] !== ref);
+  if (left.length === kpiJoins().length) throw notFound('Joined box');
+  setSetting('kpi_a3_joins', JSON.stringify(left));
+  res.json({});
 }));
 // Removes an added row (the row and its first column), and anything typed in it.
 router.delete('/kpi/rows/:week/:row/:left', h((req, res) => {
@@ -1988,7 +2012,12 @@ router.post('/kpi/snapshots/:id/export', h((req, res) => {
     if (m) images[index] = Buffer.from(m[1], 'base64');
   }
   const edits = kpiEdits(r.week);
-  let pkg = kpi.addRowsToPackage(Buffer.from(r.pkg, 'base64'), addedRows(r.week));
+  // the joins first (an added row copies its list's last row, merges and all), then the added rows'
+  const joined = snapshotA3(r.week)?.joins || [];
+  let pkg = kpi.joinsToPackage(Buffer.from(r.pkg, 'base64'), kpi.withJoins(snapshotA3Raw(r), kpiJoins())?.joins);
+  pkg = kpi.joinsToPackage(kpi.addRowsToPackage(pkg, addedRows(r.week)), joined);
+  // what was typed in a box before it was joined into the one on its left isn't written (it'd be hidden)
+  for (const j of joined) for (let c = j.left + 1; c <= j.right; c++) delete edits[`${kpi.colLettersOf(c)}${j.row}`];
   if (Object.keys(edits).length) {
     const model = JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8'));
     pkg = kpi.applyEdits(pkg, edits, model.views?.a3?.edit || {});

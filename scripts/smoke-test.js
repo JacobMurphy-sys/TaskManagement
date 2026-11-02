@@ -1011,6 +1011,28 @@ async function waitForServer() {
       assert.equal(evaluate('1/0', ectx).error, '#DIV/0!');
 
       const x = (s) => Buffer.from(s, 'utf8');
+      // ⇔ joining boxes the template left separate (a line of a list not merged in Excel)
+      {
+        const kj = require('../src/kpi');
+        const v = { cells: [[5, 2, 'Project', 0, 1, 1, 0], [5, 3, '', 1, 1, 2, 0], [5, 5, '', 2, 1, 1, 0], [5, 6, '=x', 0, 1, 1, 0], [6, 2, 'tall', 0, 2, 1, 0]],
+          styles: ['border-left:1px solid #000', 'border-top:1px solid #000', 'border-right:2px solid #000'], edit: { B5: 't', C5: 't', E5: 't', F5: '', B6: 't' } };
+        let t = kj.joinTarget(v, 'C5');
+        assert.deepEqual(t, { join: 'C5:E5', absorbed: ['E5'], replaces: [] }, 'with the next box to the right');
+        assert.match(kj.joinTarget(v, 'E5').error, /isn't a text box/, 'not with a worked-out box');
+        assert.match(kj.joinTarget(v, 'B6').error, /one-row/, 'not a taller box');
+        const j = kj.withJoins(v, ['C5:E5', 'B6:C6', 'nonsense']);
+        const box = j.cells.find((c) => c[0] === 5 && c[1] === 3);
+        assert.deepEqual([box[5], j.cells.some((c) => c[0] === 5 && c[1] === 5), j.edit.E5], [3, false, undefined], 'one box over C5:E5');
+        assert.match(j.styles[box[3]], /border-top:1px solid #000;border-right:2px solid #000/, 'its own look, the last box\'s right border');
+        assert.deepEqual(j.joins, [{ row: 5, left: 3, right: 5 }], 'only the joins that fit are used');
+        t = kj.joinTarget(j, 'B5');
+        assert.deepEqual([t.join, t.replaces], ['B5:E5', ['C5:E5']], 'a bigger join takes over the smaller one');
+        assert.deepEqual(kj.joinTarget(v, 'B5', 5), { join: 'B5:E5', absorbed: ['C5', 'E5'], replaces: [] }, 'up to a column in one go');
+        assert.match(kj.joinTarget(v, 'B5', 3).error, /don't line up/, 'only where the boxes end there');
+        const sheet = '<worksheet><sheetData><row r="5"><c r="C5"/><c r="E5"/></row></sheetData><mergeCells count="1"><mergeCell ref="A1:B1"/></mergeCells></worksheet>';
+        const out = require('../src/xlsx').readZip(kj.joinsToPackage(mkZip({ 'xl/worksheets/sheet1.xml': x(sheet) }), [{ row: 5, left: 3, right: 5 }, { row: 1, left: 2, right: 3 }]))['xl/worksheets/sheet1.xml'].toString();
+        assert.match(out, /<mergeCells count="2"><mergeCell ref="A1:B1"\/><mergeCell ref="C5:E5"\/><\/mergeCells>/, 'merged in the saved A3, not over a merge already there');
+      }
       const ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
       const book = {
         '[Content_Types].xml': x('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.ms-excel.sheet.macroEnabled.main+xml"/></Types>'),
@@ -1093,6 +1115,9 @@ async function waitForServer() {
       await assert.rejects(call('PUT', '/kpi/edits/W2639', { ref: 'B1', color: 'purple' }), /green, yellow or red/);
       await assert.rejects(call('PUT', '/kpi/edits/W2639', { ref: 'nope', text: 'x' }), /cell reference/);
       await assert.rejects(call('PUT', '/kpi/edits/W2601', { ref: 'B1', text: 'x' }), /not found/i);
+      await assert.rejects(call('POST', '/kpi/joins/W2639', { ref: 'A2' }), /one-row text boxes/, 'a worked-out box isn\'t joined');
+      await assert.rejects(call('POST', '/kpi/joins/W2639', { ref: 'B2' }), /no box to its right/);
+      await assert.rejects(call('DELETE', '/kpi/joins/B2'), /not found/i);
       assert.deepEqual((await call('GET', `/kpi/snapshots/${wk.id}`)).edits.B1, { text: null, color: 'FFC000' });
       const edX = rz(Buffer.from(await (await fetch(`${BASE}/kpi/snapshots/${wk.id}/export`, { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } })).arrayBuffer()));
       const edXml = edX['xl/worksheets/sheet1.xml'].toString(); const edSt = edX['xl/styles.xml'].toString();

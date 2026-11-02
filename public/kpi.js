@@ -1167,8 +1167,17 @@ function kpiEditCell(snap, model, el, done) {
     ${kind.includes('t') && !face ? (() => {
       const [r, c] = el.dataset.cell.split(':').map(Number);
       const added = (model.added || []).find((a) => a.row === r && c >= a.left && c <= a.right);
+      // ⇔ joining: the next text box to the right in this row, and whether this box is a join
+      const joined = (model.joins || []).find((j) => j.row === r && j.left === c);
+      const next = cell && cell[4] === 1 && model.cells.filter((x) => x[0] === r && x[1] >= c + cell[5]).sort((a, b) => a[1] - b[1])[0];
+      const canJoin = next && next[4] === 1 && (model.edit[xlRef(r, next[1])] || '').includes('t');
+      // the row above (or below) has one wider box starting here: join to match it in one go
+      const like = canJoin && [r - 1, r + 1].map((rr) => model.cells.find((x) => x[0] === rr && x[1] === c && x[4] === 1 && x[5] > cell[5])).find(Boolean);
       return `<div class="row small kpi-rows">${added ? `<span class="muted">➕ A row added to this list</span><button class="small link" data-pop="row-remove" data-row="${added.row}" data-left="${added.left}">🗑 Remove this row</button>`
-        : '<button class="small" data-pop="row-add" title="A new row under this list, laid out like its last row, in the free row below it">➕ Add a row to this list</button>'}</div>`;
+        : '<button class="small" data-pop="row-add" title="A new row under this list, laid out like its last row, in the free row below it">➕ Add a row to this list</button>'}
+        ${like ? `<button class="small" data-pop="join" data-to="${c + like[5] - 1}" title="Join the boxes up to where the box ${like[0] < r ? 'above' : 'below'} ends (merged cells), on the A3 of every week">⇥ Join to match the row ${like[0] < r ? 'above' : 'below'}</button>` : ''}
+        ${canJoin ? '<button class="small" data-pop="join" title="Make this box and the one to its right one box (merged cells), on the A3 of every week">⇥ Join with the box to the right</button>' : ''}
+        ${joined ? '<button class="small link" data-pop="split" title="Back to the separate boxes the template has">⇹ Split into its boxes again</button>' : ''}</div>`;
     })() : ''}
     <div class="row">${kind.includes('t') ? '<button class="primary small" data-pop="save">Save</button>' : ''}
       ${cur.text !== null && cur.text !== undefined ? '<button class="small link" data-pop="revert" title="Put back the workbook\'s text">Put back the original text</button>' : ''}
@@ -1235,6 +1244,28 @@ function kpiEditCell(snap, model, el, done) {
     if (b.dataset.pop === 'close') close();
     if (b.dataset.pop === 'save') saveText();
     if (b.dataset.pop === 'revert') save({ text: null, size: null });
+    if (b.dataset.pop === 'join' || b.dataset.pop === 'split') {
+      (async () => {
+        try {
+          if (ta && ta.value !== text) await api.put(`/kpi/edits/${snap.week}`, { ref, text: ta.value === original ? null : ta.value, size: sizeFor(ta.value === original ? null : ta.value) });
+          if (b.dataset.pop === 'join') {
+            // the box being joined in: its text goes (a merged cell shows only the first one's)
+            const [r, c] = el.dataset.cell.split(':').map(Number);
+            const to = Number(b.dataset.to) || c + cell[5];
+            const lost = model.cells.filter((x) => x[0] === r && x[1] >= c + cell[5] && x[1] <= to)
+              .map((x) => snap.edits?.[xlRef(r, x[1])]?.text ?? x[2]).filter(Boolean);
+            if (lost.length && !confirm(`The box${lost.length > 1 ? 'es' : ''} being joined in ha${lost.length > 1 ? 've' : 's'} text ("${String(lost[0]).slice(0, 60)}"). Joined, only this box's text is kept. Join anyway?`)) return;
+            await api.post(`/kpi/joins/${snap.week}`, { ref, ...(b.dataset.to ? { to: Number(b.dataset.to) } : {}) });
+            toast('Boxes joined — on the A3 of every week');
+          } else {
+            await api.del(`/kpi/joins/${ref}`);
+            toast('Split into its boxes again');
+          }
+          kpiState.openRef = ref;
+          saved = true; close(); await route();
+        } catch (err) { toast(err.message, 'error'); }
+      })();
+    }
     if (b.dataset.pop === 'row-add' || b.dataset.pop === 'row-remove') {
       (async () => {
         try {
