@@ -3993,11 +3993,13 @@ const joinRel = (from, t) => path.posix.normalize(path.posix.join(folderOf(from)
 // (nearest folder first), by path from the vault root, or relative to the note.
 function libraryResolver() {
   const docs = db.all('SELECT id, path, title, aliases FROM library_docs ORDER BY length(path), path');
+  const names = libNames();
   const byKey = new Map();
   const add = (k, d) => { const key = k.toLowerCase(); if (!byKey.has(key)) byKey.set(key, []); byKey.get(key).push(d); };
   for (const d of docs) {
     add(d.path.replace(/\.md$/i, ''), d);
     add(d.title, d);
+    if (names.docs[d.path]) add(names.docs[d.path], d); // [[New title]] works too
     for (const a of String(d.aliases || '').split('\n').filter(Boolean)) add(a, d);
   }
   const resolveDoc = (target, from = '') => {
@@ -4044,16 +4046,22 @@ function linkedDocIds(text, r, from = '') {
 function librarySearch(term, limit = 50) {
   const q = `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const low = term.toLowerCase();
+  const names = libNames();
+  // notes renamed in the app (or in a renamed folder) are found by their new names too
+  const renamedIds = new Set(db.all('SELECT id, path, folder FROM library_docs').filter((d) => String(names.docs[d.path] || '').toLowerCase().includes(low)
+    || libFolderLabel(d.folder, names).toLowerCase().includes(low)).map((d) => d.id));
   return db.all(`SELECT id, path, title, folder, tags, body FROM library_docs
       WHERE title LIKE ? ESCAPE '\\' OR path LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\'
+      ${renamedIds.size ? `OR id IN (${[...renamedIds].join(',')})` : ''}
       ORDER BY (title LIKE ? ESCAPE '\\') DESC, title COLLATE NOCASE`, [q, q, q, q, q])
+    .map((d) => ({ ...d, title: libTitle(d, names), folder_label: libFolderLabel(d.folder, names), renamed_hit: renamedIds.has(d.id) }))
     .map((d) => {
       const text = md.toPlainText(d.body);
       const at = text.toLowerCase().indexOf(low);
-      const inName = [d.title, d.path, d.tags].some((v) => String(v || '').toLowerCase().includes(low));
+      const inName = d.renamed_hit || [d.title, d.path, d.tags].some((v) => String(v || '').toLowerCase().includes(low));
       if (at < 0 && !inName) return null;
       const snippet = at < 0 ? text.slice(0, 160) : `${at > 60 ? '…' : ''}${text.slice(Math.max(0, at - 60), at + 120)}${at + 120 < text.length ? '…' : ''}`;
-      return { id: d.id, path: d.path, title: d.title, folder: d.folder, tags: d.tags, snippet };
+      return { id: d.id, path: d.path, title: d.title, folder: d.folder, folder_label: d.folder_label, tags: d.tags, snippet };
     }).filter(Boolean).slice(0, limit);
 }
 
@@ -4063,6 +4071,14 @@ function librarySearch(term, limit = 50) {
 const libWidths = () => parseJson(getSetting('library_widths')) || {};
 const setLibWidths = (all) => setSetting('library_widths', JSON.stringify(all));
 
+// ✎ Names given in the app to notes and folders: { docs: { "Folder/Note.md": "New title" }, folders: { "Folder/Sub": "New name" } }.
+// Kept by path, so they survive re-importing the vault; the vault itself is never changed.
+const libNames = () => { const n = parseJson(getSetting('library_names')) || {}; return { docs: n.docs || {}, folders: n.folders || {} }; };
+const setLibNames = (n) => setSetting('library_names', JSON.stringify(n));
+const libTitle = (d, names = libNames()) => names.docs[d.path] || d.title;
+// a folder path shown with its renamed parts: "Ops/QA" -> "Operations › QA"
+const libFolderLabel = (folder, names = libNames()) => (folder ? folder.split('/').map((part, i, all) => names.folders[all.slice(0, i + 1).join('/')] || part).join(' › ') : '');
+
 const libExcluded = () => parseJson(getSetting('library_excluded')) || [];
 const setLibExcluded = (list) => setSetting('library_excluded', JSON.stringify([...new Set(list)].sort()));
 // Entries are a note path ("Folder/Note.md") or a folder ("Folder/").
@@ -4070,7 +4086,9 @@ const isLibExcluded = (p, list = libExcluded()) => list.some((x) => (x.endsWith(
 
 router.get('/library', h((req, res) => {
   res.json({
-    docs: db.all('SELECT id, path, title, folder, tags, updated_at FROM library_docs ORDER BY path COLLATE NOCASE'),
+    docs: (() => { const n = libNames(); return db.all('SELECT id, path, title, folder, tags, updated_at FROM library_docs ORDER BY path COLLATE NOCASE')
+      .map((d) => ({ ...d, title: libTitle(d, n), vault_title: d.title, renamed: !!n.docs[d.path] })); })(),
+    folder_names: libNames().folders,
     files: libraryFiles().length,
     imported_at: getSetting('library_imported_at'),
     source: getSetting('library_source'),
@@ -4108,6 +4126,23 @@ router.delete('/library/folder', h((req, res) => {
   res.json({ removed });
 }));
 
+// ✎ Rename a note or a folder in the app ({ kind: 'doc' | 'folder', path, name }); a blank name goes back to the vault's.
+router.put('/library/name', h((req, res) => {
+  const kind = req.body.kind === 'folder' ? 'folder' : 'doc';
+  const p = kind === 'folder' ? cleanLibraryPath(req.body.path) : String(req.body.path || '');
+  const name = String(req.body.name ?? '').replace(/[\r\n/\\]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+  if (!p) throw new HttpError(400, 'Which note or folder?');
+  const exists = kind === 'doc' ? db.get('SELECT title FROM library_docs WHERE path = ?', [p])
+    : db.get("SELECT 1 AS x FROM library_docs WHERE folder = ? COLLATE NOCASE OR folder LIKE ? ESCAPE '\\'", [p, `${p.replace(/[\\%_]/g, (c) => `\\${c}`)}/%`]);
+  if (!exists) throw notFound(kind === 'doc' ? 'Note' : 'Folder');
+  const n = libNames(); const map = kind === 'doc' ? n.docs : n.folders;
+  const original = kind === 'doc' ? exists.title : p.split('/').pop();
+  if (!name || name === original) delete map[p]; else map[p] = name;
+  setLibNames(n);
+  log.info(`Library ${kind === 'doc' ? 'note' : 'folder'} renamed`, { path: p, name: map[p] || `(back to ${original})` });
+  res.json({ kind, path: p, name: map[p] || original, renamed: !!map[p] });
+}));
+
 // Let a removed note or folder come back with the next import.
 router.post('/library/excluded/remove', h((req, res) => {
   setLibExcluded(libExcluded().filter((x) => x !== req.body.path));
@@ -4121,7 +4156,7 @@ router.get('/library/resolve', h((req, res) => {
   const [target, heading = ''] = String(req.query.t || '').split('#');
   const doc = libraryResolver().resolveDoc(target.split('|')[0]);
   if (!doc) throw notFound(`“${target}” in the library`);
-  res.json({ id: doc.id, title: doc.title, slug: heading ? md.slugify(heading) : null });
+  res.json({ id: doc.id, title: libTitle(doc), slug: heading ? md.slugify(heading) : null });
 }));
 
 router.get('/library/docs/:id', h((req, res) => {
@@ -4136,7 +4171,9 @@ router.get('/library/docs/:id', h((req, res) => {
     .filter((t) => linkedDocIds(t.description, r).has(doc.id)).map(({ description, ...t }) => t);
   const linkedProjects = db.all("SELECT id, name, description FROM projects WHERE description LIKE '%[[%'")
     .filter((p) => linkedDocIds(p.description, r).has(doc.id)).map(({ id, name }) => ({ id, name }));
-  res.json({ ...doc, html: out.html, headings: out.headings, props: out.props, backlinks, col_widths: libWidths()[doc.path] || {},
+  const names = libNames();
+  res.json({ ...doc, title: libTitle(doc, names), vault_title: doc.title, renamed: !!names.docs[doc.path], folder_label: libFolderLabel(doc.folder, names),
+    html: out.html, headings: out.headings, props: out.props, backlinks: backlinks.map((b) => ({ ...b, title: names.docs[db.get('SELECT path FROM library_docs WHERE id = ?', [b.id])?.path] || b.title })), col_widths: libWidths()[doc.path] || {},
     linked_tasks: linkedTasks, linked_projects: linkedProjects });
 }));
 

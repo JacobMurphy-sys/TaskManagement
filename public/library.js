@@ -44,7 +44,7 @@ async function renderLibrary(arg, extra) {
     <div class="lib">
       <aside class="card lib-aside">
         <input type="search" id="lib-filter" placeholder="Search the library…" autocomplete="off" value="${esc(state.libFilter || '')}">
-        <nav id="lib-nav">${libTreeHtml(lib.docs, id)}</nav>
+        <nav id="lib-nav">${libTreeHtml(lib.docs, id, lib.folder_names)}</nav>
       </aside>
       <article class="card lib-doc">${doc ? libDocHtml(doc) : libHomeHtml(lib)}</article>
     </div>`;
@@ -60,11 +60,11 @@ async function renderLibrary(arg, extra) {
   const filter = async () => {
     const q = $('#lib-filter').value.trim();
     state.libFilter = q;
-    if (!q) { nav.innerHTML = libTreeHtml(lib.docs, id); return; }
+    if (!q) { nav.innerHTML = libTreeHtml(lib.docs, id, lib.folder_names); return; }
     const hits = await api.get(`/library/search?q=${encodeURIComponent(q)}`);
     if ($('#lib-filter')?.value.trim() !== q) return;
     nav.innerHTML = hits.length ? hits.map((h) => `<a class="lib-hit ${h.id === id ? 'on' : ''}" href="#/library/${h.id}">
-        <b>${markTerm(h.title, q)}</b>${h.folder ? `<span class="small muted"> · ${esc(h.folder)}</span>` : ''}
+        <b>${markTerm(h.title, q)}</b>${h.folder ? `<span class="small muted"> · ${esc(h.folder_label || h.folder)}</span>` : ''}
         <span class="small muted lib-snippet">${markTerm(h.snippet, q)}</span></a>`).join('')
       : '<div class="empty small">Nothing matches.</div>';
   };
@@ -203,7 +203,7 @@ function scrollToEl(el) {
   setTimeout(() => el.classList.remove('lib-flash'), 1600);
 }
 
-function libTreeHtml(docs, currentId) {
+function libTreeHtml(docs, currentId, folderNames = {}) {
   const root = { folders: new Map(), docs: [] };
   for (const d of docs) {
     let node = root;
@@ -217,14 +217,16 @@ function libTreeHtml(docs, currentId) {
   const cur = docs.find((d) => d.id === currentId);
   const count = (n) => n.docs.length + [...n.folders.values()].reduce((a, c) => a + count(c), 0);
   const cmp = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-  const draw = (node, prefix) => [...node.folders.entries()].sort((a, b) => cmp(a[0], b[0])).map(([name, child]) => {
-    const p = prefix ? `${prefix}/${name}` : name;
+  const label = (p, name) => folderNames[p] || name; // ✎ renamed in the app
+  const draw = (node, prefix) => [...node.folders.entries()].map(([name, child]) => [name, child, prefix ? `${prefix}/${name}` : name])
+    .sort((a, b) => cmp(label(a[2], a[0]), label(b[2], b[0]))).map(([name, child, p]) => {
     const open = !closed.has(p) || (cur && (cur.folder === p || cur.folder.startsWith(`${p}/`)));
-    return `<details class="lib-folder" data-folder="${esc(p)}" ${open ? 'open' : ''}><summary>📁 ${esc(name)} <span class="muted small">${count(child)}</span>
+    return `<details class="lib-folder" data-folder="${esc(p)}" ${open ? 'open' : ''}><summary>📁 <span ${folderNames[p] ? `title="In the vault: ${esc(name)}"` : ''}>${esc(label(p, name))}</span> <span class="muted small">${count(child)}</span>
+      <button class="icon lib-folder-del lib-folder-ren" data-lib-ren-folder="${esc(p)}" data-name="${esc(label(p, name))}" data-vault="${esc(name)}" title="Rename this folder (in the app; the vault keeps its own name)">✎</button>
       <button class="icon lib-folder-del" data-lib-del-folder="${esc(p)}" data-count="${count(child)}" title="Remove this folder from the library">🗑</button></summary>
       <div class="lib-children">${draw(child, p)}</div></details>`;
   }).join('') + node.docs.sort((a, b) => cmp(a.title, b.title)).map((d) =>
-    `<a class="lib-item ${d.id === currentId ? 'on' : ''}" href="#/library/${d.id}" title="${esc(d.path)}">📄 ${esc(d.title)}</a>`).join('');
+    `<a class="lib-item ${d.id === currentId ? 'on' : ''}" href="#/library/${d.id}" title="${esc(d.path)}${d.renamed ? ` — renamed in the app (in the vault: ${esc(d.vault_title)})` : ''}">📄 ${esc(d.title)}</a>`).join('');
   return draw(root, '');
 }
 
@@ -238,7 +240,7 @@ function libHomeHtml(lib) {
       Pick a note on the left, or search. To link a procedure from a task or project, put its name in double square brackets in the
       description, e.g. <code>[[Lockout procedure]]</code> (🔗 on a note copies it for you).</p>
     <h3>Recently changed in the vault</h3>
-    <ul class="mini">${recent.map((d) => `<li><a href="#/library/${d.id}">📄 ${esc(d.title)}</a> <span class="small muted">${esc(d.folder)} · ${esc(fmtDate(d.updated_at))}</span></li>`).join('')}</ul>
+    <ul class="mini">${recent.map((d) => `<li><a href="#/library/${d.id}">📄 ${esc(d.title)}</a> <span class="small muted">${esc(d.folder.split('/').map((x, i, a) => lib.folder_names?.[a.slice(0, i + 1).join('/')] || x).join(' › '))} · ${esc(fmtDate(d.updated_at))}</span></li>`).join('')}</ul>
     ${tags.size ? `<h3>Tags</h3><div class="lib-tags">${[...tags].sort((a, b) => b[1] - a[1]).map(([t, n]) =>
       `<button class="md-tag" data-lib-tag="${esc(t)}">#${esc(t)} <span class="muted">${n}</span></button>`).join(' ')}</div>` : ''}`;
 }
@@ -255,7 +257,8 @@ function libDocHtml(d) {
     ...d.linked_tasks.map((t) => `<li><span class="t" data-action="open-task" data-id="${t.id}">${t.status === 'done' ? '✅' : '☐'} ${esc(t.title)}</span>
       ${t.project_name ? `<a class="small" href="#/project/${t.project_id}">${esc(t.project_name)}</a>` : ''}</li>`)];
   return `<div class="lib-toolbar row">
-      <span class="small muted">📚${d.folder ? ` ${d.folder.split('/').map(esc).join(' <span>›</span> ')}` : ''}</span><div class="spacer"></div>
+      <span class="small muted">📚${d.folder ? ` ${(d.folder_label || d.folder.split('/').join(' › ')).split(' › ').map(esc).join(' <span>›</span> ')}` : ''}</span><div class="spacer"></div>
+      <button class="icon" data-lib-ren-doc="${esc(d.path)}" data-name="${esc(d.title)}" data-vault="${esc(d.vault_title || d.title)}" title="Rename this note (in the app; the vault keeps its own name)">✎ Rename</button>
       <button class="icon" data-action="library-copy-link" data-title="${esc(d.title)}" title="Copy a [[link]] to this note for a task or project description">🔗 Link</button>
       <button class="icon" data-action="library-print" title="Print this note">🖨 Print</button>
       <button class="icon" data-lib-del-doc="${d.id}" data-title="${esc(d.title)}" title="Remove this note from the library">🗑 Remove</button></div>
@@ -302,6 +305,30 @@ function excludedHtml() {
     <ul class="mini" id="lib-excluded">${list.map((x) => `<li><span class="t">${x.endsWith('/') ? '📁' : '📄'} ${esc(x.replace(/\/$/, '').replace(/\.md$/i, ''))}</span>
       <button class="link small" data-include="${esc(x)}">Include again</button></li>`).join('')}</ul></div>`;
 }
+
+// ✎ Renaming a note or a folder: in the app only (the vault keeps its names), kept through updates from the vault.
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-lib-ren-doc], [data-lib-ren-folder]');
+  if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  const folder = b.dataset.libRenFolder !== undefined;
+  const p = folder ? b.dataset.libRenFolder : b.dataset.libRenDoc;
+  const vault = b.dataset.vault; const now = b.dataset.name;
+  openModal(`<div class="modal-head"><h2 style="margin:0">✎ Rename ${folder ? 'folder' : 'note'}</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <label class="f">New name<input id="lib-ren-name" maxlength="200" value="${esc(now)}"></label>
+    <p class="small muted">Changes the name in the CI Manager only: the ${folder ? 'folder' : 'note'} keeps its name in your Obsidian vault, and updates from the vault keep this one.
+      ${folder ? '' : `Links to it work with both names.`}${now !== vault ? ` In the vault it's called <b>${esc(vault)}</b>.` : ''}</p>
+    <div class="row" style="margin-top:10px">${now !== vault ? '<button id="lib-ren-reset">Back to the vault\'s name</button>' : ''}<div class="spacer"></div>
+      <button data-action="close-modal">Cancel</button><button class="primary" id="lib-ren-save">Rename</button></div>`);
+  const save = async (name) => {
+    try { await api.put('/library/name', { kind: folder ? 'folder' : 'doc', path: p, name }); } catch (err) { toast(err.message, 'error'); return; }
+    closeModal(); toast(name && name !== vault ? `Renamed to “${name}”` : `Back to “${vault}”`); route();
+  };
+  const inp = $('#lib-ren-name'); inp.focus(); inp.select();
+  inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); save(inp.value.trim()); } });
+  $('#lib-ren-save').onclick = () => save(inp.value.trim());
+  $('#lib-ren-reset')?.addEventListener('click', () => save(''));
+}, true);
 
 // Removing a note or a whole folder (they stay in the vault; updates leave them out).
 document.addEventListener('click', async (e) => {

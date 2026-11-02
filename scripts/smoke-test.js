@@ -553,6 +553,23 @@ async function waitForServer() {
     assert.equal((await call('GET', '/library/resolve?t=loto%23Main%20valve')).id, lock.id, 'resolve by alias');
     assert.equal((await call('GET', '/library/search?q=clockwise'))[0].id, iso.id);
     assert.ok((await call('GET', '/search?q=isolate')).library.some((d) => d.id === lock.id), 'library in the global search');
+    { // ✎ renamed in the app: shown everywhere by the new name, found and linked by both, the vault untouched
+      await call('PUT', '/library/name', { kind: 'doc', path: lock.path, name: 'Lockout / tagout' });
+      await call('PUT', '/library/name', { kind: 'folder', path: 'Procedures', name: 'Safety procedures' });
+      const ix = await call('GET', '/library');
+      const l2 = ix.docs.find((d) => d.id === lock.id);
+      assert.deepEqual([l2.title, l2.vault_title, l2.renamed, ix.folder_names.Procedures], ['Lockout tagout', 'Lockout', true, 'Safety procedures'], 'new names; a slash is not kept');
+      const pg = await call('GET', `/library/docs/${lock.id}`);
+      assert.deepEqual([pg.title, pg.folder_label], ['Lockout tagout', 'Safety procedures']);
+      assert.equal((await call('GET', '/library/resolve?t=Lockout%20tagout')).id, lock.id, 'linked by its new name');
+      assert.equal((await call('GET', '/library/resolve?t=Lockout')).id, lock.id, 'and by the vault name');
+      assert.ok((await call('GET', '/library/search?q=safety%20proc')).some((d) => d.id === lock.id), 'found by its folder\'s new name');
+      await assert.rejects(call('PUT', '/library/name', { kind: 'folder', path: 'Nowhere', name: 'X' }), /not found/i);
+      await call('PUT', '/library/name', { kind: 'doc', path: lock.path, name: '' });
+      await call('PUT', '/library/name', { kind: 'folder', path: 'Procedures', name: 'Procedures' });
+      const ix2 = await call('GET', '/library');
+      assert.deepEqual([ix2.docs.find((d) => d.id === lock.id).title, ix2.folder_names], ['Lockout', {}], 'back to the vault names');
+    }
     // a task linking a procedure shows up on the note
     const libTask = await call('POST', '/tasks', { title: 'Service pump', description: 'Follow [[Lockout]] first' });
     assert.equal((await call('GET', `/library/docs/${lock.id}`)).linked_tasks[0].id, libTask.id, 'used in tasks');
