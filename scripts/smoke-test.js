@@ -1078,6 +1078,8 @@ async function waitForServer() {
         'week folders and names as they are: two digits, a split week with its part');
       const { exportTarget } = require('../src/kpi');
       assert.equal(exportTarget({ kpi_export_dir: 'X', kpi_export_sub: '', kpi_export_name: 'A {num} {wk}.xlsx' }, 'W2614_2').path, path.join('X', 'A 14 14_2.xlsx'), 'no week folder; {num} the number alone');
+      assert.deepEqual(['SC Site {year} WK{wk}', 'SC {wk}.xlsm', 'SC {wk}.'].map((n) => exportTarget({ kpi_export_dir: 'X', kpi_export_sub: '', kpi_export_name: n }, 'W2614_2').name),
+        ['SC Site 2026 WK14_2.xlsx', 'SC 14_2.xlsx', 'SC 14_2.xlsx'], 'always saved as an Excel file, the .xlsx added when the name leaves it off');
       await fetch(`${BASE}/kpi/snapshots/${wk.id}/export`, { method: 'POST', body: JSON.stringify({ save: true }), headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } });
       assert.ok(fs.existsSync(pv[0].path), 'saved there');
       // from where the workbook is saved

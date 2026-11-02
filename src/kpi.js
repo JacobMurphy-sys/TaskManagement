@@ -871,7 +871,9 @@ function exportTarget(set, week) {
   let dir = fillPattern(base, week).trim();
   const sub = String(set.kpi_export_sub ?? 'WK{wk}').trim();
   if (sub && !/\{(wk|num|week)\}/.test(base)) dir = path.join(dir, fillPattern(sub, week).replace(/[/:*?"<>|]/g, '-'));
-  const name = fillPattern(set.kpi_export_name || 'A3 {year} WK{wk}.xlsx', week).replace(/[\\/:*?"<>|]/g, '-');
+  // always an Excel file: .xlsx added when the name pattern leaves it off (a .xlsm / .xls one becomes .xlsx —
+  // the saved A3 is values only, no macros), else Windows shows it as a plain 'File'
+  const name = fillPattern(set.kpi_export_name || 'A3 {year} WK{wk}.xlsx', week).replace(/[\\/:*?"<>|]/g, '-').trim().replace(/\.(xlsx|xlsm|xls)$/i, '').replace(/[. ]+$/, '') + '.xlsx';
   return { dir, name, path: path.join(dir, name) };
 }
 
