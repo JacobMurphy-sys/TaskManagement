@@ -1,5 +1,5 @@
 ' Stops the CI Manager when it's running in the background (started by start-hidden.vbs).
-' A copy that's frozen (holding its port, not answering) it offers to end.
+' A copy that's frozen (holding its port, not answering) it offers to end (scripts\free-port.js).
 ' You can also use the "Stop server" button at the bottom of the app's sidebar.
 Option Explicit
 
@@ -22,12 +22,16 @@ On Error GoTo 0
 
 If stopped Then
   MsgBox "CI Manager stopped.", vbInformation, "CI Manager"
-ElseIf PortOwner(port) = "" Then
-  MsgBox "The CI Manager isn't running (nothing is using port " & port & ").", vbInformation, "CI Manager"
-ElseIf EndFrozen(port) Then
-  MsgBox "Ended. Port " & port & " is free: start the CI Manager again.", vbInformation, "CI Manager"
-ElseIf PortOwner(port) <> "" Then
-  MsgBox "Port " & port & " is still in use. Restarting Windows frees it.", vbExclamation, "CI Manager"
+Else
+  ' nothing answered: not running at all, or frozen (holding the port without answering)
+  Select Case PortCheck(False)
+    Case 0
+      MsgBox "The CI Manager isn't running.", vbInformation, "CI Manager"
+    Case 1
+      MsgBox "The CI Manager is running but didn't accept the stop. Use Stop server in its ... menu.", vbInformation, "CI Manager"
+    Case Else
+      If EndFrozen(port) Then MsgBox "Ended. Port " & port & " is free: start the CI Manager again.", vbInformation, "CI Manager"
+  End Select
 End If
 
 ' PORT from .env, or 3000.
@@ -44,50 +48,31 @@ Function ReadPort()
   End If
 End Function
 
-' ---- a copy that's frozen: it holds the port but doesn't answer ----------------------------
-' The process listening on the port: "pid|program" (e.g. "1234|node.exe"), or "" when none.
-Function PortOwner(port)
-  Dim sh2, tmp, f, line
-  PortOwner = ""
+' ---- a copy that's frozen: it holds the port but doesn't answer ------------------------------
+' Asks scripts\free-port.js (Node, run hidden, the way the app itself is started), which finds the
+' frozen copy from the app's own lock file. Returns its exit code: 0 port free, 1 running fine,
+' 10 a frozen CI Manager, 11 another program, 12 ended, 13 couldn't end.
+Function PortCheck(endIt)
+  Dim sh2, cmd
   Set sh2 = CreateObject("WScript.Shell")
-  tmp = fso.GetSpecialFolder(2) & "\cimanager-port.txt"
-  If fso.FileExists(tmp) Then fso.DeleteFile tmp, True
-  ' Get-NetTCPConnection, not netstat: netstat's words change with the Windows language
-  sh2.Run "powershell -NoProfile -Command ""$o = ''; $c = Get-NetTCPConnection -LocalPort " & port & " -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; " & _
-    "if ($c) { $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue; $o = [string]$c.OwningProcess + '|' + $(if ($p) { $p.ProcessName + '.exe' } else { 'an unknown program' }) }; " & _
-    "Set-Content -Encoding ASCII -LiteralPath '" & Replace(tmp, "'", "''") & "' -Value $o""", 0, True
-  If fso.FileExists(tmp) Then
-    Set f = fso.OpenTextFile(tmp, 1)
-    If Not f.AtEndOfStream Then line = Trim(f.ReadLine)
-    f.Close
-    fso.DeleteFile tmp, True
-    If InStr(line, "|") > 1 Then PortOwner = line
-  End If
+  sh2.CurrentDirectory = dir
+  cmd = "node scripts\free-port.js"
+  If endIt Then cmd = cmd & " --end"
+  PortCheck = sh2.Run(cmd, 0, True)
 End Function
 
-' Offers to end what holds the port. True when it was ended.
+' Offers to end a frozen CI Manager. True when it was ended (the port is free).
 Function EndFrozen(port)
-  Dim owner, pid, nm, ask, sh2, i
   EndFrozen = False
-  owner = PortOwner(port)
-  If owner = "" Then Exit Function
-  pid = Split(owner, "|")(0)
-  nm = Split(owner, "|")(1)
-  If LCase(nm) = "node.exe" Then
-    ask = "The CI Manager seems to be frozen: it still holds port " & port & " but isn't answering (Node.js, process " & pid & ")." & vbCrLf & vbCrLf & _
-      "End it now? Anything saved is kept. A change made in the last moments before it froze may be lost."
-  Else
-    ask = "Port " & port & " is held by " & nm & " (process " & pid & "), which isn't the CI Manager." & vbCrLf & vbCrLf & _
-      "End " & nm & "? Only say Yes if you know what it is. Otherwise close it yourself, or set PORT=3001 (say) in the .env file in the app folder."
-  End If
-  If MsgBox(ask, vbYesNo + vbExclamation, "CI Manager") <> vbYes Then Exit Function
-  Set sh2 = CreateObject("WScript.Shell")
-  sh2.Run "cmd /c taskkill /F /PID " & pid, 0, True
-  For i = 1 To 10
-    WScript.Sleep 300
-    If PortOwner(port) = "" Then
-      EndFrozen = True
-      Exit Function
-    End If
-  Next
+  Select Case PortCheck(False)
+    Case 10
+      If MsgBox("The CI Manager seems to be frozen: it still holds port " & port & " but isn't answering." & vbCrLf & vbCrLf & _
+        "End it now? Anything saved is kept; a change made in the last moments before it froze may be lost.", vbYesNo + vbExclamation, "CI Manager") = vbYes Then
+        EndFrozen = (PortCheck(True) = 12)
+        If Not EndFrozen Then MsgBox "It couldn't be ended. Restarting Windows frees the port.", vbExclamation, "CI Manager"
+      End If
+    Case 11
+      MsgBox "Port " & port & " is in use by another program, not the CI Manager." & vbCrLf & vbCrLf & _
+        "Close that program, or put PORT=3001 (say) in the .env file in the app folder.", vbExclamation, "CI Manager"
+  End Select
 End Function
