@@ -26,7 +26,7 @@ async function renderKpi(arg, tab) {
       <div class="row"><div class="seg kc-tabs">${[['source', 'Source', 'What the KPIs are made from, week by week'], ['kpi', 'KPI', 'The KPIs, week by week'],
         ...(snap ? [['tables', 'Report tables', `The report's own tables for ${snap.week} (Database rows 1–57)`], ['sheet', 'Whole sheet', 'The Database sheet as it looks in Excel']] : [])]
         .map(([k, l, t]) => `<button type="button" data-kdb-tab="${k}" class="${dbTab === k ? 'on' : ''}" title="${esc(t)}">${l}</button>`).join('')}</div></div>
-      ${calc ? kpiTablesHtml(calc, dbTab) : dbTab === 'tables' ? kpiReportTablesHtml(snap) : '<div class="kpi-sheet-wrap" id="kpi-wrap"><div id="kpi-sizer"><div id="kpi-sheet"></div></div></div>'}</div>`;
+      ${calc ? kpiTablesHtml(calc, dbTab, snap?.week) : dbTab === 'tables' ? kpiReportTablesHtml(snap) : '<div class="kpi-sheet-wrap" id="kpi-wrap"><div id="kpi-sizer"><div id="kpi-sheet"></div></div></div>'}</div>`;
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
       ${year?.weeks?.length ? `<select id="kpi-week" title="Reporting week — any week of ${year.year}: from Excel, or built by SITHUB from the source figures">
@@ -658,7 +658,8 @@ function kpiOtdChecksHtml(calc) {
 // ---- Database tab: the weekly figures (Source / KPI), worked out from the sources -------------
 
 // The year's weekly figures as one table (Source: what the KPIs are made from; KPI: the KPIs).
-function kpiTablesHtml(calc, tab) {
+// selected: the week chosen at the top, highlighted
+function kpiTablesHtml(calc, tab, selected = null) {
   const year = calc.year;
   let adjusted = 0;
   const rowHtml = (w, cols, edit = false) => {
@@ -676,7 +677,7 @@ function kpiTablesHtml(calc, tab) {
       const drill = (k === 'otd_internal' || k === 'otd_external') ? ` data-kc-otd="${esc(w.week)}|${k}"` : ` data-kc-detail="${esc(k)}|${esc(w.week)}"`;
       return `<td class="num ${cls}${group && i ? ' kc-sep' : ''}${manual ? ' kc-manual' : ''}${drill ? ' kc-click' : ''}"${drill} title="${esc([title, drill ? (drill.includes('otd') ? 'Click: the OTD report rows' : 'Click for the details') : ''].filter(Boolean).join('\n'))}">${adj ? '<span class="kc-adj-mark">✎</span>' : ''}${kpiFmt(k, w[k])}${adj ? `<span class="kc-was kc-computed">${esc(kpiFmt(k, adj.computed) || '—')}</span>` : ''}</td>`;
     }).join('');
-    return `<tr class="${empty ? 'kc-empty' : ''} ${rowAdj ? 'kc-rowadj' : ''}"><td>${esc(w.month)}</td><td><b>${esc(w.week)}</b>${rowAdj ? ' <span class="kc-adj-mark" title="Has figures adjusted by hand">✎</span>' : ''}</td>${cells}${edit ? `<td><button class="icon" data-kc-edit="${esc(w.week)}" title="Type in this week's figures">✎</button></td>` : ''}</tr>`;
+    return `<tr class="${empty ? 'kc-empty' : ''} ${rowAdj ? 'kc-rowadj' : ''} ${w.week === selected ? 'kc-current' : ''}"${w.week === selected ? ' title="The week chosen at the top"' : ''}><td>${esc(w.month)}</td><td><b>${esc(w.week)}</b>${rowAdj ? ' <span class="kc-adj-mark" title="Has figures adjusted by hand">✎</span>' : ''}</td>${cells}${edit ? `<td><button class="icon" data-kc-edit="${esc(w.week)}" title="Type in this week's figures">✎</button></td>` : ''}</tr>`;
   };
   const sourceBody = calc.weeks.map((w) => rowHtml(w, KPI_SOURCE_COLS, true)).join('');
   const sourceAdjusted = adjusted;

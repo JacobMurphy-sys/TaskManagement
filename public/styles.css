@@ -909,6 +909,8 @@ kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--border); bo
 .kc-table .kc-sep { border-left: 2px solid var(--border); }
 .kc-was { display: block; font-size: 11px; font-weight: 400; color: var(--muted); text-decoration: line-through; }
 .kc-table tr.kc-empty td { color: var(--muted); opacity: .55; }
+.kc-table tr.kc-current td { background: var(--accent-soft); opacity: 1; }
+.kc-table tr.kc-current td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 
 .kc-table th.kc-manual, .kc-table td.kc-manual, .kc-manual-key { background: var(--panel-2); }
 .kc-manual-key { padding: 0 4px; border-radius: 3px; }
