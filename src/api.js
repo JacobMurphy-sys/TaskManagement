@@ -4068,8 +4068,39 @@ const joinRel = (from, t) => path.posix.normalize(path.posix.join(folderOf(from)
 
 // Finds notes and attachments the way Obsidian does: by name anywhere in the vault
 // (nearest folder first), by path from the vault root, or relative to the note.
-function libraryResolver() {
-  const docs = db.all('SELECT id, path, title, aliases FROM library_docs ORDER BY length(path), path');
+// 🧩 Who a Library note is for. In its properties: modules: [Prod Management] (module names or keys) and/or
+// rights: [setup]; none: everyone. Inside a note, lines between "%% for: Prod Management, right:setup %%" and
+// "%% end %%" show only to those (Obsidian hides %% lines, so the note reads as one there). With accounts
+// off everyone sees everything.
+const LIB_MOD = (() => { const m = new Map(); for (const x of accounts.MODULES) { m.set(x.key, x.key); m.set(x.label.toLowerCase(), x.key); for (const a of x.areas) m.set(a, x.key); }
+  Object.entries({ projects: 'management', kpi: 'management', reporting: 'management', production: 'production', planning: 'production', capacity: 'production', ideas: 'ci' }).forEach(([k, v]) => m.set(k, v)); return m; })();
+const LIB_RIGHT = new Set(accounts.RIGHTS.map((r) => r.key));
+const libList = (v) => (Array.isArray(v) ? v : String(v ?? '').split(',')).map((x) => String(x).trim().toLowerCase()).filter(Boolean);
+function libAudience(body) {
+  if (!String(body).startsWith('---')) return { modules: [], rights: [] };
+  const { props } = md.parseFrontmatter(String(body).replace(/\r\n?/g, '\n'));
+  const get = (k) => props[Object.keys(props).find((x) => x.toLowerCase() === k)];
+  return { modules: libList(get('modules') ?? get('module')).map((x) => LIB_MOD.get(x) || x), rights: libList(get('rights') ?? get('right')).filter((r) => LIB_RIGHT.has(r)) };
+}
+// what this person may see: null = everything (accounts off)
+const libViewer = (req) => (accounts.enabled() && req ? { mods: new Set(accounts.modulesOf(req.account)), rights: new Set(accounts.rightsOf(req.account)) } : null);
+const libCanSee = (aud, v) => !v || ((!aud.modules.length || aud.modules.some((m) => v.mods.has(m))) && (!aud.rights.length || aud.rights.some((r) => v.rights.has(r))));
+// a note's text with the "%% for: … %%" parts this person may not see taken out
+function libForViewer(body, v) {
+  const out = []; let hide = false;
+  for (const line of String(body).split('\n')) {
+    const open = line.match(/^\s*%%\s*for:\s*(.+?)\s*%%\s*$/i);
+    if (open) { const toks = libList(open[1]); hide = !!v && !toks.some((t) => (t.startsWith('right:') ? v.rights.has(t.slice(6).trim()) : v.mods.has(LIB_MOD.get(t) || t))); continue; }
+    if (/^\s*%%\s*end\s*%%\s*$/i.test(line)) { hide = false; continue; }
+    if (!hide) out.push(line);
+  }
+  return out.join('\n');
+}
+// the ids of the notes this person may see (null: all)
+const libVisibleIds = (v) => (v ? new Set(db.all('SELECT id, body FROM library_docs').filter((d) => libCanSee(libAudience(d.body), v)).map((d) => d.id)) : null);
+
+function libraryResolver(visible = null) {
+  const docs = db.all('SELECT id, path, title, aliases FROM library_docs ORDER BY length(path), path').filter((d) => !visible || visible.has(d.id));
   const names = libNames();
   const byKey = new Map();
   const add = (k, d) => { const key = k.toLowerCase(); if (!byKey.has(key)) byKey.set(key, []); byKey.get(key).push(d); };
@@ -4120,7 +4151,7 @@ function linkedDocIds(text, r, from = '') {
   return ids;
 }
 
-function librarySearch(term, limit = 50) {
+function librarySearch(term, limit = 50, viewer = null) {
   const q = `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const low = term.toLowerCase();
   const names = libNames();
@@ -4131,6 +4162,7 @@ function librarySearch(term, limit = 50) {
       WHERE title LIKE ? ESCAPE '\\' OR path LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\'
       ${renamedIds.size ? `OR id IN (${[...renamedIds].join(',')})` : ''}
       ORDER BY (title LIKE ? ESCAPE '\\') DESC, title COLLATE NOCASE`, [q, q, q, q, q])
+    .filter((d) => libCanSee(libAudience(d.body), viewer)).map((d) => ({ ...d, body: libForViewer(d.body, viewer) }))
     .map((d) => ({ ...d, title: libTitle(d, names), folder_label: libFolderLabel(d.folder, names), renamed_hit: renamedIds.has(d.id) }))
     .map((d) => {
       const text = md.toPlainText(d.body);
@@ -4163,8 +4195,9 @@ const isLibExcluded = (p, list = libExcluded()) => list.some((x) => (x.endsWith(
 
 router.get('/library', h((req, res) => {
   res.json({
-    docs: (() => { const n = libNames(); return db.all('SELECT id, path, title, folder, tags, updated_at FROM library_docs ORDER BY path COLLATE NOCASE')
-      .map((d) => ({ ...d, title: libTitle(d, n), vault_title: d.title, renamed: !!n.docs[d.path] })); })(),
+    docs: (() => { const n = libNames(); const v = libViewer(req); return db.all('SELECT id, path, title, folder, tags, updated_at, body FROM library_docs ORDER BY path COLLATE NOCASE')
+      .map((d) => ({ ...d, audience: libAudience(d.body) })).filter((d) => libCanSee(d.audience, v))
+      .map(({ body, ...d }) => ({ ...d, title: libTitle(d, n), vault_title: d.title, renamed: !!n.docs[d.path] })); })(),
     folder_names: libNames().folders,
     files: libraryFiles().length,
     imported_at: getSetting('library_imported_at'),
@@ -4226,12 +4259,12 @@ router.post('/library/excluded/remove', h((req, res) => {
   res.json({ excluded: libExcluded() });
 }));
 
-router.get('/library/search', h((req, res) => res.json(librarySearch(String(req.query.q || '').trim()))));
+router.get('/library/search', h((req, res) => res.json(librarySearch(String(req.query.q || '').trim(), 50, libViewer(req)))));
 
 // [[Name#Heading]] from a task or project description -> the note it means.
 router.get('/library/resolve', h((req, res) => {
   const [target, heading = ''] = String(req.query.t || '').split('#');
-  const doc = libraryResolver().resolveDoc(target.split('|')[0]);
+  const doc = libraryResolver(libVisibleIds(libViewer(req))).resolveDoc(target.split('|')[0]);
   if (!doc) throw notFound(`“${target}” in the library`);
   res.json({ id: doc.id, title: libTitle(doc), slug: heading ? md.slugify(heading) : null });
 }));
@@ -4239,10 +4272,12 @@ router.get('/library/resolve', h((req, res) => {
 router.get('/library/docs/:id', h((req, res) => {
   const doc = db.get('SELECT * FROM library_docs WHERE id = ?', [req.params.id]);
   if (!doc) throw notFound('Note');
-  const r = libraryResolver();
-  const out = md.renderMarkdown(doc.body, { ...r, path: doc.path, seen: new Set([doc.id]) });
+  const viewer = libViewer(req); const visible = libVisibleIds(viewer);
+  if (visible && !visible.has(doc.id)) throw notFound('Note'); // not for this person's modules or rights
+  const r = libraryResolver(visible);
+  const out = md.renderMarkdown(libForViewer(doc.body, viewer), { ...r, path: doc.path, seen: new Set([doc.id]) });
   const backlinks = db.all('SELECT id, path, title, folder, body FROM library_docs WHERE id <> ? ORDER BY title COLLATE NOCASE', [doc.id])
-    .filter((d) => linkedDocIds(d.body, r, d.path).has(doc.id)).map(({ id, title, folder }) => ({ id, title, folder }));
+    .filter((d) => (!visible || visible.has(d.id)) && linkedDocIds(d.body, r, d.path).has(doc.id)).map(({ id, title, folder }) => ({ id, title, folder }));
   const linkedTasks = db.all(`SELECT t.id, t.title, t.status, t.project_id, t.description, p.name AS project_name FROM tasks t
       LEFT JOIN projects p ON p.id = t.project_id WHERE t.description LIKE '%[[%' ORDER BY t.status = 'done', t.id DESC`)
     .filter((t) => linkedDocIds(t.description, r).has(doc.id)).map(({ description, ...t }) => t);
@@ -4251,7 +4286,8 @@ router.get('/library/docs/:id', h((req, res) => {
   const names = libNames();
   res.json({ ...doc, title: libTitle(doc, names), vault_title: doc.title, renamed: !!names.docs[doc.path], folder_label: libFolderLabel(doc.folder, names),
     html: out.html, headings: out.headings, props: out.props, backlinks: backlinks.map((b) => ({ ...b, title: names.docs[db.get('SELECT path FROM library_docs WHERE id = ?', [b.id])?.path] || b.title })), col_widths: libWidths()[doc.path] || {},
-    linked_tasks: linkedTasks, linked_projects: linkedProjects });
+    linked_tasks: linkedTasks, linked_projects: linkedProjects,
+    audience: (() => { const a = libAudience(doc.body); return [...a.modules.map((k) => accounts.MODULES.find((m) => m.key === k)?.label || k), ...a.rights.map((k) => accounts.RIGHTS.find((x) => x.key === k)?.label || k)]; })() });
 }));
 
 // Save (widths: [px, …]) or reset (widths: null) the column widths of one table in a note.
@@ -4390,7 +4426,7 @@ router.get('/search', h((req, res) => {
       WHERE ${like('n.body')} OR ${like('n.title')} ORDER BY n.created_at DESC LIMIT 30`, [q, q]),
     ideas: !accounts.canUse(req, 'ideas') ? [] : db.all(`${IDEA_SELECT} WHERE ${like('i.title')} OR ${like('i.description')} OR ${like('i.ref')}
       OR i.id IN (SELECT idea_id FROM idea_notes WHERE ${like('body')}) ORDER BY i.id DESC LIMIT 30`, [q, q, q, q]),
-    library: librarySearch(term, 20),
+    library: librarySearch(term, 20, libViewer(req)),
     // 🏭 Production: work orders and cards (the open exports, the plan history, the runs, the card database)
     production: !accounts.canUse(req, 'planning') || term.length < 2 ? [] : (() => { try { return planFind.suggest(term.slice(0, 60), findCtx()); } catch { return []; } })(),
     // 📇 Contacts: the people and departments in the lists

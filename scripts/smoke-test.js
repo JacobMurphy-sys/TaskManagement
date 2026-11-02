@@ -2613,6 +2613,28 @@ async function waitForServer() {
       const sq = (await sam('GET', '/search?q=Sam')).data;
       assert.ok(sq.contacts.length === 0 && sq.reporting.length === 0 && Array.isArray(sq.production), 'only Sam\'s modules: production yes, contacts and reporting no');
       assert.equal((await sam('PATCH', `/accounts/${samId}`, { modules: ['management'] })).status, 403, 'only admins give modules');
+      { // 🧩 Library notes for some modules or rights only, and parts of a note
+        const vault2 = [
+          { path: 'Guide/Start.md', text: 'Everyone reads this.\n%% for: Prod Management %%\nSee [[Plan production]].\n%% end %%\n%% for: Management %%\nSee [[Weekly report]].\n%% end %%\n%% for: right:server %%\nServer bit\n%% end %%\nThe end.' },
+          { path: 'Guide/Plan production.md', text: '---\nmodules: [Prod Management]\n---\nPlanning steps' },
+          { path: 'Guide/Weekly report.md', text: '---\nmodules: management\n---\nA3 steps' },
+          { path: 'Guide/Run the server.md', text: '---\nrights: [server]\n---\nServer steps' },
+        ];
+        const imp = await admin('POST', '/library/import', { source: 'Guide' }); const iid = imp.data.id;
+        await admin('POST', `/library/import/${iid}/files`, { files: vault2 }); await admin('POST', `/library/import/${iid}/finish`);
+        const titles = async (who) => (await who('GET', '/library')).data.docs.map((d) => d.title).sort();
+        assert.deepEqual(await titles(admin), ['Plan production', 'Run the server', 'Start', 'Weekly report'], 'an admin sees every note');
+        assert.deepEqual(await titles(sam), ['Plan production', 'Start'], 'Prod Management only: no Management note, no server note');
+        const all = (await admin('GET', '/library')).data.docs; const id = (t) => all.find((d) => d.title === t).id;
+        assert.equal((await sam('GET', `/library/docs/${id('Weekly report')}`)).status, 404, 'not opened by link either');
+        const start = (await sam('GET', `/library/docs/${id('Start')}`)).data.html;
+        assert.ok(start.includes('Plan production') && !start.includes('Weekly report') && !start.includes('Server bit') && start.includes('The end'), 'only the parts for Sam\'s modules');
+        const startAdmin = (await admin('GET', `/library/docs/${id('Start')}`)).data;
+        assert.ok(startAdmin.html.includes('Weekly report') && startAdmin.html.includes('Server bit'), 'an admin sees every part');
+        assert.deepEqual((await admin('GET', `/library/docs/${id('Plan production')}`)).data.audience, ['Prod Management'], 'who it is for, for the chip');
+        assert.equal((await sam('GET', '/library/search?q=steps')).data.map((d) => d.title).join(), 'Plan production', 'search too');
+        assert.equal((await sam('GET', '/library/resolve?t=Weekly%20report')).status, 404, 'and [[links]]');
+      }
       assert.equal((await admin('GET', '/kpi/snapshots')).status, 200, 'admins have them all');
       r = await admin('POST', '/accounts', { username: 'mgr', person: 'Max Manager', password: 'mgr-pass-1', modules: ['projects', 'kpi', 'report'] });
       assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'management', 'archive'], ['projects', 'kpi', 'team', 'capex', 'report']], 'modules from the start; the old ones (projects, kpi, report) carried over');

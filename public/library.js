@@ -6,7 +6,7 @@
 const LIB_ATTACH_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'ico', 'mp3', 'wav', 'm4a', 'ogg', 'flac', 'aac',
   'mp4', 'webm', 'mov', 'ogv', 'mkv', 'pdf', 'txt', 'csv', 'xlsx', 'xlsm', 'xls', 'docx', 'doc', 'pptx', 'ppt', 'vsdx', 'msg', 'zip'];
 const libExt = (p) => (String(p).match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase() || '';
-const HIDDEN_PROPS = ['tags', 'tag', 'aliases', 'alias', 'cssclasses', 'cssclass', 'position', 'publish'];
+const HIDDEN_PROPS = ['tags', 'tag', 'aliases', 'alias', 'cssclasses', 'cssclass', 'position', 'publish', 'modules', 'module', 'rights', 'right'];
 
 async function renderLibrary(arg, extra) {
   if (arg === 'find') { // [[Name]] clicked in a task or project description
@@ -257,6 +257,7 @@ function libDocHtml(d) {
     ...d.linked_tasks.map((t) => `<li><span class="t" data-action="open-task" data-id="${t.id}">${t.status === 'done' ? '✅' : '☐'} ${esc(t.title)}</span>
       ${t.project_name ? `<a class="small" href="#/project/${t.project_id}">${esc(t.project_name)}</a>` : ''}</li>`)];
   return `<div class="lib-toolbar row">
+      ${(d.audience || []).length ? `<span class="chip" title="Shown only to people with ${esc(d.audience.join(' or '))} (set in the note's properties: modules / rights)">🧩 For ${esc(d.audience.join(', '))}</span>` : ''}
       <span class="small muted">📚${d.folder ? ` ${(d.folder_label || d.folder.split('/').join(' › ')).split(' › ').map(esc).join(' <span>›</span> ')}` : ''}</span><div class="spacer"></div>
       <button class="icon" data-lib-ren-doc="${esc(d.path)}" data-name="${esc(d.title)}" data-vault="${esc(d.vault_title || d.title)}" title="Rename this note (in the app; the vault keeps its own name)">✎ Rename</button>
       <button class="icon" data-action="library-copy-link" data-title="${esc(d.title)}" title="Copy a [[link]] to this note for a task or project description">🔗 Link</button>
