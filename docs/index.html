@@ -97,6 +97,23 @@
   .card b { display: block; margin: 2px 0 4px; }
   .card span.t { font-size: .9rem; color: var(--muted); }
   footer { padding: 30px 0 40px; color: var(--muted); font-size: .88rem; border-top: 1px solid var(--border); margin-top: 20px; }
+  /* 🎬 the blooper reel (hidden) */
+  .bug { background: none; border: 0; padding: 4px; margin-left: 6px; font-size: 14px; opacity: .18; cursor: pointer; filter: grayscale(1); transition: opacity .2s, filter .2s; }
+  .bug:hover, .bug:focus-visible { opacity: 1; filter: none; }
+  dialog.reel { width: min(980px, calc(100vw - 24px)); max-height: calc(100dvh - 40px); border: 0; border-radius: 16px; padding: 0; background: var(--bg); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+  dialog.reel::backdrop { background: rgba(15, 5, 35, .6); backdrop-filter: blur(3px); }
+  .reel-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; padding: 18px 22px; background: linear-gradient(135deg, #2b0066, #430099 55%, #5b3fcf); color: #fff; }
+  .reel-head h2 { margin: 0; font-size: 1.35rem; } .reel-head p { margin: 2px 0 0; color: rgba(255,255,255,.8); font-size: .9rem; }
+  .reel-head .x { margin-left: auto; background: rgba(255,255,255,.15); color: #fff; border: 0; border-radius: 8px; width: 38px; height: 38px; font-size: 1.1rem; cursor: pointer; }
+  .reel-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; padding: 20px 22px 26px; }
+  .blooper { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; position: relative; animation: pop .35s ease-out both; }
+  .blooper .n { position: absolute; top: 10px; right: 14px; font-size: 1.6rem; font-weight: 800; color: var(--border); font-variant-numeric: tabular-nums; }
+  .blooper .d { font-size: .8rem; color: var(--muted); }
+  .blooper h3 { margin: 2px 40px 6px 0; font-size: 1.02rem; }
+  .blooper p { margin: 0 0 10px; font-size: .92rem; }
+  .blooper .lesson { font-size: .85rem; background: var(--panel-2); border-radius: 8px; padding: 6px 10px; }
+  .blooper .lesson b { color: var(--brand); }
+  @keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
   @media (max-width: 960px) { .board { grid-template-columns: 1fr; } .detail { position: static; } }
   @media (max-width: 640px) { .wrap { padding: 0 16px; } .era { grid-template-columns: 1fr; gap: 6px; } .stats { gap: 10px 20px; } .stat b { font-size: 1.3rem; } }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
@@ -135,6 +152,11 @@
 
 <footer><div class="wrap" id="foot"></div></footer>
 <div class="tip" id="tip"></div>
+<dialog class="reel" id="reel" aria-labelledby="reel-title">
+  <div class="reel-head"><span style="font-size:2rem">🎬</span><div><h2 id="reel-title">The blooper reel</h2><p>The fails, the facepalms and the bugs that came back, as they happened.</p></div>
+    <button class="x" id="reel-close" aria-label="Close">✕</button></div>
+  <div class="reel-list" id="reel-list"></div>
+</dialog>
 
 <script src="data.js"></script>
 <script>
@@ -164,7 +186,29 @@
   $('#tagline').textContent = T.tagline;
   $('#stats').innerHTML = [[days, 'days, start to now'], [active, 'days of work'], [commits, 'commits'], [T.PERIODS.length, 'development periods'], [pins.length, 'milestones pinned']]
     .map(([n, l]) => `<div class="stat"><b>${n}</b><span>${l}</span></div>`).join('');
-  $('#foot').innerHTML = `Built from the project's own git history — every date here is a day commits were made. <a href="${esc(T.repo)}">The repository</a>.`;
+  $('#foot').innerHTML = `Built from the project's own git history — every date here is a day commits were made. <a href="${esc(T.repo)}">The repository</a>.${T.BLOOPERS?.length ? '<button class="bug" id="bug" title="Psst…" aria-label="Something hidden">🐞</button>' : ''}`;
+
+  // ---- 🎬 the blooper reel: the logo clicked five times, "oops" typed, or the 🐞 at the bottom
+  function openReel() {
+    if (!T.BLOOPERS?.length) return;
+    const list = [...T.BLOOPERS].sort((a, b) => a.date.localeCompare(b.date));
+    $('#reel-list').innerHTML = list.map((b, i) => `<article class="blooper" style="animation-delay:${Math.min(i, 12) * 45}ms"><span class="n">${i + 1}</span>
+      <div class="d">${esc(fmt(b.date, { weekday: 'short', day: 'numeric', month: 'short' }))}</div><h3>${esc(b.title)}</h3><p>${esc(b.text)}</p>
+      ${b.lesson ? `<div class="lesson"><b>Lesson:</b> ${esc(b.lesson)}</div>` : ''}</article>`).join('');
+    $('#reel').showModal(); $('#reel-list').scrollTop = 0;
+  }
+  $('#reel-close').onclick = () => $('#reel').close();
+  $('#reel').addEventListener('click', (e) => { if (e.target === $('#reel')) $('#reel').close(); });
+  $('#bug')?.addEventListener('click', openReel);
+  let clicks = []; document.querySelector('.hero h1 img').addEventListener('click', () => {
+    const now = Date.now(); clicks = clicks.filter((t) => now - t < 2500); clicks.push(now);
+    if (clicks.length >= 5) { clicks = []; openReel(); }
+  });
+  let typed = ''; document.addEventListener('keydown', (e) => {
+    if (e.key.length !== 1) return; typed = (typed + e.key.toLowerCase()).slice(-4);
+    if (typed === 'oops') { typed = ''; openReel(); }
+  });
+  if (location.hash === '#bloopers') setTimeout(openReel, 300);
 
   // ---- filters
   const shown = new Set(Object.keys(T.AREAS));

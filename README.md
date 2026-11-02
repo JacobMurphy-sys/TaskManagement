@@ -597,6 +597,7 @@ start.bat            launcher that keeps a console window with the log
 
 `docs/` holds an interactive timeline of how SITHUB was built, from the first commit to today: development periods as bands on a date axis, commits per day, and pins for the main updates. Click a pin or a period for the details, filter by area, step through with ← →, zoom, and link straight to one (`…/#cpm`). The story is also written out period by period below it.
 
-- **Publish it:** on GitHub, **Settings › Pages › Build and deployment**: *Deploy from a branch*, then pick the branch and the **/docs** folder. It appears at `https://<owner>.github.io/<repo>/`. It's plain HTML with no build step, and it also opens straight from the folder.
-- **Add to it:** the periods and pins are in `docs/data.js`: add a pin with its date, area, title, text and points.
-- **Refresh the commit counts:** `node scripts/timeline-activity.js` (in a full clone: run `git fetch --unshallow` first in a shallow one).
+- **Publish it:** on GitHub, **Settings › Pages › Build and deployment › Source: GitHub Actions**. The *Timeline on GitHub Pages* workflow (`.github/workflows/timeline-pages.yml`) then publishes `docs/` on every push to `main` or the development branch, with the commits per day worked out from the full git history at that moment, so nothing is committed back. It appears at `https://<owner>.github.io/<repo>/`. If the deploy step says the branch isn't allowed, add it under **Settings › Environments › github-pages › Deployment branches**. The page also opens straight from the folder.
+- **It keeps itself current:** `CLAUDE.md` asks that every user-visible change adds a pin to `docs/data.js` in the same commit, so pins arrive with the work. Add or edit one by hand any time.
+- **Commit counts locally:** `node scripts/timeline-activity.js` (in a full clone: run `git fetch --unshallow` first in a shallow one).
+- 🤫 There's something hidden on the page, too.
