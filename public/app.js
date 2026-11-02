@@ -2560,6 +2560,19 @@ function setTheme(choice, { save = true } = {}) {
 darkQuery.addEventListener?.('change', drawThemeSwitch);
 drawThemeSwitch();
 
+// ---- The top bar in one row: the steps it takes as room runs out (see styles.css) --------------
+const TB_STEPS = ['tb-icons', 'tb-brand', 'tb-time'];
+function fitTopbar() {
+  const bar = $('#topbar'); const nav = $('#topnav'); if (!bar || !nav) return;
+  const oneRow = () => { const tops = new Set([...nav.children].filter((a) => !a.hidden && a.offsetParent).map((a) => a.offsetTop)); return tops.size <= 1; };
+  bar.classList.remove(...TB_STEPS);
+  if (matchMedia('(max-width: 700px)').matches) return; // a phone: its own layout
+  for (const step of TB_STEPS) { if (oneRow()) return; bar.classList.add(step); }
+}
+let fitTimer = null;
+const refitTopbar = () => { cancelAnimationFrame(fitTimer); fitTimer = requestAnimationFrame(fitTopbar); };
+if (window.ResizeObserver && document.getElementById("topbar")) new ResizeObserver(refitTopbar).observe(document.getElementById("topbar")); else window.addEventListener("resize", refitTopbar);
+
 // ---- The top bar's pages in each person's own order --------------------------------------------
 // Dragged into place on the top bar, or set in ⚙ Settings. Signed in, the order is kept with the
 // account, so it's the same on any PC using the server; without accounts it's this browser's. A page
@@ -2585,6 +2598,7 @@ function applyNavOrder(order) {
   const nav = $('#topnav'); if (!nav) return;
   const links = navLinks();
   for (const k of navArranged(order)) { const a = links.find((l) => l.dataset.nav === k); if (a) nav.append(a); }
+  refitTopbar();
 }
 async function saveNavOrder(order) {
   const std = navStandard();

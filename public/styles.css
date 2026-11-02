@@ -330,7 +330,6 @@ table.dash-projects td { vertical-align: middle; }
 
 /* ---------- narrow screens */
 @media (max-width: 1500px) { #topbar .wide-only { display: none; } #topnav a { padding: 5px 6px; } }
-@media (min-width: 701px) and (max-width: 1600px) { #topnav .ico { display: none; } #topnav .lbl { margin-left: -.25em; } } /* names only, so they fit on one row */
 /* not much room: icons only, but the page you're on keeps its name */
 @media (max-width: 700px) { #topnav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } #topnav .lbl { display: none; } #topnav a { padding: 6px 8px; font-size: 1.05rem; } } /* a phone: icons only */
 @media (max-width: 900px) {
@@ -1708,16 +1707,13 @@ label.f > .f-l .muted, label.f > .f-l .small { font-size: 12px; color: var(--mut
 .mail-empty { padding: 14px 8px; text-align: center; font-size: 13px; }
 .poke-row { align-items: center; gap: 8px; flex-wrap: wrap; }
 
-/* less room (up to 1600px with the sidebar shown, 1400px without): the icon, with the date over the time */
-@media (min-width: 701px) and (max-width: 1600px) {
-  body:not(.sidebar-hidden) .top-brand, .top-brand { flex-direction: row; align-items: center; gap: 6px; padding-right: 8px; }
-  #topbar .top-brand .brand { font-size: 0; } #topbar .top-brand .brand-ico { font-size: 1.35rem; margin: 0; }
-  #clock { display: flex; flex-direction: column; padding: 0; line-height: 1.2; } #clock .ck-s { display: none; } #clock .ck-t { font-weight: 600; color: #fff; }
-}
-@media (min-width: 1401px) and (max-width: 1600px) { #topbar #search { width: 110px; } #topbar #search:focus { width: 220px; } #topnav a { padding: 5px 5px; } #topbar { gap: 8px; padding: 7px 14px; } }
-@media (min-width: 1401px) and (max-width: 1600px) {
-  body.sidebar-hidden .top-brand { flex-direction: column; align-items: flex-start; gap: 0; padding-right: 10px; }
-  body.sidebar-hidden #topbar .top-brand .brand { font-size: 1.02rem; } body.sidebar-hidden #topbar .top-brand .brand-ico { font-size: inherit; margin-right: .35em; }
-  body.sidebar-hidden #clock { display: block; padding-left: 1.5em; } body.sidebar-hidden #clock .ck-s { display: inline; } body.sidebar-hidden #clock .ck-t { font-weight: 400; color: inherit; }
-}
-@media (min-width: 701px) and (max-width: 1150px) { body:not(.sidebar-hidden) #clock .ck-d { display: none; } } /* little room: the time (the date's in the tooltip) */
+/* The top bar keeps to one row by itself (fitTopbar() in app.js), a step at a time as room runs out:
+   tb-icons: the pages as icons only (the name's in the tooltip) · tb-brand: the brand's icon with the
+   date over the time · tb-time: the time only (the date's in the tooltip) */
+#topbar.tb-icons #topnav .lbl { display: none; }
+#topbar.tb-icons #topnav a { padding: 4px 7px; font-size: 1.1rem; }
+#topbar.tb-brand .top-brand { flex-direction: row; align-items: center; gap: 6px; padding-right: 8px; }
+#topbar.tb-brand .top-brand .brand { font-size: 0; } #topbar.tb-brand .top-brand .brand-ico { font-size: 1.35rem; margin: 0; }
+#topbar.tb-brand #clock { display: flex; flex-direction: column; padding: 0; line-height: 1.2; }
+#topbar.tb-brand #clock .ck-s { display: none; } #topbar.tb-brand #clock .ck-t { font-weight: 600; color: #fff; }
+#topbar.tb-time #clock .ck-d { display: none; }
