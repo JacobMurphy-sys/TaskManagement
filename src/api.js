@@ -1758,26 +1758,10 @@ const kpiData = require('./kpidata');
 kpiData.useScrapPref(() => { const s = getSettings(); const p = s.kpi_scrap_from || 'auto'; return p === 'auto' && !String(s.kpi_src_consumption || '').trim() ? 'remakes' : p; });
 const splitWeekends = () => getSettings().kpi_split_weekends === '1';
 
-// Excel's figures for each week, from the newest loaded week that has the Database values.
-function excelVolumes() {
-  const r = db.get("SELECT id, week, model, updated_at FROM kpi_snapshots WHERE COALESCE(origin, 'excel') = 'excel' ORDER BY updated_at DESC LIMIT 1");
-  if (!r) return null;
-  const model = JSON.parse(zlibSync.gunzipSync(Buffer.from(r.model, 'base64')).toString('utf8'));
-  const v = model.values || null;
-  if (!v) return { week: r.week, id: r.id, weeks: null };
-  const weeks = {};
-  for (let row = 2; row <= 1000; row++) {
-    const code = v[`B${row}`];
-    if (typeof code !== 'string' || !/^W\d{4}(_\d)?$/.test(code) || row < 40) continue;
-    weeks[code] = Object.fromEntries(Object.entries(kpiData.DATABASE_COLUMNS).map(([key, col]) => [key, typeof v[`${col}${row}`] === 'number' ? v[`${col}${row}`] : null]));
-  }
-  return { week: r.week, id: r.id, loaded_at: r.updated_at, weeks };
-}
-
 router.get('/kpi/calc', h((req, res) => {
   const year = Number(req.query.year) || new Date().getFullYear();
   const vol = kpiData.weeklyVolumes(year);
-  res.json({ year, ...vol, sources: kpiData.sourcesStatus(), forecasts: forecastStatus(), excel: excelVolumes(), split_weekends: splitWeekends() });
+  res.json({ year, ...vol, sources: kpiData.sourcesStatus(), forecasts: forecastStatus(), split_weekends: splitWeekends() });
 }));
 
 // Reads the source files that changed (all of them with force). Sources without a file of
@@ -1845,30 +1829,6 @@ router.delete('/kpi/overrides/:week/:col', h((req, res) => {
   const { week, col, year } = overrideTarget(req);
   if (!db.run('DELETE FROM kpi_overrides WHERE week = ? AND col = ?', [week, col]).changes) throw notFound('Adjustment');
   res.json(kpiData.weeklyVolumes(year).weeks.find((w) => w.week === week) || null);
-}));
-
-// Fills weeks' typed-in figures from Excel's Database sheet (the loaded week), where
-// nothing's been entered here yet — for carrying the year so far over.
-router.post('/kpi/manual/from-excel', h((req, res) => {
-  const xl = excelVolumes();
-  if (!xl?.weeks) throw new HttpError(400, 'Load a week from the workbook first (A3 tab)');
-  // only up to the week Excel was reporting: later weeks' zeros are just empty formulas
-  const year = kpi.weekParts(xl.week)?.year;
-  const order = year ? kpiData.weeksOf(year).map((w) => w.week) : [];
-  const upTo = order.indexOf(String(xl.week).toUpperCase());
-  let weeks = 0; let fields = 0;
-  db.tx(() => {
-    for (const [week, vals] of Object.entries(xl.weeks)) {
-      if (upTo >= 0 && (order.indexOf(week) < 0 || order.indexOf(week) > upTo)) continue;
-      const old = db.get('SELECT * FROM kpi_manual WHERE week = ?', [week]);
-      const f = {};
-      for (const k of kpiData.MANUAL_FIELDS) if (vals[k] !== null && vals[k] !== undefined && (old?.[k] === null || old?.[k] === undefined)) f[k] = vals[k];
-      if (!Object.keys(f).length) continue;
-      if (old) updateRow('kpi_manual', old.id, f); else insertRow('kpi_manual', { week, ...f });
-      weeks++; fields += Object.keys(f).length;
-    }
-  });
-  res.json({ weeks, fields });
 }));
 
 // The customer forecast files, as set (they're read when an A3 is built).

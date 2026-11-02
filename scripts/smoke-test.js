@@ -1181,7 +1181,6 @@ async function waitForServer() {
       assert.deepEqual([wkOf('W2614_2').perso_isi, wkOf('W2614_2').perso_pin, wkOf('W2614_2').perso_total, wkOf('W2614_2').shipped_ps], [0.5, 0.2, 0.5, 0.8],
         'the German health card is ISI; PIN mailers apart; total = PS + ISI; shipped by shipping date');
       assert.deepEqual(calc.unlisted.map((u) => [u.source, u.week, u.qty]), [['perso', 'W2614', 350]], 'weekend work in a split week, as Excel leaves it out');
-      assert.deepEqual([calc.excel.weeks.W2614_1.perso_ps, calc.excel.weeks.W2614_1.scrap], [1, 3], 'Excel\'s figures from the loaded week to compare with');
       await call('POST', '/kpi/calc/weekends', { split: true });
       calc = await call('GET', '/kpi/calc?year=2026');
       assert.deepEqual([wkOf('W2614_1').perso_ps, wkOf('W2614_2').perso_ps, calc.unlisted.length, calc.split_weekends], [1.3, 0.05, 0, true], 'weekends counted in their month\'s part');
@@ -1319,13 +1318,10 @@ async function waitForServer() {
       assert.equal(wkOf('W2614_1').scrap_rate, 0.002, 'scrap ÷ cards persoed');
       man = await call('PUT', '/kpi/manual/W2614_2', { protime: [], hours: '612.5' });
       assert.deepEqual([man.hours, man.protime], [612.5, null], 'or hours typed straight in');
-      // carrying the year so far over from Excel: only weeks with nothing typed, up to Excel's week
-      const copied = await call('POST', '/kpi/manual/from-excel', {});
-      assert.deepEqual(copied, { weeks: 1, fields: 2 });
+      await call('PUT', '/kpi/manual/W2614_1', { hours: 100, contract: 41 });
       calc = await call('GET', '/kpi/calc?year=2026');
       assert.deepEqual([wkOf('W2614_1').hours, wkOf('W2614_1').contract, wkOf('W2614_1').productivity], [100, 41, 10]);
-      assert.equal(calc.excel.weeks.W2614_1.hours, 100);
-      assert.deepEqual(await call('POST', '/kpi/manual/from-excel', {}), { weeks: 0, fields: 0 }, 'nothing overwritten');
+      assert.equal(calc.excel, undefined, 'no comparison with Excel any more');
       assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'kpi_manual'), 'typed-in figures are audited (and backed up)');
 
       // ---- SITHUB's own A3 for any week: the workbook's formulas re-run on the source figures
@@ -1398,7 +1394,6 @@ async function waitForServer() {
       assert.equal((await call('GET', '/kpi/prepare?week=nonsense')).week, prep.default_week, 'a bad week falls back to the last finished one');
       await assert.rejects(call('POST', '/kpi/build', { week: 'W2639' }), /loaded from Excel/);
       await assert.rejects(call('POST', '/kpi/build', { week: 'nope' }), /Not a week code/);
-      assert.equal((await call('GET', '/kpi/calc?year=2026')).excel.week, 'W2639', 'the Excel comparison ignores weeks SITHUB built');
       const bx = await fetch(`${BASE}/kpi/snapshots/${built.id}/export`, { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } });
       assert.equal(bx.status, 200, 'a built week exports like any other');
       await call('DELETE', `/kpi/snapshots/${built.id}`);
