@@ -46,6 +46,7 @@
       <div class="spacer"></div>
       <input id="search" type="search" placeholder="Search…  ( / )" autocomplete="off">
       <button data-action="quick-note" title="Quick note (N)">📝</button>
+      <div id="mail" class="top-menu"><button id="mail-btn" type="button" aria-haspopup="true" title="Messages: pokes about your tasks, news on your tickets">✉ <span id="mail-count" class="count" hidden>0</span></button><div id="mail-panel" class="top-menu-panel mail-panel" hidden></div></div>
       <button data-action="ticket" title="Report a bug, ask for a feature or a question">💬</button>
       <div id="notices" class="top-menu" hidden><button id="notices-btn" type="button" aria-haspopup="true">⚠</button><div id="notices-panel" class="top-menu-panel notices-panel" hidden></div></div>
       <a id="bell" href="#/dashboard" title="Due / overdue tasks">🔔 <span id="bell-count" class="count" hidden>0</span></a>
@@ -97,6 +98,7 @@
   <script src="accounts.js"></script>
   <script src="reschedule.js"></script>
   <script src="tickets.js"></script>
+  <script src="messages.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

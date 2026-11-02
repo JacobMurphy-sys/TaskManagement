@@ -194,6 +194,20 @@ const TABLES = {
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
 
+  // ✉ Messages to a person (by name, as on tasks), shown under ✉ in the top bar: 👉 a poke about a
+  // task given to them, 🎫 news on a ticket they sent (its status, an answer).
+  messages: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    to_person   TEXT    NOT NULL,
+    kind        TEXT    NOT NULL DEFAULT 'message' CHECK (kind IN ('poke', 'ticket', 'message')),
+    title       TEXT    NOT NULL,
+    body        TEXT,
+    from_person TEXT,
+    task_id     INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+    ticket_id   INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+    read_at     TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
   // The additive "log as I go" notes on a project (optionally tied to a task).
   notes: `
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -780,6 +794,7 @@ const INDEXES = `
   CREATE INDEX IF NOT EXISTS tasks_due_idx     ON tasks(due_at);
   CREATE INDEX IF NOT EXISTS reschedules_idx ON reschedules(kind, record_id);
   CREATE INDEX IF NOT EXISTS notes_project_idx ON notes(project_id, created_at);
+  CREATE INDEX IF NOT EXISTS messages_to_idx ON messages(to_person COLLATE NOCASE, created_at);
   CREATE INDEX IF NOT EXISTS notes_task_idx    ON notes(task_id);
   CREATE INDEX IF NOT EXISTS reminders_due_idx ON reminders(status, remind_at);
   CREATE INDEX IF NOT EXISTS reminders_task_idx ON reminders(task_id);

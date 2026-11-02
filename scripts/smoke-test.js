@@ -86,6 +86,44 @@ async function waitForServer() {
       await call('DELETE', `/tickets/${f2.id}`); await call('DELETE', `/tickets/${t.id}`);
       assert.equal((await fetch(`${BASE}/tickets/${t.id}/screenshot`)).status, 404, 'screenshot gone with it');
     }
+    { // ✉ messages: a poke about a task to the people it's given to; news on a ticket to whoever sent it
+      const as = async (who, method, url, body) => {
+        const res = await fetch(BASE + url, { method, body: body ? JSON.stringify(body) : undefined,
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager', ...(who ? { 'X-User-Name': encodeURIComponent(who) } : {}) } });
+        return { status: res.status, data: res.status === 204 ? null : await res.json() };
+      };
+      const tk = await call('POST', '/tasks', { project_id: p.id, title: 'Update the line 3 SOP', owner: 'Alex Kim, Sam Patel' });
+      assert.equal((await as(null, 'POST', `/tasks/${tk.id}/poke`, {})).status, 400, 'who poked has to be known');
+      let r = await as('Morgan Lee', 'POST', `/tasks/${tk.id}/poke`, { note: 'Can you finish it by Friday?' });
+      assert.equal(r.status, 201); assert.deepEqual(r.data.sent, ['Alex Kim', 'Sam Patel']);
+      r = await as('alex kim', 'GET', '/messages');
+      assert.equal(r.data.unread, 1, 'by name, whatever the case');
+      const m = r.data.messages[0];
+      assert.deepEqual([m.kind, m.title, m.body, m.from_person, m.task_id, m.task_title], ['poke', 'Morgan Lee poked you about “Update the line 3 SOP”', 'Can you finish it by Friday?', 'Morgan Lee', tk.id, 'Update the line 3 SOP']);
+      assert.equal((await as('Morgan Lee', 'POST', `/tasks/${tk.id}/poke`, {})).status, 429, 'not twice in a quarter of an hour');
+      r = await as('Sam Patel', 'POST', `/tasks/${tk.id}/poke`, {});
+      assert.equal(r.status, 429, 'Alex was just poked; the poker themselves never is');
+      assert.equal((await as('Nobody', 'GET', '/messages')).data.unread, 0, 'only your own');
+      await as('Alex Kim', 'POST', '/messages/read', { ids: [m.id] });
+      assert.equal((await as('Alex Kim', 'GET', '/messages')).data.unread, 0, 'read');
+      assert.equal((await as('Sam Patel', 'DELETE', `/messages/${m.id}`)).status, 404, 'not someone else\'s');
+      assert.equal((await as('Alex Kim', 'DELETE', `/messages/${m.id}`)).status, 204);
+      // a ticket: its sender hears of its status and the answer, in one message while unread
+      const tc = (await as('Alex Kim', 'POST', '/tickets', { kind: 'feature', title: 'Export the Gantt' })).data;
+      await as('Morgan Lee', 'PATCH', `/tickets/${tc.id}`, { status: 'triaged' });
+      await as('Morgan Lee', 'PATCH', `/tickets/${tc.id}`, { reply: 'Planned for next month' });
+      await as('Alex Kim', 'PATCH', `/tickets/${tc.id}`, { priority: 1 });
+      r = (await as('Alex Kim', 'GET', '/messages')).data;
+      const tm = r.messages.filter((x) => x.ticket_id === tc.id);
+      assert.equal(tm.length, 1, 'one message for the ticket');
+      assert.deepEqual([tm[0].kind, tm[0].title, tm[0].body], ['ticket', 'Your feature request “Export the Gantt”: answered', 'Planned for next month']);
+      await as('Alex Kim', 'POST', '/messages/read', {});
+      await as('Morgan Lee', 'PATCH', `/tickets/${tc.id}`, { status: 'done' });
+      assert.equal((await as('Alex Kim', 'GET', '/messages')).data.messages[0].title, 'Your feature request “Export the Gantt”: done', 'a new one once the last was read');
+      await call('DELETE', `/tickets/${tc.id}`); await call('DELETE', `/tasks/${tk.id}`);
+      assert.equal((await as('Alex Kim', 'GET', '/messages')).data.messages.length, 0, 'gone with the task and the ticket');
+      assert.equal((await as('Sam Patel', 'GET', '/messages')).data.messages.length, 0);
+    }
     { // 📝 quick notes: on Home until assigned; a title of its own goes into the note, [ ] lines become tasks then
       const q1 = await call('POST', '/notes', { inbox: true, title: 'Quick Note 02/11/26 09:15', body: 'Ring the supplier\n[ ] Ask for the new price' });
       const q2 = await call('POST', '/notes', { inbox: true, title: 'Shift handover', body: 'Line 3 slow' });
@@ -2676,6 +2714,11 @@ async function waitForServer() {
       assert.equal((await admin('GET', '/auth/me')).data.account.nav_order, null, 'others keep the standard order');
       assert.equal((await sam('PATCH', '/auth/prefs', { nav_order: ['<script>'] })).status, 400);
       assert.equal((await sam('PATCH', '/auth/prefs', { nav_order: null })).data.nav_order, null, 'back to the standard order');
+      // 👉 poking needs the right (or leading the task's project); the message goes to the person it's given to
+      { const pt = (await admin('POST', '/tasks', { title: 'Check the ink stock', owner: 'Robin Diaz' })).data;
+        assert.equal((await sam('POST', `/tasks/${pt.id}/poke`, {})).status, 403, 'not without the right');
+        assert.equal((await admin('POST', `/tasks/${pt.id}/poke`, { note: 'Today please' })).status, 201, 'admins have it');
+        await admin('DELETE', `/tasks/${pt.id}`); }
       // 🔑 admin rights: the host (the first account) gives some of them to other accounts
       assert.equal((await admin('GET', '/auth/me')).data.account.owner, true, 'the first account is the host');
       r = await admin('PATCH', `/accounts/${samId}`, { rights: ['setup', 'accounts', 'server', 'bogus'] });

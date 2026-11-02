@@ -2062,9 +2062,11 @@ async function taskModal(id) {
     <div class="section row">
       <button class="danger" data-action="delete-task" data-id="${t.id}">Delete task</button>
       <div class="spacer"></div>
+      ${canPoke(t) ? '<button id="poke-btn" title="Send the people this task is given to a ✉ nudge about it">👉 Poke</button>' : ''}
       ${t.parent_id ? `<button data-action="open-task" data-id="${t.parent_id}">↑ Parent task</button>` : ''}
       <button class="primary" data-action="close-modal">Done</button>
     </div>`);
+  $('#poke-btn')?.addEventListener('click', (e) => pokeDialog(t, e.target.closest('.section')));
 
   // the task's side sections (depends on, meetings, reminders) folded while they're empty
   for (const sec of $$('#modal .section')) {
@@ -2519,7 +2521,7 @@ const actions = {
     await renderSettings();
   },
   history: (el) => collabHistory(el.dataset.kind, el.dataset.id, el.dataset.title || ''),
-  'set-name': () => collabAskName(true),
+  'set-name': () => Promise.resolve(collabAskName(true)).then(() => mailPoll()),
   'change-password': () => acctPasswordDialog(false),
   'sign-out': async () => { await api.post('/auth/logout', {}); location.reload(); },
   'stop-server': async () => {
@@ -2944,6 +2946,7 @@ window.addEventListener('hashchange', route);
   // 👤 with accounts on: signed in, or the sign-in page instead of the app
   if (!(await acctInit())) return;
   applyNavOrder(); // signed in: the account's own order
+  mailWire(); // ✉ messages to you
   if (state.mode === 'planner') {
     // 🏭 SITHUB Planner: Planning on its own, shared by several people
     document.body.classList.add('planner-mode');

@@ -1139,7 +1139,54 @@ const appVersion = (() => { // the version and the commit it was installed from,
   return v;
 })();
 const normTicket = (t) => t && { ...t, ref: ticketRef(t.id), context: parseJson(t.context) || {}, has_screenshot: !!t.screenshot, screenshot: undefined };
+// who's asking: the account's person, or (accounts off) the name this browser was given
+const whoIs = (req) => { let who = String(req.get('X-User-Name') || ''); try { who = decodeURIComponent(who); } catch { /* as sent */ } return (req.account?.person || who || '').trim().slice(0, 80) || null; };
 const ticketReporter = (req) => { let who = String(req.get('X-User-Name') || ''); try { who = decodeURIComponent(who); } catch { /* as sent */ } return (req.account?.person || who || '').slice(0, 80) || null; };
+
+// ---- ✉ Messages: what's been sent to you (a poke about a task, news on your ticket) ----------
+const msgOut = (m) => ({ ...m, read: !!m.read_at });
+router.get('/messages', h((req, res) => {
+  const me = whoIs(req);
+  if (!me) return res.json({ person: null, unread: 0, messages: [] });
+  const messages = db.all(`SELECT m.*, t.title AS task_title, t.status AS task_status, k.title AS ticket_title FROM messages m
+    LEFT JOIN tasks t ON t.id = m.task_id LEFT JOIN tickets k ON k.id = m.ticket_id
+    WHERE m.to_person = ? COLLATE NOCASE ORDER BY m.created_at DESC, m.id DESC LIMIT 100`, [me]).map(msgOut);
+  res.json({ person: me, unread: db.get('SELECT count(*) AS n FROM messages WHERE to_person = ? COLLATE NOCASE AND read_at IS NULL', [me]).n, messages });
+}));
+// { ids } read (none: all of them)
+router.post('/messages/read', h((req, res) => {
+  const me = whoIs(req); if (!me) throw new HttpError(400, 'Say who you are first');
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isInteger) : null;
+  db.run(`UPDATE messages SET read_at = ? WHERE to_person = ? COLLATE NOCASE AND read_at IS NULL${ids ? ` AND id IN (${ids.map(() => '?').join(',') || 'NULL'})` : ''}`, [nowIso(), me, ...(ids || [])]);
+  res.json({ ok: true });
+}));
+router.delete('/messages/:id', h((req, res) => {
+  const me = whoIs(req);
+  if (!me || !db.run('DELETE FROM messages WHERE id = ? AND to_person = ? COLLATE NOCASE', [req.params.id, me]).changes) throw notFound('Message');
+  res.status(204).end();
+}));
+// 👉 Poke: a nudge about a task to the people it's given to — by someone with the "Poke people"
+// right (accounts off: anyone), or the leader or sponsor of the task's project. { note }
+router.post('/tasks/:id/poke', h((req, res) => {
+  const t = db.get('SELECT t.*, p.leader, p.sponsor, p.name AS project_name FROM tasks t LEFT JOIN projects p ON p.id = t.project_id WHERE t.id = ?', [req.params.id]);
+  if (!t) throw notFound('Task');
+  const me = whoIs(req);
+  if (!me) throw new HttpError(400, 'Say who you are first (⋯ menu), so they know who poked them');
+  const leads = [...splitOwners(t.leader), ...splitOwners(t.sponsor)].some((o) => o.toLowerCase() === me.toLowerCase());
+  if (!accounts.hasRight(req, 'poke') && !leads) throw new HttpError(403, 'Poking needs the “Poke people” right, or to lead or sponsor the task\'s project — ask an admin');
+  if (t.status === 'done') throw new HttpError(400, 'The task is done already');
+  const to = splitOwners(t.owner).filter((o) => o.toLowerCase() !== me.toLowerCase());
+  if (!to.length) throw new HttpError(400, t.owner ? 'The task is only yours' : 'The task isn\'t given to anyone yet');
+  // not twice in a row: once a quarter of an hour per person and task
+  const since = new Date(Date.now() - 15 * 60000).toISOString();
+  const recent = to.filter((o) => db.get("SELECT 1 FROM messages WHERE kind = 'poke' AND task_id = ? AND to_person = ? COLLATE NOCASE AND created_at > ?", [t.id, o, since]));
+  if (recent.length === to.length) throw new HttpError(429, `${recent.join(', ')} ${recent.length > 1 ? 'were' : 'was'} poked about it in the last 15 minutes`);
+  const note = String(req.body?.note || '').trim().slice(0, 2000) || null;
+  const sent = to.filter((o) => !recent.includes(o));
+  for (const o of sent) insertRow('messages', { to_person: o, kind: 'poke', title: `${me} poked you about “${t.title}”`, body: note, from_person: me, task_id: t.id });
+  log.info(`${me} poked ${sent.join(', ')} about task ${t.id}`);
+  res.status(201).json({ sent, skipped: recent });
+}));
 
 router.get('/tickets', h((req, res) => res.json({
   tickets: db.all('SELECT * FROM tickets ORDER BY id DESC').map(normTicket),
@@ -1172,10 +1219,27 @@ router.patch('/tickets/:id', h((req, res) => {
   const f = pick(req.body, ['status', 'priority', 'reply', 'kind']);
   if (f.status !== undefined && !TICKET_STATUS.includes(f.status)) throw new HttpError(400, 'Invalid status');
   if (f.kind !== undefined && !TICKET_KINDS.includes(f.kind)) throw new HttpError(400, 'Invalid kind');
+  const before = db.get('SELECT * FROM tickets WHERE id = ?', [req.params.id]);
   const row = fresh('tickets', updateRow('tickets', req.params.id, f));
   if (!row) throw notFound('Ticket');
+  ticketNews(req, before, row);
   res.json(normTicket(row));
 }));
+// ✉ The person who sent a ticket hears when it's answered or its status changes (not when it's
+// themselves): one message per ticket while they haven't read it, brought up to date.
+const TICKET_STATUS_SAID = { new: 'back to new', triaged: 'seen and planned', in_progress: 'being worked on', done: 'done', wont_do: 'not going to be done' };
+function ticketNews(req, before, row) {
+  const to = row.reporter; if (!to || !before) return;
+  const by = whoIs(req);
+  if (by && by.toLowerCase() === to.trim().toLowerCase()) return;
+  const status = before.status !== row.status; const reply = (before.reply || '') !== (row.reply || '') && !!row.reply;
+  if (!status && !reply) return;
+  const what = { bug: 'bug report', feature: 'feature request', question: 'question' }[row.kind] || 'ticket';
+  const title = `Your ${what} “${row.title}”: ${status ? TICKET_STATUS_SAID[row.status] : 'answered'}${status && reply ? ', with an answer' : ''}`;
+  const open = db.get('SELECT id FROM messages WHERE ticket_id = ? AND read_at IS NULL AND to_person = ? COLLATE NOCASE', [row.id, to]);
+  if (open) db.run('UPDATE messages SET title = ?, body = ?, from_person = ?, created_at = ? WHERE id = ?', [title, row.reply || null, by, nowIso(), open.id]);
+  else insertRow('messages', { to_person: to, kind: 'ticket', title, body: row.reply || null, from_person: by, ticket_id: row.id });
+}
 router.delete('/tickets/:id', h((req, res) => {
   if (!accounts.hasRight(req, 'tickets')) throw new HttpError(403, 'Handling tickets needs the “Handle tickets” right — ask an admin');
   const t = db.get('SELECT * FROM tickets WHERE id = ?', [req.params.id]);

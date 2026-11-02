@@ -78,6 +78,7 @@ const RIGHTS = [
   { key: 'backups', label: 'Backups', icon: '💾', what: 'make a backup and restore one — from any PC, not only on the server' },
   { key: 'server', label: 'Server', icon: '🖥', what: 'read the server\'s log and restart it (picking up an update) from any PC' },
   { key: 'tickets', label: 'Handle tickets', icon: '🎫', what: 'set the status of bug reports and feature requests, and answer them' },
+  { key: 'poke', label: 'Poke people', icon: '👉', what: 'send anyone a ✉ nudge about a task given to them (project leaders and sponsors can always on their own projects)' },
 ];
 const RIGHT_KEYS = RIGHTS.map((r) => r.key);
 function rightsOf(a) {
