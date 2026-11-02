@@ -1678,3 +1678,12 @@ label.f > .f-l .muted, label.f > .f-l .small { font-size: 12px; color: var(--mut
 /* the SITHUB icon next to the name */
 .brand-ico { width: 1.15em; height: 1.15em; vertical-align: -0.2em; margin-right: 0.35em; border-radius: 22%; }
 .brand-ico.lg { width: 1.3em; height: 1.3em; }
+
+/* ---- the top bar's pages in each person's order: dragging them, and the list in Settings ---- */
+#topnav a[data-nav] { -webkit-user-drag: element; }
+#topnav.nav-dragging a[data-nav] { cursor: grabbing; }
+#topnav a.nav-dragged { opacity: .45; outline: 2px dashed rgba(255, 255, 255, .7); outline-offset: -2px; }
+.nav-order { list-style: none; margin: 4px 0 6px; padding: 0; display: flex; flex-direction: column; gap: 2px; max-width: 320px; }
+.nav-order li { display: flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
+.nav-order li span { flex: 1; }
+.nav-order li button[disabled] { opacity: .25; }

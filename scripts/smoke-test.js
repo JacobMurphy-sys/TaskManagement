@@ -2670,6 +2670,12 @@ async function waitForServer() {
       assert.equal((await sam('PATCH', '/auth/prefs', { theme: 'dark' })).data.theme, 'dark');
       assert.equal((await sam('GET', '/auth/me')).data.account.theme, 'dark', 'kept with the account');
       assert.equal((await admin('GET', '/auth/me')).data.account.theme, null, 'each their own');
+      // the top bar's order: each person's own, kept with the account (the same on any PC)
+      assert.deepEqual((await sam('PATCH', '/auth/prefs', { nav_order: ['kpi', 'tasks', 'kpi', 'dashboard'] })).data.nav_order, ['kpi', 'tasks', 'dashboard'], 'once each');
+      assert.deepEqual((await sam('GET', '/auth/me')).data.account.nav_order, ['kpi', 'tasks', 'dashboard']);
+      assert.equal((await admin('GET', '/auth/me')).data.account.nav_order, null, 'others keep the standard order');
+      assert.equal((await sam('PATCH', '/auth/prefs', { nav_order: ['<script>'] })).status, 400);
+      assert.equal((await sam('PATCH', '/auth/prefs', { nav_order: null })).data.nav_order, null, 'back to the standard order');
       // 🔑 admin rights: the host (the first account) gives some of them to other accounts
       assert.equal((await admin('GET', '/auth/me')).data.account.owner, true, 'the first account is the host');
       r = await admin('PATCH', `/accounts/${samId}`, { rights: ['setup', 'accounts', 'server', 'bogus'] });

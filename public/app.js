@@ -1633,7 +1633,8 @@ async function renderMySettings() {
       <div class="card"><h2>Appearance</h2>
         <label class="f">Light or dark
           <select id="theme-choice" style="max-width:220px">${options({ auto: 'Automatic (follow Windows)', light: '☀ Light', dark: '🌙 Dark' }, store.get('theme', 'auto'))}</select></label>
-        <p class="small muted">Kept with your account, so it's the same on any PC you sign in on. The ⋯ menu's Dark mode switch changes it too.</p></div>
+        <p class="small muted">Kept with your account, so it's the same on any PC you sign in on. The ⋯ menu's Dark mode switch changes it too.</p>
+        ${navSettingsHtml()}</div>
       <div class="card"><h2>👤 Your account</h2>
         <p>Signed in as <b>${esc(ACCT.account.person)}</b> (${esc(ACCT.account.username)}).</p>
         <button data-action="change-password">🔑 Change password</button>
@@ -1642,6 +1643,7 @@ async function renderMySettings() {
       ${await acctSettingsHtml()}
     </div>`;
   $('#theme-choice').addEventListener('change', (e) => setTheme(e.target.value));
+  navSettingsWire(renderSettings);
   acctSettingsWire(renderSettings);
 }
 
@@ -1675,6 +1677,7 @@ async function renderSettings() {
         <h2>General</h2>
         <label class="f">Appearance <span class="muted small">${ACCT.account ? '— yours, kept with your account' : ''}</span>
           <select id="theme-choice" style="max-width:220px">${options({ auto: 'Automatic (follow Windows)', light: '☀ Light', dark: '🌙 Dark' }, store.get('theme', 'auto'))}</select></label>
+        ${navSettingsHtml()}
         <p class="small muted">People and departments for owners and attendees are on the <a href="#/contacts">📇 Contacts</a> page.</p>
         <label class="f">Currency symbol — idea costs, and project budgets and costs unless a project sets its own
           <input type="text" id="currency" value="${esc(settings.currency)}" maxlength="5" style="max-width:120px"></label>
@@ -1697,6 +1700,7 @@ async function renderSettings() {
       </div>
     </div>`;
   acctSettingsWire(renderSettings);
+  navSettingsWire(renderSettings);
   $('#team-file').addEventListener('change', async (e) => {
     const f = e.target.files[0]; e.target.value = ''; if (!f) return;
     let body; try { body = JSON.parse(await f.text()); } catch { toast('That isn\'t a team pack', 'error'); return; }
@@ -2554,6 +2558,97 @@ function setTheme(choice, { save = true } = {}) {
 darkQuery.addEventListener?.('change', drawThemeSwitch);
 drawThemeSwitch();
 
+// ---- The top bar's pages in each person's own order --------------------------------------------
+// Dragged into place on the top bar, or set in ⚙ Settings. Signed in, the order is kept with the
+// account, so it's the same on any PC using the server; without accounts it's this browser's. A page
+// added later (a new module, 📥 My work) takes its standard place among the ones already ordered.
+const NAV_STANDARD = [...document.querySelectorAll('#topnav a[data-nav]')].map((a) => a.dataset.nav);
+const navLinks = () => [...document.querySelectorAll('#topnav > a[data-nav]')];
+const navStandard = () => { const keys = navLinks().map((a) => a.dataset.nav); return [...keys.filter((k) => !NAV_STANDARD.includes(k)), ...NAV_STANDARD.filter((k) => keys.includes(k))]; };
+// the saved order: the account's when signed in, else this browser's
+const navSaved = () => (ACCT.account ? ACCT.account.nav_order : store.get('navOrder', null));
+function navArranged(order = navSaved()) {
+  const std = navStandard();
+  if (!Array.isArray(order) || !order.length) return std;
+  const out = order.filter((k) => std.includes(k));
+  std.forEach((k, i) => {
+    if (out.includes(k)) return;
+    let at = 0; // after the nearest page before it in the standard order that's placed
+    for (let j = i - 1; j >= 0; j--) { const p = out.indexOf(std[j]); if (p >= 0) { at = p + 1; break; } }
+    out.splice(at, 0, k);
+  });
+  return out;
+}
+function applyNavOrder(order) {
+  const nav = $('#topnav'); if (!nav) return;
+  const links = navLinks();
+  for (const k of navArranged(order)) { const a = links.find((l) => l.dataset.nav === k); if (a) nav.append(a); }
+}
+async function saveNavOrder(order) {
+  const std = navStandard();
+  const value = order && order.join() !== std.join() ? order : null; // the standard order is kept as "none"
+  // this browser remembers it too, so the next start shows it straight away
+  store.set('navOrderLast', { who: ACCT.account?.username || null, order: value });
+  if (ACCT.account) {
+    const a = await api.patch('/auth/prefs', { nav_order: value });
+    ACCT.account.nav_order = a.nav_order;
+  } else store.set('navOrder', value);
+  applyNavOrder(value);
+}
+// dragging a page along the top bar
+function wireNavDrag() {
+  const nav = $('#topnav'); if (!nav) return;
+  let dragged = null; let before = '';
+  nav.addEventListener('dragstart', (e) => {
+    const a = e.target.closest?.('a[data-nav]'); if (!a) return;
+    dragged = a; before = navLinks().map((l) => l.dataset.nav).join();
+    nav.classList.add('nav-dragging'); a.classList.add('nav-dragged');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  nav.addEventListener('dragover', (e) => {
+    if (!dragged) return;
+    e.preventDefault();
+    const over = e.target.closest?.('a[data-nav]');
+    if (!over || over === dragged) return;
+    const r = over.getBoundingClientRect();
+    over[e.clientX < r.left + r.width / 2 ? 'before' : 'after'](dragged);
+  });
+  nav.addEventListener('drop', (e) => { if (dragged) e.preventDefault(); });
+  nav.addEventListener('dragend', () => {
+    if (!dragged) return;
+    dragged.classList.remove('nav-dragged'); nav.classList.remove('nav-dragging'); dragged = null;
+    const now = navLinks().map((l) => l.dataset.nav);
+    if (now.join() === before) return;
+    saveNavOrder(now).then(() => toast(ACCT.account ? 'Top bar order saved — the same on any PC you sign in on' : 'Top bar order saved in this browser'))
+      .catch((err) => { toast(err.message, 'error'); applyNavOrder(); });
+  });
+}
+// ⚙ Settings: the order as a list, moved with ↑ ↓ (pages you can't open aren't listed)
+function navSettingsHtml() {
+  const links = navLinks();
+  const rows = navArranged().map((k) => links.find((l) => l.dataset.nav === k)).filter((a) => a && !a.hidden);
+  return `<div class="f"><span>Top bar — the order of the pages ${ACCT.account ? '<span class="muted small">— yours, kept with your account</span>' : '<span class="muted small">— in this browser</span>'}</span>
+    <ol class="nav-order" id="nav-order">${rows.map((a, i) => `<li data-k="${esc(a.dataset.nav)}"><span>${esc(a.textContent.replace(/\s+\d+$/, '').trim())}</span>
+      <button type="button" class="icon" data-nav-move="-1" ${i ? '' : 'disabled'} title="Move left">↑</button><button type="button" class="icon" data-nav-move="1" ${i < rows.length - 1 ? '' : 'disabled'} title="Move right">↓</button></li>`).join('')}</ol>
+    <div class="row small" style="gap:8px"><button type="button" class="small link" id="nav-reset" ${navSaved() ? '' : 'disabled'}>Back to the standard order</button>
+      <span class="muted">Or drag the pages along the top bar.</span></div></div>`;
+}
+function navSettingsWire(rerender) {
+  const list = $('#nav-order'); if (!list) return;
+  list.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-nav-move]'); if (!b) return;
+    const k = b.closest('li').dataset.k; const order = navArranged();
+    const i = order.indexOf(k);
+    // past pages that aren't shown, to the next one that is
+    const shown = new Set($$('#nav-order li').map((li) => li.dataset.k));
+    let j = i; do { j += Number(b.dataset.navMove); } while (j >= 0 && j < order.length && !shown.has(order[j]));
+    if (j < 0 || j >= order.length) return;
+    order.splice(i, 1); order.splice(j, 0, k);
+    try { await saveNavOrder(order); rerender(); } catch (err) { toast(err.message, 'error'); }
+  });
+  $('#nav-reset')?.addEventListener('click', async () => { try { await saveNavOrder(null); rerender(); } catch (err) { toast(err.message, 'error'); } });
+}
+
 // ---- Task lists: inline rename and reordering ---------------------------------------
 
 let openTaskTimer = null;
@@ -2837,6 +2932,9 @@ function tickClock() {
 
 window.addEventListener('hashchange', route);
 (async function init() {
+  // the top bar as last arranged in this browser, until the account's order is known
+  applyNavOrder(store.get('navOrderLast', null)?.order ?? store.get('navOrder', null));
+  wireNavDrag();
   tickClock();
   setInterval(tickClock, 15000);
   updateNotifyButton();
@@ -2845,6 +2943,7 @@ window.addEventListener('hashchange', route);
   if (state.shared && !state.local) $$('.stop-server').forEach((b) => { b.previousElementSibling?.tagName === 'HR' && b.previousElementSibling.remove(); b.remove(); });
   // 👤 with accounts on: signed in, or the sign-in page instead of the app
   if (!(await acctInit())) return;
+  applyNavOrder(); // signed in: the account's own order
   if (state.mode === 'planner') {
     // 🏭 SITHUB Planner: Planning on its own, shared by several people
     document.body.classList.add('planner-mode');

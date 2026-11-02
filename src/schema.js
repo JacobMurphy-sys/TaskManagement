@@ -31,6 +31,7 @@ const TABLES = {
     inbox_seen_at TEXT,
     modules       TEXT,
     theme         TEXT,
+    nav_order     TEXT,
     rights        TEXT,
     owner         INTEGER NOT NULL DEFAULT 0,
     last_login    TEXT,

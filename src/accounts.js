@@ -122,7 +122,9 @@ function setupGate(req, res, next) {
 // ---- accounts and sessions ---------------------------------------------------------------------
 const enabled = () => !!db.get('SELECT 1 FROM accounts WHERE active = 1 LIMIT 1');
 const publicAccount = (a) => (a ? { id: a.id, username: a.username, person: a.person, role: a.role, must_change: !!a.must_change, active: !!a.active, last_login: a.last_login, created_at: a.created_at,
-  modules: modulesOf(a), areas: areasOf(a), modules_set: a.modules !== null && a.modules !== undefined, theme: a.theme || null, rights: rightsOf(a), owner: !!a.owner } : null);
+  modules: modulesOf(a), areas: areasOf(a), modules_set: a.modules !== null && a.modules !== undefined, theme: a.theme || null, nav_order: navOrderOf(a), rights: rightsOf(a), owner: !!a.owner } : null);
+// the order of the top bar's pages, chosen by the person: ['dashboard', 'tasks', …] or null (the standard order)
+function navOrderOf(a) { try { const o = JSON.parse(a.nav_order || 'null'); return Array.isArray(o) ? o : null; } catch { return null; } }
 const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
 function cookieToken(req) {
   const m = String(req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${COOKIE}=([A-Za-z0-9_-]+)`));
@@ -206,13 +208,19 @@ router.post('/auth/password', h((req, res) => {
   res.json({ ok: true });
 }));
 
-// your own preferences, kept with your account so they follow you to any PC: { theme: auto | light | dark }
+// your own preferences, kept with your account so they follow you to any PC:
+// { theme: auto | light | dark, nav_order: ['dashboard', 'tasks', …] | null (the standard order) }
 router.patch('/auth/prefs', h((req, res) => {
   const a = req.account;
   if (!a) throw bad('Sign in first', 401);
   if ('theme' in (req.body || {})) {
     const t = ['auto', 'light', 'dark'].includes(req.body.theme) ? req.body.theme : null;
     db.run('UPDATE accounts SET theme = ? WHERE id = ?', [t, a.id]);
+  }
+  if ('nav_order' in (req.body || {})) {
+    const o = req.body.nav_order;
+    if (o !== null && (!Array.isArray(o) || o.length > 40 || o.some((k) => typeof k !== 'string' || !/^[a-z][a-z0-9_-]{0,30}$/.test(k)))) throw bad('The top bar order is a list of page names');
+    db.run('UPDATE accounts SET nav_order = ? WHERE id = ?', [o ? JSON.stringify([...new Set(o)]) : null, a.id]);
   }
   res.json(publicAccount(db.get('SELECT * FROM accounts WHERE id = ?', [a.id])));
 }));
