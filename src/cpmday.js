@@ -251,11 +251,14 @@ function orderSizes(cards) {
 // slots: H; rows; machines: [{ name, techs, speed, avail, only }]; worked(i); factor; windows: tech → hours
 function runBlocks({ H, rows, machines, workedAt, factor, rnwHours, sizes, allowed, cutoffOf }) {
   const STEP = 1 / 60; const DAYS = 3; const orders = []; let id = 0;
+  // at most this many orders a customer a day (bigger ones instead): learned sizes of a few cards would
+  // make tens of thousands, and the minute-by-minute run then takes minutes — the app stops answering
+  const MAX_D = 48; const MAX_R = 24;
   const sizeOf = (kind, r) => sizes.get(`${kind}|${r.trigram}|${r.tech}`) || sizes.get(`${kind}|${r.trigram}|*`) || sizes.get(`${kind}|*|${r.tech}`) || sizes.get(`${kind}|*|*`) || 1000;
   for (let dd = 0; dd < DAYS; dd++) for (const r of rows) {
     // daily: n work orders at the profile's quantiles
     if (r.daily > 0.5) {
-      const n = Math.max(1, Math.round(r.daily / sizeOf('D', r))); const cum = []; let c = 0; for (const x of r.shares) { c += x; cum.push(c); }
+      const n = Math.min(MAX_D, Math.max(1, Math.round(r.daily / sizeOf('D', r)))); const cum = []; let c = 0; for (const x of r.shares) { c += x; cum.push(c); }
       for (let k = 0; k < n; k++) {
         const q = ((k + 0.5) / n) * (c || 1); let i = cum.findIndex((v) => v >= q - 1e-12); if (i < 0) i = 23;
         const prev = i ? cum[i - 1] : 0; const frac = r.shares[i] > 0 ? (q - prev) / r.shares[i] : 0.5;
@@ -266,7 +269,7 @@ function runBlocks({ H, rows, machines, workedAt, factor, rnwHours, sizes, allow
     }
     if (r.renew > 0.5) {
       const hrs = rnwHours[r.tech] || []; const first = H.findIndex((h) => hrs.includes(h)); const i = first < 0 ? 0 : first;
-      const n = Math.max(1, Math.round(r.renew / sizeOf('R', r)));
+      const n = Math.min(MAX_R, Math.max(1, Math.round(r.renew / sizeOf('R', r))));
       for (let k = 0; k < n; k++) orders.push({ id: id++, day: dd, kind: 'renewal', r, tech: r.tech, cards: r.renew / n, need: r.renew / n / r.oee_rnw, left: r.renew / n / r.oee_rnw, at: dd * 24 + i, deadline: null });
     }
   }

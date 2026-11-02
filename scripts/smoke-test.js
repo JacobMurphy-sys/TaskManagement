@@ -1078,6 +1078,14 @@ async function waitForServer() {
         'week folders and names as they are: two digits, a split week with its part');
       const { exportTarget } = require('../src/kpi');
       assert.equal(exportTarget({ kpi_export_dir: 'X', kpi_export_sub: '', kpi_export_name: 'A {num} {wk}.xlsx' }, 'W2614_2').path, path.join('X', 'A 14 14_2.xlsx'), 'no week folder; {num} the number alone');
+      { // a learned order size of a card or two must not make the work-order run take minutes (the app froze)
+        const { runBlocks } = require('../src/cpmday');
+        const H = Array.from({ length: 24 }, (_, i) => i);
+        const rows = Array.from({ length: 20 }, (_, k) => ({ trigram: `C${k}`, name: `C${k}`, tech: 'DOD', daily: 3000, renew: 1000, oee: 0.8, oee_rnw: 0.8, shares: H.map((h) => (h >= 6 && h < 18 ? 1 / 12 : 0)) }));
+        const t0 = Date.now();
+        const rb = runBlocks({ H, rows, machines: [{ name: 'M1', techs: ['DOD'], speed: { DOD: 300 } }], workedAt: () => true, factor: 1, rnwHours: {}, sizes: new Map([['D|*|*', 1], ['R|*|*', 1]]), allowed: () => 1, cutoffOf: () => 17 });
+        assert.ok(rb.orders <= 20 * 72 && Date.now() - t0 < 5000, `work orders capped (${rb.orders} in ${Date.now() - t0} ms)`);
+      }
       assert.deepEqual(['SC Site {year} WK{wk}', 'SC {wk}.xlsm', 'SC {wk}.'].map((n) => exportTarget({ kpi_export_dir: 'X', kpi_export_sub: '', kpi_export_name: n }, 'W2614_2').name),
         ['SC Site 2026 WK14_2.xlsx', 'SC 14_2.xlsx', 'SC 14_2.xlsx'], 'always saved as an Excel file, the .xlsx added when the name leaves it off');
       await fetch(`${BASE}/kpi/snapshots/${wk.id}/export`, { method: 'POST', body: JSON.stringify({ save: true }), headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } });

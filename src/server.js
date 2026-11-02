@@ -3,6 +3,8 @@ const zlib = require('zlib');
 const express = require('express');
 const config = require('./config');
 const log = require('./logger');
+// a frozen app is logged (what it was doing) and, after a few minutes, ended so its port is free
+const dog = require('./watchdog').start();
 // One app at a time on a database — before anything opens it.
 const lock = require('./instancelock').acquire(config.dbFile, { port: config.port });
 if (!lock.ok) {
@@ -26,6 +28,7 @@ try {
 }
 
 const app = express();
+app.use((req, res, next) => { dog.doing(`${req.method} ${req.originalUrl}`); next(); });
 // Vault imports send attachments in batches, and an A3 export sends chart pictures, so they get a larger limit.
 const jsonSmall = express.json({ limit: '1mb' });
 const jsonLarge = express.json({ limit: '80mb' });
@@ -131,6 +134,7 @@ app.use((err, req, res, next) => {
 const server = app.listen(config.port, config.host, () => {
   log.info(`${config.mode === 'planner' ? 'CI Planner' : 'CI Manager'} running at http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);
   log.info(`Database file: ${config.dbFile}`);
+  dog.doing('starting up: reading the shared files (team pack, planning setup, shared paths)');
   if (config.mode !== 'planner') {
     const team = api.applySharedTeam();
     if (team?.error) log.warn(`Team pack: ${team.error}`);
@@ -147,12 +151,24 @@ const server = app.listen(config.port, config.host, () => {
     log.warn('Your database or backups are inside the app folder, where replacing or re-cloning the code could '
       + 'remove them. Remove DB_FILE / BACKUP_DIR / LOG_DIR from .env to use the default data folder.');
   }
+  dog.doing('waiting for requests');
 });
 server.on('error', (err) => {
-  log.error(err.code === 'EADDRINUSE'
-    ? `Port ${config.port} is already in use — is the CI Manager already running? (Or set PORT in .env.)`
-    : err.message);
-  process.exit(1);
+  if (err.code !== 'EADDRINUSE') { log.error(err.message); process.exit(1); }
+  // which it is: the app already running (fine), a copy that's frozen, or another program
+  const host = config.host === '0.0.0.0' ? '127.0.0.1' : config.host;
+  const said = (msg) => { log.error(msg); process.exit(1); };
+  const req = require('http').get({ host, port: config.port, path: '/api/health', timeout: 4000 }, (res) => {
+    let body = ''; res.on('data', (c) => { body += c; });
+    res.on('end', () => said(body.includes('taskmanager')
+      ? `Port ${config.port} is in use: the CI Manager is already running — open http://localhost:${config.port} in your browser.`
+      : `Port ${config.port} is in use by another program (not the CI Manager). Close it, or set PORT=3001 (say) in the .env file in the app folder.`));
+  });
+  req.on('timeout', () => req.destroy(new Error('timeout')));
+  req.on('error', (e) => said(e.message === 'timeout'
+    ? `Port ${config.port} is held by a copy of the CI Manager (or another program) that isn't answering — probably frozen. `
+      + 'Double-click stop-server.vbs in the app folder: it offers to end it. (Or Task Manager > Details > node.exe > End task.) Then start again.'
+    : `Port ${config.port} is already in use — is the CI Manager already running? (Or set PORT in .env.)`));
 });
 
 backup.schedule();

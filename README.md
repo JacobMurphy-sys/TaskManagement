@@ -87,6 +87,7 @@ The steps below do the same by hand.
 2. **Install and start:** double-click **`start-hidden.vbs`**. It installs dependencies the first time (you'll see a window for that), then starts the app in the background with **no console window** and opens <http://localhost:3000>. Double-clicking it again while the app is running just opens the browser.
    - **To stop it:** click **⏻ Stop server** in the top bar's **⋯** menu, or double-click **`stop-server.vbs`**.
    - **`start.bat`** does the same but keeps a console window open that shows the log. Use it if something isn't working. Closing that window stops the app.
+   - **Frozen?** If the app stops answering, it still holds its port. Starting it again then says *port already in use*, and `stop-server.vbs` says *nothing answered*. Both scripts now spot this and offer to end the frozen copy (or use Task Manager › Details › `node.exe` › End task). The app also watches itself from a separate thread. After 30 s stuck, it writes to the log what it was busy with. After 5 minutes stuck, it ends itself so the port is free (`WATCHDOG_STUCK_S` / `WATCHDOG_KILL_S` in `.env`; `WATCHDOG_KILL_S=0` only logs). The log is in `%LOCALAPPDATA%\CIManager\logs`, not the app folder.
    - Or, from a terminal in the folder (in VS Code: *Terminal → New Terminal*):
    ```
    npm install
