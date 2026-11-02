@@ -30,7 +30,7 @@ function calRange(view, anchor) {
 }
 
 async function renderCalendar() {
-  const view = store.get('calView', 'week');
+  const view = store.get('calView', matchMedia('(max-width: 700px)').matches ? 'day' : 'week'); // a phone: a day at a time
   const anchor = new Date(`${store.get('calDate', dateKey(new Date()))}T12:00`);
   const filter = store.get('calProject', '');
   const [from, to] = calRange(view, anchor);

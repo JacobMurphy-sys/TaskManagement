@@ -1717,3 +1717,66 @@ label.f > .f-l .muted, label.f > .f-l .small { font-size: 12px; color: var(--mut
 #topbar.tb-brand #clock { display: flex; flex-direction: column; padding: 0; line-height: 1.2; }
 #topbar.tb-brand #clock .ck-s { display: none; } #topbar.tb-brand #clock .ck-t { font-weight: 600; color: #fff; }
 #topbar.tb-time #clock .ck-d { display: none; }
+
+/* ======================================================================
+   📱 Phones: one row of buttons at the top, the pages as a tab bar at the bottom, menus and
+   dialogs across the screen, and everything big enough to tap.
+   ====================================================================== */
+.phone-only { display: none !important; }
+@media (max-width: 700px) {
+  .phone-only { display: revert !important; }
+  .not-phone { display: none !important; }
+  html, body { overflow-x: hidden; }
+  /* the top bar: ☰ · logo · 🔍 📝 ✉ 🔔 ⋯ */
+  #topbar { position: sticky; top: 0; z-index: 800; gap: 4px; padding: 6px 8px; padding-top: max(6px, env(safe-area-inset-top)); }
+  #topbar > button, #topbar .top-menu > button, #topbar #bell { min-width: 40px; min-height: 40px; padding: 0 8px; font-size: 1.1rem; display: inline-flex; align-items: center; justify-content: center; }
+  #topbar .spacer { display: block; flex: 1; }
+  .top-brand { border-right: 0; padding: 0 4px; order: 0; }
+  #topbar #search { display: none; }
+  body.search-open #topbar #search { display: block; position: absolute; left: 8px; right: 8px; top: 6px; height: 40px; width: auto; min-width: 0; z-index: 2; font-size: 16px; background: #fff; color: var(--text); }
+  /* the pages: a tab bar along the bottom, icon over name, swiped sideways when there are many */
+  #topnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 800; width: auto !important; flex-wrap: nowrap; overflow-x: auto; gap: 0;
+    background: var(--brand); border-top: 1px solid rgba(255,255,255,.18); padding: 2px 4px; padding-bottom: max(2px, env(safe-area-inset-bottom)); box-shadow: 0 -2px 10px rgba(0,0,0,.18); scrollbar-width: none; }
+  /* a fade at the right edge says there are more pages to swipe to */
+  #topnav { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+  #topnav.at-end { -webkit-mask-image: none; mask-image: none; }
+  #topnav a { flex: 1 0 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; min-height: 52px; padding: 4px 2px; border-radius: 8px; font-size: 10.5px; }
+  #topnav a .ico { display: block; font-size: 1.35rem; line-height: 1.1; }
+  #topnav .lbl { display: block !important; margin: 0 !important; font-size: 10.5px; white-space: nowrap; max-width: 68px; overflow: hidden; text-overflow: ellipsis; }
+  #topnav a .count { position: absolute; transform: translate(14px, -14px); }
+  #topnav a { position: relative; }
+  #main { padding: 14px 12px 96px; }
+  /* menus and panels: across the screen, under the top bar, rows big enough to tap */
+  #top-menu, .mail-panel, .notices-panel { position: fixed !important; left: 6px !important; right: 6px !important; top: 58px !important; width: auto !important; max-height: calc(100dvh - 140px); overflow-y: auto; z-index: 850; }
+  #top-menu, .mail-panel, .notices-panel { color: var(--text); }
+  #top-menu a, #top-menu > button { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 10px 14px; font-size: 1rem; width: 100%; text-align: left; color: var(--text); background: none; border: 0; }
+  #top-menu > button.stop-server { color: var(--danger); }
+  .mail-list li { padding: 12px 6px; }
+  .mail-list .icon { min-width: 40px; min-height: 40px; }
+  /* dialogs: the whole screen */
+  dialog#modal, dialog#modal.wide { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; border: 0; }
+  #modal-body { padding: 14px 14px 30px; }
+  dialog#modal .modal-head { position: sticky; top: -14px; background: var(--panel); z-index: 2; padding: 8px 0; margin: -8px 0 8px; }
+  /* things to tap: buttons, fields, ticks */
+  button, .button, select, input[type="text"], input[type="search"], input[type="date"], input[type="number"], input:not([type]) { min-height: 40px; }
+  input, select, textarea { font-size: 16px; } /* no zooming in on a field */
+  button.icon, .icon { min-width: 36px; min-height: 36px; }
+  input[type="checkbox"], input[type="radio"] { width: 22px; height: 22px; }
+  button.small, .button.small { min-height: 36px; padding-left: 12px; padding-right: 12px; }
+  button.link { min-height: 36px; }
+  .seg { flex-wrap: wrap; } .seg button { min-height: 38px; }
+  /* wide tables scroll sideways inside their card instead of widening the page */
+  #main table { display: block; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+  #main .card, #main .grid > * { min-width: 0; max-width: 100%; }
+  .grid, .grid.dash { grid-template-columns: 1fr !important; }
+  h1 { font-size: 1.45rem; }
+  /* reminders: one at a time above the tab bar, then the next */
+  #popups { left: 8px; right: 8px; bottom: calc(66px + env(safe-area-inset-bottom)); width: auto; max-width: none; }
+  #popups > :not(:first-child) { display: none; }
+  #popups[data-more]::after { content: '+ ' attr(data-more) ' more — they come one at a time'; align-self: center; font-size: 12px; color: #fff; background: rgba(30, 20, 60, .82); border-radius: 12px; padding: 3px 10px; }
+  .popup .row, .popup > div:last-child { flex-wrap: wrap; gap: 6px; }
+  /* the projects drawer (☰): the page dimmed behind it, a tap there closes it */
+  body.sidebar-open::after { content: ''; position: fixed; inset: 0; background: rgba(10, 14, 22, .45); z-index: 890; }
+  #sidebar { z-index: 900; width: min(300px, 84vw); padding-top: max(14px, env(safe-area-inset-top)); }
+  #project-list a { padding: 10px 8px; }
+}

@@ -44,10 +44,11 @@
         <a href="#/cpm" data-nav="cpm" title="Capacity planning: forecasts against capacity, flex and scenarios"><span class="ico">📐</span><span class="lbl"> Capacity</span></a>
       </nav>
       <div class="spacer"></div>
+      <button id="search-btn" class="phone-only" type="button" title="Search" aria-label="Search">🔍</button>
       <input id="search" type="search" placeholder="Search…  ( / )" autocomplete="off">
       <button data-action="quick-note" title="Quick note (N)">📝</button>
       <div id="mail" class="top-menu"><button id="mail-btn" type="button" aria-haspopup="true" title="Messages: pokes about your tasks, news on your tickets">✉ <span id="mail-count" class="count" hidden>0</span></button><div id="mail-panel" class="top-menu-panel mail-panel" hidden></div></div>
-      <button data-action="ticket" title="Report a bug, ask for a feature or a question">💬</button>
+      <button data-action="ticket" class="not-phone" title="Report a bug, ask for a feature or a question">💬</button>
       <div id="notices" class="top-menu" hidden><button id="notices-btn" type="button" aria-haspopup="true">⚠</button><div id="notices-panel" class="top-menu-panel notices-panel" hidden></div></div>
       <a id="bell" href="#/dashboard" title="Due / overdue tasks">🔔 <span id="bell-count" class="count" hidden>0</span></a>
       <div class="top-menu">
@@ -56,6 +57,7 @@
           <a href="#/contacts" data-nav="contacts">📇 Contacts</a>
           <a href="#/report" data-nav="report">📰 Status report</a>
           <a href="#/tickets" data-nav="tickets">🎫 Tickets — bugs and requests</a>
+          <button data-action="ticket" class="phone-only">💬 Report a bug or ask for something</button>
           <hr>
           <a href="#/log" data-nav="log">🕘 Activity log</a>
           <a href="#/backups" data-nav="backups">💾 Backups</a>

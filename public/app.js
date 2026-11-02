@@ -2306,7 +2306,10 @@ function toggleMenu(open = $('#top-menu').hidden) {
   $('#top-menu').hidden = !open;
   $('#menu-btn').setAttribute('aria-expanded', String(open));
 }
-$('#top-menu').addEventListener('click', (e) => { if (e.target.closest('a')) toggleMenu(false); });
+$('#top-menu').addEventListener('click', (e) => { if (e.target.closest('a, button[data-action="ticket"], button[data-action="change-password"]')) toggleMenu(false); });
+// 📱 a phone: search opens across the top bar from 🔍, and closes again when left empty
+$('#search-btn')?.addEventListener('click', () => { document.body.classList.add('search-open'); $('#search').focus(); });
+$('#search')?.addEventListener('blur', () => { setTimeout(() => { if (!$('#search').value.trim()) document.body.classList.remove('search-open'); }, 150); });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !$('#top-menu').hidden) { toggleMenu(false); $('#menu-btn').focus(); }
 });
@@ -2562,6 +2565,10 @@ drawThemeSwitch();
 
 // ---- The top bar in one row: the steps it takes as room runs out (see styles.css) --------------
 const TB_STEPS = ['tb-icons', 'tb-brand', 'tb-time'];
+// 📱 the tab bar along the bottom: no fade at the right once it's swiped to the end
+// 📱 reminders on a phone: one at a time, with how many more are waiting (see styles.css)
+if (window.MutationObserver && $('#popups')) new MutationObserver(() => { const n = $('#popups').children.length; if (n > 1) $('#popups').dataset.more = n - 1; else delete $('#popups').dataset.more; }).observe($('#popups'), { childList: true });
+$('#topnav')?.addEventListener('scroll', (e) => { const n = e.target; n.classList.toggle('at-end', n.scrollLeft + n.clientWidth >= n.scrollWidth - 4); }, { passive: true });
 function fitTopbar() {
   const bar = $('#topbar'); const nav = $('#topnav'); if (!bar || !nav) return;
   const oneRow = () => { const tops = new Set([...nav.children].filter((a) => !a.hidden && a.offsetParent).map((a) => a.offsetTop)); return tops.size <= 1; };
