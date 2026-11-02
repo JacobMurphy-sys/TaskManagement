@@ -92,7 +92,12 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); c
   display: flex; flex-direction: column; padding: 14px 12px; gap: 10px; overflow-y: auto;
 }
 .brand { font-weight: 700; font-size: 1.1rem; padding: 2px 6px; }
-#clock { padding: 0 6px; margin-top: -6px; }
+/* the name and the clock at the left of the top bar, two lines, light on the purple */
+.top-brand { display: flex; flex-direction: column; flex: none; line-height: 1.15; padding: 2px 10px 2px 2px; margin-right: 2px; border-right: 1px solid rgba(255,255,255,.22); color: #fff; text-decoration: none; }
+.top-brand:hover { text-decoration: none; }
+#topbar .top-brand .brand { color: #fff; padding: 0; font-size: 1.02rem; white-space: nowrap; }
+#clock { font-size: 11.5px; color: rgba(255,255,255,.75); white-space: nowrap; padding-left: 1.5em; font-variant-numeric: tabular-nums; }
+@media (max-width: 700px) { #clock { display: none; } .top-brand { padding-right: 6px; } #topbar .top-brand .brand { font-size: 0; } #topbar .top-brand .brand-ico { font-size: 1.1rem; margin: 0; } }
 #project-list a {
   display: block; padding: 6px 8px; border-radius: 6px; color: var(--text);
 }
@@ -1702,3 +1707,17 @@ label.f > .f-l .muted, label.f > .f-l .small { font-size: 12px; color: var(--mut
 .mail-body { font-size: 13px; color: var(--text); white-space: pre-wrap; margin: 2px 0; padding: 4px 8px; border-left: 3px solid var(--accent-2, var(--accent)); background: var(--panel-2); border-radius: 4px; }
 .mail-empty { padding: 14px 8px; text-align: center; font-size: 13px; }
 .poke-row { align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* less room (up to 1600px with the sidebar shown, 1400px without): the icon, with the date over the time */
+@media (min-width: 701px) and (max-width: 1600px) {
+  body:not(.sidebar-hidden) .top-brand, .top-brand { flex-direction: row; align-items: center; gap: 6px; padding-right: 8px; }
+  #topbar .top-brand .brand { font-size: 0; } #topbar .top-brand .brand-ico { font-size: 1.35rem; margin: 0; }
+  #clock { display: flex; flex-direction: column; padding: 0; line-height: 1.2; } #clock .ck-s { display: none; } #clock .ck-t { font-weight: 600; color: #fff; }
+}
+@media (min-width: 1401px) and (max-width: 1600px) { #topbar #search { width: 110px; } #topbar #search:focus { width: 220px; } #topnav a { padding: 5px 5px; } #topbar { gap: 8px; padding: 7px 14px; } }
+@media (min-width: 1401px) and (max-width: 1600px) {
+  body.sidebar-hidden .top-brand { flex-direction: column; align-items: flex-start; gap: 0; padding-right: 10px; }
+  body.sidebar-hidden #topbar .top-brand .brand { font-size: 1.02rem; } body.sidebar-hidden #topbar .top-brand .brand-ico { font-size: inherit; margin-right: .35em; }
+  body.sidebar-hidden #clock { display: block; padding-left: 1.5em; } body.sidebar-hidden #clock .ck-s { display: inline; } body.sidebar-hidden #clock .ck-t { font-weight: 400; color: inherit; }
+}
+@media (min-width: 701px) and (max-width: 1150px) { body:not(.sidebar-hidden) #clock .ck-d { display: none; } } /* little room: the time (the date's in the tooltip) */

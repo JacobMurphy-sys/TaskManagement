@@ -2929,7 +2929,9 @@ async function pollAlerts() {
 
 function tickClock() {
   const d = new Date();
-  $('#clock').textContent = `${d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })} · ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const c = $('#clock');
+  c.innerHTML = `<span class="ck-d">${esc(d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }))}</span><span class="ck-s"> · </span><span class="ck-t">${pad(d.getHours())}:${pad(d.getMinutes())}</span>`;
+  c.closest('.top-brand').title = `SITHUB — ${d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}. Click for Home`;
 }
 
 window.addEventListener('hashchange', route);
@@ -2951,7 +2953,7 @@ window.addEventListener('hashchange', route);
     // 🏭 SITHUB Planner: Planning on its own, shared by several people
     document.body.classList.add('planner-mode');
     document.title = 'SITHUB Planner';
-    $('#sidebar .brand').textContent = '🏭 SITHUB Planner';
+    $('#topbar .brand').textContent = '🏭 SITHUB Planner';
     if (!me.name && !ACCT.account) { const n = (prompt('Your name — so others using the planner can see who\'s here:') || '').trim(); if (n) me.setName(n); }
     try { state.settings = await api.get('/settings'); } catch (err) { toast(err.message, 'error'); }
     await route();
