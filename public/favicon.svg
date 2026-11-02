@@ -1,11 +1,2 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#7382e6"/>
-      <stop offset="1" stop-color="#430099"/>
-    </linearGradient>
-  </defs>
-  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#bg)"/>
-  <rect x="8" y="8" width="240" height="120" rx="56" fill="#ffffff" opacity="0.08"/>
-  <path d="M66 134 L108 176 L192 88" fill="none" stroke="#ffffff" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7382e6"/><stop offset="1" stop-color="#430099"/></linearGradient></defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#bg)"/><rect x="8" y="8" width="240" height="120" rx="56" fill="#fff" opacity="0.08"/><line x1="128" y1="128" x2="128" y2="58" stroke="#fff" stroke-width="10" opacity=".85"/><line x1="128" y1="128" x2="188.62177826491072" y2="93" stroke="#fff" stroke-width="10" opacity=".85"/><line x1="128" y1="128" x2="188.62177826491072" y2="163" stroke="#fff" stroke-width="10" opacity=".85"/><line x1="128" y1="128" x2="128" y2="198" stroke="#fff" stroke-width="10" opacity=".85"/><line x1="128" y1="128" x2="67.37822173508928" y2="163" stroke="#fff" stroke-width="10" opacity=".85"/><line x1="128" y1="128" x2="67.3782217350893" y2="93" stroke="#fff" stroke-width="10" opacity=".85"/><circle cx="128" cy="58" r="17" fill="#fff"/><circle cx="188.62177826491072" cy="93" r="17" fill="#fff"/><circle cx="188.62177826491072" cy="163" r="17" fill="#fff"/><circle cx="128" cy="198" r="17" fill="#fff"/><circle cx="67.37822173508928" cy="163" r="17" fill="#fff"/><circle cx="67.3782217350893" cy="93" r="17" fill="#fff"/><circle cx="128" cy="128" r="34" fill="#fff"/><circle cx="128" cy="128" r="17" fill="#430099"/></svg>

@@ -38,7 +38,7 @@ function renderSignIn(msg = '') {
   document.body.classList.add('signin-page');
   document.getElementById('signin')?.remove();
   document.body.insertAdjacentHTML('beforeend', `<div class="signin" id="signin"><form class="card signin-card" id="signin-form">
-      <h1>✔ SITHUB</h1><p class="muted small">Sign in with the account you were given.</p>
+      <h1><img src="favicon.svg" alt="" class="brand-ico lg">SITHUB</h1><p class="muted small">Sign in with the account you were given.</p>
       <label class="f">Username<input type="text" name="username" autocomplete="username" required autofocus></label>
       <label class="f">Password<input type="password" name="password" autocomplete="current-password" required></label>
       <div class="signin-msg" id="signin-msg">${esc(msg)}</div>

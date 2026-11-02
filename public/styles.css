@@ -1680,3 +1680,7 @@ label.f > .f-l .muted, label.f > .f-l .small { font-size: 12px; color: var(--mut
 .pill.tk-new { background: var(--accent-soft); color: var(--accent); }
 .pill.tk-done { background: #e3f4e8; color: #238446; }
 .pill.tk-wont_do { background: #eee; color: #666; }
+
+/* the SITHUB icon next to the name */
+.brand-ico { width: 1.15em; height: 1.15em; vertical-align: -0.2em; margin-right: 0.35em; border-radius: 22%; }
+.brand-ico.lg { width: 1.3em; height: 1.3em; }
