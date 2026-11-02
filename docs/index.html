@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SITHUB Timeline</title>
+<meta name="description" content="How SITHUB was built: an interactive timeline of its development, from a personal task manager to a shared site hub.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #f6f5fb; --panel: #ffffff; --panel-2: #f0eef8; --text: #1d1a2e; --muted: #6a6684; --border: #e2dff0;
+    --brand: #430099; --brand-2: #7382e6; --grid: #ebe8f5; --weekend: #f1eff8; --shadow: 0 6px 24px rgba(40, 20, 90, .12);
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg: #141320; --panel: #1d1b2b; --panel-2: #262338; --text: #ece9f7; --muted: #a29fbb; --border: #322f48;
+    --brand: #9ea9f2; --brand-2: #7382e6; --grid: #2a2740; --weekend: #1a1828; --shadow: 0 6px 24px rgba(0, 0, 0, .4);
+  } }
+  :root[data-theme="dark"] {
+    --bg: #141320; --panel: #1d1b2b; --panel-2: #262338; --text: #ece9f7; --muted: #a29fbb; --border: #322f48;
+    --brand: #9ea9f2; --brand-2: #7382e6; --grid: #2a2740; --weekend: #1a1828; --shadow: 0 6px 24px rgba(0, 0, 0, .4);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Inter, Roboto, sans-serif; }
+  a { color: var(--brand); }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 0 20px; }
+  header.hero { background: linear-gradient(135deg, #2b0066, #430099 55%, #5b3fcf); color: #fff; padding: 34px 0 26px; }
+  .hero h1 { margin: 0; font-size: clamp(1.7rem, 4vw, 2.6rem); display: flex; align-items: center; gap: 14px; letter-spacing: -.01em; }
+  .hero h1 img { width: 1.25em; height: 1.25em; border-radius: 22%; box-shadow: 0 2px 10px rgba(0,0,0,.3); }
+  .hero p { margin: 6px 0 0; color: rgba(255,255,255,.82); font-size: 1.05rem; }
+  .stats { display: flex; flex-wrap: wrap; gap: 10px 28px; margin-top: 20px; }
+  .stat b { display: block; font-size: 1.6rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .stat span { color: rgba(255,255,255,.75); font-size: .85rem; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 16px 0 10px; }
+  .chip { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: .88rem; cursor: pointer; min-height: 36px; }
+  .chip i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .chip[aria-pressed="false"] { opacity: .45; }
+  .chip:focus-visible, .pin:focus-visible, button:focus-visible { outline: 3px solid var(--brand-2); outline-offset: 2px; }
+  .spacer { flex: 1; }
+  .btn { border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer; min-height: 36px; }
+  .btn:hover, .chip:hover { border-color: var(--brand-2); }
+  .muted { color: var(--muted); }
+  /* the timeline */
+  .board { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+  .tl { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+  .tl-scroll { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+  .track { position: relative; }
+  .axis { position: relative; height: 46px; border-bottom: 1px solid var(--border); }
+  .day { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--grid); }
+  .day.weekend { background: var(--weekend); }
+  .tick { position: absolute; top: 22px; font-size: 11px; color: var(--muted); transform: translateX(-50%); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .month { position: absolute; top: 4px; font-size: 12px; font-weight: 700; color: var(--text); padding-left: 6px; white-space: nowrap; }
+  .month.end { padding: 0 6px 0 0; transform: translateX(-100%); }
+  .lanes { position: relative; }
+  .grid-bg { position: absolute; inset: 0; pointer-events: none; }
+  .row-label { position: sticky; left: 0; z-index: 3; display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); background: var(--panel); padding: 2px 8px; border-radius: 0 6px 6px 0; }
+  .activity { position: relative; height: 70px; }
+  .bar { position: absolute; bottom: 6px; border-radius: 3px 3px 0 0; background: var(--brand-2); opacity: .85; }
+  .bar:hover { opacity: 1; }
+  .bar span { position: absolute; top: -17px; left: 50%; transform: translateX(-50%); font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .periods { position: relative; }
+  .period { position: absolute; height: 30px; border-radius: 8px; padding: 0 10px; display: flex; align-items: center; font-size: 12.5px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; border: 0; font-family: inherit; text-align: left; }
+  .period:hover, .period.on { box-shadow: 0 0 0 3px var(--panel), 0 0 0 5px currentColor; }
+  .pins { position: relative; }
+  .pin { position: absolute; width: 26px; height: 26px; margin-left: -13px; border-radius: 50% 50% 50% 4px; transform: rotate(-45deg); border: 2px solid rgba(255,255,255,.9); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.3); padding: 0; transition: transform .12s; }
+  .pin::after { content: ''; position: absolute; inset: 7px; border-radius: 50%; background: var(--panel); }
+  .pin:hover { transform: rotate(-45deg) scale(1.18); z-index: 4; }
+  .pin.on { transform: rotate(-45deg) scale(1.35); z-index: 5; box-shadow: 0 0 0 3px var(--brand-2), 0 3px 10px rgba(0,0,0,.35); }
+  .pin.hide, .period.hide { display: none; }
+  .stem { position: absolute; width: 2px; margin-left: -1px; background: var(--brand-2); opacity: 0; pointer-events: none; transition: opacity .15s; }
+  .stem.on { opacity: .6; }
+  .tip { position: fixed; z-index: 50; pointer-events: none; background: var(--text); color: var(--bg); font-size: 12.5px; padding: 5px 9px; border-radius: 6px; max-width: 260px; opacity: 0; transition: opacity .1s; }
+  .tip.on { opacity: 1; }
+  .legend-hint { font-size: 12.5px; padding: 8px 14px 12px; color: var(--muted); border-top: 1px solid var(--border); }
+  /* the detail panel */
+  .detail { position: sticky; top: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); padding: 18px 20px; min-height: 260px; }
+  .detail .meta { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: .85rem; color: var(--muted); }
+  .tag { display: inline-flex; align-items: center; gap: 6px; font-size: .78rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; color: #fff; }
+  .detail h2 { margin: 10px 0 6px; font-size: 1.35rem; line-height: 1.25; }
+  .detail p { margin: 0 0 10px; }
+  .detail ul { margin: 0 0 12px; padding-left: 20px; } .detail li { margin: 3px 0; }
+  .detail .period-box { background: var(--panel-2); border-radius: 10px; padding: 10px 12px; font-size: .88rem; margin-top: 8px; }
+  .detail .nav { display: flex; gap: 8px; margin-top: 14px; }
+  .detail .nav .btn { flex: 1; }
+  /* the story, written out */
+  section.story { padding: 34px 0 10px; }
+  section.story h2.h { font-size: 1.5rem; margin: 0 0 4px; }
+  .era { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 18px; padding: 22px 0; border-top: 1px solid var(--border); }
+  .era-head .dates { font-size: .85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .era-head h3 { margin: 4px 0 6px; font-size: 1.15rem; }
+  .era-head .bar-mini { height: 5px; border-radius: 3px; margin-top: 8px; }
+  .era-text { margin: 0 0 12px; color: var(--muted); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-left: 5px solid; border-radius: 10px; padding: 12px 14px; cursor: pointer; text-align: left; font: inherit; color: inherit; }
+  .card:hover { box-shadow: var(--shadow); }
+  .card.hide, .era.hide { display: none; }
+  .card .d { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .card b { display: block; margin: 2px 0 4px; }
+  .card span.t { font-size: .9rem; color: var(--muted); }
+  footer { padding: 30px 0 40px; color: var(--muted); font-size: .88rem; border-top: 1px solid var(--border); margin-top: 20px; }
+  @media (max-width: 960px) { .board { grid-template-columns: 1fr; } .detail { position: static; } }
+  @media (max-width: 640px) { .wrap { padding: 0 16px; } .era { grid-template-columns: 1fr; gap: 6px; } .stats { gap: 10px 20px; } .stat b { font-size: 1.3rem; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+  <h1><img src="favicon.svg" alt=""><span id="title">SITHUB</span></h1>
+  <p id="tagline"></p>
+  <div class="stats" id="stats"></div>
+</div></header>
+
+<main class="wrap">
+  <div class="controls" role="toolbar" aria-label="Show areas">
+    <div id="chips" style="display:contents"></div>
+    <span class="spacer"></span>
+    <button class="btn" id="zoom-out" title="Zoom out">🔍− Zoom out</button>
+    <button class="btn" id="zoom-in" title="Zoom in">🔍+ Zoom in</button>
+    <button class="btn" id="theme" title="Light or dark">◐ Theme</button>
+  </div>
+
+  <div class="board">
+    <div class="tl">
+      <div class="tl-scroll" id="scroll"><div class="track" id="track"></div></div>
+      <div class="legend-hint">Click a pin or a period for the details · ← → step through the pins · drag or scroll sideways to move along</div>
+    </div>
+    <aside class="detail" id="detail" aria-live="polite"></aside>
+  </div>
+
+  <section class="story" id="story">
+    <h2 class="h">The story, period by period</h2>
+    <p class="muted" style="margin:0">Every pin on the timeline, grouped by the stretch of work it belongs to.</p>
+    <div id="eras"></div>
+  </section>
+</main>
+
+<footer><div class="wrap" id="foot"></div></footer>
+<div class="tip" id="tip"></div>
+
+<script src="data.js"></script>
+<script>
+(() => {
+  'use strict';
+  const T = window.TIMELINE;
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const day = (s) => new Date(`${s}T12:00:00`);
+  const DAY = 86400000;
+  const fmt = (s, o = { day: 'numeric', month: 'short' }) => day(s).toLocaleDateString('en-GB', o);
+  const fmtLong = (s) => fmt(s, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const key = (d) => d.toISOString().slice(0, 10);
+
+  const pins = [...T.PINS].sort((a, b) => a.date.localeCompare(b.date));
+  const allDates = [...pins.map((p) => p.date), ...T.PERIODS.flatMap((p) => [p.from, p.to]), ...Object.keys(T.ACTIVITY)].sort();
+  const first = day(allDates[0]); const last = day(allDates[allDates.length - 1]);
+  const days = Math.round((last - first) / DAY) + 1;
+  const idx = (s) => Math.round((day(s) - first) / DAY);
+  const commits = Object.values(T.ACTIVITY).reduce((a, b) => a + b, 0);
+  const active = Object.keys(T.ACTIVITY).length;
+  const periodOf = (p) => T.PERIODS.find((x) => x.area === p.area && p.date >= x.from && p.date <= x.to) || T.PERIODS.find((x) => p.date >= x.from && p.date <= x.to);
+  const commitsBetween = (a, b) => Object.entries(T.ACTIVITY).filter(([d]) => d >= a && d <= b).reduce((t, [, n]) => t + n, 0);
+
+  // ---- header
+  $('#title').textContent = T.title;
+  $('#tagline').textContent = T.tagline;
+  $('#stats').innerHTML = [[days, 'days, start to now'], [active, 'days of work'], [commits, 'commits'], [T.PERIODS.length, 'development periods'], [pins.length, 'milestones pinned']]
+    .map(([n, l]) => `<div class="stat"><b>${n}</b><span>${l}</span></div>`).join('');
+  $('#foot').innerHTML = `Built from the project's own git history — every date here is a day commits were made. <a href="${esc(T.repo)}">The repository</a>.`;
+
+  // ---- filters
+  const shown = new Set(Object.keys(T.AREAS));
+  $('#chips').innerHTML = Object.entries(T.AREAS).map(([k, a]) => `<button class="chip" data-area="${k}" aria-pressed="true"><i style="background:${a.color}"></i>${esc(a.label)}</button>`).join('');
+  $('#chips').addEventListener('click', (e) => {
+    const c = e.target.closest('[data-area]'); if (!c) return;
+    const k = c.dataset.area;
+    // the first click shows only that area; then they toggle; the last one off shows them all again
+    if (shown.size === Object.keys(T.AREAS).length) { shown.clear(); shown.add(k); }
+    else if (shown.has(k)) { shown.delete(k); if (!shown.size) Object.keys(T.AREAS).forEach((x) => shown.add(x)); }
+    else shown.add(k);
+    document.querySelectorAll('[data-area]').forEach((b) => b.setAttribute('aria-pressed', String(shown.has(b.dataset.area))));
+    applyFilter();
+  });
+
+  // ---- the timeline
+  let zoom = 1;
+  const scroll = $('#scroll'); const track = $('#track');
+  // periods in lanes, so overlapping ones sit on separate rows
+  const lanes = [];
+  const periodLane = new Map();
+  for (const p of [...T.PERIODS].sort((a, b) => a.from.localeCompare(b.from))) {
+    let l = lanes.findIndex((end) => end < p.from);
+    if (l < 0) { l = lanes.length; lanes.push(''); }
+    lanes[l] = p.to; periodLane.set(p.id, l);
+  }
+  // pins on the same day stack upwards
+  const stackOf = new Map(); const perDay = {};
+  for (const p of pins) { perDay[p.date] = (perDay[p.date] || 0); stackOf.set(p.id, perDay[p.date]++); }
+  const maxStack = Math.max(...Object.values(perDay));
+  const maxAct = Math.max(...Object.values(T.ACTIVITY));
+
+  function draw() {
+    const w = Math.max(scroll.clientWidth, 700);
+    const px = Math.max(18, (w - 40) / days) * zoom; // the whole span in view, then zoom in
+    const X = (i) => 20 + i * px + px / 2;
+    const width = 40 + days * px;
+    const PIN_ROW = 34; const pinsH = 30 + maxStack * PIN_ROW;
+    const PER_ROW = 38; const periodsH = 26 + lanes.length * PER_ROW;
+    let html = '';
+    // the days behind everything
+    let grid = '';
+    for (let i = 0; i < days; i++) {
+      const d = new Date(first.getTime() + i * DAY); const wd = d.getDay();
+      grid += `<div class="day${wd === 0 || wd === 6 ? ' weekend' : ''}" style="left:${20 + i * px}px;width:${px}px"></div>`;
+    }
+    // the date axis
+    let axis = '';
+    // month names where a month starts (the first one only when there's room before the next)
+    const starts = []; for (let i = 0; i < days; i++) { const d = new Date(first.getTime() + i * DAY); if (i === 0 || d.getDate() === 1) starts.push(i); }
+    starts.forEach((i, k) => { if (k === 0 && starts[1] !== undefined && (starts[1] - i) * px < 120) return;
+      const d = new Date(first.getTime() + i * DAY); const atEnd = 20 + i * px + 120 > 40 + days * px;
+      axis += `<div class="month${atEnd ? ' end' : ''}" style="left:${atEnd ? 20 + days * px : 20 + i * px}px">${d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</div>`; });
+    for (let i = 0; i < days; i++) {
+      const d = new Date(first.getTime() + i * DAY);
+      if (d.getDay() === 1 || (i === 0 && px > 24) || px > 44) axis += `<div class="tick" style="left:${X(i)}px">${d.getDay() === 1 && px <= 44 ? 'Mon ' : ''}${d.getDate()}</div>`;
+    }
+    html += `<div class="axis">${grid}${axis}</div>`;
+    // commits per day
+    const bw = Math.max(6, Math.min(px * 0.6, 26));
+    const bars = Object.entries(T.ACTIVITY).map(([d, n]) => `<div class="bar" data-tip="${esc(fmtLong(d))}: ${n} commit${n === 1 ? '' : 's'}" style="left:${X(idx(d)) - bw / 2}px;width:${bw}px;height:${Math.round((n / maxAct) * 44)}px">${px > 30 ? `<span>${n}</span>` : ''}</div>`).join('');
+    html += `<div class="lanes"><div class="grid-bg">${grid}</div>`;
+    html += `<div class="activity"><span class="row-label">Commits per day</span>${bars}</div>`;
+    // periods
+    const per = T.PERIODS.map((p) => {
+      const a = T.AREAS[p.area]; const l = periodLane.get(p.id);
+      const left = 20 + idx(p.from) * px + 2; const wid = (idx(p.to) - idx(p.from) + 1) * px - 4;
+      return `<button class="period" data-period="${p.id}" data-area-of="${p.area}" data-tip="${esc(p.title)} · ${esc(fmt(p.from))} – ${esc(fmt(p.to))}" style="left:${left}px;width:${wid}px;top:${22 + l * PER_ROW}px;background:${a.color};color:#fff">${esc(p.title)}</button>`;
+    }).join('');
+    html += `<div class="periods" style="height:${periodsH}px"><span class="row-label">Development periods</span>${per}</div>`;
+    // pins
+    const pinHtml = pins.map((p) => {
+      const a = T.AREAS[p.area]; const s = stackOf.get(p.id);
+      return `<button class="pin" id="pin-${p.id}" data-pin="${p.id}" data-area-of="${p.area}" aria-label="${esc(fmt(p.date))}: ${esc(p.title)}" data-tip="${esc(fmt(p.date))} · ${esc(p.title)}" style="left:${X(idx(p.date))}px;bottom:${10 + s * PIN_ROW}px;background:${a.color}"></button>`;
+    }).join('');
+    html += `<div class="pins" style="height:${pinsH}px"><span class="row-label">Milestones</span><div class="stem" id="stem"></div>${pinHtml}</div></div>`;
+    track.style.width = `${width}px`;
+    track.innerHTML = html;
+    applyFilter(); mark();
+  }
+
+  // ---- what's shown
+  function applyFilter() {
+    document.querySelectorAll('[data-area-of]').forEach((el) => el.classList.toggle('hide', !shown.has(el.dataset.areaOf)));
+    document.querySelectorAll('.card').forEach((el) => el.classList.toggle('hide', !shown.has(el.dataset.area)));
+    document.querySelectorAll('.era').forEach((el) => el.classList.toggle('hide', !el.querySelector('.card:not(.hide)') && !shown.has(el.dataset.area)));
+  }
+
+  // ---- the chosen pin or period
+  let sel = { kind: 'pin', id: pins[pins.length - 1].id };
+  const fromHash = decodeURIComponent(location.hash.slice(1));
+  if (pins.some((p) => p.id === fromHash)) sel = { kind: 'pin', id: fromHash };
+  else if (T.PERIODS.some((p) => p.id === fromHash)) sel = { kind: 'period', id: fromHash };
+
+  function mark() {
+    document.querySelectorAll('.pin.on, .period.on').forEach((e) => e.classList.remove('on'));
+    const el = sel.kind === 'pin' ? $(`#pin-${sel.id}`) : document.querySelector(`[data-period="${sel.id}"]`);
+    el?.classList.add('on');
+    const stem = $('#stem');
+    if (stem && sel.kind === 'pin' && el) { stem.style.left = el.style.left; stem.style.bottom = '0px'; stem.style.height = `${parseFloat(el.style.bottom) + 4}px`; stem.classList.add('on'); }
+    else stem?.classList.remove('on');
+  }
+  function show(kind, id, { scrollTo = true, push = true } = {}) {
+    sel = { kind, id }; mark();
+    const d = $('#detail');
+    if (kind === 'pin') {
+      const p = pins.find((x) => x.id === id); const a = T.AREAS[p.area]; const per = periodOf(p);
+      const i = pins.indexOf(p); const n = T.ACTIVITY[p.date] || 0;
+      d.innerHTML = `<div class="meta"><span class="tag" style="background:${a.color}">${esc(a.label)}</span><span>${esc(fmtLong(p.date))}</span></div>
+        <h2>${esc(p.title)}</h2><p>${esc(p.text)}</p>
+        ${p.points?.length ? `<ul>${p.points.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+        <div class="muted" style="font-size:.85rem">${n} commit${n === 1 ? '' : 's'} that day</div>
+        ${per ? `<div class="period-box">Part of <a href="#${per.id}" data-goto-period="${per.id}"><b>${esc(per.title)}</b></a> · ${esc(fmt(per.from))}${per.to !== per.from ? ` – ${esc(fmt(per.to))}` : ''}</div>` : ''}
+        <div class="nav"><button class="btn" data-step="-1" ${i ? '' : 'disabled'}>← ${i ? esc(fmt(pins[i - 1].date)) : 'Start'}</button><button class="btn" data-step="1" ${i < pins.length - 1 ? '' : 'disabled'}>${i < pins.length - 1 ? esc(fmt(pins[i + 1].date)) : 'Today'} →</button></div>`;
+      if (scrollTo) { const el = $(`#pin-${id}`); if (el) scroll.scrollTo({ left: Math.max(0, parseFloat(el.style.left) - scroll.clientWidth / 2), behavior: 'smooth' }); }
+    } else {
+      const p = T.PERIODS.find((x) => x.id === id); const a = T.AREAS[p.area];
+      const inIt = pins.filter((x) => x.date >= p.from && x.date <= p.to && (x.area === p.area || periodOf(x)?.id === p.id));
+      const length = idx(p.to) - idx(p.from) + 1;
+      d.innerHTML = `<div class="meta"><span class="tag" style="background:${a.color}">Development period</span><span>${esc(fmt(p.from))}${p.to !== p.from ? ` – ${esc(fmt(p.to))}` : ''} · ${length} day${length === 1 ? '' : 's'}</span></div>
+        <h2>${esc(p.title)}</h2><p>${esc(p.text)}</p>
+        <div class="muted" style="font-size:.85rem">${commitsBetween(p.from, p.to)} commits in those days (all areas)</div>
+        ${inIt.length ? `<div class="period-box"><b>Milestones</b><ul style="margin:6px 0 0">${inIt.map((x) => `<li><a href="#${x.id}" data-goto-pin="${x.id}">${esc(fmt(x.date))} — ${esc(x.title)}</a></li>`).join('')}</ul></div>` : ''}`;
+      if (scrollTo) { const el = document.querySelector(`[data-period="${id}"]`); if (el) scroll.scrollTo({ left: Math.max(0, parseFloat(el.style.left) - 40), behavior: 'smooth' }); }
+    }
+    if (push) history.replaceState(null, '', `#${id}`);
+  }
+
+  track.addEventListener('click', (e) => {
+    const p = e.target.closest('[data-pin]'); if (p) return show('pin', p.dataset.pin);
+    const r = e.target.closest('[data-period]'); if (r) return show('period', r.dataset.period);
+  });
+  $('#detail').addEventListener('click', (e) => {
+    const s = e.target.closest('[data-step]');
+    if (s) { const vis = pins.filter((p) => shown.has(p.area)); const list = vis.length ? vis : pins; const cur = list.findIndex((p) => p.id === sel.id); const n = list[Math.min(list.length - 1, Math.max(0, (cur < 0 ? 0 : cur) + Number(s.dataset.step)))]; show('pin', n.id); return; }
+    const gp = e.target.closest('[data-goto-pin]'); if (gp) { e.preventDefault(); show('pin', gp.dataset.gotoPin); return; }
+    const gr = e.target.closest('[data-goto-period]'); if (gr) { e.preventDefault(); show('period', gr.dataset.gotoPeriod); }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.target.closest('input, textarea') || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+    const vis = pins.filter((p) => shown.has(p.area)); if (!vis.length) return;
+    let cur = vis.findIndex((p) => p.id === sel.id);
+    if (cur < 0) cur = e.key === 'ArrowRight' ? -1 : vis.length;
+    const n = vis[Math.min(vis.length - 1, Math.max(0, cur + (e.key === 'ArrowRight' ? 1 : -1)))];
+    e.preventDefault(); show('pin', n.id); $(`#pin-${n.id}`)?.focus({ preventScroll: true });
+  });
+
+  // hover names
+  const tip = $('#tip');
+  track.addEventListener('pointermove', (e) => {
+    const t = e.target.closest('[data-tip]');
+    if (!t) { tip.classList.remove('on'); return; }
+    tip.textContent = t.dataset.tip; tip.classList.add('on');
+    const x = Math.min(window.innerWidth - tip.offsetWidth - 8, e.clientX + 12); tip.style.left = `${x}px`; tip.style.top = `${e.clientY + 16}px`;
+  });
+  track.addEventListener('pointerleave', () => tip.classList.remove('on'));
+
+  // drag sideways with the mouse
+  let drag = null;
+  scroll.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse' || e.target.closest('button')) return; drag = { x: e.clientX, left: scroll.scrollLeft }; scroll.style.cursor = 'grabbing'; });
+  window.addEventListener('pointermove', (e) => { if (drag) scroll.scrollLeft = drag.left - (e.clientX - drag.x); });
+  window.addEventListener('pointerup', () => { drag = null; scroll.style.cursor = ''; });
+
+  const setZoom = (z) => { const mid = (scroll.scrollLeft + scroll.clientWidth / 2) / (track.offsetWidth || 1); zoom = Math.max(1, Math.min(4, z)); draw(); scroll.scrollLeft = mid * track.offsetWidth - scroll.clientWidth / 2; };
+  $('#zoom-in').onclick = () => setZoom(zoom * 1.5);
+  $('#zoom-out').onclick = () => setZoom(zoom / 1.5);
+  $('#theme').onclick = () => {
+    const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.dataset.theme = dark ? 'light' : 'dark';
+    try { localStorage.setItem('tl-theme', document.documentElement.dataset.theme); } catch { /* fine */ }
+  };
+  try { const t = localStorage.getItem('tl-theme'); if (t) document.documentElement.dataset.theme = t; } catch { /* fine */ }
+
+  // ---- the story, period by period
+  $('#eras').innerHTML = T.PERIODS.map((p) => {
+    const a = T.AREAS[p.area];
+    const inIt = pins.filter((x) => periodOf(x)?.id === p.id);
+    return `<div class="era" data-area="${p.area}" id="era-${p.id}"><div class="era-head"><div class="dates">${esc(fmt(p.from))}${p.to !== p.from ? ` – ${esc(fmt(p.to))}` : ''}</div>
+        <h3>${esc(p.title)}</h3><div class="muted" style="font-size:.85rem">${commitsBetween(p.from, p.to)} commits</div><div class="bar-mini" style="background:${a.color}"></div></div>
+      <div><p class="era-text">${esc(p.text)}</p><div class="cards">${inIt.map((x) => `<button class="card" data-card="${x.id}" data-area="${x.area}" style="border-left-color:${T.AREAS[x.area].color}">
+        <span class="d">${esc(fmt(x.date, { weekday: 'short', day: 'numeric', month: 'short' }))}</span><b>${esc(x.title)}</b><span class="t">${esc(x.text)}</span></button>`).join('')}</div></div></div>`;
+  }).join('');
+  $('#eras').addEventListener('click', (e) => {
+    const c = e.target.closest('[data-card]'); if (!c) return;
+    show('pin', c.dataset.card); window.scrollTo({ top: $('.board').offsetTop - 10, behavior: 'smooth' });
+  });
+
+  let rt = null; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(draw, 120); });
+  draw();
+  show(sel.kind, sel.id, { push: false });
+  if (!fromHash) requestAnimationFrame(() => { scroll.scrollLeft = 0; });
+})();
+</script>
+</body>
+</html>

@@ -592,3 +592,11 @@ start.bat            launcher that keeps a console window with the log
 ```
 
 `npm test` runs an end-to-end smoke test using a temporary database, so your real data is never touched.
+
+## 🗺 Project timeline (GitHub Pages)
+
+`docs/` holds an interactive timeline of how SITHUB was built, from the first commit to today: development periods as bands on a date axis, commits per day, and pins for the main updates. Click a pin or a period for the details, filter by area, step through with ← →, zoom, and link straight to one (`…/#cpm`). The story is also written out period by period below it.
+
+- **Publish it:** on GitHub, **Settings › Pages › Build and deployment**: *Deploy from a branch*, then pick the branch and the **/docs** folder. It appears at `https://<owner>.github.io/<repo>/`. It's plain HTML with no build step, and it also opens straight from the folder.
+- **Add to it:** the periods and pins are in `docs/data.js`: add a pin with its date, area, title, text and points.
+- **Refresh the commit counts:** `node scripts/timeline-activity.js` (in a full clone: run `git fetch --unshallow` first in a shallow one).
