@@ -2204,3 +2204,11 @@ dialog#modal .tm-title:focus { border-color: var(--accent); background: var(--pa
   dialog#modal.task-modal { height: 100dvh; max-height: 100dvh; }
   dialog#modal .tm-title { font-size: 19px; }
 }
+
+/* 👥 People cards: the name, "N open" and the chips on one even line height; the avatar centred on the first two lines */
+.pc-head .pc-dot { margin-top: 3px; display: inline-flex; }
+.pc-name b { display: block; line-height: 20px; }
+.pc-counts { gap: 4px; margin-top: 4px; }
+.pc-counts > span { display: inline-flex; align-items: center; height: 19px; white-space: pre; line-height: 1; box-sizing: border-box; }
+.pc-counts > span:first-child { padding-right: 2px; }
+.pc-counts .why { padding: 0 7px; }
