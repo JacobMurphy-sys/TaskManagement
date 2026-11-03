@@ -142,6 +142,9 @@ window.TIMELINE = {
     { id: 'pwreminder', date: '2026-11-03', area: 'platform', title: '🔑 A nudge about the server\'s password',
       text: 'The shared server runs under a Windows account whose password can expire. Every few weeks the people who look after the server get a ✉ reminder to check it.',
       points: ['Repeated each week until someone ticks it off', 'How often is set in the server\'s settings', 'Links to settings now open the right tab'] },
+    { id: 'taskwindow', date: '2026-11-03', area: 'projects', title: 'The task window, at a glance',
+      text: 'A task opens wide and laid out like Home: everything about it in view, without scrolling.',
+      points: ['Coloured tags instead of drop-downs: status, priority, dates, repeats, project and phase, one click to change', 'The description reads like a note, with its links, and is edited in place', 'Subtasks with a progress bar, notes in their own column, people and the rest beside them'] },
     { id: 'timeline', date: '2026-11-02', area: 'knowledge', title: 'This timeline',
       text: 'The project\'s own story on GitHub Pages, kept up to date as the work goes on.',
       points: ['Commits per day worked out from git every time it\'s published', 'A pin added with every user-visible change', 'And somewhere on this page, something hidden…'] },
@@ -149,6 +152,9 @@ window.TIMELINE = {
 
   // 🎬 The blooper reel: the hidden easter egg (click the logo five times, type "oops", or find the 🐞)
   BLOOPERS: [
+    { date: '2026-11-03', title: 'The menu behind the curtain',
+      text: 'The new task window got coloured tags with little menus. Click one: nothing. The menu had opened perfectly, just behind the window, where nobody could click it.',
+      lesson: 'A pop-up has to know which layer it lives on.' },
     { date: '2026-11-03', title: 'The button that clicked twice',
       text: 'The new window for confirming volume extensions got a fresh click listener every time it reopened. So the second decision was sent twice, and the second copy was told off: "Already dismissed — undo that first".',
       lesson: 'One listener is plenty. Two is an argument.' },

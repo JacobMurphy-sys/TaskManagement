@@ -805,28 +805,41 @@ document.addEventListener('click', (e) => {
 });
 // The little menu under a status or priority button
 function taskPickMenu(btn, kind) {
-  $('#tl-menu')?.remove();
   const id = Number(btn.dataset.taskStatus || btn.dataset.taskPrio);
   const items = kind === 'status'
     ? Object.entries(STATUS).map(([k, l]) => `<button type="button" class="tl-status st-${k}" data-pick="${k}">${STATUS_ICON[k]} ${l}</button>`)
     : [4, 3, 2, 1].map((k) => `<button type="button" class="pill prio-${k}" data-pick="${k}">${PRIORITY[k]}</button>`);
-  const m = document.createElement('div'); m.id = 'tl-menu'; m.className = `tl-menu card tl-menu-${kind}`; m.setAttribute('role', 'menu');
-  m.innerHTML = items.join(''); document.body.append(m);
-  const r = btn.getBoundingClientRect();
-  m.style.left = `${Math.max(8, Math.min(window.innerWidth - m.offsetWidth - 8, r.left + r.width / 2 - m.offsetWidth / 2))}px`;
-  m.style.top = `${r.bottom + 6 + m.offsetHeight > window.innerHeight ? r.top - m.offsetHeight - 6 : r.bottom + 6}px`;
-  m.querySelector('[data-pick]')?.focus();
-  const close = () => { m.remove(); document.removeEventListener('mousedown', away, true); document.removeEventListener('keydown', keys, true); };
-  const away = (e) => { if (!m.contains(e.target)) close(); };
-  const keys = (e) => { if (e.key === 'Escape') { close(); btn.focus(); } };
-  setTimeout(() => { document.addEventListener('mousedown', away, true); document.addEventListener('keydown', keys, true); });
-  m.addEventListener('click', async (e) => {
-    const b = e.target.closest('[data-pick]'); if (!b) return; close();
+  pickMenu(btn, items.join(''), kind, async (v) => {
     try {
-      if (kind === 'status') await setTaskStatus(id, b.dataset.pick, Number(btn.dataset.subs) || 0);
-      else { await api.patch(`/tasks/${id}`, { priority: Number(b.dataset.pick) }); await refresh(); }
+      if (kind === 'status') await setTaskStatus(id, v, Number(btn.dataset.subs) || 0);
+      else {
+        await api.patch(`/tasks/${id}`, { priority: Number(v) });
+        // in the task window, it's drawn again; on a page, the page is
+        if (modal().open && $('#task-form')) { state.modalDirty = true; await taskModal($('#task-form').dataset.id); } else await refresh();
+      }
     } catch (err) { toast(err.message, 'error'); }
   });
+}
+// A small menu under (or above) a button: items are buttons with data-pick; onPick(value) when one is chosen.
+function pickMenu(btn, itemsHtml, kind, onPick) {
+  $('#tl-menu')?.remove();
+  const m = document.createElement('div'); m.id = 'tl-menu'; m.className = `tl-menu card tl-menu-${kind}`; m.setAttribute('role', 'menu');
+  m.innerHTML = itemsHtml; (btn.closest('dialog[open]') || document.body).append(m); // in a window: inside it, or it's hidden behind
+  const r = btn.getBoundingClientRect();
+  m.style.left = `${Math.max(8, Math.min(window.innerWidth - m.offsetWidth - 8, r.left + r.width / 2 - m.offsetWidth / 2))}px`;
+  m.style.top = `${r.bottom + 6 + m.offsetHeight > window.innerHeight ? Math.max(8, r.top - m.offsetHeight - 6) : r.bottom + 6}px`;
+  (m.querySelector('[data-pick].on') || m.querySelector('[data-pick]'))?.focus();
+  const close = () => { m.remove(); document.removeEventListener('mousedown', away, true); document.removeEventListener('keydown', keys, true); };
+  const away = (e) => { if (!m.contains(e.target)) close(); };
+  const keys = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); btn.focus(); }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); const all = [...m.querySelectorAll('[data-pick]')]; const at = all.indexOf(document.activeElement);
+      all[(at + (e.key === 'ArrowDown' ? 1 : all.length - 1)) % all.length]?.focus();
+    }
+  };
+  setTimeout(() => { document.addEventListener('mousedown', away, true); document.addEventListener('keydown', keys, true); });
+  m.addEventListener('click', (e) => { const b = e.target.closest('[data-pick]'); if (!b) return; close(); onPick(b.dataset.pick); });
 }
 
 function baselineBox(p) {
@@ -2056,6 +2069,8 @@ closeOnBackdrop(modal(), () => {
 function openModal(html, opts = {}) {
   modalFormDirty = false;
   modal().classList.toggle('wide', !!opts.wide);
+  if (modal().dataset.cls) modal().classList.remove(modal().dataset.cls);
+  if (opts.cls) { modal().classList.add(opts.cls); modal().dataset.cls = opts.cls; } else delete modal().dataset.cls;
   $('#modal-body').innerHTML = html;
   if (!modal().open) modal().showModal();
   reschedHydrate($('#modal-body'));
@@ -2118,6 +2133,10 @@ async function projectForm(p = {}) {
   });
 }
 
+// ✅ The task window: everything about a task at a glance, laid out like Home. A strip of coloured tags
+// (status, priority, dates, repeat, project, phase: click one to change it) under the title, then three
+// columns that scroll on their own, never the window: what it is (description, subtasks), the notes,
+// and who and what else (people, depends on, reminders, meetings, attachments). On a phone they stack.
 async function taskModal(id) {
   const t = await api.get(`/tasks/${id}`);
   const [siblings, waitingNames, ownerGroups, phases] = await Promise.all([
@@ -2137,138 +2156,164 @@ async function taskModal(id) {
   const p = state.projects.find((x) => x.id === t.project_id);
   const baselineText = t.is_baseline ? '<span class="badge baseline">Baseline task</span>'
     : (p && p.baseline_set_at ? '<span class="badge added">Added after baseline</span>' : '');
+  const subDone = t.subtasks.filter((s) => s.status === 'done').length;
+  const subOpen = t.subtasks.length - subDone;
+  const phase = phases.find((ph) => ph.id === t.phase_id);
+  const pendingReminders = t.reminders.filter((r) => r.status === 'pending');
+  // a date as a tag: click it for the calendar, ✕ clears it
+  const dateTag = (name, icon, label, value, tone = '', note = '') => `<span class="tm-tag tm-datetag ${value ? '' : 'empty'} ${tone}">
+      <button type="button" data-tm-date="${name}" title="${label}${value ? `: ${esc(fmtDate(value))}` : ' — click to set'}">${icon} ${label} <b>${value ? esc(fmtShortDate(value)) : 'none'}</b>${note ? ` <span class="tm-note">${esc(note)}</span>` : ''}</button>
+      ${value ? `<button type="button" class="tm-x" data-tm-clear="${name}" title="Clear the ${label.toLowerCase()}">✕</button>` : ''}
+      <input type="date" name="${name}" value="${name === 'due_at' ? toDateInput(value) : esc(value || '')}" tabindex="-1" aria-hidden="true"></span>`;
+  const n = t.due_at && t.status !== 'done' ? dayDiff(t.due_at) : null;
+  const dueTone = n === null ? '' : n < 0 ? 'bad' : n <= 1 ? 'soon' : '';
+  const panel = (cls, icon, title, count, body, extra = '') => `<section class="tm-panel ${cls}">
+      <div class="tm-ph"><h3>${icon} ${title}${count !== '' && count != null ? ` <span class="tm-count">${count}</span>` : ''}</h3>${extra}</div>${body}</section>`;
+
   openModal(`
-    <div class="modal-head">
-      <div class="small muted">${t.project_id ? `<a href="#/project/${t.project_id}" data-action="modal-open-project" data-id="${t.project_id}" title="Open the project">🗂 ${esc(t.project_name)}</a>` : '✅ Tasks (no project)'}${t.parent_id ? ' · subtask' : ''} ${baselineText}
-        ${t.meeting ? ` · <a href="#" data-action="open-meeting" data-id="${t.meeting.id}" data-return-task="${t.id}" title="Agreed at this meeting">🗓 from ${esc(t.meeting.title)}, ${esc(fmtDate(t.meeting.held_at))}</a>` : ''}</div>
+    <div class="tm" id="task-form" data-id="${t.id}" tabindex="-1">
+    <div class="modal-head tm-head">
+      <div class="tm-crumb small">${t.project_id ? `<a href="#/project/${t.project_id}" data-action="modal-open-project" data-id="${t.project_id}" title="Open the project">🗂 ${esc(t.project_name)}</a>` : '<span class="muted">✅ Tasks (no project)</span>'}
+        ${t.parent_id ? `<span class="tm-sep">›</span><a href="javascript:void 0" class="tm-parent-link" data-action="open-task" data-id="${t.parent_id}" title="Open the task this is part of">↳ ${esc(t.parent_title || 'its task')}</a>` : ''}
+        ${t.meeting ? `<span class="tm-sep">·</span><a href="#" data-action="open-meeting" data-id="${t.meeting.id}" data-return-task="${t.id}" title="Agreed at this meeting">🗓 from ${esc(t.meeting.title)}, ${esc(fmtDate(t.meeting.held_at))}</a>` : ''}
+        ${baselineText}</div>
       <div class="row"><span class="saved-flag" id="saved-flag">✓ Saved</span><button class="icon" data-action="history" data-kind="tasks" data-id="${t.id}" data-title="${esc(t.title)}" title="History: every change, with who made it">🕘</button><button class="icon" data-action="close-modal">✕</button></div>
     </div>
-    ${t.parent_id ? `<div class="tm-parent">↳ Subtask of <a href="javascript:void 0" data-action="open-task" data-id="${t.parent_id}" title="Open the task this is part of">${esc(t.parent_title || 'its task')}</a><span class="muted small">— click to open it</span></div>` : ''}
-    <div class="form-grid" id="task-form" data-id="${t.id}">
-      <label class="f full">Title<input type="text" name="title" value="${esc(t.title)}"></label>
-      <label class="f full">Description<textarea name="description" rows="3">${esc(t.description)}</textarea>${linkList(t.description)}</label>
-      <label class="f">Status<select name="status">${options(STATUS, t.status)}</select></label>
-      <label class="f">Priority<select name="priority">${options(PRIORITY, t.priority)}</select></label>
-      <label class="f">Repeats<select name="recurrence">${options(REPEAT, t.recurrence)}</select></label>
-      <label class="f">Start date<input type="date" name="start_date" value="${esc(t.start_date || '')}"></label>
-      <label class="f">Due date<input type="date" name="due_at" value="${toDateInput(t.due_at)}"></label>
-      ${t.due_at ? `<div class="f resched-slot" data-resched="task:${t.id}"></div>` : ''}
-      <div class="f full"><span>Owners <span class="muted small">— one or more people or departments</span></span><div id="owner-pick"></div></div>
-      <div class="f"><span>Waiting on <span class="muted small">— from the contacts, or type a name</span></span><div id="waiting-pick"></div></div>
-      ${t.parent_id ? '' : `<label class="f">Project<select name="project_id" title="Move this task (and its subtasks) to another project">
-        <option value="">✅ Tasks (no project)</option>${projectChoices.map((x) => `<option value="${x.id}" ${x.id === t.project_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>`}
-      ${phases.length && !t.parent_id ? `<label class="f">Phase<select name="phase_id" title="Which phase of the project this task (and its subtasks) belongs to">
-        <option value="">— No phase —</option>${phases.map((ph, i) => `<option value="${ph.id}" ${ph.id === t.phase_id ? 'selected' : ''}>${i + 1}. ${esc(ph.name)}${ph.status === 'done' ? ' ✓' : ''}</option>`).join('')}</select></label>` : ''}
-      ${t.parent_id && t.phase_name ? `<div class="f small muted" style="align-self:end">🧭 Phase: <b>${esc(t.phase_name)}</b> (from its parent task)</div>` : ''}
-    </div>
-    ${t.waiting_on && t.waiting_since ? `<div class="small muted" style="margin-top:6px">⏳ Waiting on <b>${esc(t.waiting_on)}</b> since ${esc(fmtDate(t.waiting_since))} (${daysSince(t.waiting_since)} days)</div>` : ''}
-    ${t.recurrence ? `<div class="small muted" style="margin-top:6px">🔁 Repeats ${esc(REPEAT[t.recurrence].toLowerCase())}: ticking it off creates the next one${t.next_task_id ? ' (next occurrence already created)' : ''}.</div>` : ''}
-    <div class="small muted" style="margin-top:8px">Created ${esc(fmtDateTime(t.created_at))} · Updated ${esc(fmtDateTime(t.updated_at))}
-      ${t.completed_at ? ` · Completed ${esc(fmtDateTime(t.completed_at))}` : ''}</div>
-
-    <div class="section">
-      <h3>Subtasks <span class="muted small">${t.subtasks.filter((s) => s.status === 'done').length}/${t.subtasks.length}</span></h3>
-      <ul class="tasks" data-reload-task="${t.id}">${t.subtasks.map((s) => `<li class="task ${s.status === 'done' ? 'done' : ''}" data-id="${s.id}"><div class="task-line">
-        ${dragHandle()}
-        <input type="checkbox" data-action="toggle-task" data-id="${s.id}" data-subs="${s.subtask_count - s.subtask_done}" ${s.status === 'done' ? 'checked' : ''}>
-        <span class="task-title" data-action="open-task" data-id="${s.id}" data-rename title="Click to open · double-click to rename">${esc(s.title)}</span>
-        ${statusChip(s.status)} ${s.priority !== 2 ? prioPill(s.priority) : ''} ${dueChip(s)} ${ownerChip(s)}
-        <span class="row-actions"><button class="icon" data-action="rename-task" title="Rename (or double-click the title)">✎</button></span></div></li>`).join('')}</ul>
-      <input type="text" id="modal-add-sub" placeholder="+ Add subtask… (Enter)" autocomplete="off">
+    <input type="text" class="tm-title" name="title" value="${esc(t.title)}" aria-label="Title" placeholder="What needs doing?">
+    <div class="tm-tags">
+      ${statusBtn(t, subOpen)}${prioBtn(t)}
+      ${dateTag('due_at', '📅', 'Due', t.due_at, dueTone, dueTone ? dueLabel(t.due_at) : '')}
+      ${dateTag('start_date', '▶', 'Start', t.start_date)}
+      <span class="resched-slot tm-resched" ${t.due_at ? `data-resched="task:${t.id}"` : ''}></span>
+      <button type="button" class="tm-tag ${t.recurrence ? 'on' : 'empty'}" data-tm-menu="recurrence" title="${t.recurrence ? `Repeats ${esc(REPEAT[t.recurrence].toLowerCase())}: ticking it off creates the next one${t.next_task_id ? ' (already created)' : ''}` : 'Make it repeat'}">🔁 ${t.recurrence ? esc(REPEAT[t.recurrence]) : 'Doesn\'t repeat'}</button>
+      ${t.parent_id ? '' : `<button type="button" class="tm-tag tm-proj" data-tm-menu="project_id" title="Move this task (and its subtasks) to another project">🗂 ${t.project_id ? esc(t.project_name) : 'No project'}</button>`}
+      ${phases.length && !t.parent_id ? `<button type="button" class="tm-tag ${phase ? 'on' : 'empty'}" data-tm-menu="phase_id" title="Which phase of the project this task (and its subtasks) belongs to">🧭 ${phase ? esc(phase.name) : 'No phase'}</button>` : ''}
+      ${t.parent_id && t.phase_name ? `<span class="tm-tag on static" title="From its parent task">🧭 ${esc(t.phase_name)}</span>` : ''}
     </div>
 
-    ${t.project_id ? '' : `<div class="section row"><span class="small muted">Growing into something bigger?</span>
-      <button data-action="promote-task" data-id="${t.id}">🚀 Promote to a project</button></div>`}
-    ${!t.project_id ? '' : `<div class="section">
-      <h3>Depends on <span class="muted small">— can't start until these are finished (shown as arrows on the Gantt chart)</span></h3>
-      <ul class="mini">${t.depends_on.map((d) => `<li>
-        <span class="t" data-action="open-task" data-id="${d.id}">${d.status === 'done' ? '✅' : '⏳'} ${esc(d.title)}</span> ${dueChip(d)}
-        <button class="icon" data-action="remove-dep" data-id="${d.link_id}" title="Remove dependency">✕</button></li>`).join('') || '<li class="empty">Nothing</li>'}</ul>
-      ${candidates.length ? `<select id="dep-add" style="margin-top:6px"><option value="">+ Add a task this depends on…</option>
-        ${candidates.map((c) => `<option value="${c.id}">${c.parent_id ? '↳ ' : ''}${esc(c.title)}</option>`).join('')}</select>` : ''}
-      ${t.blocking.length ? `<div class="small muted" style="margin-top:6px">Waiting for this task: ${t.blocking.map((b) =>
-        `<a href="#" data-action="open-task" data-id="${b.id}">${esc(b.title)}</a>`).join(', ')}</div>` : ''}
-    </div>`}
+    <div class="tm-grid">
+      <div class="tm-col">
+        ${panel('tm-desc-panel', '📝', 'Description', '', `
+          <div class="tm-desc ${t.description ? '' : 'empty'}" data-tm-desc tabindex="0" title="Click to edit">${t.description ? linkify(t.description) : 'Add a description: what needs doing, why, links and file paths…'}</div>
+          <textarea name="description" class="tm-desc-edit" hidden placeholder="What needs doing, why, links and file paths…">${esc(t.description)}</textarea>`,
+          `<button class="icon" data-tm-desc title="Edit the description">✎</button>`)}
+        ${panel('tm-subs', '☑', 'Subtasks', t.subtasks.length ? `${subDone}/${t.subtasks.length}` : '', `
+          ${t.subtasks.length ? `<div class="tm-progress" title="${subDone} of ${t.subtasks.length} done"><span style="width:${Math.round((subDone / t.subtasks.length) * 100)}%"></span></div>` : ''}
+          <ul class="tasks tm-sublist" data-reload-task="${t.id}">${t.subtasks.map((s) => `<li class="task ${s.status === 'done' ? 'done' : ''}" data-id="${s.id}"><div class="task-line">
+            ${dragHandle()}
+            <input type="checkbox" data-action="toggle-task" data-id="${s.id}" data-subs="${s.subtask_count - s.subtask_done}" ${s.status === 'done' ? 'checked' : ''}>
+            <div class="tm-sub-main"><span class="task-title" data-action="open-task" data-id="${s.id}" data-rename title="Click to open · double-click to rename">${esc(s.title)}</span>
+              ${(() => { const meta = `${s.status === 'in_progress' || s.status === 'blocked' ? statusBtn(s, s.subtask_count - s.subtask_done) : ''}${s.priority >= 3 ? prioPill(s.priority) : ''}${s.status !== 'done' ? dueChip(s) : ''}${ownerChip(s)}`; return meta.trim() ? `<div class="tm-sub-meta">${meta}</div>` : ''; })()}</div>
+            <span class="row-actions"><button class="icon" data-action="rename-task" title="Rename (or double-click the title)">✎</button></span></div></li>`).join('')}</ul>
+          <input type="text" id="modal-add-sub" placeholder="+ Add a subtask… (Enter; !high @fri work too)" autocomplete="off">`)}
+      </div>
 
-    ${attachmentsHtml(t.attachments, { kind: 'tasks', id: t.id })}
+      <div class="tm-col">
+        ${panel('tm-notes', '💬', 'Notes', t.notes.length || '', `
+          <div class="tm-compose"><textarea id="modal-note" rows="2" placeholder="Add a note… (Enter to save, Shift+Enter for a new line; [ ] lines become subtasks)"></textarea>
+            <button class="primary small" data-action="save-task-note" data-id="${t.id}">Add</button></div>
+          <ul class="timeline tm-notelist">${t.notes.map((x) => timelineItem({ type: 'note', ...x })).join('') || '<li class="empty">No notes yet: progress, decisions, who said what.</li>'}</ul>`)}
+      </div>
 
-    ${taskMeetingsHtml(t)}
-
-    <div class="section">
-      <h3>Reminders</h3>
-      <ul class="mini">${t.reminders.filter((r) => r.status === 'pending').map((r) => `<li>
-        <span class="t">⏰ ${esc(fmtDateTime(r.remind_at))} <span class="muted small">(${fmtRelative(r.remind_at)})</span> ${r.message ? `— ${esc(r.message)}` : ''}</span>
-        <button class="icon" data-action="delete-reminder" data-id="${r.id}" title="Delete">✕</button></li>`).join('') || '<li class="empty">None set</li>'}</ul>
-      <button data-action="remind-task" data-id="${t.id}" style="margin-top:6px">🔔 Add reminder</button>
+      <div class="tm-col tm-side">
+        ${panel('tm-people', '👥', 'People', '', `
+          <div class="tm-field"><span class="tm-label">Owners</span><div id="owner-pick"></div></div>
+          <div class="tm-field"><span class="tm-label">Waiting on${t.waiting_on && t.waiting_since ? ` <span class="tm-wait">⏳ since ${esc(fmtShortDate(t.waiting_since))} · ${daysSince(t.waiting_since)}d</span>` : ''}</span><div id="waiting-pick"></div></div>`)}
+        ${t.project_id ? panel('tm-deps', '🔗', 'Depends on', t.depends_on.length || '', `
+          <ul class="mini">${t.depends_on.map((d) => `<li>
+            <span class="t" data-action="open-task" data-id="${d.id}">${d.status === 'done' ? '✅' : '⏳'} ${esc(d.title)}</span> ${dueChip(d)}
+            <button class="icon" data-action="remove-dep" data-id="${d.link_id}" title="Remove dependency">✕</button></li>`).join('')}</ul>
+          ${candidates.length ? `<select id="dep-add" class="tm-quiet-select"><option value="">+ A task this waits for…</option>
+            ${candidates.map((c) => `<option value="${c.id}">${c.parent_id ? '↳ ' : ''}${esc(c.title)}</option>`).join('')}</select>` : ''}
+          ${t.blocking.length ? `<div class="small muted">Waiting for this: ${t.blocking.map((b) => `<a href="#" data-action="open-task" data-id="${b.id}">${esc(b.title)}</a>`).join(', ')}</div>` : ''}`) : ''}
+        ${panel('tm-rem', '🔔', 'Reminders', pendingReminders.length || '', `
+          <ul class="mini">${pendingReminders.map((r) => `<li>
+            <span class="t">⏰ ${esc(fmtDateTime(r.remind_at))} <span class="muted small">(${fmtRelative(r.remind_at)})</span> ${r.message ? `— ${esc(r.message)}` : ''}</span>
+            <button class="icon" data-action="delete-reminder" data-id="${r.id}" title="Delete">✕</button></li>`).join('')}</ul>`,
+          `<button class="small" data-action="remind-task" data-id="${t.id}">＋ Remind me</button>`)}
+        ${panel('tm-meet', '🗓', 'Meetings', t.meetings.length || '', `
+          <ul class="mini">${t.meetings.map((m) => `<li><span class="t" data-action="open-meeting" data-id="${m.id}" data-return-task="${t.id}">🗓 ${esc(m.title)}
+            <span class="small muted">${esc(meetingWhen(m))}</span></span> <span class="small muted">${actionsLabel(m)}</span></li>`).join('')}</ul>`,
+          `<button class="small" data-action="new-meeting" data-task="${t.id}">＋ New</button>`)}
+        <div class="tm-panel tm-att">${attachmentsHtml(t.attachments, { kind: 'tasks', id: t.id })}</div>
+      </div>
     </div>
 
-    <div class="section">
-      <h3>Notes</h3>
-      <div class="quick-note"><textarea id="modal-note" placeholder="Add a note to this task… (Enter to save; [ ] lines become subtasks)"></textarea>
-        <button class="primary" data-action="save-task-note" data-id="${t.id}">Add</button></div>
-      <ul class="timeline">${t.notes.map((n) => timelineItem({ type: 'note', ...n })).join('')}</ul>
-    </div>
-
-    <div class="section">
-      <details><summary class="muted">History (${t.history.length})</summary>
-        <ul class="timeline" style="margin-top:8px">${t.history.map((e) => timelineItem({ type: 'event', ...e })).join('')}</ul>
-      </details>
-    </div>
-    <div class="section row">
-      <button class="danger" data-action="delete-task" data-id="${t.id}">Delete task</button>
+    <div class="tm-foot">
+      <span class="small muted">Created ${esc(fmtDateTime(t.created_at, { weekday: false }))} · updated ${esc(fmtDateTime(t.updated_at, { weekday: false }))}${t.completed_at ? ` · done ${esc(fmtDateTime(t.completed_at, { weekday: false }))}` : ''}
+        · <a href="#" data-action="history" data-kind="tasks" data-id="${t.id}" data-title="${esc(t.title)}">🕘 History (${t.history.length})</a></span>
       <div class="spacer"></div>
-      ${canPoke(t) ? '<button id="poke-btn" title="Send the people this task is given to a ✉ nudge about it">👉 Poke</button>' : ''}
-      ${t.parent_id ? `<button data-action="open-task" data-id="${t.parent_id}">↑ Parent task</button>` : ''}
+      <button class="danger small" data-action="delete-task" data-id="${t.id}">Delete</button>
+      ${t.project_id ? '' : `<button class="small" data-action="promote-task" data-id="${t.id}" title="Growing into something bigger? Make it a project">🚀 Promote to a project</button>`}
+      ${canPoke(t) ? '<button class="small" id="poke-btn" title="Send the people this task is given to a ✉ nudge about it">👉 Poke</button>' : ''}
       <button class="primary" data-action="close-modal">Done</button>
-    </div>`);
-  $('#poke-btn')?.addEventListener('click', (e) => pokeDialog(t, e.target.closest('.section')));
+    </div>
+    </div>`, { wide: true, cls: 'task-modal' });
+  if (!modal().contains(document.activeElement) || document.activeElement === modal() || document.activeElement.closest('.tm-crumb')) $('#modal .tm').focus({ preventScroll: true });
+  $('#poke-btn')?.addEventListener('click', () => pokeDialog(t, $('#modal .tm-tags')));
 
-  // the task's side sections (depends on, meetings, reminders) folded while they're empty
-  for (const sec of $$('#modal .section')) {
-    const h = sec.firstElementChild; if (!h || h.tagName !== 'H3' || !/^(Depends on|Meetings|Reminders)/.test(h.textContent.trim())) continue;
-    const d = document.createElement('details'); d.className = 'fold-sec'; d.open = !!sec.querySelector('li:not(.empty)');
-    const sum = document.createElement('summary'); sum.innerHTML = `${h.innerHTML}${d.open ? '' : ' <span class="muted small">— none</span>'}`; d.append(sum); h.remove();
-    while (sec.firstChild) d.append(sec.firstChild); sec.append(d);
-  }
   const flagSaved = () => {
     const flag = $('#saved-flag');
     flag?.classList.add('show');
     setTimeout(() => flag?.classList.remove('show'), 1200);
   };
+  // one field saved; some change other parts of the window, which is then drawn again
+  const save = async (name, value) => {
+    try {
+      const saved = await api.patch(`/tasks/${t.id}`, { [name]: value });
+      state.modalDirty = true;
+      if (saved.next_occurrence) toast(`🔁 Next one created, due ${fmtDate(saved.next_occurrence.due_at)}`);
+      if (name === 'project_id') toast(value ? 'Moved to the project (counts as new scope there)' : 'Moved to ✅ Tasks');
+      if (['waiting_on', 'recurrence', 'status', 'description', 'project_id', 'phase_id', 'due_at', 'start_date', 'priority'].includes(name) && modal().open) return taskModal(t.id);
+      flagSaved();
+    } catch (err) {
+      toast(err.message, 'error');
+      if (modal().open) taskModal(t.id);
+    }
+  };
   // Waiting on: the contacts (people and departments), plus names waited on before that aren't in them.
-  const known = new Set(ownerGroups.flatMap((g) => g.names.map((n) => n.toLowerCase())));
-  const earlier = waitingNames.filter((n) => !known.has(String(n).toLowerCase()));
+  const known = new Set(ownerGroups.flatMap((g) => g.names.map((x) => x.toLowerCase())));
+  const earlier = waitingNames.filter((x) => !known.has(String(x).toLowerCase()));
   ownerPicker($('#waiting-pick'), { value: t.waiting_on, groups: [...ownerGroups, ...(earlier.length ? [{ label: 'Waited on before', names: earlier }] : [])],
     placeholder: 'Person or team', bookTitle: 'Waiting on whom?',
-    onChange: async (waiting_on) => {
-      try { await api.patch(`/tasks/${t.id}`, { waiting_on }); state.modalDirty = true; } catch (err) { toast(err.message, 'error'); }
-      if (modal().open) taskModal(t.id); // shows since when
-    } });
+    onChange: (waiting_on) => save('waiting_on', waiting_on || null) });
   ownerPicker($('#owner-pick'), { value: t.owner, groups: ownerGroups, placeholder: "Who's responsible?",
     onChange: async (owner) => {
       try { await api.patch(`/tasks/${t.id}`, { owner }); state.modalDirty = true; flagSaved(); } catch (err) { toast(err.message, 'error'); }
     } });
-  // Auto-save each field as it changes.
-  $$('#task-form [name]').forEach((el) => el.addEventListener('change', async () => {
-    let value = el.value;
-    if (['due_at', 'start_date', 'recurrence', 'waiting_on', 'project_id', 'owner', 'phase_id'].includes(el.name)) value = value || null;
-    if ((el.name === 'project_id' || el.name === 'phase_id') && value) value = Number(value);
-    if (el.name === 'priority') value = Number(value);
-    if (el.name === 'title' && !value.trim()) { el.value = t.title; return; }
-    try {
-      const saved = await api.patch(`/tasks/${t.id}`, { [el.name]: value });
-      state.modalDirty = true;
-      if (saved.next_occurrence) toast(`🔁 Next one created, due ${fmtDate(saved.next_occurrence.due_at)}`);
-      if (el.name === 'project_id') toast(value ? 'Moved to the project (counts as new scope there)' : 'Moved to ✅ Tasks');
-      // Redraw for fields that change other parts of the window (not if it was just closed).
-      if (['waiting_on', 'recurrence', 'status', 'description', 'project_id'].includes(el.name) && modal().open) return taskModal(t.id);
-    } catch (err) {
-      toast(err.message, 'error');
-      return modal().open ? taskModal(t.id) : undefined;
-    }
-    const flag = $('#saved-flag');
-    flag.classList.add('show');
-    setTimeout(() => flag.classList.remove('show'), 1200);
+  // the title: saved when it's left (Enter leaves it)
+  const title = $('#modal .tm-title');
+  title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); title.blur(); } });
+  title.addEventListener('change', () => { if (!title.value.trim()) { title.value = t.title; return; } save('title', title.value.trim()); });
+  // the description: read as text with its links, edited in place
+  const desc = $('#modal .tm-desc'); const descEdit = $('#modal .tm-desc-edit');
+  const grow = () => { descEdit.style.height = 'auto'; descEdit.style.height = `${Math.min(descEdit.scrollHeight + 2, 320)}px`; };
+  const editDesc = () => { desc.hidden = true; descEdit.hidden = false; grow(); descEdit.focus(); descEdit.setSelectionRange(descEdit.value.length, descEdit.value.length); };
+  $$('#modal [data-tm-desc]').forEach((el) => el.addEventListener('click', (e) => { if (e.target.closest('a')) return; editDesc(); }));
+  desc.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); editDesc(); } });
+  descEdit.addEventListener('input', grow);
+  descEdit.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); descEdit.value = t.description || ''; descEdit.blur(); } });
+  descEdit.addEventListener('blur', () => {
+    if ((descEdit.value || '') !== (t.description || '')) save('description', descEdit.value);
+    else { descEdit.hidden = true; desc.hidden = false; }
+  });
+  // dates: the tag opens the calendar; ✕ clears it
+  $$('#modal [data-tm-date]').forEach((b) => b.addEventListener('click', () => {
+    const input = b.parentElement.querySelector('input[type=date]');
+    try { input.showPicker(); } catch { input.focus(); input.click(); }
+  }));
+  $$('#modal .tm-datetag input[type=date]').forEach((input) => input.addEventListener('change', () => save(input.name, input.value || null)));
+  $$('#modal [data-tm-clear]').forEach((b) => b.addEventListener('click', () => save(b.dataset.tmClear, null)));
+  // repeat, project and phase: a short menu under the tag
+  $$('#modal [data-tm-menu]').forEach((b) => b.addEventListener('click', () => {
+    const k = b.dataset.tmMenu;
+    const items = k === 'recurrence' ? Object.entries(REPEAT).map(([v, l]) => ({ v, label: `🔁 ${l}`, on: (t.recurrence || '') === v }))
+      : k === 'project_id' ? [{ v: '', label: '✅ No project (Tasks)', on: !t.project_id }, ...projectChoices.map((x) => ({ v: String(x.id), label: `🗂 ${x.name}`, on: x.id === t.project_id }))]
+        : [{ v: '', label: '— No phase —', on: !t.phase_id }, ...phases.map((ph, i) => ({ v: String(ph.id), label: `${i + 1}. ${ph.name}${ph.status === 'done' ? ' ✓' : ''}`, on: ph.id === t.phase_id }))];
+    pickMenu(b, items.map((x) => `<button type="button" class="tm-menu-item ${x.on ? 'on' : ''}" data-pick="${esc(x.v)}">${esc(x.label)}</button>`).join(''), 'tm', (v) => {
+      if (k === 'recurrence') return save(k, v || null);
+      return save(k, v ? Number(v) : null);
+    });
   }));
   $('#dep-add')?.addEventListener('change', async (e) => {
     if (!e.target.value) return;

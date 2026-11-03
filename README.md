@@ -136,14 +136,19 @@ When an update changes how data is stored, the app upgrades your database automa
 
   For example, `Send board pack !high @thu`.
 - **Subtasks:** hover over a task and click **＋ sub**, or open the task and use *Add subtask*.
-- **Task details:** click a task title to edit its description, status, priority and due date (changes save automatically), and to add subtasks, reminders and notes or see its history. A subtask's window says which task it belongs to, at the top: **↳ Subtask of** *Task name*, a link that opens that task. The project name at the top opens the project.
+- **Task details:** click a task title for its window: wide, and laid out like Home, so everything is in view without scrolling the window (long lists scroll inside their own panel). Changes save as you go.
+  - **At the top:** the project (click to open it), for a subtask **↳** *its task* (a link that opens it), then the title (click to rename it).
+  - **Tags, one click to change:** status and priority in their colours, 📅 *Due* and ▶ *Start* (click for a calendar, ✕ clears it), 📅 Reschedule with how often it's moved, 🔁 *Repeats*, 🗂 *Project* (move it) and 🧭 *Phase*. A dashed tag is one not set yet.
+  - **Three columns:** 📝 the description (read with its links clickable; click it to edit, click away to save, Esc to undo) and ☑ the subtasks with a progress bar; 💬 the notes, newest first; 👥 owners and *Waiting on* (and since when), 🔗 Depends on, 🔔 Reminders, 🗓 Meetings and attachments.
+  - **Along the bottom:** when it was created and changed, 🕘 History, Delete, 🚀 Promote (tasks without a project), 👉 Poke and Done.
+  - On a narrow screen or a phone the columns stack and the window scrolls.
 - **Boards:** **🗂 Board** in the top bar shows all ongoing projects; drag a card between *Active*, *On hold* and *Completed*, or click it to open the project. On a project page, switch the Tasks panel between **☰ List** (tick-box checklist with subtasks) and **▦ Board** (that project's own Kanban: drag tasks between columns). The choice is remembered.
 - **Due-date alerts:** a pop-up appears once on the day a task is due, and again once it becomes overdue.
 - **Re-baseline:** use this after an agreed change of scope. All current tasks become the new baseline.
 - **Keyboard:** `N` quick note, `T` add task (in a project), `/` search, `[` hide or show the sidebar.
 - **Layout:** the page tabs (Dashboard, Tasks, Calendar, Board, Ideas, Library, Report, Contacts) and search are in the top bar; Activity log, Backups, Settings, dark mode, desktop alerts and Stop server are in its **⋯** menu. The sidebar is kept for your projects list; **☰** at the left of the top bar (or `[`) hides it for more room and brings it back, and the choice is remembered. When the page names don't fit on one row, the top bar shows them as icons only (hover for the name), then makes the date and time more compact.
 - **Closing windows:** click anywhere outside a pop-up window (or press Esc). Windows that save as you go (tasks, meetings) save first; a form you haven't saved yet (new project, phase, person…) asks before discarding what you typed. Clicking outside the 📇 contacts book keeps what you ticked.
-- **Repeating tasks:** add `*weekly` (or `*daily`, `*weekdays`, `*fortnightly`, `*monthly`, `*quarterly`, `*yearly`) when adding a task, or set *Repeats* in the task window.
+- **Repeating tasks:** add `*weekly` (or `*daily`, `*weekdays`, `*fortnightly`, `*monthly`, `*quarterly`, `*yearly`) when adding a task, or click the 🔁 tag in the task window.
 - **Waiting on someone:** fill in *Waiting on* in the task window (names you've used are suggested). Clear it when they've replied.
 - **Gantt:** give tasks a *Start date* and *Due date* in the task window, or drag on the chart. A task with only a due date shows as a ◆ milestone. Add dependencies under *Depends on* in the task window.
 - **Costs:** use *＋ Log a cost* under the project heading; *Show costs* lists them. Set the budget — and, if it isn't the app's, the project's currency — with ✎ Edit.
