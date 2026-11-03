@@ -132,7 +132,7 @@ window.TIMELINE = {
       points: ['Priority as a coloured edge, status as a coloured button, overdue rows tinted', 'Subtasks under their task on a tree line, with a progress bar and ▾ to fold them', 'Status and priority changed in place', 'A strip of counts (overdue, blocked, in progress…) that filters the list with a click', 'All open tasks grouped by task, sorted by the most pressing of a task and its subtasks'] },
     { id: 'board', date: '2026-11-03', area: 'projects', title: 'The board comes first',
       text: 'The task board becomes the main way to see work: the default everywhere tasks are shown.',
-      points: ['A card per task, its subtasks a checklist on it to tick, move and add to', 'Or every subtask a card of its own', 'Swimlanes per person or per project', 'Drag between columns, or tap the status on a phone'] },
+      points: ['One line per card, opened out (▸) to its details and subtasks', 'A card per task, its subtasks a checklist on it to tick, move and add to', 'Or every subtask a card of its own', 'Swimlanes per person or per project', 'Drag between columns, or tap the status on a phone'] },
     { id: 'home', date: '2026-11-03', area: 'look', title: 'Home in one view',
       text: 'Home rebuilt as one screen: everything worth knowing at a glance, with no scrolling.',
       points: ['Counts in the header, a click away from their list', 'Focus, tasks (in tabs), projects, meetings, quick notes, reminders and notes side by side', 'One line per task; long panels scroll on their own, never the page', 'From over two screens tall to one'] },

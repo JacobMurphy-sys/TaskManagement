@@ -2062,3 +2062,28 @@ a.ck-t { text-decoration: none; }
   .ck-why .why + .why { display: none; }
   .ck-row { min-height: 40px; }
 }
+
+/* ▦ board cards: one line until opened (▸), then the whole card */
+.tcard.shut { padding: 5px 8px 5px 10px; }
+.tcard.shut .tc-crumb, .tcard.shut .tc-proj, .tcard.shut .tc-meta, .tcard.shut .tc-prog, .tcard.shut .more-scope, .tcard.shut .tc-add, .tcard.shut .tc-head .tl-prio { display: none; }
+.tcard.shut .tc-head { align-items: center; gap: 6px; }
+.tcard.shut .tc-head > input[type="checkbox"] { margin-top: 0; }
+.tcard.shut .tc-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; font-size: 13.5px; }
+.tcard.shut.is-overdue { background: linear-gradient(90deg, var(--danger-soft), var(--panel) 75%); }
+.tc-mini { flex: none; display: none; align-items: center; gap: 5px; }
+.tcard.shut .tc-mini { display: inline-flex; }
+.tc-mini .ck-due { min-width: 0; }
+.tc-sub-mark { color: var(--muted); font-weight: 400; margin-right: 3px; }
+.tc-exp { flex: none; display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0 5px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; }
+.tc-exp:hover { border-color: var(--border); background: var(--panel-2); color: var(--text); }
+.tc-exp-ic { display: inline-block; transition: transform .15s; font-size: 11px; }
+.tcard.open .tc-exp-ic { transform: rotate(90deg); }
+.tc-exp-n { font-variant-numeric: tabular-nums; font-weight: 600; }
+.tc-exp-n.all { color: var(--ok); }
+.tb-open { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.tcol-cards { gap: 6px; }
+@media (max-width: 700px) { .tc-exp { height: 30px; min-height: 0; min-width: 0; padding: 0 8px; } .tcard.shut { padding: 8px 8px 8px 10px; } }
+/* a subtask's card always links back to its task: a slim line above its title, folded or opened */
+.tc-crumb .tc-parlink { color: var(--accent); font-weight: 600; text-decoration: none; }
+.tc-crumb .tc-parlink:hover { text-decoration: underline; }
+.tcard.shut .tc-crumb { display: block; font-size: 11px; line-height: 1.2; margin: 0 0 2px 24px; }

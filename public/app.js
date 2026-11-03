@@ -744,7 +744,24 @@ const TASK_FOCUS = {
   p4: ['', 'Critical', (t) => t.priority === 4 && t.status !== 'done', 'p4'],
   p3: ['', 'High', (t) => t.priority === 3 && t.status !== 'done', 'p3'],
 };
-const subCardsToggle = () => `<label class="small muted row" title="Give each subtask a card of its own in its status column (marked ↳ with its task), to move it on its own"><input type="checkbox" data-action="board-subcards" ${store.get('boardSubCards', false) ? 'checked' : ''}> ↳ Subtasks as cards</label>`;
+// board cards are one line until opened (▸); the opened ones are remembered
+function setCardsOpen(cards, open) {
+  const set = new Set(store.get('boardOpen', []));
+  for (const c of cards) {
+    const id = Number(c.dataset.id);
+    if (open) set.add(id); else set.delete(id);
+    c.classList.toggle('open', open); c.classList.toggle('shut', !open);
+    c.querySelector('[data-card-expand]')?.setAttribute('aria-expanded', String(open));
+  }
+  store.set('boardOpen', [...set].slice(-400));
+}
+document.addEventListener('click', (e) => {
+  const x = e.target.closest('[data-card-expand]');
+  if (x) { e.stopPropagation(); const card = x.closest('.tcard'); setCardsOpen([card], !card.classList.contains('open')); return; }
+  const all = e.target.closest('[data-board-open]');
+  if (all) setCardsOpen($$('.tcard'), all.dataset.boardOpen === 'all');
+});
+const subCardsToggle = () => `<span class="tb-open"><button type="button" class="link small" data-board-open="all" title="Open every card out, with its details and subtasks">▾ Open all</button> · <button type="button" class="link small" data-board-open="none" title="Every card back to one line">▸ Fold all</button></span><label class="small muted row" title="Give each subtask a card of its own in its status column (marked ↳ with its task), to move it on its own"><input type="checkbox" data-action="board-subcards" ${store.get('boardSubCards', false) ? 'checked' : ''}> ↳ Subtasks as cards</label>`;
 function taskStripHtml(flat, focus, { done = true } = {}) {
   const subs = flat.filter((t) => t.parent_id).length;
   const tile = (k) => { const [ic, label, test, tone] = TASK_FOCUS[k]; const n = flat.filter(test).length;
@@ -1378,6 +1395,7 @@ async function renderKanban() {
 // o: { project (show each card's project), subCards, lanes: 'owner' | 'project', focus, cols, sort: (a, b) => …, add (the ＋ Add task box) }
 function taskBoardHtml(tasks, o = {}) {
   const cols = o.cols || Object.keys(STATUS);
+  const openCards = new Set(store.get('boardOpen', [])); // cards opened out (the rest are one line)
   const ids = new Set(tasks.map((t) => t.id));
   const tree = buildTree(tasks);
   // the cards: each task with its subtasks; or every task its own card
@@ -1401,10 +1419,14 @@ function taskBoardHtml(tasks, o = {}) {
         ${c.due_at && c.status !== 'done' ? `<span class="tc-sub-due ${dayDiff(c.due_at) < 0 ? 'bad' : dayDiff(c.due_at) <= 1 ? 'soon' : ''}" title="Due ${esc(fmtDate(c.due_at))}">${esc(fmtShortDate(c.due_at))}</span>` : ''}
         ${splitOwners(c.owner).slice(0, 2).map(personDot).join('')}
         <button type="button" class="tc-sub-st st-${c.status}" data-task-status="${c.id}" data-subs="0" title="${STATUS[c.status]} — click to change">${STATUS_ICON[c.status]}</button></li>`;
-    return `<div class="kcard tcard p${t.priority} st-${t.status} ${done ? 'done' : ''} ${overdue ? 'is-overdue' : ''} ${t._ctx ? 'is-ctx' : ''} ${t.parent_id ? 'is-subcard' : ''}" draggable="true" data-id="${t.id}">
-      ${t._crumb && t.parent_title ? `<div class="tc-crumb" title="A subtask of ${esc(t.parent_title)}">↳ ${esc(t.parent_title)}</div>` : ''}
+    const isOpen = openCards.has(t.id);
+    const n = t.due_at && !done ? dayDiff(t.due_at) : null;
+    return `<div class="kcard tcard p${t.priority} st-${t.status} ${done ? 'done' : ''} ${overdue ? 'is-overdue' : ''} ${t._ctx ? 'is-ctx' : ''} ${t.parent_id ? 'is-subcard' : ''} ${isOpen ? 'open' : 'shut'}" draggable="true" data-id="${t.id}">
+      ${t._crumb && t.parent_title ? `<div class="tc-crumb">↳ <a href="javascript:void 0" class="tc-parlink" data-action="open-task" data-id="${t.parent_id}" title="Open its task: ${esc(t.parent_title)}">${esc(t.parent_title)}</a></div>` : ''}
       <div class="tc-head"><input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${openKids.length || (o.subCards ? (t.subtask_count || 0) - (t.subtask_done || 0) : 0)}" ${done ? 'checked' : ''} title="${done ? 'Done' : 'Mark done'}">
-        <span class="tc-title" data-action="open-task" data-id="${t.id}" title="Open the task">${esc(t.title)}</span>
+        <span class="tc-title" data-action="open-task" data-id="${t.id}" title="${esc(t._crumb && t.parent_title ? `${t.parent_title} › ${t.title}` : t.title)} — open the task">${esc(t.title)}</span>
+        <span class="tc-mini">${n !== null ? `<span class="ck-due ${n < 0 ? 'bad' : n <= 1 ? 'soon' : ''}" title="Due ${esc(fmtDate(t.due_at))}">${n < 0 ? `${-n}d late` : n === 0 ? 'today' : n === 1 ? 'tmrw' : esc(fmtShortDate(t.due_at))}</span>` : ''}<span class="ck-who">${splitOwners(t.owner).slice(0, 2).map(personDot).join('')}</span></span>
+        <button type="button" class="tc-exp" data-card-expand="${t.id}" aria-expanded="${isOpen}" title="${isOpen ? 'Fold it back to one line' : `Show its details${subCount ? ' and subtasks' : ''}`}">${subCount ? `<span class="tc-exp-n ${subDone === subCount ? 'all' : ''}">${subDone}/${subCount}</span>` : ''}<span class="tc-exp-ic">▸</span></button>
         <button type="button" class="tc-sub-st tc-st st-${t.status}" data-task-status="${t.id}" data-subs="${openKids.length}" title="${STATUS[t.status]} — click to move it (or drag the card)">${STATUS_ICON[t.status]}</button>
         ${prioBtn(t)}</div>
       ${o.project ? `<div class="tc-proj">${t.project_id ? `<a href="#/project/${t.project_id}">🗂 ${esc(t.project_name)}</a>` : '<span class="muted">✅ Standalone</span>'}</div>` : ''}
