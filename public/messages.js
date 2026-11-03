@@ -31,7 +31,7 @@ function mailDraw() {
       ${MAIL.list.some((m) => !m.read) ? '<button class="small link" data-mail="read-all">Mark all read</button>' : ''}</div>
     ${MAIL.list.length ? `<ul class="mail-list">${MAIL.list.map((m) => `<li class="${m.read ? '' : 'unread'}" data-mail-id="${m.id}">
         <span class="mail-ico">${MAIL_ICON[m.kind] || '✉'}</span>
-        <div class="mail-main" data-mail="open" title="${m.task_id ? 'Open the task' : m.ticket_id ? 'Open the tickets' : ''}">
+        <div class="mail-main" data-mail="open" title="${m.task_id ? 'Open the task' : m.ticket_id ? 'Open the tickets' : m.link ? 'Open it' : ''}">
           <div class="mail-title">${esc(m.title)}</div>
           ${m.body ? `<div class="mail-body">${esc(m.body)}</div>` : ''}
           <div class="small muted">${m.from_person ? `${esc(m.from_person)} · ` : ''}${esc(fmtDateTime(m.created_at))}${m.task_status === 'done' ? ' · ✅ task done' : ''}</div></div>
@@ -76,6 +76,7 @@ function mailWire() {
       mailClose();
       if (m.task_id) taskModal(m.task_id);
       else if (m.ticket_id) location.hash = '#/tickets';
+      else if (m.link) location.hash = m.link;
     }
   });
   document.addEventListener('click', (e) => { if (!e.target.closest('#mail')) mailClose(); });

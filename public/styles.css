@@ -2095,3 +2095,9 @@ a.ck-t { text-decoration: none; }
 /* 📦 volume extensions on the Production page */
 .pl-vx { display: inline-block; font-size: 11px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 0 7px; white-space: nowrap; cursor: help; }
 .pl-vx-btn { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); font-weight: 600; }
+/* 🔑 the server PC's password, on the 🖥 Server card */
+.srv-pw { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.srv-pw h3 { margin: 0 0 4px; font-size: 14px; }
+.srv-pw-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 10px; border-radius: 8px; background: var(--surface-2, rgba(127,127,127,.06)); }
+.srv-pw-row.due { background: color-mix(in srgb, var(--warn, #c77700) 12%, transparent); }
+.srv-pw-due { font-weight: 600; color: var(--warn, #c77700); }

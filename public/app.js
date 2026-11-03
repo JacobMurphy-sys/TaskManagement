@@ -147,12 +147,16 @@ function settingsTabs() {
   const cards = $$('#main .card').filter((c) => c.querySelector(':scope > h2') && !c.parentElement.closest('.card'));
   const groupOf = (c) => { const t = c.querySelector(':scope > h2').textContent; return (GROUPS.find(([, , re]) => re.test(t)) || ['other', 'Other'])[0]; };
   const used = GROUPS.filter(([k]) => cards.some((c) => groupOf(c) === k)).concat(cards.some((c) => groupOf(c) === 'other') ? [['other', 'Other']] : []);
-  let tab = store.get('settingsTab', 'general'); if (!used.some(([k]) => k === tab)) tab = used[0]?.[0];
+  // a tab in the address (#/settings/accounts, e.g. from a ✉ message) wins over the last one used
+  const asked = location.hash.split('/')[2];
+  let tab = used.some(([k]) => k === asked) ? asked : store.get('settingsTab', 'general'); if (!used.some(([k]) => k === tab)) tab = used[0]?.[0];
   const show = () => { for (const c of cards) c.hidden = groupOf(c) !== tab; $$('[data-set-tab]').forEach((b) => b.classList.toggle('on', b.dataset.setTab === tab)); };
   $$('#main .settings-tabs').forEach((x) => x.remove());
   $('#main h1').insertAdjacentHTML('afterend', `<div class="seg settings-tabs">${used.map(([k, l]) => `<button type="button" data-set-tab="${k}">${l}</button>`).join('')}</div>`);
   $$('[data-set-tab]').forEach((b) => { b.onclick = () => { tab = b.dataset.setTab; store.set('settingsTab', tab); show(); }; });
   show();
+  // 🧭 Go to: something on another tab is shown by switching to its tab
+  settingsTabs.reveal = (el) => { const c = cards.find((x) => x.contains(el)); if (!c) return false; tab = groupOf(c); store.set('settingsTab', tab); show(); return true; };
 }
 // a label's text and its hint kept together above its box (so boxes side by side line up)
 function joinLabels(root = document) {

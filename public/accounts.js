@@ -225,7 +225,26 @@ function serverCardHtml() {
   if (!ACCT.enabled || !acctRight('server')) return '';
   return `<div class="card"><h2>🖥 Server</h2>
     <p class="small muted">Look after the shared SITHUB from your own PC: read its log, or restart it. Restarting checks for an update and installs it first; everyone's pages reconnect by themselves after a few seconds.</p>
-    <div class="row" style="gap:8px;flex-wrap:wrap"><button data-srv="log">📜 Server log</button><button data-srv="restart">🔄 Restart (and update)</button></div></div>`;
+    <div class="row" style="gap:8px;flex-wrap:wrap"><button data-srv="log">📜 Server log</button><button data-srv="restart">🔄 Restart (and update)</button></div>
+    <div id="srv-pw" class="srv-pw"></div></div>`;
+}
+// 🔑 the server PC's Windows password: when it was last checked, the next ✉ reminder, how often
+async function serverPwDraw(d) {
+  const box = $('#srv-pw'); if (!box) return;
+  if (!d) { try { d = await api.get('/server/password'); } catch { box.innerHTML = ''; return; } }
+  const day = (iso) => esc(new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }));
+  box.innerHTML = `<h3>🔑 The server PC's password</h3>
+    <p class="small muted">SITHUB runs on the server PC under ${d.account ? `the Windows account <b>${esc(d.account)}</b>` : 'a Windows account'}, and its scheduled task keeps that account's password. If the password expires or is changed, SITHUB won't start after the next restart, so check it now and then: after a change, give the task the new one (Task Scheduler › <i>SITHUB server</i> › Properties › OK, or run <code>server-install.bat</code> again).</p>
+    <div class="srv-pw-row ${d.due ? 'due' : ''}">
+      <span>Last checked <b>${day(d.checked_at)}</b>${d.checked_by ? ` by ${esc(d.checked_by)}` : ''}</span>
+      <span class="${d.due ? 'srv-pw-due' : 'muted'}">${!d.weeks ? 'No reminders' : d.due ? '⏰ Due now: a ✉ reminder has gone out' : `Next ✉ reminder ${day(d.due_at)}`}</span>
+      <label class="row small" style="gap:6px">Every <input type="number" id="srv-pw-weeks" min="0" max="52" step="1" value="${d.weeks}" style="width:64px"> weeks</label>
+      <button class="${d.due ? 'primary' : ''}" data-srv="pw-checked">✓ Checked it</button>
+    </div>
+    <p class="small muted">The reminder goes to everyone with the Server right${d.people?.length ? ` (${esc(d.people.join(', '))})` : ''}, and again each week until someone ticks it off. 0 weeks: no reminders.</p>`;
+}
+async function serverPwSave(body, msg) {
+  try { serverPwDraw(await api.post('/server/password', body)); if (msg) toast(msg); if (typeof mailPoll === 'function') mailPoll(); } catch (err) { toast(err.message, 'error'); }
 }
 async function serverLog(onlyProblems = false) {
   let d; try { d = await api.get('/server/log?lines=600'); } catch (err) { toast(err.message, 'error'); return; }
@@ -253,4 +272,11 @@ async function serverRestart() {
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-srv]'); if (!b) return;
   if (b.dataset.srv === 'log') serverLog(); else if (b.dataset.srv === 'restart') serverRestart();
+  else if (b.dataset.srv === 'pw-checked') serverPwSave({ checked: true }, '🔑 Ticked off: the next reminder is in a few weeks');
 });
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'srv-pw-weeks') serverPwSave({ weeks: Number(e.target.value) }, 'Saved');
+});
+// the card is drawn with the Settings page: fill in the password part once it's there
+new MutationObserver(() => { const box = document.getElementById('srv-pw'); if (box && !box.dataset.loaded) { box.dataset.loaded = '1'; serverPwDraw(); } })
+  .observe(document.documentElement, { childList: true, subtree: true });

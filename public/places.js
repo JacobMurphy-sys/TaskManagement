@@ -65,6 +65,7 @@ const PLACES = [
   // admin
   { label: 'Accounts, modules and rights', where: '⚙ Settings › 👤 Accounts', keys: 'accounts users modules rights admin permissions', right: 'accounts', hash: '#/settings', find: '.acct-card' },
   { label: 'Backups and restore', where: '⋯ › 💾 Backups', keys: 'backup restore', right: 'backups', hash: '#/backups' },
+  { label: 'The server PC\'s password: reminders', where: '⚙ Settings › 🖥 Server', keys: 'password windows account expire scheduled task reminder server', right: 'server', hash: '#/settings', find: '#srv-pw' },
   { label: 'Server log and restart', where: '⚙ Settings › 🖥 Server', keys: 'server log restart update errors', right: 'server', hash: '#/settings', find: '[data-srv="log"]' },
 ];
 
@@ -88,6 +89,7 @@ async function goPlace(i) {
     let el = null;
     try { if (/^[#.[]/.test(pl.find)) el = document.querySelector(pl.find); } catch { /* not a selector */ }
     if (!el) el = [...document.querySelectorAll('#main h2, #main h3, #main h4')].find((h) => h.innerText.trim().startsWith(pl.find));
+    if (el && el.offsetParent === null && el.closest('.card[hidden]')) settingsTabs.reveal?.(el); // on another Settings tab
     if (el && el.offsetParent !== null) {
       // a small card is lit up whole; in a big one (Production's setup) just the section's heading
       const card = el.closest('.card'); const box = card && card.offsetHeight < 600 ? card : el;

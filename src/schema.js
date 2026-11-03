@@ -195,7 +195,8 @@ const TABLES = {
     updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
 
   // ✉ Messages to a person (by name, as on tasks), shown under ✉ in the top bar: 👉 a poke about a
-  // task given to them, 🎫 news on a ticket they sent (its status, an answer).
+  // task given to them, 🎫 news on a ticket they sent (its status, an answer), ✉ one from SITHUB itself
+  // (topic: what it's about, e.g. 'server-password'; link: where clicking it leads, e.g. '#/settings').
   messages: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     to_person   TEXT    NOT NULL,
@@ -205,6 +206,8 @@ const TABLES = {
     from_person TEXT,
     task_id     INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
     ticket_id   INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+    topic       TEXT,
+    link        TEXT,
     read_at     TEXT,
     created_at  TEXT    NOT NULL DEFAULT (${NOW})`,
 

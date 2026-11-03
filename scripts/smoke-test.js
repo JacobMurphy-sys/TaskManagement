@@ -2790,6 +2790,28 @@ async function waitForServer() {
       assert.equal((await sam('POST', '/server/restart', {})).status, 400, 'restart only under server-run.bat');
       assert.equal((await as('mgr')('POST', '/auth/login', { username: 'mgr', password: 'mgr-pass-1' })).status, 200);
       assert.equal((await as('mgr')('GET', '/server/log')).status, 403, 'no rights, no log');
+      // 🔑 the server PC's password: a ✉ reminder every few weeks to everyone with the Server right
+      {
+        let pw = await sam('GET', '/server/password');
+        assert.deepEqual([pw.status, pw.data.weeks, pw.data.due], [200, 8, false], 'every 8 weeks; the clock starts now');
+        assert.deepEqual(pw.data.people.sort(), ['Pat Boss', 'Sam Smoke'], 'the admin and whoever has the Server right');
+        assert.equal((await as('mgr')('GET', '/server/password')).status, 403);
+        assert.equal((await sam('POST', '/server/password', { weeks: 99 })).status, 400);
+        const sq = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
+        sq.prepare("UPDATE settings SET value = ? WHERE key = 'server_pw_checked_at'").run(new Date(Date.now() - 60 * 86400000).toISOString()); sq.close();
+        pw = await sam('GET', '/server/password');
+        assert.equal(pw.data.due, true, '60 days ago, every 8 weeks: due');
+        const box = async (who) => (await who('GET', '/messages')).data.messages.filter((m) => m.topic === 'server-password');
+        let mine = await box(admin);
+        assert.equal(mine.length, 1); assert.equal(mine[0].link, '#/settings/accounts'); assert.match(mine[0].body, /scheduled task/);
+        assert.equal((await box(sam)).length, 1, 'to Sam too');
+        await sam('GET', '/server/password');
+        assert.equal((await box(admin)).length, 1, 'once a week, not every look');
+        pw = await sam('POST', '/server/password', { checked: true, weeks: 10 });
+        assert.deepEqual([pw.data.due, pw.data.weeks, pw.data.checked_by], [false, 10, 'Sam Smoke'], 'ticked off');
+        assert.equal((await box(admin)).length, 0, 'the reminders go when it\'s ticked off');
+        await sam('POST', '/server/password', { weeks: 8 });
+      }
       await admin('PATCH', `/accounts/${samId}`, { rights: [] });
       assert.equal((await sam('PATCH', '/settings', { currency: '£' })).status, 403, 'rights taken back');
       await sam('POST', '/auth/logout', {});

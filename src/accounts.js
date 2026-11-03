@@ -308,4 +308,77 @@ router.post('/server/restart', h((req, res) => {
   setTimeout(() => process.exit(75), 300).unref();
 }));
 
+// ---- 🔑 the server PC's Windows password -----------------------------------------------------------
+// The shared server runs as a Windows account (the "SITHUB server" scheduled task keeps its password).
+// If that password expires or is changed, the task can't start SITHUB after the next restart and the
+// network folders can stop answering. So every few weeks (server_pw_weeks, default 8, 0 = off) everyone
+// with the Server right gets a ✉ reminder to check it, again each week until someone ticks it off.
+const DAY = 86400000;
+const kv = (k) => db.get('SELECT value FROM settings WHERE key = ?', [k])?.value ?? null;
+const setKv = (k, v) => db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, v == null ? null : String(v)]);
+const windowsAccount = () => (process.env.USERNAME ? `${process.env.USERDOMAIN && process.env.USERDOMAIN !== process.env.COMPUTERNAME ? `${process.env.USERDOMAIN}\\` : ''}${process.env.USERNAME}` : null);
+function pwState(now = new Date()) {
+  const w = kv('server_pw_weeks');
+  const weeks = w == null || w === '' ? 8 : Math.max(0, Math.round(Number(w) || 0));
+  let checked = kv('server_pw_checked_at');
+  if (!checked) { checked = now.toISOString(); setKv('server_pw_checked_at', checked); } // the clock starts when it's first looked at
+  const due = weeks ? new Date(new Date(checked).getTime() + weeks * 7 * DAY) : null;
+  return { weeks, checked_at: checked, checked_by: kv('server_pw_checked_by'), due_at: due ? due.toISOString() : null,
+    due: !!due && now >= due, reminded_at: kv('server_pw_reminded_at'), account: windowsAccount(), computer: process.env.COMPUTERNAME || null };
+}
+// everyone who looks after the server: active accounts with the Server right (admins and the host have it)
+const serverPeople = () => {
+  const seen = new Map();
+  for (const a of db.all('SELECT * FROM accounts WHERE active = 1')) if (rightsOf(a).includes('server') && a.person?.trim()) seen.set(a.person.trim().toLowerCase(), a.person.trim());
+  return [...seen.values()];
+};
+// sends the reminder when it's due (and a week has passed since the last one); returns how many went out
+function pwRemind(now = new Date()) {
+  if (!enabled()) return 0;
+  const s = pwState(now);
+  if (!s.due || (s.reminded_at && now - new Date(s.reminded_at) < 7 * DAY)) return 0;
+  const people = serverPeople(); if (!people.length) return 0;
+  const acct = s.account ? `the Windows account ${s.account}` : 'a Windows account';
+  const body = `SITHUB runs on the server PC${s.computer ? ` (${s.computer})` : ''} under ${acct}, and the "SITHUB server" scheduled task keeps its password. `
+    + 'If that password expires or is changed, SITHUB won\'t start after the next restart, and reading the network folders can stop. '
+    + 'Check when it expires; after a change, give the task the new password (Task Scheduler › SITHUB server › Properties › OK, or run server-install.bat again). '
+    + 'Then tick it off in ⚙ Settings › 🖥 Server.';
+  db.tx(() => {
+    db.run("DELETE FROM messages WHERE topic = 'server-password'"); // one at a time: the latest
+    for (const p of people) db.run('INSERT INTO messages (to_person, kind, title, body, topic, link) VALUES (?, ?, ?, ?, ?, ?)',
+      [p, 'message', '🔑 Time to check the server PC\'s password', body, 'server-password', '#/settings/accounts']);
+    setKv('server_pw_reminded_at', now.toISOString());
+  });
+  log.info(`Server password reminder sent to ${people.join(', ')}`);
+  return people.length;
+}
+const pwRemindSafe = () => { try { pwRemind(); } catch (err) { log.warn('Server password reminder: ' + err.message); } };
+setTimeout(pwRemindSafe, 60 * 1000).unref();
+setInterval(pwRemindSafe, 6 * 60 * 60 * 1000).unref();
+
+router.get('/server/password', h((req, res) => {
+  needServer(req);
+  pwRemind();
+  res.json({ ...pwState(), people: serverPeople() });
+}));
+// { checked: true } it's been checked (now, by you): the reminders go; { weeks } how often (0: never)
+router.post('/server/password', h((req, res) => {
+  needServer(req);
+  const b = req.body || {};
+  if (b.weeks !== undefined) {
+    const w = Number(b.weeks);
+    if (!Number.isInteger(w) || w < 0 || w > 52) throw bad('Every 1 to 52 weeks (0: no reminders)');
+    setKv('server_pw_weeks', w);
+  }
+  if (b.checked) {
+    const by = req.account?.person || null;
+    db.tx(() => {
+      setKv('server_pw_checked_at', nowIso()); setKv('server_pw_checked_by', by); setKv('server_pw_reminded_at', null);
+      db.run("DELETE FROM messages WHERE topic = 'server-password'");
+    });
+    log.info(`Server password checked (${by || req.ip})`);
+  }
+  res.json({ ...pwState(), people: serverPeople() });
+}));
+
 module.exports = { gate, router, moduleGate, setupGate, hasRight, rightsOf, RIGHTS, canUse, modulesOf, MODULES, hashPassword, checkPassword, enabled, accountOf, publicAccount };
