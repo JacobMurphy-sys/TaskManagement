@@ -414,6 +414,7 @@ function renderSidebar() {
 
 async function route() {
   document.body.classList.remove('sidebar-open');
+  main().classList.remove('cockpit-main'); // 🏠 Home fits the screen; every other page scrolls
   let [view = 'dashboard', ...rest] = location.hash.replace(/^#\/?/, '').split('/');
   // the planner on its own: Planning, the activity log and backups only
   if (state.mode === 'planner' && !['planning', 'log', 'backups'].includes(view)) { view = 'planning'; rest = []; }
@@ -553,127 +554,107 @@ async function renderDashboard() {
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString();
   const recentlyDone = state.projects.filter((p) => p.status === 'completed' && p.completed_at > monthAgo).length;
 
-  const kpi = (label, value, sub, target) => `<button class="kpi" data-action="dash-jump" data-target="${target}">
-      <span class="kpi-label">${label}</span><span class="kpi-value">${value.toLocaleString()}</span>
-      <span class="kpi-sub">${sub || '&nbsp;'}</span></button>`;
-  const section = (id, title, items, render, empty) => `<div class="card" id="${id}"><h3>${title} <span class="muted small">${items.length}</span></h3>
-    ${items.length ? cappedList(items.map(render), DASH_SHOWN) : `<div class="empty">${empty}</div>`}</div>`;
-
-  const projectRow = (p) => {
+  // ---- 🏠 Home in one view: everything on one screen, each panel scrolling on its own if it's long ----
+  const TABS = [['overdue', '⚠', 'Overdue', d.overdue, 'Nothing overdue 🎉'], ['today', '📅', 'Today', d.today, 'Nothing else due today'],
+    ['week', '🗓', '7 days', d.week, 'Nothing due in the next 7 days'], ['blocked', '⛔', 'Blocked', d.blocked, 'Nothing blocked'],
+    ['waiting', '⏳', 'Waiting', d.waiting, 'Not waiting on anyone'], ['high', '🔥', 'High', d.high_priority, 'No open high-priority tasks']];
+  let tab = store.get('homeTaskTab', '');
+  if (!TABS.some(([k]) => k === tab)) tab = (TABS.find(([, , , l]) => l.length) || TABS[0])[0];
+  const fTab = store.get('focusTab', 'day') === 'week' ? 'week' : 'day';
+  const chip = (tone, ico, n, label, jump, title) => `<button type="button" class="ck-kpi ${tone} ${n ? '' : 'zero'}" data-ck-jump="${jump}" title="${esc(title || label)}">${ico} <b>${n.toLocaleString()}</b> ${label}</button>`;
+  const panel = (id, title, body, { count = null, tools = '', cls = '' } = {}) => `<section class="ck-panel ${cls}" id="${id}"><header class="ck-ph"><h3>${title}${count !== null ? ` <span class="ck-n">${count}</span>` : ''}</h3>${tools}</header><div class="ck-pb">${body}</div></section>`;
+  const empty = (t) => `<div class="ck-empty">${t}</div>`;
+  // one line per task: priority edge, tick, title (↳ its task), project, people, when
+  const dueBit = (t) => { if (!t.due_at) return ''; const n = dayDiff(t.due_at); return `<span class="ck-due ${n < 0 ? 'bad' : n <= 1 ? 'soon' : ''}" title="Due ${esc(fmtDate(t.due_at))}">${n < 0 ? `${-n}d late` : n === 0 ? 'today' : n === 1 ? 'tomorrow' : esc(fmtShortDate(t.due_at))}</span>`; };
+  const row = (t, extra = '') => `<li class="ck-row p${t.priority || 2} st-${t.status || 'todo'}">
+      <input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${(t.subtask_count || 0) - (t.subtask_done || 0)}" title="Mark done">
+      ${t.status === 'blocked' ? '<span class="ck-st" title="Blocked">⛔</span>' : t.status === 'in_progress' ? '<span class="ck-st go" title="In progress">▶</span>' : ''}
+      <span class="ck-t" data-action="open-task" data-id="${t.id}" title="${esc(t.parent_title ? `${t.parent_title} › ${t.title}` : t.title)}">${t.parent_title ? `<span class="ck-par">↳ ${esc(t.parent_title)} ›</span> ` : ''}${esc(t.title)}</span>
+      ${extra}
+      ${t.project_id ? `<a class="ck-proj" href="#/project/${t.project_id}" title="${esc(t.project_name)}">${esc(t.project_name)}</a>` : ''}
+      ${t.waiting_on ? `<span class="ck-wait" title="Waiting on ${esc(t.waiting_on)}">⏳ ${esc(t.waiting_on)}</span>` : ''}
+      <span class="ck-who">${splitOwners(t.owner).slice(0, 2).map(personDot).join('')}</span>
+      ${dueBit(t)}</li>`;
+  // 🎯 focus: why each one is there, as small chips
+  const why = (x) => `<span class="ck-why">${x.reasons.slice(0, 2).map((r) => `<span class="why ${/overdue|past its|was due|blocked/.test(r) ? 'bad' : /today|tomorrow|chase|critical/.test(r) ? 'warn' : ''}">${esc(r)}</span>`).join('')}</span>`;
+  const focusRow = (x) => (x.kind === 'project'
+    ? `<li class="ck-row ck-projrow"><span class="ck-st">🗂</span><a class="ck-t" href="#/project/${x.id}" title="A project to talk about">${esc(x.title)}</a>${why(x)}</li>`
+    : row({ ...x, status: x.status || 'todo' }, why(x)));
+  const focusList = (k, items, msg) => `<ul class="ck-list" data-focus-list="${k}" ${fTab === k ? '' : 'hidden'}>${items.length ? items.map(focusRow).join('') : `<li>${empty(msg)}</li>`}${k === 'day' && d.focus?.more_overdue ? `<li class="ck-more"><button type="button" class="link small" data-ck-jump="overdue">… and ${d.focus.more_overdue} more overdue</button></li>` : ''}</ul>`;
+  const focusPanel = d.focus ? panel('ck-focus', `🎯 Focus${who ? ` <span class="ck-sub">${esc(who)}</span>` : ''}`,
+    `${focusList('day', d.focus.day, 'Nothing pressing today — a good day to get ahead.')}${focusList('week', d.focus.week, 'Nothing stands out this week.')}`,
+    { tools: `<div class="seg ck-seg"><button type="button" data-focus-tab="day" class="${fTab === 'day' ? 'on' : ''}">Today <b>${d.focus.day.length}</b></button><button type="button" data-focus-tab="week" class="${fTab === 'week' ? 'on' : ''}">This week <b>${d.focus.week.length}</b></button></div>`, cls: 'ck-focus' }) : '';
+  const tasksPanel = panel('ck-tasks', '✅ Tasks', TABS.map(([k, , , l, msg]) => `<ul class="ck-list" data-ck-list="${k}" ${tab === k ? '' : 'hidden'}>${l.length ? l.map((t) => row(t)).join('') : `<li>${empty(msg)}</li>`}</ul>`).join(''),
+    { tools: `<div class="ck-tabs" role="tablist">${TABS.map(([k, ic, label, l]) => `<button type="button" role="tab" data-ck-tab="${k}" class="${tab === k ? 'on' : ''} ${l.length ? '' : 'zero'} ${k === 'overdue' || k === 'blocked' ? 'bad' : ''}" aria-selected="${tab === k}">${ic} ${label} <b>${l.length}</b></button>`).join('')}</div>`, cls: 'ck-tasks' });
+  // 🗂 projects: two lines each — health, name, leader, progress, issues, due; then the next action
+  const projRow = (p) => {
     const pct = p.task_count ? Math.round((p.done_count / p.task_count) * 100) : 0;
-    const issues = [
-      p.overdue_count && `<span class="chip overdue">⚠ ${p.overdue_count} overdue</span>`,
-      p.blocked_count && `<span class="status-blocked small">⛔ ${p.blocked_count} blocked</span>`,
-      p.in_progress_count && `<span class="small muted">▶ ${p.in_progress_count} in progress</span>`,
-    ].filter(Boolean).join(' ');
-    return `<tr class="clickable" data-action="open-project" data-id="${p.id}">
-      <td><b>${esc(p.name)}</b>${phaseLine(p) ? `<div class="small muted">${phaseLine(p)}</div>` : ''}${nextLine(p.next_action, p.next_auto)}</td>
-      <td>${p.leader ? peopleChips(p.leader) : '<span class="small muted">—</span>'}</td>
-      <td class="nowrap"><span class="health health-${p.health.key}" title="${esc(p.health.why)}">${p.health.icon} ${p.health.label}</span></td>
-      <td>${prioPill(p.priority)}</td>
-      <td class="nowrap"><div class="meter" title="${p.done_count} of ${p.task_count} tasks done (${pct}%)"><div style="width:${pct}%"></div></div>
-        <span class="small muted num-inline">${p.done_count}/${p.task_count}</span></td>
-      <td>${issues || '<span class="small muted">—</span>'}</td>
-      <td class="nowrap small">${p.next_due_at ? `${esc(fmtShortDate(p.next_due_at))} <span class="muted">(${dueLabel(p.next_due_at)})</span>` : '<span class="muted">—</span>'}</td>
-      <td class="nowrap">${p.due_at ? dueChip({ ...p, status: '' }) : '<span class="small muted">—</span>'}</td>
-      <td class="nowrap small"><a href="#/project/${p.id}/charter" title="Open the charter">${p.charter_pct === 100 ? '✓ 100%' : `${p.charter_pct}%`}</a></td>
-      <td class="nowrap small muted" title="${esc(fmtDateTime(p.last_activity_at))}">${p.last_activity_at ? fmtRelative(p.last_activity_at) : '—'}</td>
-    </tr>`;
+    return `<li class="ck-prow" data-action="open-project" data-id="${p.id}" title="${esc(p.health.why)}">
+      <div class="ck-pl1"><span class="health health-${p.health.key}" title="${esc(p.health.label)}: ${esc(p.health.why)}">${p.health.icon}</span><b class="ck-pn" title="${esc(p.name)}">${esc(p.name)}</b>
+        ${p.overdue_count ? `<span class="ck-iss bad" title="Overdue tasks">⚠ ${p.overdue_count}</span>` : ''}${p.blocked_count ? `<span class="ck-iss bad" title="Blocked tasks">⛔ ${p.blocked_count}</span>` : ''}
+        <span class="ck-who">${splitOwners(p.leader).slice(0, 1).map(personDot).join('')}</span></div>
+      <div class="ck-pl2"><span class="ck-meter" title="${p.done_count} of ${p.task_count} tasks done"><i style="width:${pct}%"></i></span><span class="ck-pct">${p.done_count}/${p.task_count}</span>
+        ${p.due_at ? `<span class="ck-due ${p.health.key === 'risk' && dayDiff(p.due_at) < 0 ? 'bad' : ''}" title="Project due ${esc(fmtDate(p.due_at))}">📅 ${esc(fmtShortDate(p.due_at))}</span>` : ''}
+        <span class="ck-next" title="${esc(p.next_action || autoText(p.next_auto) || '')}">${phaseLine(p) ? `<span class="ck-phase">${phaseLine(p)}</span> · ` : ''}${p.next_action ? `▶ ${esc(p.next_action)}` : p.next_auto ? `<span class="muted">▶ ${esc(autoText(p.next_auto))} <i>auto</i></span>` : '<span class="muted">No next action</span>'}</span></div></li>`;
   };
+  const projPanel = !modOk('projects') ? '' : panel('ck-projects', `🗂 Projects${who ? ` <span class="ck-sub">${esc(who)}</span>` : ''}`,
+    ongoing.length ? `<ul class="ck-plist">${ongoing.map(projRow).join('')}</ul>` : empty('No ongoing projects. <button class="link" data-action="new-project">Create one</button>'),
+    { count: ongoing.length, tools: '<a class="small" href="#/kanban" title="Health: ⚠ at risk (overdue tasks or past its due date) · ◐ watch (blocked, or due within 7 days) · ✓ on track">Board →</a>', cls: 'ck-projects' });
+  const meetPanel = panel('ck-meetings', '🗓 Meetings', d.meetings.length ? `<ul class="ck-list">${d.meetings.map((m) => `<li class="ck-row ck-mrow">
+      <span class="ck-when">${esc(fmtDateTime(m.held_at, { weekday: true }))}</span>
+      <span class="ck-t" data-action="open-meeting" data-id="${m.id}">${esc(m.title)}</span>
+      ${m.project_name ? `<a class="ck-proj" href="#/project/${m.project_id}">${esc(m.project_name)}</a>` : ''}</li>`).join('')}</ul>` : empty('No meetings in the next 7 days'),
+    { count: d.meetings.length, tools: '<a class="small" href="#/calendar">Calendar →</a>' });
+  const qn = d.quick_notes || [];
+  const qnPanel = panel('dash-quick-notes', '📝 Quick notes', qn.length ? `<ul class="ck-list ck-qn">${qn.map((n) => `<li class="ck-qrow">
+      <div class="ck-qtext"><b title="Written ${esc(fmtDateTime(n.created_at))}">${esc(n.title || 'Quick note')}</b><span>${esc(n.body)}</span></div>
+      <button class="small primary" data-action="qn-assign" data-id="${n.id}" title="Put it on a task, a new task or a project">→ Assign</button>
+      ${ddMenu('⋯', `<button data-action="qn-edit" data-id="${n.id}">✎ Edit</button><button class="danger" data-action="qn-delete" data-id="${n.id}">🗑 Delete</button>`, { right: true })}</li>`).join('')}</ul>` : empty('Nothing to sort. 📝 in the top bar (or N) writes one.'),
+    { count: qn.length, tools: '<button class="link small" data-action="quick-note">+ New</button>', cls: qn.length ? 'has-qn' : 'no-qn' });
+  const remPanel = panel('ck-reminders', '🔔 Reminders', d.reminders.length ? `<ul class="ck-list">${d.reminders.map((r) => `<li class="ck-row">
+      <span class="ck-when">⏰ ${esc(fmtDateTime(r.remind_at, { weekday: false }))}</span>
+      <span class="ck-t" ${r.task_id ? `data-action="open-task" data-id="${r.task_id}"` : ''}>${esc(r.message || r.task_title || 'Reminder')}</span>
+      <button class="icon" data-action="delete-reminder" data-id="${r.id}" title="Delete reminder">✕</button></li>`).join('')}</ul>` : empty('No reminders set'),
+    { count: d.reminders.length, cls: d.reminders.length ? '' : 'ck-small' });
+  const notesPanel = panel('ck-notes', '🗒 Latest notes', d.recent_notes.length ? `<ul class="ck-list">${d.recent_notes.map((n) => `<li class="ck-note">
+      <div class="ck-nmeta">${esc(fmtRelative(n.created_at))} · ${n.project_id ? `<a href="#/project/${n.project_id}">${esc(n.project_name)}</a>` : '<a href="#/tasks">✅ Tasks</a>'}${n.task_title ? ` · <a href="javascript:void 0" data-action="open-task" data-id="${n.task_id}">${esc(n.task_title)}</a>` : ''}</div>
+      <div class="ck-nbody">${linkify(n.body)}</div></li>`).join('')}</ul>` : empty('No notes yet'), { count: d.recent_notes.length });
 
-  main().innerHTML = `
-    <div class="row" style="margin-bottom:14px"><h1 style="margin:0">Home</h1>
+  main().classList.add('cockpit-main');
+  main().innerHTML = `<div class="cockpit ${modOk('projects') ? '' : 'no-projects'}">
+    <div class="ck-head">
+      <h1>Home</h1>
       <label class="person-pick" title="One person's tasks, projects and focus — for a 1:1 or a review">${who ? personDot(who) : '👤'}<select id="home-person"><option value="">Everyone</option>${ACCT.account?.person ? `<option value="${esc(ACCT.account.person)}" ${sameName(who, ACCT.account.person) ? 'selected' : ''}>Me (${esc(ACCT.account.person)})</option>` : ''}${everyone.filter((n) => !ACCT.account?.person || !sameName(n, ACCT.account.person)).map((n) => `<option ${sameName(n, who) ? 'selected' : ''}>${esc(n)}</option>`).join('')}${who && !everyone.some((n) => sameName(n, who)) ? `<option selected>${esc(who)}</option>` : ''}</select></label>
-      <div class="spacer"></div>
-      <span class="muted">${esc(fmtDate(new Date()))}</span>
-      ${modOk('report') || modOk('projects') ? ddMenu('⋯', `${modOk('report') ? '<a href="#/report">📰 Status report</a>' : ''}${modOk('projects') ? '<a href="/api/export.xlsx">⬇ Everything as an Excel workbook</a>' : ''}`, { title: 'Status report, Excel export' }) : ''}</div>
-
-    <div class="kpis">
-      ${!modOk('projects') ? '' : kpi('Active projects', active.length, [onHold && `${onHold} on hold`, recentlyDone && `${recentlyDone} completed this month`].filter(Boolean).join(' · '), 'dash-projects')}
-      ${!modOk('projects') ? '' : kpi(`${atRisk ? '⚠ ' : ''}Projects at risk`, atRisk, atRisk ? 'overdue work or past due date' : 'none', 'dash-projects')}
-      ${kpi(`${d.overdue.length ? '⚠ ' : ''}Overdue tasks`, d.overdue.length, '', 'dash-overdue')}
-      ${kpi('Due in the next 7 days', d.today.length + d.week.length, `${d.today.length} today`, 'dash-today')}
-      ${kpi('Blocked tasks', d.blocked.length, '', 'dash-blocked')}
-      ${kpi('Waiting on others', d.waiting.length, d.waiting.length ? `oldest ${Math.max(...d.waiting.map((t) => daysSince(t.waiting_since || t.updated_at)))}d` : '', 'dash-waiting')}
-      ${!modOk('ideas') ? '' : kpi('Open ideas', d.ideas.open, d.ideas.cost ? `${money(d.ideas.cost)} total cost` : '', 'ideas')}
+      <div class="ck-kpis">
+        ${modOk('projects') ? chip('', '🗂', active.length, `active${onHold ? ` · ${onHold} on hold` : ''}`, 'projects', [onHold && `${onHold} on hold`, recentlyDone && `${recentlyDone} completed this month`].filter(Boolean).join(' · ') || 'Active projects') : ''}
+        ${modOk('projects') ? chip(atRisk ? 'bad' : '', '⚠', atRisk, 'at risk', 'projects', 'Projects with overdue work or past their due date') : ''}
+        ${chip(d.overdue.length ? 'bad' : '', '⏰', d.overdue.length, 'overdue', 'overdue', 'Overdue tasks')}
+        ${chip(d.today.length ? 'warn' : '', '📅', d.today.length + d.week.length, `due 7d${d.today.length ? ` · ${d.today.length} today` : ''}`, d.today.length ? 'today' : 'week', 'Due in the next 7 days')}
+        ${chip(d.blocked.length ? 'bad' : '', '⛔', d.blocked.length, 'blocked', 'blocked', 'Blocked tasks')}
+        ${chip('', '⏳', d.waiting.length, 'waiting', 'waiting', d.waiting.length ? `Waiting on others — oldest ${Math.max(...d.waiting.map((t) => daysSince(t.waiting_since || t.updated_at)))}d` : 'Waiting on others')}
+        ${modOk('ideas') ? chip('', '💡', d.ideas.open, 'ideas', 'ideas', d.ideas.cost ? `Open ideas — ${money(d.ideas.cost)} total cost` : 'Open ideas') : ''}
+      </div>
+      <span class="ck-date">${esc(fmtDate(new Date()))}</span>
+      ${modOk('report') || modOk('projects') ? ddMenu('⋯', `${modOk('report') ? '<a href="#/report">📰 Status report</a>' : ''}${modOk('projects') ? '<a href="/api/export.xlsx">⬇ Everything as an Excel workbook</a>' : ''}`, { title: 'Status report, Excel export', right: true }) : ''}
     </div>
-
-    ${quickNotesCard(d.quick_notes || [])}
-    ${focusCard(d.focus, who)}
-
-    ${!modOk('projects') ? '' : `<h2 class="dash-heading">Projects${who ? ` <span class="small muted" style="text-transform:none;letter-spacing:0">— ${esc(who)}'s</span>` : ''}</h2>
-    <div class="card" id="dash-projects" style="overflow-x:auto">
-      ${ongoing.length ? `<table class="log dash-projects">
-        <thead><tr><th>Project <span class="small muted">· ▶ next action</span></th><th>Leader</th><th>Health</th><th>Priority</th><th>Progress</th><th>Open issues</th><th>Next task due</th><th>Project due</th><th title="How much of the project charter is filled in">Charter</th><th>Last activity</th></tr></thead>
-        <tbody>${ongoing.map(projectRow).join('')}</tbody></table>
-        <div class="small muted" style="margin-top:8px">⚠ At risk = overdue tasks or past its due date · ◐ Watch = blocked tasks or due within 7 days · ✓ On track = neither</div>`
-        : '<div class="empty">No ongoing projects. <button class="link" data-action="new-project">Create one</button></div>'}
-    </div>`}
-
-    <h2 class="dash-heading">Tasks &amp; notes</h2>
-    <div class="grid dash">
-      ${section('dash-overdue', '⚠ Overdue', d.overdue, miniTask, 'Nothing overdue 🎉')}
-      ${section('dash-today', '📅 Due today', d.today, miniTask, 'Nothing else due today')}
-      ${section('dash-week', '🗓 Next 7 days', d.week, miniTask, 'Nothing due this week')}
-      ${section('dash-blocked', '⛔ Blocked', d.blocked, miniTask, 'Nothing blocked')}
-      ${section('dash-waiting', '⏳ Waiting on others', d.waiting, miniTask, 'Not waiting on anyone')}
-      ${section('dash-high', '🔥 High-priority tasks', d.high_priority, miniTask, 'No open high-priority tasks')}
-      ${section('dash-meetings', '🗓 Meetings (next 7 days) <a class="small" href="#/calendar" style="font-weight:400">📅 Calendar</a>', d.meetings, (m) => `<li>
-          <span class="t" data-action="open-meeting" data-id="${m.id}">${esc(m.title)}</span>
-          ${m.project_name ? `<a class="small" href="#/project/${m.project_id}">${esc(m.project_name)}</a>` : ''}
-          ${m.task_title ? `<span class="small muted">re: ${esc(m.task_title)}</span>` : ''}
-          <span class="chip">${esc(fmtDateTime(m.held_at, { weekday: true }))}${new Date(m.held_at) > new Date() ? ` (${fmtRelative(m.held_at)})` : ''}</span>
-        </li>`, 'No meetings this week')}
-      ${section('dash-reminders', '🔔 Upcoming reminders', d.reminders, (r) => `<li>
-          <span class="t" ${r.task_id ? `data-action="open-task" data-id="${r.task_id}"` : ''}>${esc(r.message || r.task_title || 'Reminder')}</span>
-          ${r.project_name ? `<a class="small" href="#/project/${r.project_id}">${esc(r.project_name)}</a>` : ''}
-          <span class="chip">⏰ ${esc(fmtDateTime(r.remind_at, { weekday: false }))} (${fmtRelative(r.remind_at)})</span>
-          <button class="icon" data-action="delete-reminder" data-id="${r.id}" title="Delete reminder">✕</button>
-        </li>`, 'No reminders set')}
-      ${section('dash-notes', '📝 Latest notes', d.recent_notes, (n) => `<li style="display:block">
-          <div class="small muted">${esc(fmtDateTime(n.created_at))} · ${n.project_id ? `<a href="#/project/${n.project_id}">${esc(n.project_name)}</a>` : '<a href="#/tasks">✅ Tasks</a>'}${n.task_title ? ` · <a href="javascript:void 0" data-action="open-task" data-id="${n.task_id}">${esc(n.task_title)}</a>` : ''}</div>
-          <div class="pre">${linkify(n.body)}</div></li>`, 'No notes yet')}
-    </div>`;
+    <div class="ck-grid">
+      <div class="ck-col ck-col1">${focusPanel}${tasksPanel}</div>
+      <div class="ck-col ck-col2">${projPanel}${meetPanel}</div>
+      <div class="ck-col ck-col3">${qnPanel}${remPanel}${notesPanel}</div>
+    </div></div>`;
   $('#home-person').onchange = (e) => { store.set('homePerson', e.target.value); route(); };
   $$('[data-focus-tab]').forEach((b) => { b.onclick = () => { store.set('focusTab', b.dataset.focusTab); $$('[data-focus-tab]').forEach((x) => x.classList.toggle('on', x === b)); $$('[data-focus-list]').forEach((l) => { l.hidden = l.dataset.focusList !== b.dataset.focusTab; }); }; });
+  const showTab = (k) => { store.set('homeTaskTab', k); $$('[data-ck-tab]').forEach((x) => { x.classList.toggle('on', x.dataset.ckTab === k); x.setAttribute('aria-selected', String(x.dataset.ckTab === k)); }); $$('[data-ck-list]').forEach((l) => { l.hidden = l.dataset.ckList !== k; }); };
+  $$('[data-ck-tab]').forEach((b) => { b.onclick = () => showTab(b.dataset.ckTab); });
+  $$('[data-ck-jump]').forEach((b) => { b.onclick = () => {
+    const k = b.dataset.ckJump;
+    if (k === 'ideas') { location.hash = '#/ideas'; return; }
+    const el = k === 'projects' ? $('#ck-projects') : (showTab(k), $('#ck-tasks'));
+    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); el?.classList.add('ck-flash'); setTimeout(() => el?.classList.remove('ck-flash'), 900);
+  }; });
 }
 
-// 📝 quick notes still to sort: each one assigned to a task or project from here (or edited, or deleted)
-function quickNotesCard(list) {
-  if (!list.length) return '';
-  const SHOWN = 6;
-  const item = (n, i) => `<li class="qn-item"${i >= SHOWN ? ' hidden data-qn-more' : ''}>
-      <b class="qn-t" title="Written ${esc(fmtDateTime(n.created_at))}">${esc(n.title || 'Quick note')}</b>
-      <div class="pre small qn-body">${linkify(n.body)}</div>
-      <div class="qn-foot"><button class="small primary" data-action="qn-assign" data-id="${n.id}" title="Put it on a task, a new task or a project">→ Assign</button>
-        ${ddMenu('⋯', `<button data-action="qn-edit" data-id="${n.id}">✎ Edit</button><button class="danger" data-action="qn-delete" data-id="${n.id}">🗑 Delete</button>`, { right: true })}</div></li>`;
-  return `<div class="card qn-card" id="dash-quick-notes"><h3>📝 Quick notes <span class="muted small">${list.length} to sort · assign each to a task or project</span>
-      <button class="link small" data-action="quick-note" style="float:right">+ New</button></h3>
-    <ul class="qn-list">${list.map(item).join('')}</ul>
-    ${list.length > SHOWN ? `<button class="link small" onclick="this.previousElementSibling.querySelectorAll('[data-qn-more]').forEach((l) => { l.hidden = false; }); this.remove();">+ ${list.length - SHOWN} more</button>` : ''}</div>`;
-}
 const quickNoteById = async (id) => (await api.get('/notes/inbox')).find((n) => n.id === Number(id));
-
-// 🎯 a few things to look at first: today's (late, due, started, people to chase) and this week's
-// (coming up, stuck, left too long, projects that need talking about) — each with why
-function focusCard(f, who) {
-  if (!f) return '';
-  const tab = store.get('focusTab', 'day') === 'week' ? 'week' : 'day';
-  const item = (x) => `<li class="focus-item ${x.kind}">
-      ${x.kind === 'project' ? `<span class="fi-ico" title="A project to talk about">🗂</span><a class="fi-t" href="#/project/${x.id}">${esc(x.title)}</a>`
-        : `<input type="checkbox" data-action="toggle-task" data-id="${x.id}" title="Mark done"><span class="fi-t" data-action="open-task" data-id="${x.id}">${x.parent_title ? `<span class="sub-mark" title="Subtask of ${esc(x.parent_title)}">↳ ${esc(x.parent_title)} ›</span> ` : ''}${esc(x.title)}</span>`}
-      ${x.kind === 'task' && x.project_id ? `<a class="small muted" href="#/project/${x.project_id}">${esc(x.project_name)}</a>` : ''}
-      ${x.owner && !who ? peopleChips(x.owner) : ''}
-      <span class="fi-why">${x.reasons.map((r) => `<span class="why ${/overdue|past its|was due|blocked/.test(r) ? 'bad' : /today|tomorrow|chase|critical/.test(r) ? 'warn' : ''}">${esc(r)}</span>`).join('')}</span>
-      ${x.kind === 'project' ? nextLine(x.next_action, x.next_auto) : ''}
-    </li>`;
-  const list = (k, items, empty) => `<ul class="focus-list" data-focus-list="${k}" ${tab === k ? '' : 'hidden'}>${items.length ? items.map(item).join('') : `<li class="empty">${empty}</li>`}${k === 'day' && f.more_overdue ? `<li class="small muted">… and ${f.more_overdue} more overdue — see ⚠ Overdue below</li>` : ''}</ul>`;
-  return `<div class="card focus-card"><div class="row" style="gap:10px;align-items:center"><h3 style="margin:0">🎯 Focus${who ? ` <span class="small muted">— ${esc(who)}</span>` : ''}</h3>
-      <div class="seg"><button type="button" data-focus-tab="day" class="${tab === 'day' ? 'on' : ''}">Today <b>${f.day.length}</b></button><button type="button" data-focus-tab="week" class="${tab === 'week' ? 'on' : ''}">This week <b>${f.week.length}</b></button></div>
-      <span class="small muted hide-narrow">picked from due dates, priority, what's started, who's being waited on and how long things have been open</span></div>
-    ${list('day', f.day, 'Nothing pressing today — a good day to get ahead on this week\'s list.')}
-    ${list('week', f.week, 'Nothing stands out this week.')}</div>`;
-}
 
 // ======================================================================
 // Project view

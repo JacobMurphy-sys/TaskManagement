@@ -153,6 +153,12 @@ When an update changes how data is stored, the app upgrades your database automa
 
 ### 🎯 Focus, 👥 People and next actions
 
+- **🏠 Home in one view:** Home fits the window, with no scrolling, so the main information is there at a glance. A row of **counts** sits next to the title: active projects, at risk, overdue, due in 7 days, blocked, waiting and ideas. Click one to jump to it. Below are three columns:
+  - **left:** 🎯 Focus (Today / This week), then **✅ Tasks** with tabs (Overdue, Today, 7 days, Blocked, Waiting, High) instead of a box for each;
+  - **middle:** 🗂 Projects (health, overdue and blocked counts, leader, progress, due date and the next action, two lines each), then 🗓 Meetings for the next 7 days;
+  - **right:** 📝 Quick notes to sort (→ Assign), 🔔 Reminders and 🗒 Latest notes.
+
+  Every task is one line: the priority edge, a tick, the title (↳ with its task), project, owner and how late or soon it's due. A panel with more than fits scrolls on its own. The page doesn't. In a small or short window (under 1100 × 680) or on a phone, the panels stack and the page scrolls as usual.
 - **🎯 Focus** on Home: **Today** — what's overdue or due today/tomorrow, high-priority work that's close, what's been started (finish it) and people being waited on for 3+ days (chase them); **This week** — what's coming up, what's blocked, tasks open a month or more with nothing due, and projects to talk about (overdue tasks, past or near their due date, a phase ending, no next action set). Each item says why. Tick a task done from there.
 - **👤 One person's view:** pick a person at the top of Home (their focus, tasks and projects — for a 1:1 or review), on the Projects board (projects they lead, sponsor, are on the team of, or own a task in; and sort the board) and on Tasks › **All open tasks** (every open task, in projects or not, by person and project, sorted by due date, priority, age, owner or project — grouped by owner or project).
 - **Colours:** each person gets a colour of their own — picked from their name (always the same), or chosen on 👥 People — shown as a badge with their initials wherever they own a task or lead a project.

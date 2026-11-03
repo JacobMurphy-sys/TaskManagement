@@ -1949,3 +1949,116 @@ ul.tl-list { container: tl / inline-size; }
   .tc-sub { min-height: 34px; } .tc-sub-st { width: 32px; height: 30px; min-height: 0; min-width: 0; }
   .tc-head .tl-prio { min-height: 0; }
 }
+
+/* ======================================================================
+   🏠 Home in one view: the page fits the window; each panel scrolls inside itself if it's long
+   ====================================================================== */
+#main.cockpit-main { display: flex; flex-direction: column; overflow: hidden; padding: 12px 16px 14px; }
+.cockpit { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.ck-head { flex: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ck-head h1 { margin: 0; font-size: 1.45rem; }
+.ck-kpis { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+.ck-kpi { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.ck-kpi b { font-size: 14px; font-variant-numeric: tabular-nums; }
+.ck-kpi:hover { border-color: var(--accent-2); }
+.ck-kpi.bad { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); background: var(--danger-soft); } .ck-kpi.bad b { color: var(--danger); }
+.ck-kpi.warn b { color: var(--warn); }
+.ck-kpi.zero { opacity: .55; }
+.ck-date { font-size: 13px; color: var(--muted); white-space: nowrap; }
+/* the three columns of panels */
+.ck-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.15fr) minmax(0, .85fr); gap: 12px; }
+.cockpit.no-projects .ck-grid { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, .9fr); }
+.ck-col { min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+.ck-panel { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 1px 2px rgba(20, 10, 60, .05); transition: box-shadow .2s; }
+.ck-panel.ck-flash { box-shadow: 0 0 0 3px var(--accent-2); }
+.ck-ph { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px 7px; border-bottom: 1px solid var(--panel-2); flex-wrap: wrap; }
+.ck-ph h3 { margin: 0; font-size: 14px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.ck-ph > :last-child:not(h3) { margin-left: auto; }
+.ck-n { font-size: 11.5px; font-weight: 700; color: var(--muted); background: var(--panel-2); border-radius: 999px; padding: 0 7px; }
+.ck-sub { font-size: 12px; font-weight: 400; color: var(--muted); }
+.ck-pb { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 6px 6px; scrollbar-width: thin; }
+.ck-empty { color: var(--muted); font-size: 12.5px; padding: 8px 6px; }
+.ck-legend { font-size: 11px; color: var(--muted); letter-spacing: 2px; cursor: help; margin-left: auto; }
+.ck-ph .ck-legend + a { margin-left: 4px; }
+/* how tall each panel is in its column */
+.ck-col1 > .ck-focus { flex: 1 1 42%; } .ck-col1 > .ck-tasks { flex: 1 1 58%; }
+.ck-col2 > .ck-projects { flex: 1 1 66%; } .ck-col2 > #ck-meetings { flex: 1 1 34%; }
+.ck-col3 > #dash-quick-notes.has-qn { flex: 1 1 40%; } .ck-col3 > #dash-quick-notes.no-qn, .ck-col3 > .ck-small { flex: 0 0 auto; }
+.ck-col3 > #ck-reminders:not(.ck-small) { flex: 1 1 22%; } .ck-col3 > #ck-notes { flex: 1 1 38%; }
+/* one line per item */
+.ck-list { list-style: none; margin: 0; padding: 0; }
+.ck-row { display: flex; align-items: center; gap: 7px; min-height: 30px; padding: 3px 6px 3px 8px; border-radius: 7px; box-shadow: inset 3px 0 0 transparent; font-size: 13px; }
+.ck-row:hover { background: var(--panel-2); }
+.ck-row.p4 { box-shadow: inset 3px 0 0 var(--p4); } .ck-row.p3 { box-shadow: inset 3px 0 0 var(--p3); }
+.ck-row > input[type="checkbox"] { flex: none; width: 15px; height: 15px; margin: 0; accent-color: var(--ok); }
+.ck-st { flex: none; font-size: 11px; color: var(--danger); } .ck-st.go { color: var(--accent); }
+.ck-t { flex: 1 1 auto; min-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; color: var(--text); }
+a.ck-t { text-decoration: none; }
+.ck-t:hover { color: var(--accent); }
+.ck-par { color: var(--muted); font-size: 11.5px; }
+.ck-proj { flex: 0 1 auto; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--muted); }
+.ck-wait { flex: none; font-size: 11.5px; color: var(--warn); white-space: nowrap; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.ck-who { flex: none; display: inline-flex; gap: 2px; }
+.ck-who .pdot { width: 20px; height: 20px; font-size: 9px; line-height: 20px; }
+.ck-due { flex: none; font-size: 11.5px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; }
+.ck-due.bad { color: var(--danger); font-weight: 700; } .ck-due.soon { color: var(--warn); font-weight: 700; }
+.ck-why { flex: none; display: inline-flex; gap: 3px; max-width: 42%; overflow: hidden; }
+.ck-why .why { font-size: 10.5px; padding: 0 6px; white-space: nowrap; }
+.ck-more { padding: 2px 8px; }
+.ck-when { flex: none; font-size: 11.5px; color: var(--accent); font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* the task tabs */
+.ck-tabs { display: flex; flex-wrap: wrap; gap: 3px; margin-left: auto; }
+.ck-tabs button { border: 1px solid transparent; background: none; border-radius: 999px; padding: 2px 8px; font: inherit; font-size: 12px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.ck-tabs button b { color: var(--text); font-variant-numeric: tabular-nums; }
+.ck-tabs button.bad:not(.zero) b { color: var(--danger); }
+.ck-tabs button.zero { opacity: .55; }
+.ck-tabs button:hover { background: var(--panel-2); }
+.ck-tabs button.on { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); font-weight: 600; }
+.ck-seg button { padding: 2px 10px; font-size: 12px; }
+/* projects: two lines each */
+.ck-plist { list-style: none; margin: 0; padding: 0; }
+.ck-prow { padding: 6px 8px; border-radius: 8px; cursor: pointer; border-bottom: 1px solid var(--panel-2); }
+.ck-prow:last-child { border-bottom: 0; }
+.ck-prow:hover { background: var(--panel-2); }
+.ck-pl1 { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.ck-pl1 .health { flex: none; font-size: 11px; padding: 0 5px; }
+.ck-pn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ck-meter { flex: none; width: 54px; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
+.ck-meter i { display: block; height: 100%; background: var(--ok); }
+.ck-pct { flex: none; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 28px; }
+.ck-iss { flex: none; font-size: 11.5px; font-weight: 700; } .ck-iss.bad { color: var(--danger); }
+.ck-pl2 { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--accent); margin: 3px 0 0 28px; min-width: 0; }
+.ck-pl2 .ck-due { min-width: 0; text-align: left; }
+.ck-next { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ck-phase { color: var(--muted); }
+/* quick notes and notes */
+.ck-qrow { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-bottom: 1px solid var(--panel-2); }
+.ck-qrow:last-child { border-bottom: 0; }
+.ck-qtext { flex: 1; min-width: 0; font-size: 12.5px; }
+.ck-qtext b { display: block; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ck-qtext span { display: block; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ck-qrow button.primary { padding: 2px 9px; font-size: 12px; }
+.ck-note { padding: 5px 6px; border-bottom: 1px solid var(--panel-2); font-size: 12.5px; }
+.ck-note:last-child { border-bottom: 0; }
+.ck-nmeta { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ck-nbody { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: pre-wrap; }
+/* not enough room for one view (a small or short window, a phone): the page scrolls as usual */
+@media (max-width: 1100px), (max-height: 680px) {
+  #main.cockpit-main { display: block; overflow-y: auto; padding: 14px 14px 80px; }
+  .ck-grid { display: flex; flex-direction: column; }
+  .ck-col { display: contents; }
+  .ck-panel { flex: none !important; }
+  .ck-pb { max-height: 360px; }
+}
+@media (min-width: 1101px) and (max-width: 1400px) { .ck-grid { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, .8fr); } .ck-proj { display: none; } }
+#ck-focus .ck-proj { display: none; } /* why it's in focus matters more here than where it's from */
+@media (min-width: 1101px) and (max-width: 1600px) { .ck-date { display: none; } .ck-why .why + .why { display: none; } .ck-head .person-pick select { max-width: 150px; } }
+@media (max-width: 700px) {
+  .ck-head { gap: 8px; }
+  .ck-kpis { order: 3; flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -14px; padding: 2px 14px; }
+  .ck-kpi { flex: none; min-height: 34px; }
+  .ck-date { display: none; }
+  .ck-head .dd { margin-left: auto; }
+  .ck-why .why + .why { display: none; }
+  .ck-row { min-height: 40px; }
+}
