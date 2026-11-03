@@ -571,7 +571,11 @@ async function renderKpiSources() {
           <td class="small">${f.path ? (f.found ? esc(fmtDateTime(f.modified)) : '<span style="color:var(--danger)">⚠ can\'t find this file</span>') : '<span class="muted">the workbook\'s copy</span>'}</td></tr>`).join('')}</tbody></table>
     </div>
     ${kpiSharedHtml(shared)}
-    ${calc.otd_uncounted?.length || calc.otd_checks?.length ? `<div class="card" style="margin-top:12px"><h2 style="margin-top:0">OTD report checks <span class="muted small">— rows to fix in Production's OTD report</span></h2>${kpiOtdChecksHtml(calc)}</div>` : ''}`;
+    ${calc.otd_uncounted?.length || calc.otd_checks?.length ? `<div class="card" style="margin-top:12px"><h2 style="margin-top:0">OTD report checks <span class="muted small">— rows to fix in Production's OTD report</span></h2>${kpiOtdChecksHtml(calc)}</div>` : ''}
+    ${calc.volume_ext?.length ? `<div class="card" style="margin-top:12px"><h2 style="margin-top:0">📦 Due dates extended for volume <span class="muted small">— ${calc.year}</span></h2>
+      <p class="small muted" style="margin-top:0">On-time delivery counts against the <b>final</b> due date. These work orders were given more time in Production (a customer sent more than their rule's cards in one day): one delivered by its final due date isn't a delay, so it doesn't belong in the OTD report.</p>
+      <div class="kdb-scroll"><table class="log small"><thead><tr><th>Customer</th><th>Submitted</th><th class="num">Cards</th><th>Due date</th><th>Final due date</th><th>Applied by</th></tr></thead><tbody>
+      ${calc.volume_ext.map((x) => `<tr><td><b>${esc(x.customer)}</b></td><td>${esc(fmtDate(x.arrived))}</td><td class="num">${(x.cards || 0).toLocaleString('en-GB')}</td><td>${esc(fmtDate(x.due))}</td><td><b>${esc(fmtDate(x.new_due))}</b> <span class="muted">(+${x.extra_days})</span></td><td class="muted">${esc(x.decided_by || '—')}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
   wireKpiSetup();
   wireKpiShared();
   $('#kc-scrap-from').addEventListener('change', async (e) => {

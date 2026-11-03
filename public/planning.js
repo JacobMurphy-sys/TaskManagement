@@ -99,6 +99,7 @@ async function renderPlanning() {
   const act = document.activeElement; const actRow = act?.closest?.('[data-pld-g], [data-pld-job]');
   const refocus = actRow && act.className ? `[${actRow.dataset.pldG !== undefined ? 'data-pld-g' : 'data-pld-job'}="${CSS.escape(actRow.dataset.pldG ?? actRow.dataset.pldJob)}"] .${act.className.split(' ')[0]}` : null;
   const [p, settings] = await Promise.all([api.get(`/plan?mode=${mode}`), api.get('/settings')]);
+  state.planVolume = p.volume || { pending: [], recent: [], rules: [] }; // 📦 for the review window
   const f = store.get('planFilter', {}) || {};
   const all = [...p.running, ...p.queue];
   planNow = p; // for 🔍 search (planfind.js)
@@ -154,7 +155,7 @@ async function renderPlanning() {
     const l = left(j);
     return `<tr class="pl-job ${l.cls ? `${l.cls}-row` : ''} ${p.projected && j.late_minutes > 0 ? 'pl-late-row' : ''}" data-pl-job="${esc(j.key)}">
       <td class="num muted pl-n">${i === null ? '▶' : `${j.pinned ? '📌 ' : ''}${i + 1}<div><button class="icon pl-pin ${j.pinned ? 'on' : ''}" data-pl-pin="${esc(j.key)}" title="${j.pinned ? 'Unpin — back to its place in the order' : 'Pin to the front of the queue'}">📌</button></div>`}</td>
-      <td><b>${esc(dayLabel(j.due))}</b> ${j.no_cutoff ? '<span class="pl-warn" title="No cut-off time in the export (UNDEFINED) — taken as the end of the day">end of day ⚠</span>' : esc(j.deadline?.slice(11) || '')}<div class="small ${l.cls}">${esc(l.text)}</div></td>
+      <td><b>${esc(dayLabel(j.due))}</b>${j.volume_ext ? ` <span class="pl-vx" title="📦 Due date extended +${j.volume_ext.extra_days} working day${j.volume_ext.extra_days === 1 ? '' : 's'} for volume: ${esc(j.customer || '')} sent ${n(j.volume_ext.cards)} cards on ${esc(dayLabel(j.volume_ext.arrived))}. Due ${esc(dayLabel(j.volume_ext.due_orig))} in the export${j.volume_ext.by ? ` · applied by ${esc(j.volume_ext.by)}` : ''}">📦 +${j.volume_ext.extra_days}</span>` : ''} ${j.no_cutoff ? '<span class="pl-warn" title="No cut-off time in the export (UNDEFINED) — taken as the end of the day">end of day ⚠</span>' : esc(j.deadline?.slice(11) || '')}<div class="small ${l.cls}">${esc(l.text)}</div></td>
       <td><b>${esc(j.wo)}</b> <span class="muted">/ ${esc(j.per)}</span><div class="small muted">${j.articles.length} card article${j.articles.length === 1 ? '' : 's'}${ottoTag(j)}</div></td>
       <td>${esc(j.customer || '—')}${j.kind?.length ? `<div class="small muted" title="${esc(j.kind.join(', '))}">${esc(j.kind[0])}${j.kind.length > 1 ? ` +${j.kind.length - 1}` : ''}</div>` : j.no_card ? '<div class="small pl-warn">not in the card database</div>' : ''}</td>
       <td class="num"><b>${n(j.qty)}</b>${j.plan_minutes !== undefined && !j.unplanned ? `<div class="small muted" title="Production time${j.minutes === null ? ' (flat rate — not every card has a speed)' : ' from the card speeds'}">${fmtSpan(j.plan_minutes)}${j.minutes === null || j.articles.some((a) => a.speed_from !== null && !/^(rule|learned)/.test(String(a.speed_from))) ? ' ≈' : ''}</div>` : ''}</td>
@@ -610,6 +611,8 @@ async function renderPlanning() {
       <span class="small muted">${(half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).status === 'ok' ? `${esc((half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).name)} · saved ${esc(fmtDateTime((half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).modified))}${(half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).uploaded ? ' (uploaded copy)' : ''}` : ''}</span>
       <button data-pl="refresh" title="Read the export again if it has changed">🔄</button>
       ${half === 'perso' && src.status === 'ok' ? '<button class="primary" data-pl="print" title="A plan per cell (DOD, Emboss, Laser) of the work orders still open, as a PDF to print and hand out">📄 Generate plan</button>' : ''}
+      ${half === 'perso' && p.volume?.pending?.length ? `<button class="pl-vx-btn" data-vx="open" title="${esc(`Volume extensions to confirm: ${p.volume.pending.map((x) => `${x.customer} sent ${n(x.cards)} cards for ${dayLabel(x.due)}`).join(' · ')}`)}">📦 <b>${p.volume.pending.length}</b> to confirm</button>`
+        : half === 'perso' && (p.volume?.recent?.length || p.volume?.rules?.length) ? '<button class="small" data-vx="open" title="📦 Volume extensions: what was applied or dismissed, and undo">📦</button>' : ''}
       ${ddMenu('⋯', `
         <label title="Try it with a copy of the ${half === 'otto' ? 'Matching' : 'open work orders'} export">📂 Load a file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
         ${half === 'perso' ? '<button class="admin-only" data-pl="mods">⚖ Priority modifiers</button>' : ''}
@@ -678,6 +681,16 @@ ${half === 'otto' ? ottoSetup() : `
       <label class="f" style="max-width:260px">Default OEE (%) <span class="muted small">— customers not filled in</span><input type="number" min="1" max="100" step="0.1" name="plan_oee_default" value="${esc(settings.plan_oee_default || '')}" placeholder="100"></label>
       <div class="kdb-scroll"><table class="log pl-speeds"><thead><tr><th>Customer</th><th>Name</th><th class="num">Cards open</th><th>OEE %</th></tr></thead><tbody>${(p.oee || []).map((o) => `<tr><td><b>${esc(o.customer)}</b></td><td>${esc(o.name || '')}</td><td class="num">${o.cards ? n(o.cards) : '<span class="muted">none open</span>'}</td>
         <td><input type="number" class="pl-oee" data-customer="${esc(o.customer)}" min="1" max="100" step="0.1" value="${o.oee ? Math.round(o.oee * 1000) / 10 : ''}" placeholder="${p.oee_default ? Math.round(p.oee_default * 1000) / 10 : '100'}"></td></tr>`).join('') || '<tr><td colspan="4" class="muted">No customers in the open work orders.</td></tr>'}</tbody></table></div>
+      <h3 class="pl-h" style="margin-top:14px">📦 Volume extensions <span class="muted small">— when a customer sends a lot at once</span></h3>
+      <p class="small muted">Everything a customer submits in one day for one due date (D+0: due that day, D+1: the next working day), in cards. More than a rule's cards: the due date can move on by its working days. SITHUB <b>suggests</b> it on the Production page, someone <b>applies</b> (or dismisses) it, and from then on that's the work orders' due date: in the plan, the sheets and the on-time figures. Several rules for a customer are tiers: the highest one met counts.</p>
+      <div class="kdb-scroll"><table class="log pl-speeds"><thead><tr><th>Customer</th><th>Notice</th><th class="num">More than (cards)</th><th>Extension</th><th>Note</th><th></th></tr></thead><tbody>
+        ${(p.volume?.rules || []).map((r) => `<tr><td><b>${esc(r.customer)}</b> <span class="muted small">${esc(r.name || '')}</span></td><td>${r.notice === 'both' ? 'D+0 and D+1' : `D+${esc(r.notice)}`}</td><td class="num">${n(r.min_cards)}</td><td>+${r.extra_days} working day${r.extra_days === 1 ? '' : 's'}</td><td class="small muted">${esc(r.note || '')}</td><td><button class="icon" data-vx-del-rule="${r.id}" title="Remove this rule">✕</button></td></tr>`).join('')}
+        <tr><td><select id="vx-new-customer"><option value="">Customer…</option>${(p.oee || []).map((o) => `<option value="${esc(o.customer)}">${esc(o.customer)}${o.name ? ` — ${esc(o.name)}` : ''}</option>`).join('')}</select></td>
+          <td><select id="vx-new-notice"><option value="both">D+0 and D+1</option><option value="0">D+0</option><option value="1">D+1</option></select></td>
+          <td><input type="number" min="1" step="1000" id="vx-new-min" placeholder="e.g. 50000"></td>
+          <td><select id="vx-new-extra"><option value="1">+1 working day</option><option value="2">+2 working days</option><option value="3">+3 working days</option></select></td>
+          <td><input type="text" id="vx-new-note" placeholder="e.g. as agreed in the contract"></td>
+          <td><button class="small" data-vx="add-rule">Add</button></td></tr></tbody></table></div>
       <p class="small muted">Jobs are worked through in the list's order — what's running first — each card line at its speed ${useMachines ? 'on a machine that runs its type' : '(divided over the lines running)'}, and each job gets a projected finish against its deadline.</p>
 `}
     </div>
@@ -1324,3 +1337,55 @@ function drawPlanGantt(el, info, p, match, half = 'perso') {
   el.onclick = (e) => { const b = e.target.closest('[data-pg-job]'); planSel = b ? b.dataset.pgJob : null; drawPlanGantt(el, info, p, match, half); };
   info.onclick = (e) => { if (e.target.closest('[data-pg-clear]')) { planSel = null; drawPlanGantt(el, info, p, match, half); } };
 }
+
+// ---- 📦 Volume extensions: review what the rules suggest, apply or dismiss it, undo a decision ----------
+let plVolumeShown = null; // what the open window lists (its buttons point into it)
+function plVolumeDialog(v) {
+  const n = (x) => PLF.num.format(Number(x || 0));
+  const sub = (x) => `${x.customer}${x.name ? ` <span class="muted small">${esc(x.name)}</span>` : ''}`;
+  const dd = (d) => esc(new Date(`${d}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }));
+  openModal(`<div class="modal-head"><h2>📦 Volume extensions</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <p class="small muted" style="margin-top:0">Everything a customer submitted in one day for one due date, against their rules (⚙ Setup). <b>Apply</b> moves those work orders' due date on: in the plan, the sheets and the on-time figures (OTD counts against the final due date). <b>Dismiss</b> keeps the export's date.</p>
+    <h3 style="margin:10px 0 6px">To confirm <span class="muted small">${v.pending.length}</span></h3>
+    ${v.pending.length ? `<table class="log"><thead><tr><th>Customer</th><th>Submitted</th><th>Notice</th><th class="num">Cards</th><th>Rule</th><th>Due date</th><th></th></tr></thead><tbody>
+      ${v.pending.map((x, i) => `<tr><td><b>${sub(x)}</b></td><td>${dd(x.arrived)}</td><td>D+${x.notice}</td><td class="num"><b>${n(x.cards)}</b><div class="small muted">${x.work_orders} work order${x.work_orders === 1 ? '' : 's'}</div></td>
+        <td class="small">over ${n(x.rule.min_cards)} → +${x.rule.extra_days}</td><td>${dd(x.due)} → <b>${dd(x.new_due)}</b></td>
+        <td class="nowrap"><button class="small primary" data-vx-decide="${i}" data-act="apply">Apply</button> <button class="small" data-vx-decide="${i}" data-act="dismiss">Dismiss</button></td></tr>`).join('')}</tbody></table>`
+      : '<div class="empty">Nothing waiting. A customer\'s submissions over their rule show up here.</div>'}
+    <h3 style="margin:16px 0 6px">Decided <span class="muted small">latest ${v.recent.length}</span></h3>
+    ${v.recent.length ? `<table class="log small"><thead><tr><th>Customer</th><th>Submitted</th><th class="num">Cards</th><th>Due date</th><th>Decision</th><th>By</th><th></th></tr></thead><tbody>
+      ${v.recent.map((x) => `<tr><td><b>${sub(x)}</b></td><td>${dd(x.arrived)}</td><td class="num">${n(x.cards)}</td><td>${x.status === 'applied' ? `${dd(x.due)} → <b>${dd(x.new_due)}</b>` : dd(x.due)}</td>
+        <td>${x.status === 'applied' ? `<span class="pl-vx">📦 +${x.extra_days} applied</span>` : '<span class="muted">dismissed</span>'}</td><td class="muted">${esc(x.decided_by || '—')}<div>${esc(fmtDateTime(x.created_at))}</div></td>
+        <td><button class="link small" data-vx-undo="${x.id}" title="${x.status === 'applied' ? 'Back to the export\'s due date' : 'Undo the dismissal: it\'s suggested again'}">Undo</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty">Nothing decided yet.</div>'}`, { wide: true });
+  plVolumeShown = v;
+}
+document.addEventListener('click', async (e) => {
+  const d = e.target.closest('[data-vx-decide], [data-vx-undo]');
+  if (d) {
+    const dd = (x) => new Date(`${x}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    try {
+      if (d.dataset.vxDecide != null) {
+        const x = plVolumeShown?.pending?.[Number(d.dataset.vxDecide)]; if (!x) return;
+        d.disabled = true;
+        await api.post('/plan/volume-ext', { customer: x.customer, arrived: x.arrived, due: x.due, action: d.dataset.act });
+        toast(d.dataset.act === 'apply' ? `📦 ${x.customer}: due ${dd(x.due)} → ${dd(x.new_due)}` : `${x.customer}: dismissed`);
+      } else {
+        if (!confirm('Undo this decision?')) return;
+        await api.del(`/plan/volume-ext/${d.dataset.vxUndo}`);
+        toast('Undone');
+      }
+      closeModal(); await renderPlanning(); plVolumeDialog(state.planVolume);
+    } catch (err) { toast(err.message, 'error'); d.disabled = false; }
+    return;
+  }
+  const b = e.target.closest('[data-vx], [data-vx-del-rule]');
+  if (!b) return;
+  try {
+    if (b.dataset.vx === 'open') { plVolumeDialog(state.planVolume || { pending: [], recent: [], rules: [] }); return; }
+    if (b.dataset.vx === 'add-rule') {
+      await api.post('/plan/volume-rules', { customer: $('#vx-new-customer').value, notice: $('#vx-new-notice').value, min_cards: $('#vx-new-min').value, extra_days: Number($('#vx-new-extra').value), note: $('#vx-new-note').value });
+      toast('Rule added'); await renderPlanning(); return;
+    }
+    if (b.dataset.vxDelRule) { if (!confirm('Remove this rule? Extensions already applied stay.')) return; await api.del(`/plan/volume-rules/${b.dataset.vxDelRule}`); await renderPlanning(); }
+  } catch (err) { toast(err.message, 'error'); }
+});

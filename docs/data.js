@@ -136,6 +136,9 @@ window.TIMELINE = {
     { id: 'home', date: '2026-11-03', area: 'look', title: 'Home in one view',
       text: 'Home rebuilt as one screen: everything worth knowing at a glance, with no scrolling.',
       points: ['Counts in the header, a click away from their list', 'Focus, tasks (in tabs), projects, meetings, quick notes, reminders and notes side by side', 'One line per task; long panels scroll on their own, never the page', 'From over two screens tall to one'] },
+    { id: 'volume', date: '2026-11-03', area: 'production', title: '📦 More time for big days',
+      text: 'When a customer sends a lot at once, their due dates can move on by a working day or two. SITHUB spots it, a person confirms it.',
+      points: ['Rules per customer: more than so many cards in a day, for work due that day or the next', 'Suggested from the planner\'s history, applied or dismissed with one click, and undone just as easily', 'The final due date counts everywhere: the plan, the sheets, and on time'] },
     { id: 'timeline', date: '2026-11-02', area: 'knowledge', title: 'This timeline',
       text: 'The project\'s own story on GitHub Pages, kept up to date as the work goes on.',
       points: ['Commits per day worked out from git every time it\'s published', 'A pin added with every user-visible change', 'And somewhere on this page, something hidden…'] },
@@ -143,6 +146,9 @@ window.TIMELINE = {
 
   // 🎬 The blooper reel: the hidden easter egg (click the logo five times, type "oops", or find the 🐞)
   BLOOPERS: [
+    { date: '2026-11-03', title: 'The button that clicked twice',
+      text: 'The new window for confirming volume extensions got a fresh click listener every time it reopened. So the second decision was sent twice, and the second copy was told off: "Already dismissed — undo that first".',
+      lesson: 'One listener is plenty. Two is an argument.' },
     { date: '2026-09-29', title: 'Database server? Never mind.',
       text: 'Day one started on PostgreSQL. A few hours later it was SQLite, because asking everyone to install a database server just to keep a to-do list felt like a lot.',
       lesson: 'The best server is the one nobody has to install.' },

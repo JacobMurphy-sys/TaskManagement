@@ -1823,6 +1823,60 @@ async function waitForServer() {
           const nb = ow.periods[0].techs; const nsx = ow.scenarios[0].periods[0].techs;
           assert.ok(Math.abs((nsx.DOD.demand - nb.DOD.demand) - 625) < 0.01 && Math.abs((nsx.Laser.demand - nb.Laser.demand) - 375) < 0.01, 'a 50 / 30 split is 62.5% / 37.5% of the new customer\'s 1,000');
           await call('DELETE', `/cpm/scenarios/${ws.id}`);
+          // 📦 volume extensions: everything a customer submits in one day for a D+0 / D+1 due date, in cards,
+          // against their rules; suggested, applied (or dismissed) by a person; the final due date counts
+          {
+            const vx = require('../src/volumeext');
+            const wd = new Set([1, 2, 3, 4, 5]);
+            assert.equal(vx.addWorkingDays('2026-11-06', 1, wd), '2026-11-09', 'Friday + 1 working day is Monday');
+            assert.equal(vx.addWorkingDays('2026-11-05', 2, wd), '2026-11-09');
+            const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            const a0 = new Date(); a0.setDate(a0.getDate() - 1); while (!wd.has(a0.getDay())) a0.setDate(a0.getDate() - 1);
+            const arr = ymd(a0); const next = vx.addWorkingDays(arr, 1, wd); const later = vx.addWorkingDays(arr, 3, wd);
+            const sq = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
+            sq.prepare('INSERT OR IGNORE INTO plan_history_reads (file_modified, read_at) VALUES (?, ?)').run(`${arr}T00:01:00`, `${arr}T00:01:00`);
+            const job = (k, qty, due, done) => sq.prepare('INSERT INTO plan_history_jobs (key, wo, customer, qty, due, deadline, first_seen, last_seen, done_at, late_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+              .run(k, k.split('/')[0], 'VXA', qty, due, `${due}T16:00`, `${arr}T09:00:00`, `${arr}T09:00:00`, done, done ? Math.round((new Date(done) - new Date(`${due}T16:00:00`)) / 60000) : null);
+            job('VXWO1/1', 30000, arr, `${next}T10:00:00`); job('VXWO2/1', 25000, arr, null); job('VXWO3/1', 10000, next, null); job('VXWO4/1', 90000, later, null);
+            sq.close();
+            const late0 = () => { const q = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); const r = { ...q.prepare("SELECT deadline, late_minutes FROM plan_history_jobs WHERE key = 'VXWO1/1'").get() }; q.close(); return r; };
+            assert.ok(late0().late_minutes > 0, 'delivered the day after its due date: late');
+            let v = await call('GET', '/plan/volume');
+            assert.equal(v.pending.length, 0, 'no rule, nothing suggested');
+            await assert.rejects(call('POST', '/plan/volume-rules', { customer: 'VXA', min_cards: 0, extra_days: 1 }), /number of cards/);
+            await assert.rejects(call('POST', '/plan/volume-rules', { customer: '', min_cards: 50000, extra_days: 1 }), /Pick a customer/);
+            const r1 = await call('POST', '/plan/volume-rules', { customer: 'vxa', notice: 'both', min_cards: '50,000', extra_days: 1, note: 'contract' });
+            assert.deepEqual([r1.customer, r1.min_cards, r1.extra_days], ['VXA', 50000, 1]);
+            v = await call('GET', '/plan/volume');
+            assert.equal(v.pending.length, 1, 'only the D+0 submission is over the rule (the D+1 one is 10,000; D+3 isn\'t counted)');
+            let s1 = v.pending[0];
+            assert.deepEqual([s1.customer, s1.arrived, s1.due, s1.notice, s1.cards, s1.work_orders, s1.new_due], ['VXA', arr, arr, 0, 55000, 2, next], 'both work orders that day, in cards, +1 working day');
+            const r2 = await call('POST', '/plan/volume-rules', { customer: 'VXA', notice: '0', min_cards: 54000, extra_days: 2 });
+            s1 = (await call('GET', '/plan/volume')).pending[0];
+            assert.deepEqual([s1.rule.id, s1.new_due], [r2.id, vx.addWorkingDays(arr, 2, wd)], 'tiers: the highest rule met counts');
+            await call('DELETE', `/plan/volume-rules/${r2.id}`);
+            // applied: the history's deadline moves and the late job is on time against the final due date
+            const ap = await call('POST', '/plan/volume-ext', { customer: 'VXA', arrived: arr, due: arr, action: 'apply' });
+            assert.deepEqual([ap.status, ap.new_due, ap.extra_days, ap.cards], ['applied', next, 1, 55000]);
+            assert.ok(ap.history_updated >= 2, 'both work orders\' deadlines moved');
+            assert.equal(late0().deadline, `${next}T16:00`); assert.ok(late0().late_minutes < 0, 'on time against the final due date');
+            await assert.rejects(call('POST', '/plan/volume-ext', { customer: 'VXA', arrived: arr, due: arr, action: 'apply' }), /Already applied/);
+            v = await call('GET', '/plan/volume');
+            assert.equal(v.pending.length, 0); assert.equal(v.recent[0].status, 'applied');
+            const kc = await call('GET', `/kpi/calc?year=${arr.slice(0, 4)}`);
+            assert.ok(kc.volume_ext.some((x) => x.customer === 'VXA' && x.new_due === next), 'Reporting lists it: OTD counts against the final due date');
+            // undone: back to the export's due date
+            await call('DELETE', `/plan/volume-ext/${ap.id}`);
+            assert.equal(late0().deadline, `${arr}T16:00`); assert.ok(late0().late_minutes > 0, 'late again');
+            // dismissed: nothing moves, and it isn't suggested again
+            const dm = await call('POST', '/plan/volume-ext', { customer: 'VXA', arrived: arr, due: arr, action: 'dismiss' });
+            assert.deepEqual([dm.status, dm.new_due], ['dismissed', null]); assert.equal(late0().deadline, `${arr}T16:00`);
+            assert.equal((await call('GET', '/plan/volume')).pending.length, 0, 'dismissed: not suggested again');
+            await call('DELETE', `/plan/volume-ext/${dm.id}`); await call('DELETE', `/plan/volume-rules/${r1.id}`);
+            await assert.rejects(call('POST', '/plan/volume-ext', { customer: 'VXA', arrived: arr, due: arr, action: 'apply' }), /No rule/);
+            const sqc = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
+            sqc.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'VXWO%'").run(); sqc.prepare('DELETE FROM plan_history_reads WHERE file_modified = ?').run(`${arr}T00:01:00`); sqc.close();
+          }
           // the daily work spread by when its orders arrive: midway between an export and the one before;
           // after a gap of more than 2 hours (or Low: renewals) left out
           {

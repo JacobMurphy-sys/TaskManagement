@@ -106,7 +106,7 @@ function ensureOwner() {
 // library notes, backups — is for admins. Using the app (tasks, the A3, loading and reading files, pins…) isn't.
 const SETUP_API = [
   /^\/settings(\/|$)/, /^\/(areas|lookups|charter-template|team-pack)(\/|$)/,
-  /^\/plan\/(machines|speeds|oee|otto\/speeds|otto\/machines|modifiers|mod-shifts|card-tags|setup)(\/|$)/,
+  /^\/plan\/(machines|speeds|oee|otto\/speeds|otto\/machines|modifiers|mod-shifts|card-tags|setup|volume-rules)(\/|$)/,
   /^\/kpi\/calc\/weekends$/, /^\/library(\/import|\/folder|\/excluded|\/docs\/\d+$|$)/,
 ];
 // settings anyone may write: when the report was last sent

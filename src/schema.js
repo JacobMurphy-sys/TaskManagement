@@ -639,6 +639,36 @@ const TABLES = {
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
 
+  // 📦 Planning: volume extensions. A rule: when a customer submits more than min_cards in one day for
+  // a due date that day's notice is D+0 / D+1 (notice: '0', '1' or 'both'), the due date may move on by
+  // extra_days working days. Several rules for a customer are tiers: the highest one met counts.
+  plan_volume_rules: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer    TEXT    NOT NULL COLLATE NOCASE,
+    notice      TEXT    NOT NULL DEFAULT 'both' CHECK (notice IN ('0', '1', 'both')),
+    min_cards   INTEGER NOT NULL CHECK (min_cards > 0),
+    extra_days  INTEGER NOT NULL DEFAULT 1 CHECK (extra_days BETWEEN 1 AND 5),
+    note        TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+  // …and what was decided for one customer's submissions on one day for one due date: applied (the
+  // work orders' due date is new_due) or dismissed, with who and when.
+  plan_volume_ext: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer    TEXT    NOT NULL COLLATE NOCASE,
+    arrived     TEXT    NOT NULL,
+    due         TEXT    NOT NULL,
+    cards       INTEGER NOT NULL DEFAULT 0,
+    extra_days  INTEGER NOT NULL DEFAULT 0,
+    new_due     TEXT,
+    status      TEXT    NOT NULL CHECK (status IN ('applied', 'dismissed')),
+    rule_id     INTEGER,
+    decided_by  TEXT,
+    note        TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    UNIQUE (customer, arrived, due)`,
+
   // 🏭 Planning: tags for card articles (e.g. PRIO, METAL) when the card database has none.
   plan_card_tags: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -909,7 +939,7 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_overrides', 'kpi_rows_added', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags', 'plan_disp_delays', 'plan_disp_delay_jobs', 'cpm_customers', 'cpm_scenarios', 'people_focus', 'capex', 'tickets'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_overrides', 'kpi_rows_added', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags', 'plan_disp_delays', 'plan_disp_delay_jobs', 'plan_volume_rules', 'plan_volume_ext', 'cpm_customers', 'cpm_scenarios', 'people_focus', 'capex', 'tickets'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');

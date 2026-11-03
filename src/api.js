@@ -1849,7 +1849,8 @@ const splitWeekends = () => getSettings().kpi_split_weekends === '1';
 router.get('/kpi/calc', h((req, res) => {
   const year = Number(req.query.year) || new Date().getFullYear();
   const vol = kpiData.weeklyVolumes(year);
-  res.json({ year, ...vol, sources: kpiData.sourcesStatus(), forecasts: forecastStatus(), split_weekends: splitWeekends() });
+  res.json({ year, ...vol, sources: kpiData.sourcesStatus(), forecasts: forecastStatus(), split_weekends: splitWeekends(),
+    volume_ext: volumeExt.appliedBetween(`${year}-01-01`, `${year}-12-31`) }); // 📦 OTD counts against the final due date
 }));
 
 // Reads the source files that changed (all of them with force). Sources without a file of
@@ -2117,6 +2118,7 @@ const PLAN_UPLOAD = path.join(config.dataDir, 'plan', 'open-workorders.xlsx');
 const OTTO_UPLOAD = path.join(config.dataDir, 'plan', 'otto.xlsx');
 const DISP_UPLOAD = path.join(config.dataDir, 'plan', 'dispatch.xlsx');
 const planHistory = require('./planhistory');
+const volumeExt = require('./volumeext');
 // Matching (the other half of production): its export, open jobs in plan-date order, linked to the
 // perso jobs by work order. Finished and test jobs are counted but not listed.
 // Max age (days) of what's shown: older is likely an error (0 = show everything).
@@ -2214,7 +2216,7 @@ function recordDisp(d) {
 // Each new version of the linked export goes into the plan history (an uploaded copy doesn't).
 function recordPlan(src) {
   if (src.status !== 'ok' || src.uploaded) return;
-  try { const r = planHistory.ingest(src.lines, src.modified, src.file); if (r) log.info('Planning: export recorded', r); } catch (err) { log.warn('Planning: history not recorded', err.message); }
+  try { const r = planHistory.ingest(src.lines, src.modified, src.file); if (r) { log.info('Planning: export recorded', r); volumeExt.syncHistory(); } } catch (err) { log.warn('Planning: history not recorded', err.message); }
 }
 // …and each new version of the Matching export into its own (📆 D+ due out, when Matching jobs were done).
 function recordOtto(o) {
@@ -2278,7 +2280,7 @@ router.get('/plan', h((req, res) => {
     customer: c, name: custNames.get(c) || null, cards: custCards.get(c) || 0, oee: oeeRows.find((r) => r.customer.toUpperCase() === c)?.oee ?? null,
   })).sort((a, b) => b.cards - a.cards || a.customer.localeCompare(b.customer));
   const unknown = db_.status === 'ok' ? [...new Set(lines.filter((l) => !l.card).map((l) => l.article))] : [];
-  const jobs = planning.jobsOf(lines);
+  const jobs = volumeExt.applyToJobs(planning.jobsOf(lines)); // 📦 applied volume extensions: the final due date
   const modifiers = modifiersOf(set);
   const scored = planning.scoreJobs(jobs, { now: new Date(), deadline: modifiers.deadline, rules: modifiers.rules, shifts: modifiers.shifts, shiftStarts: modifiers.shift_starts, off: modifiers.off,
     tagOf: (ax) => modifiers.tagBy.get(planning.axKey(ax)) || null });
@@ -2319,7 +2321,7 @@ router.get('/plan', h((req, res) => {
   delete modifiers.tagBy;
   const pdataStatus = (() => { const f = cleanPath(set.kpi_perso_data) || null; if (!f) return null; let st; try { st = require('./persodata').stamp(); } catch { st = {}; }
     return { status: fs.existsSync(f) ? 'ok' : 'missing', rows: st.n || 0, first: st.first || null, last: st.last || null }; })();
-  res.json({ pdata: pdataStatus, shared_setup: sharedSetup, mitigation, modifiers, backlog, otto, disp, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
+  res.json({ volume: volumeOf(set, custNames), pdata: pdataStatus, shared_setup: sharedSetup, mitigation, modifiers, backlog, otto, disp, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
     source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length,
     learned_times: { on: learnOn, runs: model?.runs || 0, setup: model ? Math.round(model.setup * 10) / 10 : null, lines: lines.length,
       card: lines.filter((l) => l.speed_from === 'learned:card').length, kind: lines.filter((l) => l.speed_from === 'learned:kind').length, all: lines.filter((l) => l.speed_from === 'learned:all').length }, averaged: lines.some((l) => l.speed_from === 'average'),
@@ -2506,7 +2508,7 @@ router.get('/plan/sheet/:id/:name?', h((req, res) => {
 // settings and the machines, speeds, OEE, Matching machines and speeds, modifiers, shift values, card
 // tags and pins. With ?history=1 also the history built up from the exports (each export read and
 // each job seen, for the pace and on-time figures) and the ⏱ Production runs — merged on import.
-const SETUP_TABLES = ['plan_machines', 'plan_speeds', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags', 'plan_pins'];
+const SETUP_TABLES = ['plan_machines', 'plan_speeds', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags', 'plan_pins', 'plan_volume_rules'];
 router.get('/plan/setup', h((req, res) => {
   const settings = Object.fromEntries(db.all("SELECT key, value FROM settings WHERE key LIKE 'plan\\_%' ESCAPE '\\'").map((r) => [r.key, r.value]));
   const tables = Object.fromEntries(SETUP_TABLES.map((t) => [t, db.all(`SELECT * FROM ${t} ORDER BY id`).map(({ id, created_at, updated_at, ...rest }) => rest)]));
@@ -2755,6 +2757,58 @@ router.patch('/plan/speeds/:id', h((req, res) => {
 }));
 router.delete('/plan/speeds/:id', h((req, res) => {
   if (!db.run('DELETE FROM plan_speeds WHERE id = ?', [req.params.id]).changes) throw notFound('Speed');
+  res.status(204).end();
+}));
+
+// ---- 📦 Volume extensions: the rules (setup) and the decisions on what they suggest ---------------
+const planWorkDays = (set) => new Set(String(set.plan_days || '1,2,3,4,5').split(',').map(Number).filter((d) => d >= 0 && d <= 6));
+// for the Production page: the rules, what's waiting to be applied or dismissed, and the last decisions
+function volumeOf(set, custNames = new Map()) {
+  const workDays = planWorkDays(set);
+  const name = (c) => custNames.get(String(c).toUpperCase()) || null;
+  const pend = volumeExt.pending({ workDays }).map((x) => ({ ...x, name: name(x.customer) }));
+  const recent = volumeExt.decisions().slice(0, 40).map((x) => ({ ...x, name: name(x.customer) }));
+  return { rules: volumeExt.rules().map((r) => ({ ...r, name: name(r.customer) })), pending: pend, recent };
+}
+router.get('/plan/volume', h((req, res) => res.json(volumeOf(getSettings()))));
+// { customer, notice: '0' | '1' | 'both', min_cards, extra_days, note }
+router.post('/plan/volume-rules', h((req, res) => {
+  const b = req.body || {};
+  const customer = String(b.customer || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{2,6}$/.test(customer)) throw new HttpError(400, 'Pick a customer (its code, e.g. ABC)');
+  const notice = ['0', '1', 'both'].includes(String(b.notice)) ? String(b.notice) : 'both';
+  const min = Math.round(Number(String(b.min_cards ?? '').replace(/[ ,.]/g, '')));
+  if (!(min > 0)) throw new HttpError(400, 'Give the number of cards over which the due date can move');
+  const extra = Number(b.extra_days);
+  if (![1, 2, 3, 4, 5].includes(extra)) throw new HttpError(400, 'The extension is 1 to 5 working days');
+  res.status(201).json(fresh('plan_volume_rules', insertRow('plan_volume_rules', { customer, notice, min_cards: min, extra_days: extra, note: String(b.note || '').trim().slice(0, 300) || null })));
+}));
+router.delete('/plan/volume-rules/:id', h((req, res) => {
+  if (!db.run('DELETE FROM plan_volume_rules WHERE id = ?', [req.params.id]).changes) throw notFound('Rule');
+  res.status(204).end();
+}));
+// Apply or dismiss what a rule suggests for one customer's submissions: { customer, arrived, due, action: 'apply' | 'dismiss', note }
+router.post('/plan/volume-ext', h((req, res) => {
+  const b = req.body || {};
+  const set = getSettings(); const workDays = planWorkDays(set);
+  const s = volumeExt.submissions({ workDays, days: 60 }).find((x) => x.customer === String(b.customer || '').toUpperCase() && x.arrived === b.arrived && x.due === b.due);
+  if (!s) throw notFound('Submission');
+  if (!s.rule) throw new HttpError(400, 'No rule for this customer is met by that submission');
+  if (s.decision) throw new HttpError(409, `Already ${s.decision.status}${s.decision.decided_by ? ` by ${s.decision.decided_by}` : ''} — undo that first`);
+  const apply = b.action !== 'dismiss';
+  const row = insertRow('plan_volume_ext', { customer: s.customer, arrived: s.arrived, due: s.due, cards: s.cards, extra_days: apply ? s.rule.extra_days : 0,
+    new_due: apply ? s.new_due : null, status: apply ? 'applied' : 'dismissed', rule_id: s.rule.id, decided_by: whoIs(req), note: String(b.note || '').trim().slice(0, 300) || null });
+  const moved = apply ? volumeExt.syncHistory() : 0;
+  log.info(`Planning: volume extension ${apply ? `applied (${s.customer}, due ${s.due} → ${s.new_due})` : `dismissed (${s.customer}, due ${s.due})`} by ${whoIs(req) || 'someone'}`);
+  res.status(201).json({ ...fresh('plan_volume_ext', row), history_updated: moved });
+}));
+// Undo a decision: an applied extension's work orders are due on the export's date again
+router.delete('/plan/volume-ext/:id', h((req, res) => {
+  const r = db.get('SELECT * FROM plan_volume_ext WHERE id = ?', [req.params.id]);
+  if (!r) throw notFound('Decision');
+  db.run('DELETE FROM plan_volume_ext WHERE id = ?', [r.id]);
+  volumeExt.syncHistory();
+  log.info(`Planning: volume extension decision undone (${r.customer}, due ${r.due}) by ${whoIs(req) || 'someone'}`);
   res.status(204).end();
 }));
 
