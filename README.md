@@ -136,7 +136,7 @@ When an update changes how data is stored, the app upgrades your database automa
 
   For example, `Send board pack !high @thu`.
 - **Subtasks:** hover over a task and click **＋ sub**, or open the task and use *Add subtask*.
-- **Task details:** click a task title to edit its description, status, priority and due date (changes save automatically), and to add subtasks, reminders and notes or see its history.
+- **Task details:** click a task title to edit its description, status, priority and due date (changes save automatically), and to add subtasks, reminders and notes or see its history. A subtask's window says which task it belongs to, at the top: **↳ Subtask of** *Task name*, a link that opens that task. The project name at the top opens the project.
 - **Boards:** **🗂 Board** in the top bar shows all ongoing projects; drag a card between *Active*, *On hold* and *Completed*, or click it to open the project. On a project page, switch the Tasks panel between **☰ List** (tick-box checklist with subtasks) and **▦ Board** (that project's own Kanban: drag tasks between columns). The choice is remembered.
 - **Due-date alerts:** a pop-up appears once on the day a task is due, and again once it becomes overdue.
 - **Re-baseline:** use this after an agreed change of scope. All current tasks become the new baseline.

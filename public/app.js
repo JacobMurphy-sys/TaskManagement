@@ -2135,10 +2135,11 @@ async function taskModal(id) {
     : (p && p.baseline_set_at ? '<span class="badge added">Added after baseline</span>' : '');
   openModal(`
     <div class="modal-head">
-      <div class="small muted">${t.project_id ? esc(t.project_name) : '✅ Tasks (no project)'}${t.parent_id ? ' · subtask' : ''} ${baselineText}
+      <div class="small muted">${t.project_id ? `<a href="#/project/${t.project_id}" data-action="modal-open-project" data-id="${t.project_id}" title="Open the project">🗂 ${esc(t.project_name)}</a>` : '✅ Tasks (no project)'}${t.parent_id ? ' · subtask' : ''} ${baselineText}
         ${t.meeting ? ` · <a href="#" data-action="open-meeting" data-id="${t.meeting.id}" data-return-task="${t.id}" title="Agreed at this meeting">🗓 from ${esc(t.meeting.title)}, ${esc(fmtDate(t.meeting.held_at))}</a>` : ''}</div>
       <div class="row"><span class="saved-flag" id="saved-flag">✓ Saved</span><button class="icon" data-action="history" data-kind="tasks" data-id="${t.id}" data-title="${esc(t.title)}" title="History: every change, with who made it">🕘</button><button class="icon" data-action="close-modal">✕</button></div>
     </div>
+    ${t.parent_id ? `<div class="tm-parent">↳ Subtask of <a href="javascript:void 0" data-action="open-task" data-id="${t.parent_id}" title="Open the task this is part of">${esc(t.parent_title || 'its task')}</a><span class="muted small">— click to open it</span></div>` : ''}
     <div class="form-grid" id="task-form" data-id="${t.id}">
       <label class="f full">Title<input type="text" name="title" value="${esc(t.title)}"></label>
       <label class="f full">Description<textarea name="description" rows="3">${esc(t.description)}</textarea>${linkList(t.description)}</label>
@@ -2499,6 +2500,7 @@ const actions = {
   'del-member': (el) => removeMember(state.project.charter.team.find((m) => String(m.id) === el.dataset.id)),
   'edit-phase': (el) => phaseDialog(state.project, state.project.charter.phases.find((ph) => String(ph.id) === el.dataset.id)),
   'close-modal': () => closeModal(),
+  'modal-open-project': (el) => { closeModal(); location.hash = `#/project/${el.dataset.id}`; },
   'quick-note': () => quickNoteDialog(),
   ticket: () => ticketDialog(),
   'qn-assign': async (el) => { const n = await quickNoteById(el.dataset.id); if (n) assignNoteDialog(n); else refresh(); },

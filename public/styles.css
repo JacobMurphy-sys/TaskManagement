@@ -2087,3 +2087,7 @@ a.ck-t { text-decoration: none; }
 .tc-crumb .tc-parlink { color: var(--accent); font-weight: 600; text-decoration: none; }
 .tc-crumb .tc-parlink:hover { text-decoration: underline; }
 .tcard.shut .tc-crumb { display: block; font-size: 11px; line-height: 1.2; margin: 0 0 2px 24px; }
+/* a subtask's window: the task it belongs to, one click away */
+.tm-parent { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; padding: 7px 12px; border-radius: 8px;
+  background: var(--accent-soft); border-left: 4px solid var(--accent); font-size: 13.5px; }
+.tm-parent a { font-weight: 700; color: var(--accent); }
