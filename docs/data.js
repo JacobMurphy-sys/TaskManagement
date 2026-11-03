@@ -147,7 +147,7 @@ window.TIMELINE = {
       points: ['Coloured tags instead of drop-downs: status, priority, dates, repeats, project and phase, one click to change', 'The description reads like a note, with its links, and is edited in place', 'Subtasks with a progress bar, notes in their own column, people and the rest beside them'] },
     { id: 'polish1103', date: '2026-11-03', area: 'look', title: 'Small polish',
       text: 'Little things noticed in use, tidied up.',
-      points: ['People cards: names, counts and tags lined up'] },
+      points: ['People cards: names, counts and tags lined up, and every card in a row starting at the same height'] },
     { id: 'timeline', date: '2026-11-02', area: 'knowledge', title: 'This timeline',
       text: 'The project\'s own story on GitHub Pages, kept up to date as the work goes on.',
       points: ['Commits per day worked out from git every time it\'s published', 'A pin added with every user-visible change', 'And somewhere on this page, something hidden…'] },

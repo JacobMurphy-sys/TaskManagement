@@ -1303,7 +1303,7 @@ body.not-admin .only-not-admin { display: block; }
 body.not-admin .admin-only, body.not-admin a[href="#/kpi/sources"], body.not-admin [data-action="library-import"], body.not-admin [data-lib-del-doc], body.not-admin [data-lib-del-folder],
 body.not-admin [data-pll-speed], body.not-admin [data-pll-oee], body.not-admin [data-pll-otto], body.not-admin [data-pll="speeds"], body.not-admin [data-pll="oees"], body.not-admin [data-pll="ottos"],
 body.not-admin .pll-switch button { display: none !important; }
-.grid > .card + .card { margin-top: 0; } /* in a grid the gap spaces cards evenly */
+.grid > .card + .card, .person-grid > .card + .card { margin-top: 0; } /* in a grid the gap spaces cards evenly (side by side, the first would sit higher) */
 
 .acct-host { font-weight: 600; }
 .acct-rights { margin-top: 4px; }
