@@ -246,8 +246,10 @@ async function renderTasks() {
   const list = await api.get('/tasks?standalone=1');
   const board = store.get('standaloneView', 'list') === 'board';
   const hideDone = store.get('hideDoneStandalone', false);
+  const focus = store.get('taskFocus', '');
   const tree = buildTree(list);
-  const shown = hideDone ? tree.filter((t) => t.status !== 'done') : tree;
+  const flat = hideDone ? list.filter((t) => t.status !== 'done') : list;
+  const shown = focusTree(hideDone ? tree.filter((t) => t.status !== 'done') : tree, focus);
   const open = list.filter((t) => t.status !== 'done').length;
   const pseudo = { baseline_set_at: null };
   main().innerHTML = `
@@ -258,11 +260,12 @@ async function renderTasks() {
         <button data-action="standalone-view" data-view="list" class="${board ? '' : 'on'}">☰ List</button>
         <button data-action="standalone-view" data-view="board" class="${board ? 'on' : ''}">▦ Board</button>
       </div></div>
-    <div class="card">
+    ${board ? '' : taskStripHtml(flat, focus, { done: !hideDone })}
+    <div class="card task-card">
       ${board ? taskBoardHtml(list.filter((t) => !t.parent_id)) : `
-        ${shown.length ? taskListHtml(shown, pseudo, hideDone) : '<div class="empty">No tasks here yet. Add one below.</div>'}
+        ${shown.length ? taskListHtml(shown, pseudo, hideDone) : `<div class="empty">${focus ? 'None of these right now.' : 'No tasks here yet. Add one below.'}</div>`}
         <div class="add-task"><input type="text" id="add-task-input" placeholder="Add a task… (Enter)   e.g. Renew parking permit @fri !high" autocomplete="off"></div>`}
-      <div class="small muted" style="margin-top:6px">${SHORTCUTS_HELP} · Open a task to move it into a project, or to 🚀 promote it to a project of its own.</div>
+      <div class="small muted" style="margin-top:6px">${SHORTCUTS_HELP} · Click a status or priority to change it · ▾ folds a task's subtasks · Open a task to move it into a project, or to 🚀 promote it to a project of its own.</div>
     </div>`;
   for (const id of ['#add-task-input', '#board-add']) {
     $(id)?.addEventListener('keydown', async (e) => {
@@ -290,29 +293,40 @@ document.addEventListener('click', (e) => { const b = e.target.closest('[data-ta
 async function renderAllTasks() {
   const all = await api.get('/tasks?open=1');
   const who = store.get('tasksPerson', '') || ''; const proj = store.get('tasksProject', '') || ''; const sort = store.get('tasksSort', 'due');
+  const focus = store.get('taskFocus', '') === 'done' ? '' : store.get('taskFocus', '');
   const everyone = [...new Set(all.flatMap((t) => splitOwners(t.owner)))].filter((n, i, a) => a.findIndex((x) => sameName(x, n)) === i).sort((a, b) => a.localeCompare(b));
   const projects = [...new Map(all.filter((t) => t.project_id).map((t) => [t.project_id, t.project_name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  let list = all.filter((t) => (!who || (who === '—' ? !t.owner : splitOwners(t.owner).some((o) => sameName(o, who)))) && (!proj || String(t.project_id || 0) === proj));
-  const SORTS = { due: ['Due date', (a, b) => String(a.due_at || '9').localeCompare(String(b.due_at || '9')) || b.priority - a.priority],
-    priority: ['Priority', (a, b) => b.priority - a.priority || String(a.due_at || '9').localeCompare(String(b.due_at || '9'))],
+  const list = all.filter((t) => (!who || (who === '—' ? !t.owner : splitOwners(t.owner).some((o) => sameName(o, who)))) && (!proj || String(t.project_id || 0) === proj));
+  // subtasks under their task (a subtask whose task isn't listed stands on its own, with its task's name)
+  const roots = buildTree(list);
+  // each task sorted by the most pressing of itself and its subtasks
+  const fam = (t) => [t, ...(t.children || []).flatMap(fam)];
+  const due = (t) => fam(t).map((x) => x.due_at || '9').sort()[0];
+  const prio = (t) => Math.max(...fam(t).map((x) => x.priority));
+  const SORTS = { due: ['Due date', (a, b) => due(a).localeCompare(due(b)) || prio(b) - prio(a)],
+    priority: ['Priority', (a, b) => prio(b) - prio(a) || due(a).localeCompare(due(b))],
     age: ['Open longest', (a, b) => String(a.created_at).localeCompare(String(b.created_at))],
-    owner: ['Owner', (a, b) => String(a.owner || '~').localeCompare(String(b.owner || '~')) || String(a.due_at || '9').localeCompare(String(b.due_at || '9'))],
-    project: ['Project', (a, b) => String(a.project_name || '~').localeCompare(String(b.project_name || '~')) || String(a.due_at || '9').localeCompare(String(b.due_at || '9'))] };
-  list = list.sort((SORTS[sort] || SORTS.due)[1]);
+    owner: ['Owner', (a, b) => String(a.owner || '~').localeCompare(String(b.owner || '~')) || due(a).localeCompare(due(b))],
+    project: ['Project', (a, b) => String(a.project_name || '~').localeCompare(String(b.project_name || '~')) || due(a).localeCompare(due(b))] };
+  const sorted = focusTree(roots.sort((SORTS[sort] || SORTS.due)[1]), focus);
+  const pseudo = { baseline_set_at: null };
+  const opts = { drag: false, project: sort !== 'project', crumb: true };
   // grouped by owner when sorted by owner, by project when sorted by project
   const groupKey = sort === 'owner' ? (t) => splitOwners(t.owner)[0] || '' : sort === 'project' ? (t) => t.project_name || '' : null;
   let body = '';
-  if (groupKey) { const groups = new Map(); for (const t of list) { const k = groupKey(t); (groups.get(k) || groups.set(k, []).get(k)).push(t); }
-    body = [...groups].map(([k, ts]) => `<h3 class="tasks-group">${sort === 'owner' ? (k ? personChip(k) : '<span class="muted">No owner</span>') : esc(k || '✅ Standalone tasks')} <span class="small muted">${ts.length}</span></h3><ul class="mini">${ts.map(miniTask).join('')}</ul>`).join('');
-  } else body = `<ul class="mini">${list.map(miniTask).join('')}</ul>`;
-  const overdue = list.filter((t) => t.due_at && t.due_at < new Date().toISOString()).length;
+  if (groupKey) {
+    const groups = new Map(); for (const t of sorted) { const k = groupKey(t); (groups.get(k) || groups.set(k, []).get(k)).push(t); }
+    body = [...groups].map(([k, ts]) => `<h3 class="tasks-group">${sort === 'owner' ? (k ? personChip(k) : '<span class="muted">No owner</span>') : esc(k || '✅ Standalone tasks')} <span class="small muted">${fam({ children: ts }).length - 1}</span></h3>${taskListHtml(ts, pseudo, false, opts)}`).join('');
+  } else body = taskListHtml(sorted, pseudo, false, opts);
   main().innerHTML = `
     <div class="kanban-tools"><h1 style="margin:0">✅ Tasks</h1>${tasksScopeSeg('all')}
       <label class="person-pick" title="One person's open tasks">${who && who !== '—' ? personDot(who) : '👤'}<select id="tasks-person"><option value="">Everyone</option><option value="—" ${who === '—' ? 'selected' : ''}>No owner</option>${everyone.map((n) => `<option ${sameName(n, who) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
       <label class="person-pick" title="One project's open tasks">🗂<select id="tasks-project"><option value="">All projects</option><option value="0" ${proj === '0' ? 'selected' : ''}>✅ Standalone</option>${projects.map(([id, n]) => `<option value="${id}" ${String(id) === proj ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
       <label class="person-pick" title="Order">↕<select id="tasks-sort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sort ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <div class="spacer"></div><span class="muted small">${list.length} open${overdue ? ` · <b class="pl-late">${overdue} overdue</b>` : ''} · ↳ = a subtask</span></div>
-    <div class="card all-tasks">${list.length ? body : '<div class="empty">Nothing open here.</div>'}</div>`;
+      <div class="spacer"></div></div>
+    ${taskStripHtml(list, focus, { done: false })}
+    <div class="card all-tasks task-card">${sorted.length ? body : `<div class="empty">${focus ? 'None of these right now.' : 'Nothing open here.'}</div>`}
+      <div class="small muted" style="margin-top:8px">Subtasks sit under their task (↳ marks one whose task isn't in the list) · click a status or priority to change it · ▾ folds a task's subtasks</div></div>`;
   $('#tasks-person').onchange = (e) => { store.set('tasksPerson', e.target.value); route(); };
   $('#tasks-project').onchange = (e) => { store.set('tasksProject', e.target.value); route(); };
   $('#tasks-sort').onchange = (e) => { store.set('tasksSort', e.target.value); route(); };

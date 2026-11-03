@@ -525,10 +525,11 @@ document.addEventListener('click', (e) => {
   else b.innerHTML = `Show ${Math.min(step, rest)} more${b.dataset.word ? ` ${esc(b.dataset.word)}` : ''} <span class="muted">(${rest} hidden)</span>`;
 });
 // A task list with only the latest completed tasks shown (the rest behind "Show more").
-function taskListHtml(list, p, hideDone) {
+function taskListHtml(list, p, hideDone, o = {}) {
   const done = list.filter((t) => t.status === 'done').sort((a, b) => String(b.completed_at || '').localeCompare(String(a.completed_at || '')));
   const hide = new Set(done.slice(DONE_SHOWN).map((t) => t.id));
-  return `<div class="more-scope"><ul class="tasks">${list.map((t) => (hide.has(t.id) ? hideItem(taskRow(t, p, hideDone)) : taskRow(t, p, hideDone))).join('')}</ul>${moreButton(hide.size, DONE_SHOWN, 'completed')}</div>`;
+  const row = (t) => taskRow(t, p, hideDone, { ...o, crumb: o.crumb, ctx: t._ctx });
+  return `<div class="more-scope"><ul class="tasks tl-list ${o.project ? 'with-proj' : ''}">${list.map((t) => (hide.has(t.id) ? hideItem(row(t)) : row(t))).join('')}</ul>${moreButton(hide.size, DONE_SHOWN, 'completed')}</div>`;
 }
 
 async function renderDashboard() {
@@ -693,31 +694,136 @@ function buildTree(tasks) {
   return sort(roots);
 }
 
-function taskRow(t, p, hideDone) {
+// ---- ✅ task lists: one row per task, its subtasks under it on a tree line --------------------
+// Visual management: the priority is the coloured edge (and its pill), the status a coloured button,
+// overdue and blocked rows are tinted, a task with subtasks shows a bar of how many are done and can be
+// folded (▾). Status and priority change in place from their buttons. Columns line up between tasks and
+// subtasks: only the title moves in for a subtask.
+const STATUS_ICON = { todo: '○', in_progress: '▶', blocked: '⛔', done: '✓' };
+const folded = () => new Set(store.get('taskFolded', []));
+const statusBtn = (t, open = 0) => `<button type="button" class="tl-status st-${t.status}" data-task-status="${t.id}" data-subs="${open}" title="Status: ${STATUS[t.status]} — click to change">${STATUS_ICON[t.status]} <span>${STATUS[t.status]}</span></button>`;
+const prioBtn = (t) => `<button type="button" class="tl-prio pill prio-${t.priority}" data-task-prio="${t.id}" title="Priority: ${PRIORITY[t.priority]} — click to change">${PRIORITY[t.priority]}</button>`;
+function subProgress(t) {
+  const all = t._all || t.children || []; const n = all.length; if (!n) return '';
+  const doneN = all.filter((c) => c.status === 'done').length;
+  return `<span class="tl-prog" title="${doneN} of ${n} subtasks done"><i style="width:${Math.round((doneN / n) * 100)}%"></i></span><span class="tl-prog-n">${doneN}/${n}</span>`;
+}
+// o: { depth, drag (reorder handle, default on), project (show the project), crumb (a subtask shown without its parent), ctx (shown only for its matching subtasks) }
+function taskRow(t, p, hideDone, o = {}) {
+  const depth = o.depth || 0;
   const done = t.status === 'done';
   const added = p.baseline_set_at && !t.is_baseline;
-  const kids = hideDone ? t.children.filter((c) => c.status !== 'done') : t.children;
-  const open = t.children.filter((c) => c.status !== 'done').length;
-  return `<li class="task ${done ? 'done' : ''}" data-id="${t.id}">
+  const children = t.children || [];
+  const kids = hideDone ? children.filter((c) => c.status !== 'done') : children;
+  const open = (t._all || children).filter((c) => c.status !== 'done').length;
+  const overdue = !done && t.due_at && dayDiff(t.due_at) < 0;
+  const isFolded = kids.length && folded().has(t.id);
+  const cls = ['task', `prio-row-${t.priority}`, `st-${t.status}`, depth ? 'is-sub' : 'is-root', (t._all || children).length ? 'has-kids' : '', done ? 'done' : '', overdue ? 'is-overdue' : '', isFolded ? 'folded' : '', o.ctx ? 'is-ctx' : ''].filter(Boolean).join(' ');
+  return `<li class="${cls}" data-id="${t.id}" style="--depth:${depth}">
     <div class="task-line">
-      ${dragHandle()}
-      <input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${open}" ${done ? 'checked' : ''} title="${done ? `Completed ${esc(fmtDateTime(t.completed_at))}` : 'Mark done'}">
-      <span class="task-title" data-action="open-task" data-id="${t.id}" data-rename title="Click to open · double-click to rename">${esc(t.title)}</span>
-      ${statusChip(t.status)} ${t.priority !== 2 ? prioPill(t.priority) : ''} ${dueChip(t)} ${ownerChip(t)} ${waitingChip(t)} ${repeatChip(t)}
-      ${added ? `<span class="badge added" title="Added ${esc(fmtDateTime(t.created_at))}, after the baseline">+ added</span>` : ''}
-      ${t.children.length ? `<span class="small muted" title="Subtasks done">☑ ${t.children.length - open}/${t.children.length}</span>` : ''}
-      ${t.next_reminder ? `<span class="small" title="Reminder ${esc(fmtDateTime(t.next_reminder))}">🔔</span>` : ''}
-      ${t.note_count ? `<span class="small muted" title="Notes">📝 ${t.note_count}</span>` : ''}
-      ${t.attachment_count ? `<span class="small muted" title="Attachments">📎 ${t.attachment_count}</span>` : ''}
-      <span class="row-actions">
-        <button class="icon" data-action="rename-task" title="Rename (or double-click the title)">✎</button>
-        <button class="icon" data-action="add-subtask" data-id="${t.id}" title="Add subtask">＋ sub</button>
-        <button class="icon" data-action="remind-task" data-id="${t.id}" title="Set a reminder">🔔</button>
-      </span>
+      ${o.drag === false ? '<span class="drag-gap"></span>' : dragHandle()}
+      <div class="tl-main">
+        ${kids.length ? `<button type="button" class="tl-fold" data-fold="${t.id}" aria-expanded="${!isFolded}" title="${isFolded ? 'Show' : 'Fold away'} its subtasks">▾</button>` : '<span class="tl-fold"></span>'}
+        <input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${open}" ${done ? 'checked' : ''} title="${done ? `Completed ${esc(fmtDateTime(t.completed_at))}` : 'Mark done'}">
+        ${o.crumb && t.parent_title ? `<span class="sub-mark" title="A subtask of ${esc(t.parent_title)}">↳ ${esc(t.parent_title)} ›</span>` : ''}
+        <span class="task-title" data-action="open-task" data-id="${t.id}" data-rename title="Click to open · double-click to rename">${esc(t.title)}</span>
+        ${subProgress(t)}
+        ${added ? `<span class="badge added" title="Added ${esc(fmtDateTime(t.created_at))}, after the baseline">+ added</span>` : ''}
+        ${repeatChip(t)}
+        ${t.next_reminder ? `<span class="small" title="Reminder ${esc(fmtDateTime(t.next_reminder))}">🔔</span>` : ''}
+        ${t.note_count ? `<span class="small muted" title="Notes">📝 ${t.note_count}</span>` : ''}
+        ${t.attachment_count ? `<span class="small muted" title="Attachments">📎 ${t.attachment_count}</span>` : ''}
+        ${waitingChip(t)}
+        <span class="row-actions">
+          <button class="icon" data-action="rename-task" title="Rename (or double-click the title)">✎</button>
+          <button class="icon" data-action="add-subtask" data-id="${t.id}" title="Add a subtask">＋ sub</button>
+          <button class="icon" data-action="remind-task" data-id="${t.id}" title="Set a reminder">🔔</button>
+        </span>
+      </div>
+      <div class="tl-meta">
+        ${o.project ? `<span class="tl-proj">${depth ? '' : t.project_id ? `<a href="#/project/${t.project_id}" title="${esc(t.project_name)}">${esc(t.project_name)}</a>` : '<span class="muted">✅ Standalone</span>'}</span>` : ''}
+        <span class="tl-due">${dueChip(t)}</span>
+        <span class="tl-owner">${ownerChip(t)}</span>
+        ${statusBtn(t, open)}
+        ${prioBtn(t)}
+      </div>
     </div>
     <div class="add-sub-slot" data-slot="${t.id}"></div>
-    ${kids.length ? `<ul class="subtasks">${kids.map((c) => taskRow(c, p, hideDone)).join('')}</ul>` : ''}
+    ${kids.length ? `<ul class="subtasks">${kids.map((c) => taskRow(c, p, hideDone, { ...o, depth: depth + 1, crumb: false, ctx: c._ctx })).join('')}</ul>` : ''}
   </li>`;
+}
+
+// ---- the strip of counts over a task list: what needs attention, at a glance; a click filters -----
+const TASK_FOCUS = {
+  overdue: ['⚠', 'Overdue', (t) => t.status !== 'done' && t.due_at && dayDiff(t.due_at) < 0, 'bad'],
+  blocked: ['⛔', 'Blocked', (t) => t.status === 'blocked', 'bad'],
+  in_progress: ['▶', 'In progress', (t) => t.status === 'in_progress', 'go'],
+  todo: ['○', 'To do', (t) => t.status === 'todo', ''],
+  done: ['✓', 'Done', (t) => t.status === 'done', 'ok'],
+  p4: ['', 'Critical', (t) => t.priority === 4 && t.status !== 'done', 'p4'],
+  p3: ['', 'High', (t) => t.priority === 3 && t.status !== 'done', 'p3'],
+};
+function taskStripHtml(flat, focus, { done = true } = {}) {
+  const subs = flat.filter((t) => t.parent_id).length;
+  const tile = (k) => { const [ic, label, test, tone] = TASK_FOCUS[k]; const n = flat.filter(test).length;
+    if (!n && focus !== k && (k === 'done' || k.startsWith('p'))) return '';
+    return `<button type="button" class="ts-tile ts-${tone || 'plain'} ${focus === k ? 'on' : ''} ${n ? '' : 'zero'}" data-task-focus="${k}" title="${focus === k ? 'Show them all again' : `Only the ${label.toLowerCase()} ones`}">${ic ? `<span class="ts-ic">${ic}</span>` : '<i class="ts-dot"></i>'}<b>${n}</b><span>${label}</span></button>`; };
+  return `<div class="task-strip" role="group" aria-label="Filter the tasks">
+    ${['overdue', 'blocked', 'in_progress', 'todo', ...(done ? ['done'] : [])].map(tile).join('')}
+    <span class="ts-sep"></span>${['p4', 'p3'].map(tile).join('')}
+    <span class="spacer"></span>
+    <span class="ts-info small muted">${flat.length - subs} task${flat.length - subs === 1 ? '' : 's'} · ${subs} subtask${subs === 1 ? '' : 's'}</span>
+    ${focus ? `<button type="button" class="link small" data-task-focus="">✕ Show all</button>` : ''}
+  </div>`;
+}
+// Only the tasks matching the focus, each with the parent it belongs to (shown faded, for context).
+function focusTree(roots, focus) {
+  const test = TASK_FOCUS[focus]?.[2]; if (!test) return roots;
+  const walk = (list) => list.flatMap((t) => {
+    const kids = walk(t.children || []); const hit = test(t);
+    return hit || kids.length ? [{ ...t, children: kids, _all: t.children || [], _ctx: !hit }] : [];
+  });
+  return walk(roots);
+}
+document.addEventListener('click', (e) => {
+  const f = e.target.closest('[data-task-focus]');
+  if (f) { const k = f.dataset.taskFocus; store.set('taskFocus', store.get('taskFocus', '') === k ? '' : k); route(); return; }
+  const fold = e.target.closest('[data-fold]');
+  if (fold) {
+    const id = Number(fold.dataset.fold); const set = folded(); const li = fold.closest('li[data-id]');
+    if (set.has(id)) set.delete(id); else set.add(id);
+    store.set('taskFolded', [...set].slice(-300));
+    li.classList.toggle('folded', set.has(id)); fold.setAttribute('aria-expanded', String(!set.has(id)));
+    fold.title = `${set.has(id) ? 'Show' : 'Fold away'} its subtasks`;
+    return;
+  }
+  const sb = e.target.closest('[data-task-status]'); if (sb) { taskPickMenu(sb, 'status'); return; }
+  const pb = e.target.closest('[data-task-prio]'); if (pb) { taskPickMenu(pb, 'priority'); }
+});
+// The little menu under a status or priority button
+function taskPickMenu(btn, kind) {
+  $('#tl-menu')?.remove();
+  const id = Number(btn.dataset.taskStatus || btn.dataset.taskPrio);
+  const items = kind === 'status'
+    ? Object.entries(STATUS).map(([k, l]) => `<button type="button" class="tl-status st-${k}" data-pick="${k}">${STATUS_ICON[k]} ${l}</button>`)
+    : [4, 3, 2, 1].map((k) => `<button type="button" class="pill prio-${k}" data-pick="${k}">${PRIORITY[k]}</button>`);
+  const m = document.createElement('div'); m.id = 'tl-menu'; m.className = `tl-menu card tl-menu-${kind}`; m.setAttribute('role', 'menu');
+  m.innerHTML = items.join(''); document.body.append(m);
+  const r = btn.getBoundingClientRect();
+  m.style.left = `${Math.max(8, Math.min(window.innerWidth - m.offsetWidth - 8, r.left + r.width / 2 - m.offsetWidth / 2))}px`;
+  m.style.top = `${r.bottom + 6 + m.offsetHeight > window.innerHeight ? r.top - m.offsetHeight - 6 : r.bottom + 6}px`;
+  m.querySelector('[data-pick]')?.focus();
+  const close = () => { m.remove(); document.removeEventListener('mousedown', away, true); document.removeEventListener('keydown', keys, true); };
+  const away = (e) => { if (!m.contains(e.target)) close(); };
+  const keys = (e) => { if (e.key === 'Escape') { close(); btn.focus(); } };
+  setTimeout(() => { document.addEventListener('mousedown', away, true); document.addEventListener('keydown', keys, true); });
+  m.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-pick]'); if (!b) return; close();
+    try {
+      if (kind === 'status') await setTaskStatus(id, b.dataset.pick, Number(btn.dataset.subs) || 0);
+      else { await api.patch(`/tasks/${id}`, { priority: Number(b.dataset.pick) }); await refresh(); }
+    } catch (err) { toast(err.message, 'error'); }
+  });
 }
 
 function baselineBox(p) {
