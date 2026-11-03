@@ -763,6 +763,7 @@ const TASK_FOCUS = {
   p4: ['', 'Critical', (t) => t.priority === 4 && t.status !== 'done', 'p4'],
   p3: ['', 'High', (t) => t.priority === 3 && t.status !== 'done', 'p3'],
 };
+const subCardsToggle = () => `<label class="small muted row" title="Give each subtask a card of its own in its status column (marked ↳ with its task), to move it on its own"><input type="checkbox" data-action="board-subcards" ${store.get('boardSubCards', false) ? 'checked' : ''}> ↳ Subtasks as cards</label>`;
 function taskStripHtml(flat, focus, { done = true } = {}) {
   const subs = flat.filter((t) => t.parent_id).length;
   const tile = (k) => { const [ic, label, test, tone] = TASK_FOCUS[k]; const n = flat.filter(test).length;
@@ -1082,7 +1083,7 @@ async function renderProject(id, tab) {
   const tabs = `<div class="tabs"><a href="#/project/${p.id}" class="${tab === 'charter' ? '' : 'on'}">Overview</a>
     <a href="#/project/${p.id}/charter" class="${tab === 'charter' ? 'on' : ''}">📋 Charter <span class="small muted">${p.charter.completeness.pct}%</span></a></div>`;
   const hideDone = store.get('hideDone', false);
-  const view = store.get('tasksView', 'list');
+  const view = store.get('projTaskView', 'board'); // ▦ the board first
   const board = view === 'board';
   const gantt = view === 'gantt';
   const notesOnly = store.get('notesOnly', false);
@@ -1135,15 +1136,15 @@ async function renderProject(id, tab) {
         <div class="list-tools">
           <h2 style="margin:0">Tasks <span class="muted small">${done}/${p.tasks.length} done</span></h2>
           <div class="row">
-            ${board ? '' : `<label class="small muted row"><input type="checkbox" data-action="toggle-hide-done" ${hideDone ? 'checked' : ''}> Hide completed</label>`}
+            ${board ? subCardsToggle() : `<label class="small muted row"><input type="checkbox" data-action="toggle-hide-done" ${hideDone ? 'checked' : ''}> Hide completed</label>`}
             <div class="seg" role="group" aria-label="Task view">
+              <button data-action="tasks-view" data-view="board" class="${board ? 'on' : ''}" title="A column per status">▦ Board</button>
               <button data-action="tasks-view" data-view="list" class="${view === 'list' ? 'on' : ''}" title="Checklist">☰ List</button>
-              <button data-action="tasks-view" data-view="board" class="${board ? 'on' : ''}" title="Mini Kanban">▦ Board</button>
               <button data-action="tasks-view" data-view="gantt" class="${gantt ? 'on' : ''}" title="Gantt chart">▤ Gantt</button>
             </div>
           </div>
         </div>
-        ${gantt ? '<div id="gantt-root"></div>' : board ? taskBoardHtml(p.tasks.filter((t) => !t.parent_id)) : `
+        ${gantt ? '<div id="gantt-root"></div>' : board ? `${taskStripHtml(p.tasks, store.get('taskFocus', ''))}${taskBoardHtml(p.tasks, { focus: store.get('taskFocus', ''), subCards: store.get('boardSubCards', false) })}` : `
         ${p.charter.phases.length ? phasedTaskList(p, shown, hideDone)
           : shown.length ? taskListHtml(shown, p, hideDone) : '<div class="empty">No tasks yet — add one below.</div>'}
         <div class="add-task row">
@@ -1388,29 +1389,69 @@ async function renderKanban() {
 }
 
 // A project's own mini Kanban of its top-level tasks.
-function taskBoardHtml(tasks) {
-  const cols = Object.keys(STATUS);
-  const doneLimit = DONE_SHOWN;
-  const byStatus = Object.fromEntries(cols.map((st) => [st, tasks.filter((t) => t.status === st)]));
-  byStatus.done.sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)));
-  const card = (t) => `<div class="kcard p${t.priority} ${t.status === 'done' ? 'done' : ''}" draggable="true" data-id="${t.id}">
-      <div class="ktitle"><input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${t.subtask_count - t.subtask_done}" ${t.status === 'done' ? 'checked' : ''}>
-        <span data-action="open-task" data-id="${t.id}" style="cursor:pointer">${esc(t.title)}</span></div>
-      ${t.phase_name ? `<div class="small muted" title="Phase">🧭 ${esc(t.phase_name)}</div>` : ''}
-      <div class="kmeta">${t.priority !== 2 ? prioPill(t.priority) : ''} ${dueChip(t)} ${ownerChip(t)}
-        ${t.subtask_count ? `<span class="small muted">☑ ${t.subtask_done}/${t.subtask_count}</span>` : ''}
-        ${t.next_reminder ? '<span class="small">🔔</span>' : ''}${t.note_count ? `<span class="small muted">📝 ${t.note_count}</span>` : ''}</div>
-      ${t.subtask_count ? `<div class="progress"><div style="width:${Math.round((t.subtask_done / t.subtask_count) * 100)}%"></div></div>` : ''}
+// ---- ▦ The task board: the main way to see tasks ------------------------------------------------
+// A column per status; a card per task, its priority the coloured edge, overdue ones tinted. A task's
+// subtasks are a checklist on its card (tick, change status, ＋ add), or — with "Subtasks as cards" —
+// cards of their own in their own status column, marked ↳ with their task. Drag a card to another
+// column to change its status. tasks: the flat list (subtasks included).
+// o: { project (show each card's project), subCards, lanes: 'owner' | 'project', focus, cols, sort: (a, b) => …, add (the ＋ Add task box) }
+function taskBoardHtml(tasks, o = {}) {
+  const cols = o.cols || Object.keys(STATUS);
+  const ids = new Set(tasks.map((t) => t.id));
+  const tree = buildTree(tasks);
+  // the cards: each task with its subtasks; or every task its own card
+  let cards = o.subCards ? tasks.map((t) => ({ ...t, children: [], _crumb: !!t.parent_id })) : tree.map((t) => ({ ...t, _crumb: !!t.parent_id && !ids.has(t.parent_id) }));
+  if (o.focus) {
+    const test = TASK_FOCUS[o.focus]?.[2];
+    if (test) cards = o.subCards ? cards.filter(test) : focusTree(cards, o.focus);
+  }
+  if (o.sort) cards.sort(o.sort);
+  const card = (t) => {
+    const done = t.status === 'done'; const overdue = !done && t.due_at && dayDiff(t.due_at) < 0;
+    const all = t._all || t.children || []; const kids = t.children || [];
+    const openKids = all.filter((c) => c.status !== 'done');
+    const nDone = all.length - openKids.length;
+    const subCount = o.subCards ? (t.subtask_count || 0) : all.length; const subDone = o.subCards ? (t.subtask_done || 0) : nDone;
+    // the checklist: open subtasks first (in order), then the done ones; 5 shown, the rest behind "more"
+    const list = [...kids.filter((c) => c.status !== 'done'), ...kids.filter((c) => c.status === 'done')];
+    const sub = (c, i) => `<li class="tc-sub st-${c.status} ${c.status !== 'done' && c.due_at && dayDiff(c.due_at) < 0 ? 'is-overdue' : ''}" ${i >= 5 ? 'data-more hidden' : ''}>
+        <input type="checkbox" data-action="toggle-task" data-id="${c.id}" data-subs="${(c.children || []).filter((x) => x.status !== 'done').length}" ${c.status === 'done' ? 'checked' : ''} title="${c.status === 'done' ? 'Done' : 'Mark done'}">
+        <span class="tc-sub-t" data-action="open-task" data-id="${c.id}" title="Open the subtask">${esc(c.title)}</span>
+        ${c.due_at && c.status !== 'done' ? `<span class="tc-sub-due ${dayDiff(c.due_at) < 0 ? 'bad' : dayDiff(c.due_at) <= 1 ? 'soon' : ''}" title="Due ${esc(fmtDate(c.due_at))}">${esc(fmtShortDate(c.due_at))}</span>` : ''}
+        ${splitOwners(c.owner).slice(0, 2).map(personDot).join('')}
+        <button type="button" class="tc-sub-st st-${c.status}" data-task-status="${c.id}" data-subs="0" title="${STATUS[c.status]} — click to change">${STATUS_ICON[c.status]}</button></li>`;
+    return `<div class="kcard tcard p${t.priority} st-${t.status} ${done ? 'done' : ''} ${overdue ? 'is-overdue' : ''} ${t._ctx ? 'is-ctx' : ''} ${t.parent_id ? 'is-subcard' : ''}" draggable="true" data-id="${t.id}">
+      ${t._crumb && t.parent_title ? `<div class="tc-crumb" title="A subtask of ${esc(t.parent_title)}">↳ ${esc(t.parent_title)}</div>` : ''}
+      <div class="tc-head"><input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${openKids.length || (o.subCards ? (t.subtask_count || 0) - (t.subtask_done || 0) : 0)}" ${done ? 'checked' : ''} title="${done ? 'Done' : 'Mark done'}">
+        <span class="tc-title" data-action="open-task" data-id="${t.id}" title="Open the task">${esc(t.title)}</span>
+        <button type="button" class="tc-sub-st tc-st st-${t.status}" data-task-status="${t.id}" data-subs="${openKids.length}" title="${STATUS[t.status]} — click to move it (or drag the card)">${STATUS_ICON[t.status]}</button>
+        ${prioBtn(t)}</div>
+      ${o.project ? `<div class="tc-proj">${t.project_id ? `<a href="#/project/${t.project_id}">🗂 ${esc(t.project_name)}</a>` : '<span class="muted">✅ Standalone</span>'}</div>` : ''}
+      ${t.phase_name ? `<div class="tc-proj muted" title="Phase">🧭 ${esc(t.phase_name)}</div>` : ''}
+      <div class="tc-meta">${dueChip(t)} ${ownerChip(t)} ${waitingChip(t)} ${repeatChip(t)}
+        ${t.next_reminder ? '<span class="small" title="Reminder">🔔</span>' : ''}${t.note_count ? `<span class="small muted" title="Notes">📝 ${t.note_count}</span>` : ''}${t.attachment_count ? `<span class="small muted" title="Attachments">📎 ${t.attachment_count}</span>` : ''}</div>
+      ${subCount ? `<div class="tc-prog" title="${subDone} of ${subCount} subtasks done"><span class="tl-prog"><i style="width:${Math.round((subDone / subCount) * 100)}%"></i></span><span class="tl-prog-n">${subDone}/${subCount} subtasks</span></div>` : ''}
+      ${list.length ? `<div class="more-scope"><ul class="tc-subs">${list.map(sub).join('')}</ul>${moreButton(list.length - 5, 10, 'subtasks')}</div>` : ''}
+      ${o.subCards ? '' : `<div class="tc-add"><button type="button" class="link small" data-action="add-subtask" data-id="${t.id}" title="Add a subtask to this task">＋ subtask</button><div class="add-sub-slot" data-slot="${t.id}"></div></div>`}
     </div>`;
-  return `<div class="kanban mini">${cols.map((st) => {
-    const list = byStatus[st];
-    return `<div class="column more-scope" data-status="${st}">
-      <h3>${STATUS[st]} <span class="muted small">${byStatus[st].length}</span></h3>
-      ${list.map((t, i) => (st === 'done' && i >= doneLimit ? hideItem(card(t)) : card(t))).join('')}
-      ${st === 'done' ? moreButton(byStatus.done.length - doneLimit, doneLimit, 'completed') : ''}
-      ${st === 'todo' ? '<input type="text" id="board-add" placeholder="+ Add task… (Enter)" autocomplete="off">' : ''}
+  };
+  const columns = (list, laneKey = '') => cols.map((st) => {
+    let inCol = list.filter((t) => t.status === st);
+    if (st === 'done') inCol = inCol.sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)));
+    return `<div class="column tcol more-scope st-${st}" data-status="${st}">
+      <h3 class="tcol-head"><span>${STATUS_ICON[st]} ${STATUS[st]}</span><span class="tcol-n">${inCol.length}</span></h3>
+      <div class="tcol-cards">${inCol.map((t, i) => (st === 'done' && i >= DONE_SHOWN ? hideItem(card(t)) : card(t))).join('') || '<div class="tcol-empty">Drop a task here</div>'}</div>
+      ${st === 'done' ? moreButton(inCol.length - DONE_SHOWN, DONE_SHOWN, 'completed') : ''}
+      ${st === 'todo' && o.add !== false && !laneKey ? '<input type="text" id="board-add" class="tcol-add" placeholder="＋ Add a task… (Enter)" autocomplete="off">' : ''}
     </div>`;
-  }).join('')}</div>`;
+  }).join('');
+  const board = (list, laneKey) => `<div class="tboard" style="--cols:${cols.length}">${columns(list, laneKey)}</div>`;
+  if (!o.lanes) return board(cards);
+  // swimlanes: one row of columns per person or per project
+  const keyOf = o.lanes === 'owner' ? (t) => splitOwners(t.owner)[0] || '' : (t) => (t.project_id ? t.project_name : '');
+  const lanes = new Map(); for (const t of cards) { const k = keyOf(t); (lanes.get(k) || lanes.set(k, []).get(k)).push(t); }
+  const order = [...lanes.keys()].sort((a, b) => (!a) - (!b) || a.localeCompare(b));
+  return order.map((k) => `<section class="tlane"><h3 class="tlane-head">${o.lanes === 'owner' ? (k ? personChip(k) : '<span class="muted">No owner</span>') : esc(k || '✅ Standalone tasks')} <span class="small muted">${lanes.get(k).length}</span></h3>${board(lanes.get(k), k)}</section>`).join('');
 }
 
 // ======================================================================
@@ -2476,8 +2517,9 @@ const actions = {
   'rename-task': (el) => startRename(el.closest('.task-line').querySelector('[data-rename]')),
   'toggle-task': (el) => setTaskStatus(el.dataset.id, el.checked ? 'done' : 'todo', Number(el.dataset.subs || 0)),
   'toggle-hide-done': (el) => { store.set('hideDone', el.checked); route(); },
-  'tasks-view': (el) => { store.set('tasksView', el.dataset.view); route(); },
-  'standalone-view': (el) => { store.set('standaloneView', el.dataset.view); route(); },
+  'tasks-view': (el) => { store.set('projTaskView', el.dataset.view); route(); },
+  'standalone-view': (el) => { store.set('taskPageView', el.dataset.view); route(); },
+  'board-subcards': (el) => { store.set('boardSubCards', el.checked); route(); },
   'toggle-hide-done-standalone': (el) => { store.set('hideDoneStandalone', el.checked); route(); },
   'promote-task': async (el) => { const t = await api.get(`/tasks/${el.dataset.id}`); promoteDialog(t); },
   'print-charter': () => printCharter(),
