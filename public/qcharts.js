@@ -80,7 +80,7 @@ function qxChart(spec) {
   // data labels in their little boxes, above the bars
   for (const lb of labels) {
     const w = 8 + lb.text.length * 7; const y = lb.y - 22;
-    out.push(`<rect x="${lb.x - w / 2}" y="${y}" width="${w}" height="16" fill="${lb.box}"/>`, t(lb.x, y + 12, lb.text, { anchor: 'middle', size: 11 }));
+    out.push(`<rect x="${lb.x - w / 2}" y="${y}" width="${w}" height="16" fill="${lb.box}"/>`, t(lb.x, y + 12, lb.text, { anchor: 'middle', size: 11, fill: '#404040' }));
   }
   out.push(`<line x1="${x0}" x2="${x1}" y1="${bottom}" y2="${bottom}" stroke="${QX.axis}" stroke-width="1"/>`);
   // the legend
@@ -142,6 +142,15 @@ function qxPackCharts(p, titles = {}) {
       { name: 'Target Lead Time to be Contained', color: QX.violet, kind: 'line' }, { name: 'Target Lead Time to be Communicated', color: QX.grey, kind: 'line' }],
   });
   return [['otd', titles.otd || 'Complaints OTD', otd], ['cpms', titles.cpms || 'CPMS Quality', cpms], ['lead', titles.lead || 'Lead Time Service Center', lead]];
+}
+
+// On screen the chart follows the site's theme: no white background, and its text, gridlines and the two purples
+// from the theme (styles.css --qx-…). What's copied or saved stays the white, Excel-look picture.
+function qxScreen(svg) {
+  const swap = { [`fill="${QX.text}"`]: 'style="fill:var(--qx-text)"', [`stroke="${QX.grid}"`]: 'style="stroke:var(--qx-grid)"', [`stroke="${QX.axis}"`]: 'style="stroke:var(--qx-axis)"',
+    [`fill="${QX.purple}"`]: 'style="fill:var(--qx-purple)"', [`fill="${QX.violet}"`]: 'style="fill:var(--qx-violet)"', [`stroke="${QX.violet}"`]: 'style="stroke:var(--qx-violet)"' };
+  return svg.replace(/<rect x="0" y="0" width="\d+" height="\d+" fill="#FFFFFF"\/>/, '')
+    .replace(/(fill|stroke)="#[0-9A-Fa-f]{6}"/g, (m) => swap[m] || m);
 }
 
 // ---- 📋 copy into PowerPoint, ⬇ save as a picture ------------------------------------------------------

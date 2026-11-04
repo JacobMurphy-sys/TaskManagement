@@ -177,7 +177,7 @@ function qualityHtml(d) {
             <button class="small" data-qpng="${cur === 'trend' ? 'otd' : cur}" title="Save it as a picture (PNG)">⬇ PNG</button></span>
           ${pk.settings}</div>
         <div class="qd-body qd-chart-body">
-          ${pk.charts.map(([k, , svg]) => pane('chart', k, `<div class="qd-svg">${svg}</div>`)).join('')}
+          ${pk.charts.map(([k, , svg]) => pane('chart', k, `<div class="qd-svg">${qxScreen(svg)}</div>`)).join('')}
           ${pane('chart', 'trend', `<div class="qd-trend">${qLegend(series)}${qStackChart(d.trend, series, d.month)}</div>`)}
         </div>
       </section>
