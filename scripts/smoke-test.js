@@ -1323,7 +1323,18 @@ async function waitForServer() {
         assert.deepEqual([q.cases.map((c) => c.ref), q.trend.length, q.trend[11].month, q.trend[11].Minor, q.trend[10].Major], [['00284947'], 12, '2026-04', 1, 1], 'the month\'s cases; 12 months up to it');
         assert.ok(q.months.some((m) => m.month === '2026-03') && q.months.some((m) => m.month === '2026-04'), 'months with cases to pick from');
         assert.deepEqual(q.breakdowns.customer.map((x) => [x.name, x.month, x.ytd]), [['Belfius Bank NV', 1, 1], ['Advanzia S A', 0, 1]], 'by customer: the month, then the year to date');
-        assert.equal((await call('GET', '/kpi/quality?month=nonsense')).month.length, 7, 'a month that isn\'t one: the latest');
+        assert.equal((await call('GET', '/kpi/quality?month=nonsense')).month.length, 7, 'a month that isn\'t one: the last full month');
+        // 📈 the monthly slides: 13 months up to the chosen one, and the year to date
+        const pk = q.pack;
+        assert.deepEqual([pk.months.length, pk.months[0].month, pk.months[12].month, pk.ytd.month], [13, '2025-04', '2026-04', '2026-YTD'], 'April to April');
+        assert.deepEqual([pk.months[12].cc, pk.ytd.cc, pk.months[12].shipped, Math.round(pk.months[12].cpms)], [1, 2, 800, 1250], 'Customer Complaints, per million cards shipped');
+        assert.deepEqual(pk.targets, { otd: 1, cpms: 0.75, contain: 2, communicate: 20 }, 'the targets in the team\'s charts');
+        assert.deepEqual(pk.months[11].contain, 1, 'March: contained a day after opening');
+        const tg = await call('PUT', '/kpi/quality/targets', { otd: '98', cpms: 0.6, titles: { lead: 'Lead Time Service Center - Site' } });
+        assert.deepEqual([tg.targets.otd, tg.targets.cpms, tg.titles.lead], [0.98, 0.6, 'Lead Time Service Center - Site'], 'targets set (98 → 98%), titles kept');
+        await assert.rejects(call('PUT', '/kpi/quality/targets', { otd: 150 }), /target for OTD/);
+        await call('PUT', '/kpi/quality/targets', { otd: '', cpms: '', titles: { lead: '' } });
+        assert.equal((await call('GET', '/kpi/quality?month=2026-04')).pack.targets.otd, 1, 'cleared: the default again');
       }
       // ⛑ EHS: the safety concern forms (Table1 of "SCF list"; headings as the form spells them)
       {

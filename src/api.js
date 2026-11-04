@@ -1849,15 +1849,36 @@ const splitWeekends = () => getSettings().kpi_split_weekends === '1';
 // 🧪 Quality and ⛑ EHS (the Quality module): a month (YYYY-MM) at a time. Each reads its own source file
 // first when it's changed (a quick look at the file's date otherwise), so the page is up to date when it opens.
 const qualityPages = require('./quality');
-function refreshSource(name) {
+function refreshSource(name, also = []) {
   const set = getSettings();
   try {
-    return kpiData.importSources({ paths: { salesforce: set.kpi_src_salesforce, ehs: set.kpi_src_ehs }, workbook: set.kpi_workbook_path || null, splitWeekends: splitWeekends(), only: [name] })[0] || null;
+    const res = kpiData.importSources({ paths: { salesforce: set.kpi_src_salesforce, ehs: set.kpi_src_ehs, shipped: set.kpi_src_shipped, otd: set.kpi_src_otd },
+      workbook: set.kpi_workbook_path || null, splitWeekends: splitWeekends(), only: [name, ...also] });
+    return res.find((r) => r.source === name) || null;
   } catch (err) { return { source: name, status: 'error', error: err.message }; }
 }
 router.get('/kpi/quality', h((req, res) => {
-  const read = refreshSource('salesforce');
+  const read = refreshSource('salesforce', ['shipped', 'otd']); // the pack's OTD and CPMS need the cards shipped and the delays
   res.json({ ...qualityPages.quality(req.query.month), read, path_set: !!String(getSettings().kpi_src_salesforce || '').trim() });
+}));
+// the quality pack's targets: { otd: 0.98 (or 98), cpms, contain, communicate } — the Quality team's own, so their module sets them
+router.put('/kpi/quality/targets', h((req, res) => {
+  const b = req.body || {};
+  for (const k of Object.keys(qualityPages.PACK_TARGETS)) {
+    if (b[k] === undefined) continue;
+    if (b[k] === null || b[k] === '') { db.run('DELETE FROM settings WHERE key = ?', [`quality_target_${k}`]); continue; }
+    let v = Number(String(b[k]).replace(',', '.').replace('%', ''));
+    if (k === 'otd' && v > 1) v /= 100; // 98 → 0.98
+    if (!Number.isFinite(v) || v < 0 || (k === 'otd' && v > 1)) throw new HttpError(400, `That isn't a target for ${k === 'otd' ? 'OTD (a percentage)' : k}`);
+    db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [`quality_target_${k}`, String(v)]);
+  }
+  for (const k of ['otd', 'cpms', 'lead']) {
+    if (b.titles?.[k] === undefined) continue;
+    const v = String(b.titles[k] || '').trim().slice(0, 120);
+    if (v) db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [`quality_title_${k}`, v]); else db.run('DELETE FROM settings WHERE key = ?', [`quality_title_${k}`]);
+  }
+  const pk = qualityPages.quality(String(b.month || '')).pack;
+  res.json({ targets: pk.targets, titles: pk.titles });
 }));
 router.get('/kpi/ehs', h((req, res) => {
   const read = refreshSource('ehs');

@@ -133,6 +133,7 @@ function qualityHtml(d) {
       ${qTile(`Closed in ${esc(qShort(d.month))}`, QN(t.closed), t.days_to_close === null ? '' : `${t.days_to_close} days on average from opening`)}
       ${qTile('Cost', QEUR(t.cost), `${QEUR(t.cost_ytd)} this year${t.parts ? ` · ${QN(t.parts)} parts defective` : ''}${t.recurrences ? ` · ${t.recurrences} re-occurrence${t.recurrences === 1 ? '' : 's'}` : ''}`)}
     </div>
+    ${qPackHtml(d)}
     <div class="card q-trend"><div class="q-trend-head"><h3>Complaints by the month they were opened</h3>${qLegend(series)}</div>${qStackChart(d.trend, series, d.month)}${qTrendTable(d.trend, series)}</div>
     <div class="q-grid">
       ${qBars('Customer', d.breakdowns.customer, d.label)}${qBars('Defect type', d.breakdowns.defect, d.label)}${qBars('Failure origin', d.breakdowns.origin, d.label)}
@@ -141,6 +142,55 @@ function qualityHtml(d) {
     <div class="card q-list"><h3>Opened in ${esc(d.label)} <span class="tm-count">${d.cases.length}</span></h3>${table(d.cases, 'm', `No complaints opened in ${esc(d.label)}.`)}</div>
     <div class="card q-list"><h3>Still open <span class="tm-count">${d.open.length}</span> <span class="small muted">— any month, the oldest and those past their containment date first</span></h3>${table(d.open, 'o', 'Nothing open.')}</div>`;
 }
+
+// ---- 📈 the monthly slides: the Quality team's three charts, each copied into PowerPoint with one button --
+let qPackSvgs = {}; let qPackReady = {};
+function qPackHtml(d) {
+  const p = d.pack; if (!p) return '';
+  const charts = qxPackCharts(p, p.titles || {});
+  qPackSvgs = Object.fromEntries(charts.map(([k, , svg]) => [k, svg]));
+  qPackReady = {}; // the pictures, made now so a click copies at once
+  setTimeout(() => charts.forEach(([k, , svg]) => qxReady(svg).then((x) => { if (qPackSvgs[k] === svg) qPackReady[k] = x; }).catch(() => {})), 50);
+  const first = p.months[0].month; const last = p.months[p.months.length - 1].month;
+  const missing = [!p.shipped_read && 'cards shipped (the shipped export)', !p.otd_read && 'the OTD report'].filter(Boolean);
+  const t = p.targets; const tt = p.titles || {};
+  return `<div class="card q-pack">
+    <div class="q-pack-head"><h3>📈 Monthly slides <span class="small muted">— ${esc(qShort(first))} ${first.slice(0, 4)} to ${esc(qShort(last))} ${last.slice(0, 4)}, and ${p.ytd.month.replace('-', ' ')}</span></h3>
+      <span class="spacer"></span>
+      <details class="q-pack-set"><summary class="button small">⚙ Targets and titles</summary><div class="card q-pack-pop">
+        <div class="q-pack-grid">
+          <label>OTD target <span class="muted">%</span><input type="number" step="0.1" min="0" max="100" data-qt="otd" value="${+(t.otd * 100).toFixed(2)}"></label>
+          <label>CPMS target<input type="number" step="0.01" min="0" data-qt="cpms" value="${t.cpms}"></label>
+          <label>Contained within <span class="muted">days</span><input type="number" step="0.5" min="0" data-qt="contain" value="${t.contain}"></label>
+          <label>Communicated within <span class="muted">days</span><input type="number" step="0.5" min="0" data-qt="communicate" value="${t.communicate}"></label>
+          <label class="wide">Title: OTD chart<input type="text" data-qtitle="otd" value="${esc(tt.otd || '')}" placeholder="Complaints OTD"></label>
+          <label class="wide">Title: CPMS chart<input type="text" data-qtitle="cpms" value="${esc(tt.cpms || '')}" placeholder="CPMS Quality"></label>
+          <label class="wide">Title: lead time chart<input type="text" data-qtitle="lead" value="${esc(tt.lead || '')}" placeholder="Lead Time Service Center"></label>
+        </div>
+        <p class="small muted" style="margin:6px 0 0">Kept for everyone. OTD SC counts the Service Center's delays (internal), OTD C the customer's (external), each against the cards shipped. CPMS and the green bars count Customer Complaints only (not Inter-company).</p></div></details>
+    </div>
+    ${missing.length ? `<div class="kc-note notice small">The OTD and CPMS charts need ${missing.join(' and ')} — read on Reporting's Sources (Prod Management or Admin).</div>` : ''}
+    <div class="q-pack-charts">${charts.map(([k, title, svg]) => `<figure class="q-pack-fig${k === 'lead' ? ' wide' : ''}">
+      <div class="q-pack-tools"><b>${esc(title)}</b><span class="spacer"></span>
+        <button class="small primary" data-qcopy="${k}" title="Copy the chart as a picture, then paste it into the slide (Ctrl+V)">📋 Copy for PowerPoint</button>
+        <button class="small" data-qpng="${k}" title="Save it as a picture (PNG)">⬇ PNG</button></div>
+      <div class="q-pack-svg">${svg}</div></figure>`).join('')}</div>
+  </div>`;
+}
+document.addEventListener('click', async (e) => {
+  const c = e.target.closest('[data-qcopy]'); const g = e.target.closest('[data-qpng]');
+  if (!c && !g) return;
+  const k = (c || g).dataset.qcopy || (c || g).dataset.qpng; const svg = qPackSvgs[k]; if (!svg) return;
+  try {
+    if (c) { const how = await qxCopy(svg, qPackReady[k] || null); toast(how === 'image' ? '📋 Copied — paste it into the slide (Ctrl+V)' : '📋 Copied — paste it into the slide (Ctrl+V); if nothing appears, use ⬇ PNG'); }
+    else await qxDownload(svg, `${k}-${$('#q-month')?.value || 'chart'}`);
+  } catch (err) { toast(err.message, 'error'); }
+});
+document.addEventListener('change', async (e) => {
+  const tg = e.target.closest('[data-qt], [data-qtitle]'); if (!tg) return;
+  const body = tg.dataset.qt ? { [tg.dataset.qt]: tg.value } : { titles: { [tg.dataset.qtitle]: tg.value } };
+  try { await api.put('/kpi/quality/targets', body); toast('Saved'); const open = tg.closest('details')?.open; await renderQualityTab('quality'); if (open) $('.q-pack-set')?.setAttribute('open', ''); } catch (err) { toast(err.message, 'error'); }
+});
 
 // ---- ⛑ EHS ----------------------------------------------------------------------------------------
 function ehsHtml(d) {

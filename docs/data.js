@@ -150,7 +150,7 @@ window.TIMELINE = {
       points: ['People cards: names, counts and tags lined up, and every card in a row starting at the same height'] },
     { id: 'quality', date: '2026-11-04', area: 'reporting', title: 'Quality and EHS',
       text: 'Reporting gains two monthly pages, and each of its tabs now belongs to the people who need it.',
-      points: ['Quality: customer complaints by month, by severity, containment, cost and where they came from', 'EHS: accidents, near misses and safety concerns, days without an accident, and the risk grid from the safety form', 'A new Quality module; the weekly report sits with Production management, the source files with Admin'] },
+      points: ['Quality: customer complaints by month, by severity, containment, cost and where they came from', 'The Quality team\'s monthly slides: OTD, CPMS and lead time charts drawn like their Excel ones, October to October, copied into PowerPoint with one button', 'EHS: accidents, near misses and safety concerns, days without an accident, and the risk grid from the safety form', 'A new Quality module; the weekly report sits with Production management, the source files with Admin'] },
     { id: 'timeline', date: '2026-11-02', area: 'knowledge', title: 'This timeline',
       text: 'The project\'s own story on GitHub Pages, kept up to date as the work goes on.',
       points: ['Commits per day worked out from git every time it\'s published', 'A pin added with every user-visible change', 'And somewhere on this page, something hidden…'] },

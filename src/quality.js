@@ -28,7 +28,7 @@ function rowsOf(source) {
 }
 const sourceInfo = (source) => db.get('SELECT file, modified, imported_at, rows, skipped, first_day, last_day FROM kpi_sources WHERE source = ?', [source]) || null;
 // the months to pick from: every month with something in it, and this month, newest first
-const monthsOf = (rows) => [...new Set([thisMonth(), ...rows.map((r) => monthOf(r.day))])].filter(Boolean).sort().reverse().map((m) => ({ month: m, label: monthLabel(m) }));
+const monthsOf = (rows) => [...new Set([thisMonth(), addMonths(thisMonth(), -1), ...rows.map((r) => monthOf(r.day))])].filter(Boolean).sort().reverse().map((m) => ({ month: m, label: monthLabel(m) }));
 // counts by a field, for the month and the year to date: [{ name, month, ytd }], biggest first, the tail as "Other"
 function breakdown(rows, inMonth, inYtd, key, { top = 8, blank = 'Not given' } = {}) {
   const at = new Map();
@@ -53,7 +53,7 @@ const isClosedCase = (c) => !!c.closed || /^(closed|cancel)/i.test(String(c.stat
 function quality(month) {
   const rows = rowsOf('salesforce').map((c) => ({ ...c, severity: severityOf(c.type), customer: c.who }));
   const months = monthsOf(rows);
-  const m = validMonth(month) || months[0].month;
+  const m = validMonth(month) || addMonths(thisMonth(), -1); // the last full month, the one being reported on
   const y = m.slice(0, 4);
   const inMonth = (c) => monthOf(c.day) === m;
   const inYtd = (c) => c.day.slice(0, 4) === y && monthOf(c.day) <= m;
@@ -93,7 +93,58 @@ function quality(month) {
     },
     cases: opened.map(caseOut).reverse(),
     open: open.map(caseOut).sort((a, b) => (b.contain_late - a.contain_late) || (b.age - a.age)),
+    pack: pack(m, rows),
   };
+}
+
+// ---- 📈 The quality pack: the three charts for the Quality team's monthly slides ----------------------
+// 13 months, the same month a year before to the chosen one (October to October), and the year to date:
+//  - Complaints OTD: cards shipped (millions), OTD SC = 1 − Service Center (internal) delays ÷ shipped and
+//    OTD C = 1 − customer-fault (external) delays ÷ shipped, against the target
+//  - CPMS Quality: Customer Complaints opened (not Inter-company) and per million cards shipped, against the target
+//  - Lead time: days to be contained and to be communicated (the export's own ages), the month's average
+const PACK_TARGETS = { otd: 1, cpms: 0.75, contain: 2, communicate: 20 };
+const packTargets = () => Object.fromEntries(Object.entries(PACK_TARGETS).map(([k, v]) => {
+  const s = db.get('SELECT value FROM settings WHERE key = ?', [`quality_target_${k}`])?.value;
+  return [k, s === null || s === undefined || s === '' || !Number.isFinite(Number(s)) ? v : Number(s)];
+}));
+const isCustomerComplaint = (c) => /customer\s*complaint/i.test(String(c.kind || ''));
+function pack(m, cases) {
+  const months = Array.from({ length: 13 }, (_, i) => addMonths(m, i - 12));
+  const y = Number(m.slice(0, 4));
+  const ytdMonths = Array.from({ length: Number(m.slice(5, 7)) }, (_, i) => `${y}-${String(i + 1).padStart(2, '0')}`);
+  // cards shipped by month (the shipped export: cards, not PIN mailers)
+  const shipped = new Map(db.all(`SELECT substr(day, 1, 7) AS m, SUM(qty) AS q FROM kpi_rows WHERE source = 'shipped' AND lower(type) LIKE '%card%' AND day >= ? AND day < ? GROUP BY m`,
+    [`${months[0]}-01`, `${addMonths(m, 1)}-01`]).map((r) => [r.m, r.q || 0]));
+  for (const mm of ytdMonths) if (!shipped.has(mm)) shipped.set(mm, 0);
+  // OTD delays by month: each row in the month of the reporting week typed against it (as the A3 counts them by week)
+  const weekMonth = new Map();
+  for (const yy of [y - 1, y]) for (const w of kpiData.weeksOf(yy)) weekMonth.set(w.week, `${yy}-${String(kpiData.monthIndex(w.month) + 1).padStart(2, '0')}`);
+  const delays = new Map();
+  for (const r of db.all("SELECT week, type, qty FROM kpi_rows WHERE source = 'otd' AND week <> ''")) {
+    const mm = weekMonth.get(String(r.week).toUpperCase()); if (!mm) continue;
+    const e = delays.get(mm) || { internal: 0, external: 0 };
+    if (/^int/i.test(r.type || '')) e.internal += r.qty || 0; else if (/^ext/i.test(r.type || '')) e.external += r.qty || 0;
+    delays.set(mm, e);
+  }
+  const cc = cases.filter(isCustomerComplaint);
+  const avgOf = (list, key, from) => {
+    const v = list.map((c) => (c[key] !== null && c[key] !== undefined && c[key] !== '' && Number.isFinite(Number(c[key])) ? Number(c[key]) : from ? from(c) : null)).filter((x) => x !== null);
+    return v.length ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10 : 0;
+  };
+  const row = (mm, list, ship, dl) => ({
+    month: mm, shipped: ship, internal: dl.internal, external: dl.external,
+    otd_sc: ship ? 1 - dl.internal / ship : null, otd_c: ship ? 1 - dl.external / ship : null,
+    cc: list.length, cpms: ship ? (list.length / ship) * 1e6 : null,
+    contain: avgOf(list, 'age_containment', (c) => daysBetween(c.day, c.contained)), communicate: avgOf(list, 'days_to_communicate'),
+  });
+  const sum = (mms, f) => mms.reduce((t, mm) => t + f(mm), 0);
+  const monthsOut = months.map((mm) => row(mm, cc.filter((c) => monthOf(c.day) === mm), shipped.get(mm) || 0, delays.get(mm) || { internal: 0, external: 0 }));
+  const ytdShip = sum(ytdMonths, (mm) => shipped.get(mm) || 0);
+  const ytd = row(`${y}-YTD`, cc.filter((c) => c.day.slice(0, 4) === String(y) && monthOf(c.day) <= m), ytdShip,
+    { internal: sum(ytdMonths, (mm) => delays.get(mm)?.internal || 0), external: sum(ytdMonths, (mm) => delays.get(mm)?.external || 0) });
+  const titles = Object.fromEntries(['otd', 'cpms', 'lead'].map((k) => [k, db.get('SELECT value FROM settings WHERE key = ?', [`quality_title_${k}`])?.value || null]));
+  return { months: monthsOut, ytd, targets: packTargets(), titles, shipped_read: !!db.get("SELECT 1 FROM kpi_sources WHERE source = 'shipped'"), otd_read: !!db.get("SELECT 1 FROM kpi_sources WHERE source = 'otd'") };
 }
 
 // ---- ⛑ EHS: the safety concern forms -----------------------------------------------------------
@@ -110,7 +161,7 @@ const occurrenceIndex = (o) => OCCURRENCE.findIndex(([n]) => norm(n) === norm(o)
 function ehs(month) {
   const rows = rowsOf('ehs').map((f) => ({ ...f, location: f.who, kind: String(f.type || '').toUpperCase() }));
   const months = monthsOf(rows);
-  const m = validMonth(month) || months[0].month;
+  const m = validMonth(month) || addMonths(thisMonth(), -1);
   const y = m.slice(0, 4);
   const inMonth = (f) => monthOf(f.day) === m;
   const inYtd = (f) => f.day.slice(0, 4) === y && monthOf(f.day) <= m;
@@ -155,4 +206,4 @@ function ehs(month) {
   };
 }
 
-module.exports = { quality, ehs, monthLabel, addMonths, OCCURRENCE, EFFECT };
+module.exports = { quality, ehs, monthLabel, addMonths, OCCURRENCE, EFFECT, PACK_TARGETS };

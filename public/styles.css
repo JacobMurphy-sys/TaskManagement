@@ -2286,3 +2286,22 @@ dialog#modal .tm-title:focus { border-color: var(--accent); background: var(--pa
 @media (max-width: 1100px) { .q-ehs-row { grid-template-columns: 1fr; } .q-ehs-row .card + .card { margin-top: 0; } }
 @media (max-width: 700px) { .q-tiles { grid-template-columns: 1fr 1fr; } .q-tile-v { font-size: 22px; } .q-src { display: none; } }
 .nowrap { white-space: nowrap; }
+
+/* 📈 the quality pack: the Excel-look charts (white, like the slides they go into, in either theme) */
+.q-pack { margin-bottom: 12px; }
+.q-pack-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 8px; }
+.q-pack-head h3 { margin: 0; font-size: 14px; }
+.q-pack-set { position: relative; }
+.q-pack-set > summary { list-style: none; cursor: pointer; }
+.q-pack-set > summary::-webkit-details-marker { display: none; }
+.q-pack-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: min(560px, 90vw); box-shadow: var(--shadow); }
+.q-pack-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.q-pack-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-weight: 600; }
+.q-pack-grid label.wide { grid-column: 1 / -1; }
+.q-pack-charts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.q-pack-fig { margin: 0; min-width: 0; }
+.q-pack-fig.wide { grid-column: 1 / -1; }
+.q-pack-tools { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 13px; }
+.q-pack-svg { background: #fff; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.q-pack-svg svg { display: block; width: 100%; height: auto; }
+@media (max-width: 1000px) { .q-pack-charts { grid-template-columns: 1fr; } .q-pack-grid { grid-template-columns: 1fr 1fr; } }
