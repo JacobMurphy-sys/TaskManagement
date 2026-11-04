@@ -1,4 +1,5 @@
-# 🗺 The project timeline (docs/) on GitHub Pages, published on every push.
+# 🗺 The project timeline (docs/) on GitHub Pages, published on every push to main (the live branch: what's
+# on the timeline is what's live; work in progress on dev isn't shown until it's merged).
 # The commits per day are worked out from the full git history at publish time, so the page is
 # always current without committing anything back to the branch.
 # One-time set-up: Settings › Pages › Build and deployment › Source: "GitHub Actions".
@@ -6,7 +7,7 @@ name: Timeline on GitHub Pages
 
 on:
   push:
-    branches: [main, claude/project-task-management-system-ssxgfs]
+    branches: [main]
   workflow_dispatch:
 
 permissions:

@@ -32,6 +32,13 @@ that broke something else, a bug that came back, a misunderstanding, a name that
 add a short, good-humoured entry: `{ date, title, text, lesson }`. Light-hearted, never at anyone's
 expense, nothing company-internal.
 
+## Branches: dev and live
+
+- **`main` is live**: the shared server installs from it and pulls it every night, and the timeline publishes from
+  it. Never push to `main` unless the user asks for a release; never commit work in progress there.
+- **`dev` is where work happens.** Features are finished and tested on `dev`, then merged into `main` when the user
+  says they're ready (a pull request from `dev` to `main`, or a merge).
+
 ## House rules
 
 - Don't commit company data or paths: `cimanager-defaults.json` and example files stay local.
