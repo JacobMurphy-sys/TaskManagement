@@ -32,7 +32,7 @@ async function renderQualityTab(kind) {
     </div>
     ${note}
     ${kind === 'quality' ? qualityHtml(d) : ehsHtml(d)}`;
-  main().classList.toggle('cockpit-main', kind === 'quality'); // 🧪 Quality is a dashboard: one screen, panels scroll on their own
+  main().classList.add('cockpit-main', 'kpi-dash'); // 🧪 Quality and ⛑ EHS are dashboards: one screen, panels scroll on their own
   qDrawCharts();
   $('#q-month').addEventListener('change', (e) => { store.set('qMonth', e.target.value); renderQualityTab(kind); });
   // a case or form opens out to its details
@@ -207,6 +207,7 @@ document.addEventListener('click', (e) => {
   const panel = b.closest('.ck-panel');
   panel.querySelectorAll('[data-qd-tab]').forEach((x) => x.classList.toggle('on', x === b));
   panel.querySelectorAll('[data-qd-pane]').forEach((x) => { x.hidden = x.dataset.qdPane !== `${group}:${key}`; });
+  if (group === 'echart') qDrawCharts();
   if (group === 'chart') {
     const tools = panel.querySelector('.qd-chart-tools'); if (tools) tools.hidden = key === 'trend';
     if (key !== 'trend') { panel.querySelector('[data-qcopy]').dataset.qcopy = key; panel.querySelector('[data-qpng]').dataset.qpng = key; }
@@ -276,20 +277,36 @@ function ehsHtml(d) {
   const matrix = `<div class="kdb-scroll"><table class="q-matrix"><thead><tr><th class="small muted">How often ↓ · how bad →</th>${effects.map((c) => `<th title="${esc(c.effect)} (×${c.score})">${esc(c.effect.replace(/\s*\(.*\)/, ''))}</th>`).join('')}</tr></thead>
     <tbody>${d.matrix.map((r) => `<tr><th title="×${r.score}">${esc(r.occurrence)}</th>${r.cells.map((c) => `<td class="q-risk-cell ${riskTone(c.risk)}${c.count ? ' has' : ''}" title="${esc(`${r.occurrence} × ${c.effect} = risk ${c.risk}${c.count ? ` — ${c.count} form${c.count === 1 ? '' : 's'} in ${d.year}${c.open ? `, ${c.open} open` : ''}` : ''}`)}">${c.count ? `<b>${c.count}</b>${c.open ? '<i class="q-open-dot"></i>' : ''}` : ''}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
     <div class="q-bars-key small muted"><span><i class="q-sw r1"></i>risk under 2</span><span><i class="q-sw r2"></i>2–5</span><span><i class="q-sw r3"></i>6–14</span><span><i class="q-sw r4"></i>15 and up</span><span><i class="q-open-dot"></i>still open</span>${d.unscored ? `<span>${d.unscored} form${d.unscored === 1 ? '' : 's'} without a score</span>` : ''}</div>`;
+  const tab = (group, key, label, title = '') => `<button type="button" class="${qdOn(group, key) ? 'on' : ''}" data-qd-tab="${group}:${key}"${title ? ` title="${esc(title)}"` : ''}>${label}</button>`;
+  const pane = (group, key, html) => `<div class="qd-pane" data-qd-pane="${group}:${key}"${qdOn(group, key) ? '' : ' hidden'}>${html}</div>`;
+  const where = [['category', 'Category'], ['location', 'Location'], ['first_aid', 'First aid'], ['response', 'Response']];
+  qdDefaults({ echart: 'trend', ewhere: 'category', eforms: d.open.length && !d.forms.length ? 'open' : 'month' });
   return `
-    <div class="q-tiles">
+    <div class="qd">
+    <div class="q-tiles qd-tiles">
       ${qTile('Days without an accident', t.days_since_accident === null ? '—' : QN(t.days_since_accident), t.last_accident ? `last one ${esc(fmtDate(t.last_accident))}${d.month === new Date().toISOString().slice(0, 7) ? '' : ` · at the end of ${esc(qShort(d.month))}`}` : 'none recorded', 'hero')}
       ${series.map(tileFor).join('')}
       ${qTile('Open forms', QN(t.open), `<div>open or actioned, any month</div>${t.open_high ? `<div><b class="q-bad">${t.open_high} with risk 6 or more</b></div>` : ''}`, t.open_high ? 'warn' : '')}
       ${qTile(`Response in ${esc(qShort(d.month))}`, t.days_to_respond === null ? '—' : `${t.days_to_respond} d`, `${t.responded} of ${t.total} form${t.total === 1 ? '' : 's'} answered${t.first_aid ? ` · ${t.first_aid} needed first aid or more` : ''}`)}
     </div>
-    <div class="q-ehs-row">
-      <div class="card q-trend"><div class="q-trend-head"><h3>Forms by the month of the incident</h3>${qLegend(series)}</div>${qStackChart(d.trend, series, d.month)}${qTrendTable(d.trend, series)}</div>
-      <div class="card q-trend"><h3>Risk in ${d.year} <span class="small muted">— how often × how bad, as scored on the form</span></h3>${matrix}</div>
+    <div class="qd-top">
+      <section class="ck-panel qd-charts">
+        <div class="ck-ph"><h3>📈</h3><div class="seg qd-tabs">${tab('echart', 'trend', 'By month', 'Forms by the month of the incident, by type')}${tab('echart', 'risk', `Risk in ${d.year}`, 'How often × how bad, as scored on the form; this year\'s forms in their cell')}</div></div>
+        <div class="qd-body qd-chart-body">
+          ${pane('echart', 'trend', `<div class="qd-trend">${qLegend(series)}${qStackChart(d.trend, series, d.month)}</div>`)}
+          ${pane('echart', 'risk', matrix)}
+        </div>
+      </section>
+      <section class="ck-panel qd-where">
+        <div class="ck-ph"><h3>Where</h3><div class="seg qd-tabs">${where.map(([k, l]) => tab('ewhere', k, l)).join('')}</div></div>
+        <div class="qd-body">${where.map(([k]) => pane('ewhere', k, qBarsList(d.breakdowns[k], d.label))).join('')}</div>
+        <div class="qd-foot q-bars-key small muted"><span><i class="q-sw mon"></i>${esc(d.label)}</span><span><i class="q-sw ytd"></i>year to date</span></div>
+      </section>
     </div>
-    <div class="q-grid">
-      ${qBars('Category', d.breakdowns.category, d.label)}${qBars('Location', d.breakdowns.location, d.label)}${qBars('First aid', d.breakdowns.first_aid, d.label)}${qBars('Action in response to risk', d.breakdowns.response, d.label)}
-    </div>
-    <div class="card q-list"><h3>In ${esc(d.label)} <span class="tm-count">${d.forms.length}</span></h3>${table(d.forms, 'm', `No forms for ${esc(d.label)}.`)}</div>
-    <div class="card q-list"><h3>Still open <span class="tm-count">${d.open.length}</span> <span class="small muted">— any month, the highest risk first</span></h3>${table(d.open, 'o', 'Nothing open.')}</div>`;
+    <section class="ck-panel qd-cases">
+      <div class="ck-ph"><div class="seg qd-tabs">${tab('eforms', 'month', `In ${esc(qShort(d.month))} <span class="tm-count">${d.forms.length}</span>`)}${tab('eforms', 'open', `Still open <span class="tm-count">${d.open.length}</span>`, 'Any month: the highest risk first')}</div>
+        <span class="small muted">▸ or click a row for what was done</span></div>
+      <div class="qd-body">${pane('eforms', 'month', table(d.forms, 'm', `No forms for ${esc(d.label)}.`))}${pane('eforms', 'open', table(d.open, 'o', 'Nothing open.'))}</div>
+    </section>
+    </div>`;
 }

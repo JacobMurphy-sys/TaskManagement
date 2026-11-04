@@ -248,7 +248,7 @@ Past weeks stay in the list, so any earlier A3 can be viewed or saved again.
 
 ### 🧪 Quality and ⛑ EHS (Reporting, the Quality module)
 
-Two tabs on 📊 Reporting, picked **by month** (the drop-down lists every month with something in it, newest first). Each reads its own file when the page opens, if it's changed since the last read.
+Two tabs on 📊 Reporting, picked **by month** (on every Reporting tab the title, the week or month picker and the tabs stay in the same place) (the drop-down lists every month with something in it, newest first). Each reads its own file when the page opens, if it's changed since the last read.
 
 **🧪 Quality** is a one-screen dashboard, like Home: the tiles along the top, a chart panel and *Where from* side by side, and the cases below; each panel scrolls on its own, and **mini-tabs** pick what it shows (charts: OTD, CPMS, Lead time, By severity; where from: customer, defect, origin, product, failure type; cases: opened in the month, still open). On a small screen it scrolls as a page. It reads the **Salesforce export** already linked on Sources (*SITTARD CC Report Ext*: the headings are found by name, the report's title lines and its Total/Count rows are skipped). Cases count in the month they were **opened**.
 - **Tiles:** complaints in the month by severity (critical, major, minor) and against the month before; the year so far; open now (not contained yet, past the containment target date); contained in the month (on time against the target, average days from opening); closed in the month (average days to close); cost (the month and the year), parts confirmed defective and re-occurrences.
@@ -263,7 +263,7 @@ Two tabs on 📊 Reporting, picked **by month** (the drop-down lists every month
   - **⚙ Targets and titles:** OTD (100%), CPMS (0.75), contained within (2 days) and communicated within (20 days), and each chart's title. Kept for everyone; the Quality module sets them.
   - The OTD and CPMS charts need the cards shipped and the OTD report read (Sources); the page reads them when they've changed.
 
-**⛑ EHS**, from the **safety concern form** (*Safety Concern Form Reporting*: Table1 on *SCF list*). Set where it's saved on **Sources** (*Safety concern forms (EHS)*). Each filled-in row is a form: **AC** accident, **NM** near miss or **SC** safety concern, counted in the month of the incident; template rows with no type yet are left out, and `#N/A` cells read as blank.
+**⛑ EHS** is a one-screen dashboard too (charts: by month, the risk grid; where: category, location, first aid, response; forms: in the month, still open). It reads the **safety concern form** (*Safety Concern Form Reporting*: Table1 on *SCF list*). Set where it's saved on **Sources** (*Safety concern forms (EHS)*). Each filled-in row is a form: **AC** accident, **NM** near miss or **SC** safety concern, counted in the month of the incident; template rows with no type yet are left out, and `#N/A` cells read as blank.
 - **Tiles:** days without an accident (at the end of the chosen month, or today), accidents, near misses and safety concerns in the month (the year so far, and against the month before), open forms (open or actioned, any month; how many with a risk of 6 or more) and how quickly forms were answered.
 - **The 12 months up to it:** forms per month, stacked by type.
 - **Risk in the year:** the form's own grid, how often (Rarely … Constantly) × how bad (minor injury … many deaths), each cell coloured by its risk score and holding the year's forms (● still open).

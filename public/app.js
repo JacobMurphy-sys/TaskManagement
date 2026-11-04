@@ -418,7 +418,7 @@ function renderSidebar() {
 
 async function route() {
   document.body.classList.remove('sidebar-open');
-  main().classList.remove('cockpit-main'); // 🏠 Home fits the screen; every other page scrolls
+  main().classList.remove('cockpit-main', 'kpi-dash'); // 🏠 Home (and Reporting's Quality and EHS) fit the screen; every other page scrolls
   let [view = 'dashboard', ...rest] = location.hash.replace(/^#\/?/, '').split('/');
   // the planner on its own: Planning, the activity log and backups only
   if (state.mode === 'planner' && !['planning', 'log', 'backups'].includes(view)) { view = 'planning'; rest = []; }

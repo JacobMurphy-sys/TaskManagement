@@ -2309,7 +2309,7 @@ dialog#modal .tm-title:focus { border-color: var(--accent); background: var(--pa
 /* 📊 Reporting: the week and the month pickers one width (and kept as a gap on pages without one), so the tabs stay put */
 .kpi-tools .kpi-pick { flex: none; width: 11.5rem; box-sizing: border-box; }
 .kpi-pick-slot { display: inline-block; height: 1px; }
-@media (max-width: 700px) { .kpi-pick-slot { display: none; } }
+
 .q-cases tbody tr:not(.q-more) { cursor: pointer; }
 .q-cases tbody tr:not(.q-more):hover > td { background: var(--panel-2); }
 .q-cases tbody tr.q-open > td { background: var(--panel-2); }
@@ -2351,3 +2351,17 @@ dialog#modal .tm-title:focus { border-color: var(--accent); background: var(--pa
   .qd-chart-body { height: 340px; flex: none; }
   .qd-where .qd-body, .qd-cases .qd-body { max-height: 420px; }
 }
+
+/* 📊 Reporting: the header (title, picker, tabs) in the same place on every tab — the dashboards keep the page's padding,
+   and a page without a picker keeps a gap of its full size */
+#main.cockpit-main.kpi-dash { padding: 20px 24px 14px; }
+.kpi-tools { align-items: center; }
+.kpi-pick-slot { height: 33px; vertical-align: middle; }
+.qd-chart-body > .qd-pane .kdb-scroll { height: 100%; overflow: auto; }
+@media (max-width: 1100px), (max-height: 680px) { #main.cockpit-main.kpi-dash { padding: 20px 24px 60px; } }
+@media (max-width: 700px) { #main.cockpit-main.kpi-dash { padding: 14px 12px 96px; } }
+
+/* the ⚠ notices button keeps its place in a tight top bar when a page has none, so the bar (and every page under it) doesn't
+   shift between pages when it would wrap; on a phone the bar has its own layout */
+@media (min-width: 701px) { #topbar.tb-time #notices[hidden] { display: inline-flex !important; visibility: hidden; pointer-events: none; } } /* only when the bar is at its tightest */
+@media (max-width: 700px) { .kpi-pick-slot { height: 40px; } } /* a phone's pickers are taller, to tap */
