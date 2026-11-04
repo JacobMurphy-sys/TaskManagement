@@ -168,11 +168,11 @@ function qPackHtml(d) {
   qPackSvgs = Object.fromEntries(charts.map(([k, , svg]) => [k, svg]));
   qPackReady = {}; // the pictures, made now so a click copies at once
   setTimeout(() => charts.forEach(([k, , svg]) => qxReady(svg).then((x) => { if (qPackSvgs[k] === svg) qPackReady[k] = x; }).catch(() => {})), 50);
-  const first = p.months[0].month; const last = p.months[p.months.length - 1].month;
+  const first = p.months[0].month; const last = p.months[p.months.length - 1].month; const yr = p.ytd.month.slice(0, 4);
   const missing = [!p.shipped_read && 'cards shipped (the shipped export)', !p.otd_read && 'the OTD report'].filter(Boolean);
   const t = p.targets; const tt = p.titles || {};
   return `<div class="card q-pack">
-    <div class="q-pack-head"><h3>📈 Monthly slides <span class="small muted">— ${esc(qShort(first))} ${first.slice(0, 4)} to ${esc(qShort(last))} ${last.slice(0, 4)}, and ${p.ytd.month.replace('-', ' ')}</span></h3>
+    <div class="q-pack-head"><h3>📈 Monthly slides <span class="small muted">— OTD and CPMS: ${yr} and ${yr} YTD · lead time: ${esc(qShort(first))} ${first.slice(0, 4)} to ${esc(qShort(last))} ${last.slice(0, 4)}</span></h3>
       <span class="spacer"></span>
       <details class="q-pack-set"><summary class="button small">⚙ Targets and titles</summary><div class="card q-pack-pop">
         <div class="q-pack-grid">

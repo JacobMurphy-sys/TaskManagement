@@ -1328,6 +1328,8 @@ async function waitForServer() {
         const pk = q.pack;
         assert.deepEqual([pk.months.length, pk.months[0].month, pk.months[12].month, pk.ytd.month], [13, '2025-04', '2026-04', '2026-YTD'], 'April to April');
         assert.deepEqual([pk.months[12].cc, pk.ytd.cc, pk.months[12].shipped, Math.round(pk.months[12].cpms)], [1, 2, 800, 1250], 'Customer Complaints, per million cards shipped');
+        assert.deepEqual([pk.year.length, pk.year[0].month, pk.year[3].month, pk.year[3].cc, pk.year[2].cc, pk.year[4].future, pk.year[4].cc], [12, '2026-01', '2026-04', 1, 1, true, null],
+          'OTD and CPMS: the calendar year, the months after the chosen one empty');
         assert.deepEqual(pk.targets, { otd: 1, cpms: 0.75, contain: 2, communicate: 20 }, 'the targets in the team\'s charts');
         assert.deepEqual(pk.months[11].contain, 1, 'March: contained a day after opening');
         const tg = await call('PUT', '/kpi/quality/targets', { otd: '98', cpms: 0.6, titles: { lead: 'Lead Time Service Center - Site' } });

@@ -99,37 +99,40 @@ function qxChart(spec) {
 
 // ---- the three charts --------------------------------------------------------------------------------
 function qxPackCharts(p, titles = {}) {
-  const months = p.months.map((m) => m.month); const cats = [...months, p.ytd.month];
+  // OTD and CPMS: the calendar year (p.year) and the year to date; lead time: the 13 months back (p.months)
+  const yr = p.year || p.months;
+  const months = yr.map((m) => m.month); const cats = [...months, p.ytd.month];
   const n = months.length; const pad = (vals, ytd = null) => [...vals, ytd];
   const pct = (v) => `${Math.round(v * 100)}%`;
   const clamp = (v) => (v === null ? null : Math.max(0, v));
-  const vol = p.months.map((m) => m.shipped / 1e6);
+  const vol = yr.map((m) => (m.shipped === null ? null : m.shipped / 1e6));
   const otd = qxChart({
     title: titles.otd || 'Complaints OTD', W: 820, H: 420, cats, legend: 'bottom', gap: 0.42, barMax: 34,
-    left: qxAxis(Math.max(0.2, ...vol) * 1.08, { steps: [1, 2, 5, 10] }), right: { min: 0, max: 1, step: 0.1, fmt: pct },
+    left: qxAxis(Math.max(0.2, ...vol.filter((v) => v !== null)) * 1.08, { steps: [1, 2, 5, 10] }), right: { min: 0, max: 1, step: 0.1, fmt: pct },
     bars: [{ name: 'Volume', color: QX.purple, values: pad(vol) },
       { name: 'OTD SC YTD', color: QX.yellow, axis: 'right', values: pad(months.map(() => null), clamp(p.ytd.otd_sc)) },
       { name: 'OTD C YTD', color: QX.blue, axis: 'right', values: pad(months.map(() => null), clamp(p.ytd.otd_c)) }],
-    lines: [{ name: 'OTD SC', color: QX.lightBlue, axis: 'right', values: pad(p.months.map((m) => clamp(m.otd_sc))) },
-      { name: 'OTD C', color: QX.yellow, axis: 'right', values: pad(p.months.map((m) => clamp(m.otd_c))) },
+    lines: [{ name: 'OTD SC', color: QX.lightBlue, axis: 'right', values: pad(yr.map((m) => clamp(m.otd_sc))) },
+      { name: 'OTD C', color: QX.yellow, axis: 'right', values: pad(yr.map((m) => clamp(m.otd_c))) },
       { name: 'Target', color: QX.red, axis: 'right', flat: p.targets.otd, upTo: n, values: [] }],
     legendItems: [{ name: 'Volume', color: QX.purple }, { name: 'OTD SC YTD', color: QX.yellow }, { name: 'OTD C YTD', color: QX.blue },
       { name: 'OTD SC', color: QX.lightBlue, kind: 'line' }, { name: 'OTD C', color: QX.yellow, kind: 'line' }, { name: 'Target', color: QX.red, kind: 'line' }],
   });
-  const cpmsVals = p.months.map((m) => m.cpms);
+  const cpmsVals = yr.map((m) => m.cpms);
   const rmax = Math.max(p.targets.cpms, p.ytd.cpms || 0, ...cpmsVals.filter((v) => v !== null)) * 1.1 || 1;
   const cpms = qxChart({
     title: titles.cpms || 'CPMS Quality', W: 820, H: 420, cats, rotate: true, legend: 'bottom', gap: 0.3, barMax: 22,
-    left: { ...qxAxis(Math.max(1, ...p.months.map((m) => m.cc)) * 1.2, { ticks: 5 }), title: '# of CC Quality' }, right: { ...qxAxis(rmax, { ticks: 10 }), title: 'CPMS' },
-    bars: [{ name: 'CC Quality SC', color: QX.green, values: pad(p.months.map((m) => m.cc)) },
+    left: { ...qxAxis(Math.max(1, ...yr.map((m) => m.cc || 0)) * 1.2, { ticks: 5 }), title: '# of CC Quality' }, right: { ...qxAxis(rmax, { ticks: 10 }), title: 'CPMS' },
+    bars: [{ name: 'CC Quality SC', color: QX.green, values: pad(yr.map((m) => m.cc)) },
       { name: 'CPMS Quality YTD', color: QX.yellow, axis: 'right', values: pad(months.map(() => null), p.ytd.cpms) }],
     lines: [{ name: 'CPMS Quality SC', color: QX.yellow, axis: 'right', values: pad(cpmsVals.map((v) => (v === null ? null : v))), upTo: n },
       { name: 'Target CPMS', color: QX.red, axis: 'right', flat: p.targets.cpms, upTo: n, values: [] }],
     legendItems: [{ name: 'CC Quality SC', color: QX.green }, { name: 'CPMS Quality YTD', color: QX.yellow }, { name: 'CPMS Quality SC', color: QX.yellow, kind: 'line' }, { name: 'Target CPMS', color: QX.red, kind: 'line' }],
   });
   const lmax = Math.max(p.targets.contain, p.targets.communicate, ...p.months.map((m) => Math.max(m.contain, m.communicate))) * 1.15;
+  // lead time: the 13 months back (p.months), not the calendar year
   const lead = qxChart({
-    title: titles.lead || 'Lead Time Service Center', titleAlign: 'left', W: 1100, H: 330, cats: months, legend: 'top', gap: 0.5, barMax: 32,
+    title: titles.lead || 'Lead Time Service Center', titleAlign: 'left', W: 1100, H: 330, cats: p.months.map((m) => m.month), legend: 'top', gap: 0.5, barMax: 32,
     left: qxAxis(lmax, { ticks: 5 }),
     bars: [{ name: 'Lead Time to be Contained', color: QX.grey, values: p.months.map((m) => m.contain), labels: { box: QX.greyBox, fmt: (v) => String(Math.round(v)) } },
       { name: 'Lead Time to be Communicated', color: QX.violet, values: p.months.map((m) => m.communicate), labels: { box: QX.violetBox, fmt: (v) => String(Math.round(v)) } }],

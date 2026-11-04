@@ -98,7 +98,8 @@ function quality(month) {
 }
 
 // ---- 📈 The quality pack: the three charts for the Quality team's monthly slides ----------------------
-// 13 months, the same month a year before to the chosen one (October to October), and the year to date:
+// OTD and CPMS: the calendar year of the chosen month (January to December, later months empty) and the year
+// to date; lead time: 13 months, the same month a year before to the chosen one (October to October):
 //  - Complaints OTD: cards shipped (millions), OTD SC = 1 − Service Center (internal) delays ÷ shipped and
 //    OTD C = 1 − customer-fault (external) delays ÷ shipped, against the target
 //  - CPMS Quality: Customer Complaints opened (not Inter-company) and per million cards shipped, against the target
@@ -140,11 +141,15 @@ function pack(m, cases) {
   });
   const sum = (mms, f) => mms.reduce((t, mm) => t + f(mm), 0);
   const monthsOut = months.map((mm) => row(mm, cc.filter((c) => monthOf(c.day) === mm), shipped.get(mm) || 0, delays.get(mm) || { internal: 0, external: 0 }));
+  // the calendar year (OTD and CPMS): January to December, the months after the chosen one left empty
+  const yearOut = Array.from({ length: 12 }, (_, i) => `${y}-${String(i + 1).padStart(2, '0')}`).map((mm) => (mm > m
+    ? { month: mm, future: true, shipped: null, internal: null, external: null, otd_sc: null, otd_c: null, cc: null, cpms: null, contain: null, communicate: null }
+    : row(mm, cc.filter((c) => monthOf(c.day) === mm), shipped.get(mm) || 0, delays.get(mm) || { internal: 0, external: 0 })));
   const ytdShip = sum(ytdMonths, (mm) => shipped.get(mm) || 0);
   const ytd = row(`${y}-YTD`, cc.filter((c) => c.day.slice(0, 4) === String(y) && monthOf(c.day) <= m), ytdShip,
     { internal: sum(ytdMonths, (mm) => delays.get(mm)?.internal || 0), external: sum(ytdMonths, (mm) => delays.get(mm)?.external || 0) });
   const titles = Object.fromEntries(['otd', 'cpms', 'lead'].map((k) => [k, db.get('SELECT value FROM settings WHERE key = ?', [`quality_title_${k}`])?.value || null]));
-  return { months: monthsOut, ytd, targets: packTargets(), titles, shipped_read: !!db.get("SELECT 1 FROM kpi_sources WHERE source = 'shipped'"), otd_read: !!db.get("SELECT 1 FROM kpi_sources WHERE source = 'otd'") };
+  return { months: monthsOut, year: yearOut, ytd, targets: packTargets(), titles, shipped_read: !!db.get("SELECT 1 FROM kpi_sources WHERE source = 'shipped'"), otd_read: !!db.get("SELECT 1 FROM kpi_sources WHERE source = 'otd'") };
 }
 
 // ---- ⛑ EHS: the safety concern forms -----------------------------------------------------------
