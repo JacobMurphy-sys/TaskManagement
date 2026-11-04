@@ -147,7 +147,7 @@ window.TIMELINE = {
       points: ['Coloured tags instead of drop-downs: status, priority, dates, repeats, project and phase, one click to change', 'The description reads like a note, with its links, and is edited in place', 'Subtasks with a progress bar, notes in their own column, people and the rest beside them'] },
     { id: 'polish1103', date: '2026-11-03', area: 'look', title: 'Small polish',
       text: 'Little things noticed in use, tidied up.',
-      points: ['People cards: names, counts and tags lined up, and every card in a row starting at the same height'] },
+      points: ['People cards: names, counts and tags lined up, and every card in a row starting at the same height', 'Reporting\'s tabs stay in one place from page to page', 'Quality and EHS rows open with a click anywhere on them'] },
     { id: 'quality', date: '2026-11-04', area: 'reporting', title: 'Quality and EHS',
       text: 'Reporting gains two monthly pages, and each of its tabs now belongs to the people who need it.',
       points: ['Quality: customer complaints by month, by severity, containment, cost and where they came from', 'The Quality team\'s monthly slides: OTD, CPMS and lead time charts drawn like their Excel ones, October to October, copied into PowerPoint with one button', 'EHS: accidents, near misses and safety concerns, days without an accident, and the risk grid from the safety form', 'A new Quality module; the weekly report sits with Production management, the source files with Admin'] },

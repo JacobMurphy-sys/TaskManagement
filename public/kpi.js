@@ -6,6 +6,8 @@
 
 const kpiState = { zoom: null };
 
+// where a page's week or month picker sits, kept on pages without one so the tabs never move
+const KPI_PICK_SLOT = '<span class="kpi-pick kpi-pick-slot" aria-hidden="true"></span>';
 // 📊 Reporting's tabs: only the ones the account's modules include (accounts.js KPI_TABS)
 function kpiTabsHtml(active, snapId = '') {
   return `<div class="seg kpi-tabs">${KPI_TABS.filter(([k]) => kpiTabOk(k)).map(([k, l, , hash]) => {
@@ -38,10 +40,10 @@ async function renderKpi(arg, tab) {
       ${calc ? kpiTablesHtml(calc, dbTab, snap?.week) : dbTab === 'tables' ? kpiReportTablesHtml(snap) : '<div class="kpi-sheet-wrap" id="kpi-wrap"><div id="kpi-sizer"><div id="kpi-sheet"></div></div></div>'}</div>`;
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
-      ${year?.weeks?.length ? `<select id="kpi-week" title="Reporting week — any week of ${year.year}: from Excel, or built by SITHUB from the source figures">
-          ${year.weeks.map((w) => `<option value="${w.a3 ? w.a3.id : `build:${esc(w.week)}`}" ${w.a3 && w.a3.id === snap?.id ? 'selected' : ''}>${esc(w.week)} · ${esc(w.month)}${w.a3 ? (w.a3.origin === 'ci' ? ' — SITHUB' : ' — Excel') : ''}</option>`).join('')}
-          ${weeks.filter((w) => !year.weeks.some((y) => y.a3?.id === w.id)).map((w) => `<option value="${w.id}" ${w.id === snap?.id ? 'selected' : ''}>${esc(w.week)}${w.month ? ` · ${esc(w.month)}` : ''} — ${w.origin === 'ci' ? 'SITHUB' : 'Excel'}</option>`).join('')}</select>`
-        : weeks.length ? `<select id="kpi-week" title="Reporting week">${weeks.map((w) => `<option value="${w.id}" ${w.id === snap?.id ? 'selected' : ''}>${esc(w.week)}${w.month ? ` · ${esc(w.month)}` : ''}</option>`).join('')}</select>` : ''}
+      ${year?.weeks?.length ? `<select id="kpi-week" class="kpi-pick" title=""Reporting week — any week of ${year.year}: from Excel, or built by SITHUB from the source figures">
+          ${year.weeks.map((w) => `<option value="${w.a3 ? w.a3.id : `build:${esc(w.week)}`}" ${w.a3 && w.a3.id === snap?.id ? 'selected' : ''}>${esc(w.week)} · ${esc(w.month)}</option>`).join('')}
+          ${weeks.filter((w) => !year.weeks.some((y) => y.a3?.id === w.id)).map((w) => `<option value="${w.id}" ${w.id === snap?.id ? 'selected' : ''}>${esc(w.week)}${w.month ? ` · ${esc(w.month)}` : ''}</option>`).join('')}</select>`
+        : weeks.length ? `<select id="kpi-week" class="kpi-pick" title="Reporting week">${weeks.map((w) => `<option value="${w.id}" ${w.id === snap?.id ? 'selected' : ''}>${esc(w.week)}${w.month ? ` · ${esc(w.month)}` : ''}</option>`).join('')}</select>` : KPI_PICK_SLOT}
       ${kpiTabsHtml(view, snap?.id)}
       <div class="spacer"></div>
       <a class="button primary" href="#/kpi/prepare" title="Read the latest exports, fill in the week, build its A3 and save it — step by step">▶ Prepare this week</a>
@@ -553,7 +555,7 @@ async function renderKpiSources() {
       <td class="small">${s.first_day ? `${esc(s.first_day)} → ${esc(s.last_day)}` : ''}</td></tr>`;
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
-      ${kpiTabsHtml('sources')}
+      ${KPI_PICK_SLOT}${kpiTabsHtml('sources')}
       <div class="spacer"></div>
       <button class="primary" data-kc="import" title="Read the source files that changed since last time">📥 Read changed files</button>
       <button data-kc="force" title="Read every source file again">Read all again</button>
@@ -1403,7 +1405,7 @@ async function renderKpiPrepare(weekArg) {
 
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
-      ${kpiTabsHtml('prepare')}
+      ${KPI_PICK_SLOT}${kpiTabsHtml('prepare')}
       <div class="spacer"></div>
     </div>
     <div class="kp-top"><h2>▶ Prepare the week</h2>

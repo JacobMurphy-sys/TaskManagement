@@ -25,7 +25,7 @@ async function renderQualityTab(kind) {
     : !src && read.status === 'not set up' ? `<div class="kpi-action notice"><span>⚠ Where ${srcName} is saved isn't set yet.</span>${sourcesLink}</div>` : '';
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
-      <select id="q-month" title="The month to show">${d.months.map((m) => `<option value="${m.month}" ${m.month === d.month ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select>
+      <select id="q-month" class="kpi-pick" title="The month to show">${d.months.map((m) => `<option value="${m.month}" ${m.month === d.month ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select>
       ${kpiTabsHtml(kind)}
       <div class="spacer"></div>
       <span class="small muted q-src" title="${esc(src?.file || '')}">${src ? `${kind === 'quality' ? '🧪 Salesforce' : '⛑ Safety concern forms'} · read ${esc(fmtDateTime(src.imported_at))}${src.modified ? ` · file saved ${esc(fmtDateTime(src.modified))}` : ''}` : ''}</span>
@@ -35,11 +35,28 @@ async function renderQualityTab(kind) {
   qDrawCharts();
   $('#q-month').addEventListener('change', (e) => { store.set('qMonth', e.target.value); renderQualityTab(kind); });
   // a case or form opens out to its details
+  // a case or form opens out with its ▸, or a click anywhere on its row that isn't on its text (text stays selectable)
   main().onclick = (e) => {
-    const b = e.target.closest('[data-q-more]'); if (!b) return;
+    let b = e.target.closest('[data-q-more]');
+    if (!b) {
+      const tr = e.target.closest('.q-cases tbody tr:not(.q-more)');
+      if (!tr || e.target.closest('a, button, input, select, label, summary') || qOverText(e) || String(window.getSelection?.() || '')) return;
+      b = tr.querySelector('[data-q-more]'); if (!b) return;
+    }
     const row = document.getElementById(b.dataset.qMore); if (!row) return;
     row.hidden = !row.hidden; b.textContent = row.hidden ? '▸' : '▾'; b.setAttribute('aria-expanded', String(!row.hidden));
+    b.closest('tr').classList.toggle('q-open', !row.hidden);
   };
+}
+
+// is the pointer over a word (rather than the empty part of a cell)?
+function qOverText(e) {
+  let node = null;
+  if (document.caretPositionFromPoint) node = document.caretPositionFromPoint(e.clientX, e.clientY)?.offsetNode;
+  else if (document.caretRangeFromPoint) node = document.caretRangeFromPoint(e.clientX, e.clientY)?.startContainer;
+  if (!node || node.nodeType !== Node.TEXT_NODE || !node.textContent.trim()) return false;
+  const r = document.createRange(); r.selectNodeContents(node);
+  return [...r.getClientRects()].some((b) => e.clientX >= b.left - 1 && e.clientX <= b.right + 1 && e.clientY >= b.top - 1 && e.clientY <= b.bottom + 1);
 }
 
 // ---- the pieces ---------------------------------------------------------------------------------
