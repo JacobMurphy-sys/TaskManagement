@@ -32,6 +32,7 @@ async function renderQualityTab(kind) {
     </div>
     ${note}
     ${kind === 'quality' ? qualityHtml(d) : ehsHtml(d)}`;
+  main().classList.toggle('cockpit-main', kind === 'quality'); // 🧪 Quality is a dashboard: one screen, panels scroll on their own
   qDrawCharts();
   $('#q-month').addEventListener('change', (e) => { store.set('qMonth', e.target.value); renderQualityTab(kind); });
   // a case or form opens out to its details
@@ -111,6 +112,14 @@ const qTrendTable = (trend, series) => `<details class="q-table-toggle"><summary
   <tbody>${trend.map((t) => `<tr><td>${esc(t.label)}</td>${series.map(([k]) => `<td class="num">${t[k] || ''}</td>`).join('')}<td class="num"><b>${series.reduce((s, [k]) => s + (t[k] || 0), 0) || ''}</b></td></tr>`).join('')}</tbody></table></div></details>`;
 
 // where they came from: a bar per name, the year to date light and this month dark within it
+function qBarsList(list, monthLabel) {
+  if (!list?.length) return '<div class="empty small">Nothing this year yet.</div>';
+  const max = Math.max(1, ...list.map((x) => x.ytd));
+  return `<div class="q-bars">${list.map((x) => `<div class="q-bar-row${x.other ? ' other' : ''}" title="${esc(x.name)}: ${x.month} in ${esc(monthLabel)}, ${x.ytd} this year">
+      <span class="q-bar-name">${esc(x.name)}</span>
+      <span class="q-bar"><i class="ytd" style="width:${(x.ytd / max) * 100}%"></i><i class="mon" style="width:${(x.month / max) * 100}%"></i></span>
+      <span class="q-bar-n"><b>${x.month || ''}</b></span><span class="q-bar-n muted">${x.ytd}</span></div>`).join('')}</div>`;
+}
 function qBars(title, list, monthLabel) {
   if (!list?.length) return `<div class="card q-card"><h3>${title}</h3><div class="empty small">Nothing this year yet.</div></div>`;
   const max = Math.max(1, ...list.map((x) => x.ytd));
@@ -141,29 +150,74 @@ function qualityHtml(d) {
   const table = (list, key, empty) => (list.length ? `<div class="kdb-scroll"><table class="log q-cases"><thead><tr><th></th><th>Ref</th><th>Opened</th><th>Customer</th><th>Severity</th><th>Status</th>
     <th>Summary</th><th>Defect</th><th>Contained</th><th>Closed</th><th class="num">Cost</th></tr></thead><tbody>${list.map((c, i) => caseRow(c, i, key)).join('')}</tbody></table></div>` : `<div class="empty small">${empty}</div>`);
   const onTimePct = t.contained_with_target ? Math.round((t.contained_on_time / t.contained_with_target) * 100) : null;
+  const pk = qPackParts(d);
+  const tab = (group, key, label, title = '') => { const on = qdOn(group, key); return `<button type="button" class="${on ? 'on' : ''}" data-qd-tab="${group}:${key}"${title ? ` title="${esc(title)}"` : ''}>${label}</button>`; };
+  const pane = (group, key, html) => `<div class="qd-pane" data-qd-pane="${group}:${key}"${qdOn(group, key) ? '' : ' hidden'}>${html}</div>`;
+  const where = [['customer', 'Customer'], ['defect', 'Defect'], ['origin', 'Origin'], ['category', 'Product'], ['failure_type', 'Failure type']];
+  const short = { otd: 'OTD', cpms: 'CPMS', lead: 'Lead time' };
+  const chartKeys = [...pk.charts.map(([k, title]) => [k, short[k] || title, title]), ['trend', 'By severity', 'Complaints by the month they were opened, by severity']];
+  qdDefaults({ chart: 'otd', where: 'customer', cases: d.open.length && !d.cases.length ? 'open' : 'month' });
+  const cur = qdCur('chart');
   return `
-    <div class="q-tiles">
-      ${qTile(`Complaints in ${esc(d.label)}`, QN(t.opened), `${sevChips(sev)}<div>${qDelta(t.opened, t.opened_prev)}</div>`, t.opened ? '' : 'quiet')}
+    <div class="qd">
+    <div class="q-tiles qd-tiles">
+      ${qTile(`Complaints in ${esc(qShort(d.month))}`, QN(t.opened), `${sevChips(sev)}<div>${qDelta(t.opened, t.opened_prev)}</div>`, t.opened ? '' : 'quiet')}
       ${qTile(`${d.year} so far`, QN(t.ytd), sevChips(t.ytd_severity))}
       ${qTile('Open now', QN(t.open), `${t.open_not_contained ? `${t.open_not_contained} not contained yet` : 'all contained'}${t.open_contain_late ? ` · <b class="q-bad">${t.open_contain_late} past the containment date</b>` : ''}`, t.open_contain_late ? 'warn' : '')}
-      ${qTile(`Contained in ${esc(qShort(d.month))}`, QN(t.contained), `${onTimePct === null ? '' : `${onTimePct}% by the target date · `}${t.days_to_contain === null ? '' : `${t.days_to_contain} days on average`}`)}
-      ${qTile(`Closed in ${esc(qShort(d.month))}`, QN(t.closed), t.days_to_close === null ? '' : `${t.days_to_close} days on average from opening`)}
-      ${qTile('Cost', QEUR(t.cost), `${QEUR(t.cost_ytd)} this year${t.parts ? ` · ${QN(t.parts)} parts defective` : ''}${t.recurrences ? ` · ${t.recurrences} re-occurrence${t.recurrences === 1 ? '' : 's'}` : ''}`)}
+      ${qTile(`Contained in ${esc(qShort(d.month))}`, QN(t.contained), `${onTimePct === null ? '' : `${onTimePct}% on time · `}${t.days_to_contain === null ? '' : `${t.days_to_contain} d average`}`)}
+      ${qTile(`Closed in ${esc(qShort(d.month))}`, QN(t.closed), t.days_to_close === null ? '' : `${t.days_to_close} d average from opening`)}
+      ${qTile('Cost', QEUR(t.cost), `${QEUR(t.cost_ytd)} this year${t.parts ? ` · ${QN(t.parts)} parts` : ''}${t.recurrences ? ` · ${t.recurrences} re-occurrence${t.recurrences === 1 ? '' : 's'}` : ''}`)}
     </div>
-    ${qPackHtml(d)}
-    <div class="card q-trend"><div class="q-trend-head"><h3>Complaints by the month they were opened</h3>${qLegend(series)}</div>${qStackChart(d.trend, series, d.month)}${qTrendTable(d.trend, series)}</div>
-    <div class="q-grid">
-      ${qBars('Customer', d.breakdowns.customer, d.label)}${qBars('Defect type', d.breakdowns.defect, d.label)}${qBars('Failure origin', d.breakdowns.origin, d.label)}
-      ${qBars('Product category', d.breakdowns.category, d.label)}${qBars('Failure type', d.breakdowns.failure_type, d.label)}
+    <div class="qd-top">
+      <section class="ck-panel qd-charts">
+        <div class="ck-ph"><h3 title="${esc(pk.span)}">📈</h3><div class="seg qd-tabs">${chartKeys.map(([k, l, title]) => tab('chart', k, esc(l), title)).join('')}</div>
+          <span class="spacer"></span>
+          ${pk.missing.length ? `<span class="chip overdue" title="The OTD and CPMS charts need ${esc(pk.missing.join(' and '))} — read on Reporting's Sources">⚠ data missing</span>` : ''}
+          <span class="qd-chart-tools"${cur === 'trend' ? ' hidden' : ''}><button class="small primary" data-qcopy="${cur === 'trend' ? 'otd' : cur}" title="Copy for PowerPoint: the chart as a picture, then paste it into the slide (Ctrl+V)">📋 Copy</button>
+            <button class="small" data-qpng="${cur === 'trend' ? 'otd' : cur}" title="Save it as a picture (PNG)">⬇ PNG</button></span>
+          ${pk.settings}</div>
+        <div class="qd-body qd-chart-body">
+          ${pk.charts.map(([k, , svg]) => pane('chart', k, `<div class="qd-svg">${svg}</div>`)).join('')}
+          ${pane('chart', 'trend', `<div class="qd-trend">${qLegend(series)}${qStackChart(d.trend, series, d.month)}</div>`)}
+        </div>
+      </section>
+      <section class="ck-panel qd-where">
+        <div class="ck-ph"><h3>Where from</h3><div class="seg qd-tabs">${where.map(([k, l]) => tab('where', k, l)).join('')}</div></div>
+        <div class="qd-body">${where.map(([k]) => pane('where', k, qBarsList(d.breakdowns[k], d.label))).join('')}</div>
+        <div class="qd-foot q-bars-key small muted"><span><i class="q-sw mon"></i>${esc(d.label)}</span><span><i class="q-sw ytd"></i>year to date</span></div>
+      </section>
     </div>
-    <div class="card q-list"><h3>Opened in ${esc(d.label)} <span class="tm-count">${d.cases.length}</span></h3>${table(d.cases, 'm', `No complaints opened in ${esc(d.label)}.`)}</div>
-    <div class="card q-list"><h3>Still open <span class="tm-count">${d.open.length}</span> <span class="small muted">— any month, the oldest and those past their containment date first</span></h3>${table(d.open, 'o', 'Nothing open.')}</div>`;
+    <section class="ck-panel qd-cases">
+      <div class="ck-ph"><div class="seg qd-tabs">${tab('cases', 'month', `Opened in ${esc(qShort(d.month))} <span class="tm-count">${d.cases.length}</span>`)}${tab('cases', 'open', `Still open <span class="tm-count">${d.open.length}</span>`, 'Any month: the oldest and those past their containment date first')}</div>
+        <span class="small muted">▸ or click a row for its root causes</span></div>
+      <div class="qd-body">${pane('cases', 'month', table(d.cases, 'm', `No complaints opened in ${esc(d.label)}.`))}${pane('cases', 'open', table(d.open, 'o', 'Nothing open.'))}</div>
+    </section>
+    </div>`;
 }
+
+// the dashboard's mini-tabs: which one each panel shows (kept per browser)
+const qdState = () => store.get('qdTabs', {}) || {};
+const qdCur = (group) => qdState()[group];
+const qdOn = (group, key) => qdCur(group) === key;
+function qdDefaults(defs) { const st = qdState(); let ch = false; for (const [g, k] of Object.entries(defs)) if (!st[g]) { st[g] = k; ch = true; } if (ch) store.set('qdTabs', st); }
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-qd-tab]'); if (!b) return;
+  const [group, key] = b.dataset.qdTab.split(':');
+  const st = qdState(); st[group] = key; store.set('qdTabs', st);
+  const panel = b.closest('.ck-panel');
+  panel.querySelectorAll('[data-qd-tab]').forEach((x) => x.classList.toggle('on', x === b));
+  panel.querySelectorAll('[data-qd-pane]').forEach((x) => { x.hidden = x.dataset.qdPane !== `${group}:${key}`; });
+  if (group === 'chart') {
+    const tools = panel.querySelector('.qd-chart-tools'); if (tools) tools.hidden = key === 'trend';
+    if (key !== 'trend') { panel.querySelector('[data-qcopy]').dataset.qcopy = key; panel.querySelector('[data-qpng]').dataset.qpng = key; }
+    qDrawCharts();
+  }
+});
 
 // ---- 📈 the monthly slides: the Quality team's three charts, each copied into PowerPoint with one button --
 let qPackSvgs = {}; let qPackReady = {};
-function qPackHtml(d) {
-  const p = d.pack; if (!p) return '';
+function qPackParts(d) {
+  const p = d.pack; if (!p) return { charts: [], settings: '', missing: [], span: '' };
   const charts = qxPackCharts(p, p.titles || {});
   qPackSvgs = Object.fromEntries(charts.map(([k, , svg]) => [k, svg]));
   qPackReady = {}; // the pictures, made now so a click copies at once
@@ -171,10 +225,7 @@ function qPackHtml(d) {
   const first = p.months[0].month; const last = p.months[p.months.length - 1].month; const yr = p.ytd.month.slice(0, 4);
   const missing = [!p.shipped_read && 'cards shipped (the shipped export)', !p.otd_read && 'the OTD report'].filter(Boolean);
   const t = p.targets; const tt = p.titles || {};
-  return `<div class="card q-pack">
-    <div class="q-pack-head"><h3>📈 Monthly slides <span class="small muted">— OTD and CPMS: ${yr} and ${yr} YTD · lead time: ${esc(qShort(first))} ${first.slice(0, 4)} to ${esc(qShort(last))} ${last.slice(0, 4)}</span></h3>
-      <span class="spacer"></span>
-      <details class="q-pack-set"><summary class="button small">⚙ Targets and titles</summary><div class="card q-pack-pop">
+  const settings = `<details class="q-pack-set"><summary class="button small" title="Targets and titles">⚙</summary><div class="card q-pack-pop">
         <div class="q-pack-grid">
           <label>OTD target <span class="muted">%</span><input type="number" step="0.1" min="0" max="100" data-qt="otd" value="${+(t.otd * 100).toFixed(2)}"></label>
           <label>CPMS target<input type="number" step="0.01" min="0" data-qt="cpms" value="${t.cpms}"></label>
@@ -184,15 +235,8 @@ function qPackHtml(d) {
           <label class="wide">Title: CPMS chart<input type="text" data-qtitle="cpms" value="${esc(tt.cpms || '')}" placeholder="CPMS Quality"></label>
           <label class="wide">Title: lead time chart<input type="text" data-qtitle="lead" value="${esc(tt.lead || '')}" placeholder="Lead Time Service Center"></label>
         </div>
-        <p class="small muted" style="margin:6px 0 0">Kept for everyone. OTD SC counts the Service Center's delays (internal), OTD C the customer's (external), each against the cards shipped. CPMS and the green bars count Customer Complaints only (not Inter-company).</p></div></details>
-    </div>
-    ${missing.length ? `<div class="kc-note notice small">The OTD and CPMS charts need ${missing.join(' and ')} — read on Reporting's Sources (Prod Management or Admin).</div>` : ''}
-    <div class="q-pack-charts">${charts.map(([k, title, svg]) => `<figure class="q-pack-fig${k === 'lead' ? ' wide' : ''}">
-      <div class="q-pack-tools"><b>${esc(title)}</b><span class="spacer"></span>
-        <button class="small primary" data-qcopy="${k}" title="Copy the chart as a picture, then paste it into the slide (Ctrl+V)">📋 Copy for PowerPoint</button>
-        <button class="small" data-qpng="${k}" title="Save it as a picture (PNG)">⬇ PNG</button></div>
-      <div class="q-pack-svg">${svg}</div></figure>`).join('')}</div>
-  </div>`;
+        <p class="small muted" style="margin:6px 0 0">Kept for everyone. OTD SC counts the Service Center's delays (internal), OTD C the customer's (external), each against the cards shipped. CPMS and the green bars count Customer Complaints only (not Inter-company).</p></div></details>`;
+  return { charts, settings, missing, span: `For the monthly slides — OTD and CPMS: ${yr} and ${yr} YTD · lead time: ${qShort(first)} ${first.slice(0, 4)} to ${qShort(last)} ${last.slice(0, 4)}` };
 }
 document.addEventListener('click', async (e) => {
   const c = e.target.closest('[data-qcopy]'); const g = e.target.closest('[data-qpng]');
