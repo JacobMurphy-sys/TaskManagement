@@ -63,7 +63,7 @@ The top bar's tabs were renamed for 1.0 (the addresses behind them are unchanged
 | Board | 🗂 **Projects** | the projects board | Management |
 | Ideas | 💡 **Ideas** | | Continuous Improvement |
 | Library | 📚 **Library** | | Basic pack |
-| KPIs | 📊 **Reporting** | **Weekly Ops Report** (the A3), Database, Sources | Management |
+| KPIs | 📊 **Reporting** | **Weekly Ops Report** (the A3) and Database · 🧪 **Quality** and ⛑ **EHS** · Sources | Prod Management · Quality · Admin (each tab its own) |
 | Planning | 🏭 **Production** | 💳 Perso, ✉️ Matching, 🚚 Dispatch, 🧠 Insights (🔬 Learned, 📆 D+ due out, ⏱ Timing) | Prod Management |
 | Report | 🗄 *Archive* | the status report | Archive |
 | Contacts | 📇 **Contacts** | | Admin |
@@ -199,7 +199,7 @@ Past weeks stay in the list, so any earlier A3 can be viewed or saved again.
 - **Report tables**: the figures from the report's own tables (the Database sheet's rows 1–57) for the selected week, laid out in the site's own style rather than as Excel snippets — *The week* (reporting week, working days, targets, year-to-date KPIs, this month week by week), *Customers* (top 10 month and year to date, top 5 scrap by customer and work order), *Forecast & budget* (forecast, budget and working days per month), *Trend arrows* (expected vs shipped and persoed for PS, ISI, PIN and total cards) and *Quality & history* (quality and delivery per month, the monthly overview, the last five weeks behind the A3 charts). The reporting week and month are highlighted; KPIs are green or red against their targets, and *Missing* green or red for ahead of or behind the forecast. The links at the top jump to each group.
 - **Whole sheet**: the Database sheet as it looks in Excel.
 
-**Sources** — where every file is: the CI workbook and where the A3 is saved, the source exports, the customer forecasts, the rows of the OTD report that need fixing, and the due dates extended for volume in Production.
+**Sources** (the Admin module) — where every file is: the CI workbook and where the A3 is saved, the source exports (including the Salesforce export and the **safety concern form** for Quality and EHS), the customer forecasts, the rows of the OTD report that need fixing, and the due dates extended for volume in Production.
 
 **Any week of the year, built by SITHUB.** The week list on the A3 tab shows every reporting week of the year: the ones loaded from Excel (*— Excel*), the ones SITHUB has built (*— SITHUB*) and the rest. Pick one that isn't built yet and SITHUB builds its A3 in about a second: it takes the last workbook loaded as the template, puts in that week's figures from the source files (volumes, OTD, typed-in HR and quality, top-5 scrap, cards shipped per customer month- and year-to-date as of that week) and re-runs the workbook's own Database and A3 formulas — so the A3 is laid out, coloured and charted exactly as Excel would. It views, saves and downloads like any other week.
 
@@ -245,6 +245,23 @@ Past weeks stay in the list, so any earlier A3 can be viewed or saved again.
 - **Typed in each week** (✎ on a week in *OTD, quality and HR*): working hours from Protime — the Sunday-night and Monday–Friday *Present/total* counts, worked out as (Sun + … + Fri) × 7.5 h, plus 7.5 h for the full-time support staff on each weekday (Mon–Fri) with a count — so a short week isn't overstated — or the hours typed straight in; contract and temp headcount; and customer complaints (critical / major / minor) until the Salesforce export is ready — left blank, they count as 0. **⇩ Copy typed-in figures from Excel** carries the year so far over from the Database sheet (weeks up to Excel's reporting week with nothing typed yet; nothing is overwritten). These figures are backed up and in the activity log.
 - Worked out from those: CPMS (complaints per million cards shipped), scrap rate (scrap ÷ cards persoed), productivity (cards persoed per working hour) and HC (contract + temps) — all checked against Excel the same way.
 - Week codes are worked out, not typed: weeks run Sunday–Saturday (W2639), and a week whose weekdays fall in two months is split into W…_1 and W…_2. Excel's calendar leaves the Saturday and Sunday of a split week out of both parts, so weekend work in those weeks never reaches the report — the page lists it, and a tick box counts those days in their own month's part instead.
+
+### 🧪 Quality and ⛑ EHS (Reporting, the Quality module)
+
+Two tabs on 📊 Reporting, picked **by month** (the drop-down lists every month with something in it, newest first). Each reads its own file when the page opens, if it's changed since the last read.
+
+**🧪 Quality**, from the **Salesforce export** already linked on Sources (*SITTARD CC Report Ext*: the headings are found by name, the report's title lines and its Total/Count rows are skipped). Cases count in the month they were **opened**.
+- **Tiles:** complaints in the month by severity (critical, major, minor) and against the month before; the year so far; open now (not contained yet, past the containment target date); contained in the month (on time against the target, average days from opening); closed in the month (average days to close); cost (the month and the year), parts confirmed defective and re-occurrences.
+- **The 12 months up to it:** complaints per month, stacked by severity (hover a month for its figures, or *Show as a table*).
+- **Where they came from:** customer, defect type, failure origin, product category and failure type, each with the month and the year to date.
+- **Opened in the month** and **still open** (any month, the oldest and those past their containment date first): reference, customer, severity, status, summary, defect, contained, closed and cost. ▸ opens a case's root causes (occurrence and non-detection) and details.
+
+**⛑ EHS**, from the **safety concern form** (*Safety Concern Form Reporting*: Table1 on *SCF list*). Set where it's saved on **Sources** (*Safety concern forms (EHS)*). Each filled-in row is a form: **AC** accident, **NM** near miss or **SC** safety concern, counted in the month of the incident; template rows with no type yet are left out, and `#N/A` cells read as blank.
+- **Tiles:** days without an accident (at the end of the chosen month, or today), accidents, near misses and safety concerns in the month (the year so far, and against the month before), open forms (open or actioned, any month; how many with a risk of 6 or more) and how quickly forms were answered.
+- **The 12 months up to it:** forms per month, stacked by type.
+- **Risk in the year:** the form's own grid, how often (Rarely … Constantly) × how bad (minor injury … many deaths), each cell coloured by its risk score and holding the year's forms (● still open).
+- **Where:** category, location, first aid and the action in response to the risk, the month against the year to date.
+- **In the month** and **still open** (the highest risk first): type, date and time, location and detail, category, risk, status, what happened and days open. ▸ shows the immediate and corrective actions, the SCF response and who reported and responded.
 
 ### ⏱ Timing (Production › 🧠 Insights › ⏱ Timing)
 What really ran, from the daily **timing reports**: perso's *DailyPersoTiming* (one row per job run: the machine, start and end date and time, cards persoed, remake, customer, item), and Matching's matching report.
@@ -482,13 +499,15 @@ Instead of a copy on each PC, one computer runs SITHUB and everyone opens it in 
 - **🧩 Modules:** the admin ticks which parts of the app each account can see and use, in ⚙ Settings › 👤 Accounts (the Modules column, or when adding an account).
   - **Basic pack**, always included: Home, Tasks, Calendar, Library, 📥 My work, quick notes and search.
   - **To tick:**
-    - **🗂 Management:** Projects (the board, project pages and charters, the projects list in the sidebar) and 📊 Reporting (the Weekly Ops Report, its database and sources).
+    - **🗂 Management:** Projects (the board, project pages and charters, the projects list in the sidebar), 👥 People and 💶 CAPEX.
     - **💡 Continuous Improvement:** Ideas.
-    - **🏭 Prod Management:** Production, including 🧠 Insights and its ⏱ Timing.
+    - **🏭 Prod Management:** Production, including 🧠 Insights and its ⏱ Timing; 📐 Capacity planning; and 📊 Reporting's **Weekly Ops Report** (the A3), its **Database** and ▶ Prepare this week.
+    - **🛡 Quality:** 📊 Reporting's **🧪 Quality** (customer complaints) and **⛑ EHS** (safety concern forms), month by month.
     - **🗄 Archive:** the status report.
-    - **📇 Admin:** Contacts, for editing the lists. Names can still be picked as owners without it.
-  - **Carried over:** ticks made before the grouping move across. Projects or KPIs become Management, Ideas becomes Continuous Improvement, Planning becomes Prod Management, Report becomes Archive and Contacts becomes Admin.
-  - **Presets** when adding an account: *Basic pack only*, *Production: Basic + Prod Management* and *Manager: everything*.
+    - **📇 Admin:** Contacts, for editing the lists (names can still be picked as owners without it), and 📊 Reporting's **Sources** (where every file is; changing them still takes the ⚙ setup right).
+  - **📊 Reporting is split by tab:** it's in the top bar for anyone with one of its tabs, and shows only the tabs their modules include. An address for a tab they don't have opens one they do.
+  - **Carried over:** ticks made before the grouping move across. Projects become Management, KPIs become Prod Management (where the A3 is now), Ideas becomes Continuous Improvement, Planning becomes Prod Management, Report becomes Archive and Contacts becomes Admin. An account given just Management no longer sees Reporting: tick Prod Management, Quality or Admin as well for the tabs it needs.
+  - **Presets** when adding an account: *Basic pack only*, *Production: Basic + Prod Management*, *Quality: Basic + Quality* and *Manager: everything*.
   - **What's hidden:** a module an account doesn't have drops out of the top bar, the dashboard and search. Its pages send them to the dashboard, and the server refuses its data to that account.
   - **Who has everything:** admins always have every module. Accounts made before modules existed have them all until an admin changes them.
   - **When it applies:** a change takes effect the next time that person opens or refreshes the page.

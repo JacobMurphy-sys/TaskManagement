@@ -49,7 +49,9 @@ const PLACES = [
   { label: 'Weekly Ops Report (A3)', where: 'Reporting', keys: 'a3 weekly report ops kpi', area: 'kpi', hash: '#/kpi' },
   { label: 'Prepare this week', where: 'Reporting › ▶ Prepare this week', keys: 'prepare week read sources missing checklist', area: 'kpi', hash: '#/kpi/prepare' },
   { label: 'KPI database', where: 'Reporting › Database', keys: 'database figures manual adjust kpi table', area: 'kpi', hash: '#/kpi/0/database' },
-  { label: 'Sources and forecasts', where: 'Reporting › Sources', keys: 'sources forecast workbook files paths salesforce otd', area: 'kpi', right: 'setup', hash: '#/kpi/sources' },
+  { label: 'Sources and forecasts', where: 'Reporting › Sources', keys: 'sources forecast workbook files paths salesforce otd safety concern ehs', area: 'kpi_sources', hash: '#/kpi/sources' },
+  { label: 'Quality: customer complaints by month', where: 'Reporting › 🧪 Quality', keys: 'quality complaints salesforce cases severity defect containment cost month', area: 'quality', hash: '#/kpi/quality' },
+  { label: 'EHS: safety concerns, near misses and accidents', where: 'Reporting › ⛑ EHS', keys: 'ehs safety health accident near miss concern scf risk month', area: 'quality', hash: '#/kpi/ehs' },
   // 🗂 Projects, 💡 Ideas
   { label: 'Projects board', where: '🗂 Projects', keys: 'projects kanban board status', area: 'projects', hash: '#/kanban' },
   { label: 'Projects timeline', where: '🗂 Projects › ▤ Timeline', keys: 'timeline gantt projects', area: 'projects', hash: '#/kanban', prep: () => store.set('projectsView', 'timeline') },

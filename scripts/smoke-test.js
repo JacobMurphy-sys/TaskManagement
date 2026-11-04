@@ -1315,6 +1315,38 @@ async function waitForServer() {
         assert.equal((await call('GET', '/kpi/calc/detail?week=W2614_1&col=cc_minor')).cases.length, 0);
         assert.deepEqual((await call('GET', '/kpi/calc/detail?week=W2614_2&col=complaints')).cases.map((c) => c.ref), ['00284947'], 'all severities behind the total');
         assert.ok(!(await call('GET', '/kpi/calc?year=2026')).unlisted.some((u) => u.source === 'salesforce'), 'cases aren\'t volumes');
+        // 🧪 Quality: the complaints month by month (by the month a case was opened)
+        const q = await call('GET', '/kpi/quality?month=2026-04');
+        assert.deepEqual([q.month, q.label, q.tiles.opened, q.tiles.opened_prev, q.tiles.ytd, q.tiles.severity.Minor, q.tiles.ytd_severity.Major], ['2026-04', 'April 2026', 1, 1, 2, 1, 1]);
+        assert.deepEqual([q.tiles.contained, q.tiles.days_to_contain, q.tiles.open, q.tiles.open_not_contained, q.tiles.cost, q.tiles.cost_ytd], [1, 1, 2, 1, 5, 5],
+          'contained in April (the March case, a day after it was opened); both still open; the cost of April\'s cases');
+        assert.deepEqual([q.cases.map((c) => c.ref), q.trend.length, q.trend[11].month, q.trend[11].Minor, q.trend[10].Major], [['00284947'], 12, '2026-04', 1, 1], 'the month\'s cases; 12 months up to it');
+        assert.ok(q.months.some((m) => m.month === '2026-03') && q.months.some((m) => m.month === '2026-04'), 'months with cases to pick from');
+        assert.deepEqual(q.breakdowns.customer.map((x) => [x.name, x.month, x.ytd]), [['Belfius Bank NV', 1, 1], ['Advanzia S A', 0, 1]], 'by customer: the month, then the year to date');
+        assert.equal((await call('GET', '/kpi/quality?month=nonsense')).month.length, 7, 'a month that isn\'t one: the latest');
+      }
+      // ⛑ EHS: the safety concern forms (Table1 of "SCF list"; headings as the form spells them)
+      {
+        const ehsF = src('Safety Concern Form Reporting.xlsx', [['#', 'number'], ['Type'], ['year', 'number'], ['Incidient date', 'date'], ['Incident time', 'number'], ['Status'], ['Location'], ['Detail location'],
+          ['Category'], ['First aid help'], ['Occurance'], ['# Occurance'], ['Effect'], ['# Effect'], ['Risk'], ['Action in response to risk'], ['Description Incident'], ['Resonder'], ['Response date', 'date']], [
+          [1, null, 2026, '2026-01-31', null, null, null, null, null, null, null, '#N/A', null, '#N/A', '#N/A', null, null, null, null], // a template row: no type yet
+          [2, 'AC', 2026, '2026-08-24', 0.5416, 'Closed', 'Warehouse', 'Loading area', 'Falling object', 'None', 'Rarely', 0.5, 'Injury & abseentism', 3, 1.5, 'No Action Needed', 'Van operator stuck', 'EHS lead', '2026-08-24'],
+          [3, 'SC', 2026, '2026-08-26', 0.2, 'Open', 'Production', 'Perso trolley', 'Housekeeping', 'None', 'Multiple times a week', 3, 'Minor injury (first aid)', 1, 3, 'No Action Needed', 'Shelves bending', null, null],
+          [4, 'nm', 2026, '2026-10-01', null, 'Open', 'Production', 'Otto 1', 'Falling object', 'None', 'Multiple times a day', 6, 'Minor injury (first aid)', 1, 6, 'No Action Needed', 'Hood fell', null, null]]);
+        let e = await call('GET', '/kpi/ehs?month=2026-08');
+        assert.deepEqual([e.path_set, e.read.status], [false, 'not set up'], 'not read until its path is set');
+        await call('PATCH', '/settings', { kpi_src_ehs: ehsF });
+        e = await call('GET', '/kpi/ehs?month=2026-08');
+        assert.deepEqual([e.read.status, e.read.rows], ['imported', 3], 'read on opening; the template row left out');
+        assert.deepEqual([e.tiles.month, e.tiles.ytd, e.tiles.total], [{ AC: 1, NM: 0, SC: 1 }, { AC: 1, NM: 0, SC: 1 }, 2]);
+        assert.deepEqual([e.tiles.last_accident, e.tiles.days_since_accident, e.tiles.days_to_respond, e.tiles.open], ['2026-08-24', 8, 0, 2],
+          'days without an accident at the month\'s end; answered the same day; open (any month)');
+        assert.deepEqual(e.open.map((f) => [f.kind, f.risk]), [['NM', 6], ['SC', 3]], 'open forms, the highest risk first (type upper-cased)');
+        const cell = (o, ef) => e.matrix.find((r) => r.occurrence === o).cells.find((c) => c.effect.startsWith(ef));
+        assert.deepEqual([cell('Rarely', 'Injury').count, cell('Rarely', 'Injury').risk, cell('Multiple times a week', 'Minor').open, e.unscored], [1, 1.5, 1, 0], 'the risk grid, as scored on the form');
+        assert.deepEqual(e.forms.map((f) => [f.kind, f.location, f.detail, f.time]), [['SC', 'Production', 'Perso trolley', '04:48'], ['AC', 'Warehouse', 'Loading area', '13:00']], 'the month\'s forms, newest first');
+        assert.ok((await call('GET', '/kpi/calc?year=2026')).sources.some((s) => s.source === 'ehs' && s.rows === 3), 'listed on Sources');
+        assert.equal((await call('GET', '/kpi/ehs?month=2026-10')).tiles.month.NM, 1);
       }
       // week numbers typed other ways; a date never decides the week
       const otd2 = src('OTD Report 2.xlsx', [['Customer'], ['Quantity', 'number'], ['Type'], ['Date', 'date'], ['Week'], ['Month'], ['Reason']], [
@@ -2714,8 +2746,9 @@ async function waitForServer() {
       assert.ok((await sam('GET', '/auth/me')).data.account.areas.includes('kpi'), 'no modules set: all');
       const samId = (await admin('GET', '/accounts')).data.find((a) => a.username === 'sam').id;
       r = await admin('PATCH', `/accounts/${samId}`, { modules: ['production', 'nonsense'] });
-      assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'production'], ['planning', 'cpm']], 'the basic pack always, unknown ones dropped; Prod Management includes 📐 Capacity planning');
-      assert.equal((await sam('GET', '/kpi/snapshots')).status, 403, 'no KPIs');
+      assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'production'], ['planning', 'cpm', 'kpi']], 'the basic pack always, unknown ones dropped; Prod Management includes 📐 Capacity planning and the Weekly Ops Report');
+      assert.equal((await sam('GET', '/kpi/snapshots')).status, 200, 'the Weekly Ops Report is Prod Management\'s');
+      assert.equal((await sam('GET', '/kpi/quality')).status, 403, 'Quality isn\'t');
       assert.equal((await sam('GET', '/ideas')).status, 403, 'no ideas');
       assert.equal((await sam('GET', '/plan/find?q=ab')).status, 200, 'planning');
       assert.equal((await sam('GET', '/prod?source=perso')).status, 200, '⏱ Timing is Production\'s (Insights)');
@@ -2723,7 +2756,7 @@ async function waitForServer() {
       assert.ok((await sam('GET', '/capex')).status === 403 && (await sam('GET', '/people/overview')).status === 403 && (await sam('GET', '/people/colours')).status === 200, 'CAPEX and 👥 People are Management\'s; everyone sees the colours');
       assert.deepEqual((await sam('GET', '/search?q=Sam')).data.ideas, [], 'search leaves out what Sam can\'t use');
       const sq = (await sam('GET', '/search?q=Sam')).data;
-      assert.ok(sq.contacts.length === 0 && sq.reporting.length === 0 && Array.isArray(sq.production), 'only Sam\'s modules: production yes, contacts and reporting no');
+      assert.ok(sq.contacts.length === 0 && Array.isArray(sq.reporting) && Array.isArray(sq.production), 'only Sam\'s modules: production and its reporting yes, contacts no');
       assert.equal((await sam('PATCH', `/accounts/${samId}`, { modules: ['management'] })).status, 403, 'only admins give modules');
       { // 🧩 Library notes for some modules or rights only, and parts of a note
         const vault2 = [
@@ -2750,7 +2783,8 @@ async function waitForServer() {
       }
       assert.equal((await admin('GET', '/kpi/snapshots')).status, 200, 'admins have them all');
       r = await admin('POST', '/accounts', { username: 'mgr', person: 'Max Manager', password: 'mgr-pass-1', modules: ['projects', 'kpi', 'report'] });
-      assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'management', 'archive'], ['projects', 'kpi', 'team', 'capex', 'report']], 'modules from the start; the old ones (projects, kpi, report) carried over');
+      assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'management', 'production', 'archive'], ['projects', 'team', 'capex', 'planning', 'cpm', 'kpi', 'report']],
+        'modules from the start; the old ones (projects, kpi, report) carried over — Reporting\'s A3 is Prod Management\'s now');
       // 🔒 the setup is for admins; your own appearance is yours
       assert.equal((await sam('PATCH', '/settings', { currency: '$' })).status, 403, 'settings are for admins');
       assert.equal((await sam('PATCH', '/settings', { report_last_sent: new Date().toISOString() })).status, 200, 'but the report can be marked sent');
@@ -2811,6 +2845,25 @@ async function waitForServer() {
         assert.deepEqual([pw.data.due, pw.data.weeks, pw.data.checked_by], [false, 10, 'Sam Smoke'], 'ticked off');
         assert.equal((await box(admin)).length, 0, 'the reminders go when it\'s ticked off');
         await sam('POST', '/server/password', { weeks: 8 });
+      }
+      // 📊 Reporting by module: the A3 and Database (Prod Management), 🧪 Quality and ⛑ EHS (Quality), Sources (Admin)
+      {
+        const mk = async (username, modules) => {
+          const a = (await admin('POST', '/accounts', { username, person: `${username} person`, password: `${username}-pass-1`, modules })).data;
+          const who = as(username); await who('POST', '/auth/login', { username, password: `${username}-pass-1` });
+          await who('POST', '/auth/password', { current: `${username}-pass-1`, next: `${username}-pass-2` }); return [a, who];
+        };
+        const [qa, qaCall] = await mk('qa', ['quality']);
+        assert.deepEqual(qa.areas, ['quality']);
+        assert.deepEqual(await Promise.all(['/kpi/quality', '/kpi/ehs', '/kpi/snapshots', '/kpi/calc', '/kpi/weeks'].map(async (u) => (await qaCall('GET', u)).status)), [200, 200, 403, 403, 403],
+          'Quality: its two pages, not the A3, its database or the sources');
+        const [ad, adCall] = await mk('adm', ['admin']);
+        assert.deepEqual(ad.areas, ['contacts', 'kpi_sources']);
+        assert.deepEqual(await Promise.all(['/kpi/calc', '/kpi/quality', '/kpi/snapshots'].map(async (u) => (await adCall('GET', u)).status)), [200, 403, 403], 'Admin: Sources (the files) only');
+        assert.equal((await adCall('PATCH', '/settings', { kpi_src_ehs: 'X:\\elsewhere.xlsx' })).status, 403, 'changing where they are still takes the setup right');
+        const [, mgCall] = await mk('mg', ['management']);
+        assert.equal((await mgCall('GET', '/kpi/snapshots')).status, 403, 'Management no longer has Reporting');
+        for (const u of ['qa', 'adm', 'mg']) await admin('DELETE', `/accounts/${(await admin('GET', '/accounts')).data.find((a) => a.username === u).id}`);
       }
       await admin('PATCH', `/accounts/${samId}`, { rights: [] });
       assert.equal((await sam('PATCH', '/settings', { currency: '£' })).status, 403, 'rights taken back');

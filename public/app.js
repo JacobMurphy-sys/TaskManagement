@@ -423,8 +423,14 @@ async function route() {
   // the planner on its own: Planning, the activity log and backups only
   if (state.mode === 'planner' && !['planning', 'log', 'backups'].includes(view)) { view = 'planning'; rest = []; }
   // 🧩 a page the account's modules don't include: the dashboard instead
-  if ((view === 'backups' ? !acctRight('backups') : view === 'kpi' && ['sources', 'calc'].includes(rest[0]) && !acctAdmin())) {
-    toast('That\'s part of the setup — only an admin can open it', 'error'); location.replace(view === 'kpi' ? '#/kpi' : '#/dashboard'); view = view === 'kpi' ? 'kpi' : 'dashboard'; rest = [];
+  if (view === 'backups' && !acctRight('backups')) {
+    toast('That\'s part of the setup — only an admin can open it', 'error'); location.replace('#/dashboard'); view = 'dashboard'; rest = [];
+  }
+  // 📊 Reporting: each tab has its own module; a tab the account doesn't have goes to one it does
+  if (view === 'kpi' && rest[0] !== 'production' && !kpiTabOk(kpiTabOf(rest))) {
+    const first = KPI_TABS.find(([k]) => kpiTabOk(k));
+    if (!first) { toast(`Your account doesn't include Reporting — ask an admin`, 'error'); location.replace('#/dashboard'); view = 'dashboard'; rest = []; }
+    else { location.replace(first[3]); rest = first[3].split('/').slice(2); }
   }
   // ⏱ Timing moved from Reporting to Production › Insights: old links go there
   if (view === 'kpi' && rest[0] === 'production') { store.set('planHalf', 'insights'); store.set('planInsight', 'timing'); location.replace('#/planning'); view = 'planning'; rest = []; }

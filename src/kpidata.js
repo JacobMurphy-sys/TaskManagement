@@ -38,11 +38,26 @@ const SOURCES = {
   // counted in the week it was opened. Shown behind the complaint figures.
   salesforce: {
     label: 'Salesforce complaints', file: 'Salesforce.xlsx', sheet: 'Salesforce', workbook: 'SalesforceImport2.0',
-    optional: ['kind', 'owner', 'target', 'contained', 'closed', 'status', 'category', 'summary', 'defect', 'failure', 'origin', 'cause', 'non_detection', 'parts', 'recurrence', 'failure_type', 'cost'],
+    optional: ['kind', 'owner', 'target', 'contained', 'closed', 'status', 'category', 'summary', 'defect', 'failure', 'origin', 'cause', 'non_detection', 'parts', 'recurrence', 'failure_type', 'cost',
+      'cost_analysis', 'cost_replacement', 'cost_scrap', 'cost_penalty', 'age_closure', 'age_containment', 'days_to_communicate'],
     columns: { ref: 'Reference number', kind: 'Type', owner: 'Case Owner', customer: 'Account Name', day: 'Opened Date', target: 'Containement target date', contained: 'Date contained',
       closed: 'Closed Date', status: 'Status', type: 'Severity', category: 'Product category', summary: 'Summary of the issue', defect: 'Defect Type', failure: 'Failure / No failure',
       origin: 'Failure Origin', cause: 'Root cause for occurrence', non_detection: 'Root cause for non detection', parts: 'How many parts are confirmed defective?',
-      recurrence: 'Re-occurence', failure_type: 'FAILURE TYPE', cost: 'Total cost (Euros)' },
+      recurrence: 'Re-occurence', failure_type: 'FAILURE TYPE', cost: 'Total cost (Euros)', cost_analysis: 'Analysis cost (Euros)', cost_replacement: 'Replacement cost (Euros)',
+      cost_scrap: 'Scrap cost (Euros)', cost_penalty: 'Penalty cost (Euros)', age_closure: 'Age in days to closure', age_containment: 'Age of Containment', days_to_communicate: 'Days to communicate' },
+  },
+  // ⛑ The safety concern forms (EHS's "Safety Concern Form Reporting" workbook, Table1 on "SCF list"): one row per
+  // form — SC safety concern, NM near miss, AC accident — counted by its incident date. Template rows with no
+  // type yet are left out. Read only once its path is set. A heading may be spelt more than one way.
+  ehs: {
+    label: 'Safety concern forms (EHS)', file: 'Safety Concern Form Reporting.xlsx', sheet: 'SCF list', table: 'Table1', workbook: null, keepTypeless: false,
+    optional: ['num', 'time', 'status', 'location', 'detail', 'category', 'first_aid', 'occurrence', 'occ_score', 'effect', 'effect_score', 'risk', 'response', 'description',
+      'immediate', 'corrective', 'name', 'otl', 'scf_response', 'responder', 'response_day', 'response_time', 'days_open'],
+    columns: { num: '#', type: 'Type', day: ['Incident date', 'Incidient date'], time: 'Incident time', status: 'Status', location: 'Location', detail: 'Detail location',
+      category: 'Category', first_aid: 'First aid help', occurrence: ['Occurrence', 'Occurance'], occ_score: ['# Occurrence', '# Occurance'], effect: 'Effect', effect_score: '# Effect',
+      risk: 'Risk', response: 'Action in response to risk', description: ['Description Incident', 'Description incident'], immediate: 'Description immediate actions',
+      corrective: 'Description Corrective actions', name: 'Name', otl: 'OTL', scf_response: 'SCF Response', responder: ['Responder', 'Resonder'], response_day: 'Response date',
+      response_time: 'Response time', days_open: 'Days open' },
   },
   // ♻ Remakes from goods consumption (AX consumption transactions): every card taken from stock, with its
   // reason code — a code ending in "Err" is a remake. Linked to the work order by its CPS job. No workbook
@@ -196,16 +211,18 @@ function sheetRows(sheet, columns, optional = [], range = null) {
   const all = Object.entries(columns);
   const want = all.filter(([k]) => !optional.includes(k));
   const norm = (s) => String(s ?? '').trim().toLowerCase();
+  const spellings = (h) => (Array.isArray(h) ? h : [h]);
   const left = range?.left || 1; const right = range ? Math.min(range.right, sheet.maxCol) : sheet.maxCol;
   const top = range?.top || 1; const bottom = range ? Math.min(range.bottom, sheet.maxRow) : sheet.maxRow;
   let headerRow = 0; let at = null;
   for (let r = top; r <= (range ? top : Math.min(sheet.maxRow, 30)) && !at; r++) {
     const heads = new Map();
     for (let c = left; c <= right; c++) { const v = sheet.cells.get(`${colLetters(c)}${r}`)?.v; if (v !== null && v !== undefined && !heads.has(norm(v))) heads.set(norm(v), c); }
-    if (want.every(([, h]) => heads.has(norm(h)))) { headerRow = r; at = Object.fromEntries(all.filter(([, h]) => heads.has(norm(h))).map(([k, h]) => [k, heads.get(norm(h))])); }
+    const colOf = (h) => spellings(h).map((x) => heads.get(norm(x))).find((c) => c !== undefined);
+    if (want.every(([, h]) => colOf(h) !== undefined)) { headerRow = r; at = Object.fromEntries(all.filter(([, h]) => colOf(h) !== undefined).map(([k, h]) => [k, colOf(h)])); }
   }
   if (!at) {
-    const missing = want.map(([, h]) => h);
+    const missing = want.map(([, h]) => spellings(h)[0]);
     throw new Error(`Can't find the columns ${missing.join(', ')} in "${sheet.name}"${range ? ' (in its table)' : ''}`);
   }
   const out = [];
@@ -250,7 +267,7 @@ function storeSource(name, rows, meta = {}) {
   ensure();
   if (name === 'consumption') return storeConsumption(rows, meta);
   const splitWeekends = meta.splitWeekends ?? false;
-  let skipped = 0; let first = null; let last = null;
+  let skipped = 0; let first = null; let last = null; let blanks = 0; // blanks: a form's template rows, not filled in (not counted at all)
   const ins = db.conn.prepare('INSERT INTO kpi_rows (source, day, week, customer, type, qty, scrap, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
   db.tx(() => {
     db.run('DELETE FROM kpi_rows WHERE source = ?', [name]);
@@ -261,24 +278,32 @@ function storeSource(name, rows, meta = {}) {
       // OTD rows are counted in the week typed against them, as Excel does: a row without a
       // usable week isn't counted (week ''), however its date reads — it's listed instead.
       if (typed && !typedWeek && !day && (r.week === null || r.week === undefined || r.week === '') && !Number(r.qty)) { skipped++; continue; }
+      if (name === 'ehs' && !String(r.type ?? '').trim()) { blanks++; continue; } // a template row not filled in yet
       if (!typed && !day) { skipped++; continue; }
       if (day && (!first || day < first)) first = day;
       if (day && (!last || day > last)) last = day;
       const dateWeek = day ? weekCode(day, { splitWeekends }) : null;
-      const sfExtra = () => JSON.stringify(Object.fromEntries(['ref', 'kind', 'owner', 'status', 'category', 'summary', 'defect', 'failure', 'origin', 'cause', 'non_detection', 'parts', 'recurrence', 'failure_type', 'cost']
+      const sfExtra = () => JSON.stringify(Object.fromEntries(['ref', 'kind', 'owner', 'status', 'category', 'summary', 'defect', 'failure', 'origin', 'cause', 'non_detection', 'parts', 'recurrence', 'failure_type', 'cost',
+        'cost_analysis', 'cost_replacement', 'cost_scrap', 'cost_penalty', 'age_closure', 'age_containment', 'days_to_communicate']
         .map((k) => [k, r[k] ?? null]).concat([['target', dayOf(r.target)], ['contained', dayOf(r.contained)], ['closed', dayOf(r.closed)]])));
-      const extra = name === 'salesforce' ? sfExtra() : name === 'remakes' ? JSON.stringify({ wo: r.wo ?? null, machine: r.machine ?? null, mode: r.mode ?? null, time: r.time ?? null, perso_day: dayOf(r.perso_day) })
+      const clean = (v) => (v === null || v === undefined || /^#(N\/A|VALUE!|REF!|DIV\/0!|NAME\?)$/.test(String(v)) || String(v).trim() === '' ? null : typeof v === 'string' ? v.trim() : v);
+      const numOf = (v) => { const c = clean(v); if (c === null) return null; const n = Number(c); return Number.isFinite(n) ? n : null; }; // scores typed or worked out as text too
+      const ehsExtra = () => JSON.stringify({ ...Object.fromEntries(['status', 'detail', 'category', 'first_aid', 'occurrence', 'effect', 'response',
+        'description', 'immediate', 'corrective', 'name', 'otl', 'scf_response', 'responder'].map((k) => [k, clean(r[k])])),
+        ...Object.fromEntries(['num', 'occ_score', 'effect_score', 'risk', 'days_open'].map((k) => [k, numOf(r[k])])), time: timeOf(r.time), response_day: dayOf(r.response_day) });
+      const extra = name === 'ehs' ? ehsExtra() : name === 'salesforce' ? sfExtra() : name === 'remakes' ? JSON.stringify({ wo: r.wo ?? null, machine: r.machine ?? null, mode: r.mode ?? null, time: r.time ?? null, perso_day: dayOf(r.perso_day) })
         : typed ? JSON.stringify({ reason: r.reason ?? null, typed_week: typedWeek, date_week: dateWeek, week_raw: r.week ?? null, month_raw: r.month ?? null })
           : (r.due !== undefined ? JSON.stringify({ due: dayOf(r.due) }) : null);
-      ins.run(name, day || '', typed ? (typedWeek || '') : dateWeek, r.customer === null ? null : String(r.customer).trim(), r.type === null ? null : String(r.type).trim(),
-        name === 'salesforce' ? 1 : Number(r.qty) || 0, Number(r.scrap) || 0, extra);
+      const who = name === 'ehs' ? r.location : r.customer;
+      ins.run(name, day || '', typed ? (typedWeek || '') : dateWeek, who === null || who === undefined ? null : String(who).trim(), r.type === null || r.type === undefined ? null : name === 'ehs' ? String(r.type).trim().toUpperCase() : String(r.type).trim(),
+        name === 'salesforce' || name === 'ehs' ? 1 : Number(r.qty) || 0, Number(r.scrap) || 0, extra);
     }
     db.run(`INSERT INTO kpi_sources (source, file, modified, imported_at, rows, skipped, first_day, last_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(source) DO UPDATE SET file = excluded.file, modified = excluded.modified, imported_at = excluded.imported_at,
       rows = excluded.rows, skipped = excluded.skipped, first_day = excluded.first_day, last_day = excluded.last_day`,
-    [name, meta.file || null, meta.modified || null, new Date().toISOString(), rows.length - skipped, skipped, first, last]);
+    [name, meta.file || null, meta.modified || null, new Date().toISOString(), rows.length - skipped - blanks, skipped, first, last]);
   });
-  return { source: name, rows: rows.length - skipped, skipped, first_day: first, last_day: last };
+  return { source: name, rows: rows.length - skipped - blanks, skipped, first_day: first, last_day: last };
 }
 
 // ♻ The consumption export: a reason code ending in "Err" is a remake (scrap = the cards taken for it);
@@ -354,11 +379,12 @@ function rewriteWeeks(splitWeekends) {
 // Imports the sources whose files changed since last time (or all, with force).
 // paths: { perso: 'S:\\…\\KPI_persoed_CI.xlsx', … }; workbook: the CI workbook, used for
 // any source without a path of its own.
-function importSources({ paths = {}, workbook = null, force = false, splitWeekends = false } = {}) {
+function importSources({ paths = {}, workbook = null, force = false, splitWeekends = false, only = null } = {}) {
   ensure();
   const results = [];
   let wbBook = null; // the CI workbook is read once for all the sources it stands in for
   for (const name of Object.keys(SOURCES)) {
+    if (only && !only.includes(name)) continue;
     const file = String(paths[name] || '').trim().replace(/^"|"$/g, '');
     const useWorkbook = !file;
     if (useWorkbook && !SOURCES[name].workbook) { results.push({ source: name, status: 'not set up' }); continue; }

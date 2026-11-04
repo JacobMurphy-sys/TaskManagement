@@ -37,19 +37,27 @@ const passwordProblem = (pw) => (String(pw || '').length < 8 ? 'Passwords need a
 // is Projects and Reporting.
 const MODULES = [
   { key: 'basic', label: 'Basic pack', icon: '📋', what: 'Home, Tasks, Calendar, Library, 📥 My work, quick notes and search', always: true, areas: [] },
-  { key: 'management', label: 'Management', icon: '🗂', what: 'Projects (the board, project pages and charters, the projects list in the sidebar), 👥 People (each person\'s open work and next action), 💶 CAPEX (planned investments) and Reporting (the weekly ops report, its database and sources)', areas: ['projects', 'kpi', 'team', 'capex'] },
+  { key: 'management', label: 'Management', icon: '🗂', what: 'Projects (the board, project pages and charters, the projects list in the sidebar), 👥 People (each person\'s open work and next action) and 💶 CAPEX (planned investments)', areas: ['projects', 'team', 'capex'] },
   { key: 'ci', label: 'Continuous Improvement', icon: '💡', what: 'Ideas: the ideas, their notes and the pipeline', areas: ['ideas'] },
-  { key: 'production', label: 'Prod Management', icon: '🏭', what: 'Production: perso, Matching, Insights (🔬 Learned, 📆 D+ due out, ⏱ Timing) and 🔍 search; 📐 Capacity planning (forecasts, flex, scenarios)', areas: ['planning', 'cpm'] },
+  { key: 'production', label: 'Prod Management', icon: '🏭', what: 'Production: perso, Matching, Insights (🔬 Learned, 📆 D+ due out, ⏱ Timing) and 🔍 search; 📐 Capacity planning (forecasts, flex, scenarios); 📊 Reporting\'s Weekly Ops Report (the A3), its Database and ▶ Prepare this week', areas: ['planning', 'cpm', 'kpi'] },
+  { key: 'quality', label: 'Quality', icon: '🛡', what: '📊 Reporting\'s 🧪 Quality (customer complaints, from the Salesforce export) and ⛑ EHS (safety concern forms), month by month', areas: ['quality'] },
   { key: 'archive', label: 'Archive', icon: '🗄', what: 'the archived status report', areas: ['report'] },
-  { key: 'admin', label: 'Admin', icon: '📇', what: 'Contacts, to edit the lists (names can still be picked as owners without it)', areas: ['contacts'] },
+  { key: 'admin', label: 'Admin', icon: '📇', what: 'Contacts, to edit the lists (names can still be picked as owners without it), and 📊 Reporting\'s Sources: where every source file is (changing them takes the setup right)', areas: ['contacts', 'kpi_sources'] },
 ];
 const MODULE_KEYS = MODULES.map((m) => m.key);
 const AREAS = MODULES.flatMap((m) => m.areas);
 // modules ticked before they were grouped
-const LEGACY = { projects: 'management', kpi: 'management', ideas: 'ci', planning: 'production', report: 'archive', contacts: 'admin' };
+const LEGACY = { projects: 'management', kpi: 'production', ideas: 'ci', planning: 'production', report: 'archive', contacts: 'admin' };
 const keysOf = (list) => new Set((Array.isArray(list) ? list : String(list || '').split(',')).map((k) => String(k).trim()).map((k) => LEGACY[k] || k));
-// the API paths each area owns (refused to an account without it)
-const MODULE_API = { team: /^\/people\/(overview|focus)(\/|$)/, capex: /^\/capex(\/|$)/, ideas: /^\/(ideas|idea-notes)(\/|$)/, kpi: /^\/kpi(\/|$)/, planning: /^\/(plan|prod)(\/|$)/, cpm: /^\/cpm(\/|$)/, report: /^\/report(\/|$)/, contacts: /^\/contacts(\/|$)/ };
+// the API paths each area owns (refused to an account without it): the first rule that matches decides,
+// and a rule open to several areas lets in an account with any of them
+const MODULE_API = [
+  [/^\/kpi\/(quality|ehs)(\/|$)/, ['quality']], // 🧪 Quality and ⛑ EHS
+  [/^\/kpi\/calc(\/import|\/weekends)?$/, ['kpi', 'kpi_sources']], // the source files: Database and Sources both show them
+  [/^\/kpi(\/|$)/, ['kpi']], // the Weekly Ops Report, its Database and Prepare
+  [/^\/people\/(overview|focus)(\/|$)/, ['team']], [/^\/capex(\/|$)/, ['capex']], [/^\/(ideas|idea-notes)(\/|$)/, ['ideas']],
+  [/^\/(plan|prod)(\/|$)/, ['planning']], [/^\/cpm(\/|$)/, ['cpm']], [/^\/report(\/|$)/, ['report']], [/^\/contacts(\/|$)/, ['contacts']],
+];
 function modulesOf(a) {
   if (!a || a.role === 'admin' || a.owner || a.modules === null || a.modules === undefined) return [...MODULE_KEYS];
   const set = keysOf(a.modules);
@@ -62,8 +70,10 @@ const moduleOfArea = (area) => MODULES.find((m) => m.areas.includes(area));
 const canUse = (req, area) => !req.account || areasOf(req.account).includes(area);
 function moduleGate(req, res, next) {
   if (!req.account) return next();
-  for (const [area, re] of Object.entries(MODULE_API)) {
-    if (re.test(req.path) && !canUse(req, area)) return res.status(403).json({ error: `Your account doesn't include ${moduleOfArea(area).label} — ask an admin`, module: moduleOfArea(area).key });
+  const rule = MODULE_API.find(([re]) => re.test(req.path));
+  if (rule && !rule[1].some((area) => canUse(req, area))) {
+    const m = moduleOfArea(rule[1][0]);
+    return res.status(403).json({ error: `Your account doesn't include ${m.label} — ask an admin`, module: m.key });
   }
   return next();
 }

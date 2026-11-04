@@ -6,8 +6,17 @@
 
 const kpiState = { zoom: null };
 
+// 📊 Reporting's tabs: only the ones the account's modules include (accounts.js KPI_TABS)
+function kpiTabsHtml(active, snapId = '') {
+  return `<div class="seg kpi-tabs">${KPI_TABS.filter(([k]) => kpiTabOk(k)).map(([k, l, , hash]) => {
+    const href = k === 'a3' ? `#/kpi/${snapId || ''}` : k === 'database' ? `#/kpi/${snapId || 0}/database` : hash;
+    return `<a href="${href}" class="${active === k ? 'on' : ''}"${k === 'sources' ? ' title="Where the workbook, the source files and the forecasts are"' : ''}>${l}</a>`;
+  }).join('')}</div>`;
+}
+
 async function renderKpi(arg, tab) {
   if (arg === 'calc' || arg === 'sources') return renderKpiSources();
+  if (arg === 'quality' || arg === 'ehs') return renderQualityTab(arg);
   if (arg === 'prepare') return renderKpiPrepare(tab);
   if (arg === 'production') { store.set('planInsight', 'timing'); store.set('planHalf', 'insights'); location.replace('#/planning'); return; } // ⏱ Timing moved to Production › Insights
   const [weeks, settings, year] = await Promise.all([api.get('/kpi/snapshots'), api.get('/settings'), api.get('/kpi/weeks').catch(() => null)]);
@@ -33,7 +42,7 @@ async function renderKpi(arg, tab) {
           ${year.weeks.map((w) => `<option value="${w.a3 ? w.a3.id : `build:${esc(w.week)}`}" ${w.a3 && w.a3.id === snap?.id ? 'selected' : ''}>${esc(w.week)} · ${esc(w.month)}${w.a3 ? (w.a3.origin === 'ci' ? ' — SITHUB' : ' — Excel') : ''}</option>`).join('')}
           ${weeks.filter((w) => !year.weeks.some((y) => y.a3?.id === w.id)).map((w) => `<option value="${w.id}" ${w.id === snap?.id ? 'selected' : ''}>${esc(w.week)}${w.month ? ` · ${esc(w.month)}` : ''} — ${w.origin === 'ci' ? 'SITHUB' : 'Excel'}</option>`).join('')}</select>`
         : weeks.length ? `<select id="kpi-week" title="Reporting week">${weeks.map((w) => `<option value="${w.id}" ${w.id === snap?.id ? 'selected' : ''}>${esc(w.week)}${w.month ? ` · ${esc(w.month)}` : ''}</option>`).join('')}</select>` : ''}
-      <div class="seg"><a href="#/kpi/${snap?.id || ''}" class="${view === 'a3' ? 'on' : ''}">Weekly Ops Report</a><a href="#/kpi/${snap?.id || 0}/database" class="${view === 'database' ? 'on' : ''}">Database</a><a href="#/kpi/sources" title="Where the workbook, the source files and the forecasts are">Sources</a></div>
+      ${kpiTabsHtml(view, snap?.id)}
       <div class="spacer"></div>
       <a class="button primary" href="#/kpi/prepare" title="Read the latest exports, fill in the week, build its A3 and save it — step by step">▶ Prepare this week</a>
       ${ddMenu('⋯', `
@@ -544,7 +553,7 @@ async function renderKpiSources() {
       <td class="small">${s.first_day ? `${esc(s.first_day)} → ${esc(s.last_day)}` : ''}</td></tr>`;
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
-      <div class="seg"><a href="#/kpi">Weekly Ops Report</a><a href="#/kpi/0/database">Database</a><a href="#/kpi/sources" class="on">Sources</a></div>
+      ${kpiTabsHtml('sources')}
       <div class="spacer"></div>
       <button class="primary" data-kc="import" title="Read the source files that changed since last time">📥 Read changed files</button>
       <button data-kc="force" title="Read every source file again">Read all again</button>
@@ -1394,7 +1403,7 @@ async function renderKpiPrepare(weekArg) {
 
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
-      <div class="seg"><a href="#/kpi">Weekly Ops Report</a><a href="#/kpi/0/database">Database</a><a href="#/kpi/sources">Sources</a></div>
+      ${kpiTabsHtml('prepare')}
       <div class="spacer"></div>
     </div>
     <div class="kp-top"><h2>▶ Prepare the week</h2>

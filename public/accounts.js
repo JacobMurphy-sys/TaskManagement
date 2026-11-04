@@ -3,9 +3,17 @@
 const ACCT = { enabled: false, account: null, newCount: 0, modules: [], areas: [], rights: [] };
 
 // 🧩 Modules: the parts of the app an account can see (admins and no-accounts: all of them).
-const MOD_OF_VIEW = { team: 'team', capex: 'capex', kanban: 'projects', project: 'projects', ideas: 'ideas', idea: 'ideas', kpi: 'kpi', planning: 'planning', cpm: 'cpm', report: 'report', contacts: 'contacts' };
+const MOD_OF_VIEW = { team: 'team', capex: 'capex', kanban: 'projects', project: 'projects', ideas: 'ideas', idea: 'ideas', planning: 'planning', cpm: 'cpm', report: 'report', contacts: 'contacts' };
 // areas (projects, kpi, ideas, planning, report, contacts), each part of a module (Management: projects and kpi)
 const modOk = (area) => !ACCT.account || (ACCT.account.areas || []).includes(area);
+// 📊 Reporting's tabs, each with the area (module) it needs: the Weekly Ops Report and Database (Prod
+// Management), Quality and EHS (Quality), Sources (Admin). Reporting is in the top bar for any of them.
+const KPI_TABS = [['a3', 'Weekly Ops Report', 'kpi', '#/kpi'], ['database', 'Database', 'kpi', '#/kpi/0/database'], ['quality', '🧪 Quality', 'quality', '#/kpi/quality'],
+  ['ehs', '⛑ EHS', 'quality', '#/kpi/ehs'], ['sources', 'Sources', 'kpi_sources', '#/kpi/sources']];
+const kpiTabOk = (tab) => modOk(KPI_TABS.find((t) => t[0] === tab)?.[2] || 'kpi');
+const reportingOk = () => KPI_TABS.some(([k]) => kpiTabOk(k));
+// the Reporting tab an address is on (#/kpi/12/database → database)
+const kpiTabOf = (rest) => (['sources', 'calc'].includes(rest[0]) ? 'sources' : ['quality', 'ehs'].includes(rest[0]) ? rest[0] : rest[1] === 'database' ? 'database' : 'a3');
 // 🔒 admin rights (src/accounts.js RIGHTS): setup, accounts, backups, server. Admins and the host have
 // them all; the host gives some to other accounts. With accounts off, whoever is here has them.
 const acctRight = (key) => !ACCT.enabled || (ACCT.account?.rights || []).includes(key);
@@ -14,7 +22,7 @@ const acctOwner = () => !ACCT.enabled || !!ACCT.account?.owner;
 function modApply() {
   document.body.classList.toggle('not-admin', !acctAdmin());
   $$('#top-menu a[data-nav="backups"]').forEach((a) => { a.hidden = !acctRight('backups'); });
-  $$('#topnav a[data-nav], #top-menu a[data-nav]').forEach((a) => { const m = MOD_OF_VIEW[a.dataset.nav]; if (m) a.hidden = !modOk(m); });
+  $$('#topnav a[data-nav], #top-menu a[data-nav]').forEach((a) => { const m = MOD_OF_VIEW[a.dataset.nav]; if (m) a.hidden = !modOk(m); else if (a.dataset.nav === 'kpi') a.hidden = !reportingOk(); });
   for (const a of ACCT.areas) document.body.classList.toggle(`nomod-${a}`, !modOk(a));
 }
 
@@ -143,7 +151,7 @@ async function acctSettingsHtml() {
       ${a.role === 'admin' ? '' : `<div class="mod-ticks acct-rights">${ACCT.rights.map((r) => `<label title="${esc(`${r.label}: ${r.what}`)}"><input type="checkbox" data-right="${r.key}" ${a.rights.includes(r.key) ? 'checked' : ''}> ${r.icon} ${esc(r.label)}</label>`).join('')}</div>`}`;
   };
   const canEdit = (a) => !a.owner && (owner || a.role !== 'admin');
-  const presets = [['Basic pack only', []], ['Production: Basic + Prod Management', ['production']], ['Manager: everything', extra.map((m) => m.key)]];
+  const presets = [['Basic pack only', []], ['Production: Basic + Prod Management', ['production']], ['Quality: Basic + Quality', ['quality']], ['Manager: everything', extra.map((m) => m.key)]];
   const form = (first) => `<form id="acct-form" class="row acct-form">
       <label class="f">Person <span class="muted small">(from the contacts)</span><input type="text" name="person" list="acct-people" required autocomplete="off" placeholder="e.g. Sam Taylor"></label>
       <label class="f">Username<input type="text" name="username" required pattern="[A-Za-z0-9._@\\-]{2,40}" placeholder="e.g. sam.taylor"></label>
