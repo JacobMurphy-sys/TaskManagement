@@ -2319,7 +2319,7 @@ dialog#modal .tm-title:focus { border-color: var(--accent); background: var(--pa
 /* 🧪 Quality as a dashboard (like Home): tiles, a chart panel and "where from" side by side, the cases below;
    one screen, each panel scrolls on its own; mini-tabs pick what a panel shows */
 .qd { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
-#main.cockpit-main .kpi-tools { flex: none; margin-bottom: 0; }
+#main.cockpit-main .kpi-tools { flex: none; margin-bottom: 14px; } /* the same room under the header as on the other Reporting tabs */
 .qd-tiles { flex: none; margin: 0; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
 .qd-tiles .q-tile { padding: 7px 10px; }
 .qd-tiles .q-tile-v { font-size: 21px; line-height: 1.15; margin-top: 0; }
