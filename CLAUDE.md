@@ -36,8 +36,9 @@ expense, nothing company-internal.
 
 - **`main` is live**: the shared server installs from it and pulls it every night, and the timeline publishes from
   it. Never push to `main` unless the user asks for a release; never commit work in progress there.
-- **`dev` is where work happens.** Features are finished and tested on `dev`, then merged into `main` when the user
-  says they're ready (a pull request from `dev` to `main`, or a merge).
+- **`dev` is where work happens: commit and push to `dev` by default** (`git push -u origin dev`), whatever branch a
+  session was started on. Features are finished and tested there, then merged into `main` only when the user
+  explicitly asks to merge into live (a pull request from `dev` to `main`, or a merge).
 
 ## House rules
 
