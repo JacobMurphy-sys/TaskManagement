@@ -2436,3 +2436,8 @@ dialog#modal .tm-title:focus { border-color: var(--accent); background: var(--pa
 .otd-days td, .otd-days th { white-space: nowrap; }
 .otd-table th, .otd-table td { padding-left: 6px; padding-right: 6px; }
 .otd-table td:nth-child(1) { white-space: nowrap; }
+/* 🎫 a ticket in a popout (from a message about it) */
+.tk-pop { display: flex; flex-direction: column; gap: 12px; }
+.tk-pop-answer { border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 8px 12px; }
+.tk-pop-answer.none { border-left-color: var(--border); background: var(--panel-2); }
+.tk-pop .tk-thumb { cursor: zoom-in; }

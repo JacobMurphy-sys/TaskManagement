@@ -82,6 +82,9 @@ async function waitForServer() {
       assert.deepEqual([upd.status, upd.reply], ['in_progress', 'Looking at it']);
       await assert.rejects(call('PATCH', `/tickets/${t.id}`, { status: 'closed' }), /Invalid status/);
       const list = await call('GET', '/tickets'); assert.ok(list.can_handle && list.tickets.length >= 2, 'listed; with accounts off anyone handles them');
+      const one = await call('GET', `/tickets/${t.id}`);
+      assert.deepEqual([one.ref, one.title, one.can_handle, one.screenshot], [t.ref, 'Gantt misses subtasks', true, undefined], 'one ticket, for the popout a message opens');
+      await assert.rejects(call('GET', '/tickets/99999'), /not found/i);
       const x = await fetch(`${BASE}/tickets/export.xlsx`); assert.equal(x.status, 200); assert.ok((await x.arrayBuffer()).byteLength > 1000, 'Excel export');
       await call('DELETE', `/tickets/${f2.id}`); await call('DELETE', `/tickets/${t.id}`);
       assert.equal((await fetch(`${BASE}/tickets/${t.id}/screenshot`)).status, 404, 'screenshot gone with it');
@@ -2935,6 +2938,17 @@ async function waitForServer() {
         assert.deepEqual([pw.data.due, pw.data.weeks, pw.data.checked_by], [false, 10, 'Sam Smoke'], 'ticked off');
         assert.equal((await box(admin)).length, 0, 'the reminders go when it\'s ticked off');
         await sam('POST', '/server/password', { weeks: 8 });
+      }
+      // 🎫 a new ticket: a message to whoever handles tickets (the admin), not to whoever sent it, nor to those without the right
+      {
+        const tk = (await sam('POST', '/tickets', { kind: 'bug', title: 'Pickup time wrong', description: 'The OTD tab says today', blocking: true })).data;
+        const tkBox = async (who) => (await who('GET', '/messages')).data.messages.filter((m) => m.kind === 'ticket' && m.ticket_id === tk.id);
+        const got = await tkBox(admin);
+        assert.deepEqual([got.length, got[0]?.title, got[0]?.body, got[0]?.from_person], [1, '🎫 New bug report from Sam Smoke: “Pickup time wrong” (stops them working)', 'The OTD tab says today', 'Sam Smoke'],
+          'the admin hears of a new ticket');
+        assert.equal((await tkBox(sam)).length, 0, 'not whoever sent it');
+        assert.equal((await tkBox(as('mgr'))).length, 0, 'nor someone who doesn\'t handle tickets');
+        await admin('DELETE', `/tickets/${tk.id}`);
       }
       // 📊 Reporting by module: the A3 and Database (Prod Management), 🧪 Quality and ⛑ EHS (Quality), Sources (Admin)
       {

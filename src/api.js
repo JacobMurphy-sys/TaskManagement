@@ -1212,6 +1212,7 @@ router.post('/tickets', h((req, res) => {
     updateRow('tickets', t.id, { screenshot: file });
   }
   log.info(`Ticket ${ticketRef(t.id)} (${kind}) from ${context.user || 'someone'}: ${title}`);
+  ticketArrived(fresh('tickets', t));
   res.status(201).json(normTicket(fresh('tickets', t)));
 }));
 router.patch('/tickets/:id', h((req, res) => {
@@ -1225,6 +1226,20 @@ router.patch('/tickets/:id', h((req, res) => {
   ticketNews(req, before, row);
   res.json(normTicket(row));
 }));
+// ✉ A new ticket: a message to everyone who handles tickets (the "Handle tickets" right: admins have it), not to
+// whoever sent it. Opens the Tickets page.
+function ticketArrived(t) {
+  try {
+    const from = (t.reporter || '').trim();
+    const to = accounts.peopleWithRight('tickets').filter((p) => p.toLowerCase() !== from.toLowerCase());
+    if (!to.length) return;
+    const what = { bug: 'bug report', feature: 'feature request', question: 'question' }[t.kind] || 'ticket';
+    const title = `🎫 New ${what}${from ? ` from ${from}` : ''}: “${t.title}”${t.priority >= 3 ? ' (stops them working)' : ''}`;
+    const desc = t.description ? String(t.description) : '';
+    const body = [desc ? desc.slice(0, 600) + (desc.length > 600 ? '…' : '') : null, t.screenshot ? '📷 With a screenshot.' : null].filter(Boolean).join('\n\n') || null;
+    for (const p of to) insertRow('messages', { to_person: p, kind: 'ticket', title, body, from_person: from || null, ticket_id: t.id });
+  } catch (err) { log.warn(`Ticket ${ticketRef(t.id)}: the message to whoever handles tickets wasn't sent: ${err.message}`); }
+}
 // ✉ The person who sent a ticket hears when it's answered or its status changes (not when it's
 // themselves): one message per ticket while they haven't read it, brought up to date.
 const TICKET_STATUS_SAID = { new: 'back to new', triaged: 'seen and planned', in_progress: 'being worked on', done: 'done', wont_do: 'not going to be done' };
@@ -1264,6 +1279,12 @@ router.get('/tickets/export.xlsx', h((req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="${file}"; filename*=UTF-8''${encodeURIComponent(file)}`);
   const W = [11, 9, 40, 11, 9, 18, 16, 22, 60, 40, 16, 40];
   res.send(buildXlsx([{ name: 'Tickets', columns: head.map((h, i) => ({ header: h, width: W[i] })), rows: data }]));
+}));
+// one ticket, for the popout a message about it opens (whoever sent it may not use the Tickets page)
+router.get('/tickets/:id', h((req, res) => {
+  const t = db.get('SELECT * FROM tickets WHERE id = ?', [req.params.id]);
+  if (!t) throw notFound('Ticket');
+  res.json({ ...normTicket(t), can_handle: accounts.hasRight(req, 'tickets') });
 }));
 
 // ------------------------------------------------------------------ notes

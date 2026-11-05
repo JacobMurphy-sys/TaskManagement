@@ -83,7 +83,7 @@ async function renderTickets() {
         ${canHandle ? `<select class="tk-status" title="Status">${Object.entries(TICKET_STATUS).map(([k, l]) => `<option value="${k}" ${k === t.status ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ticketPill(t.status)}</div>
       <div class="small muted">${t.reporter ? `${personDot(t.reporter)} ${esc(t.reporter)} · ` : ''}${esc(fmtDateTime(t.created_at))}${t.page ? ` · from <a href="${esc(t.page)}">${esc(ticketPageName(t.page))}</a>` : ''}</div>
       ${t.description ? `<div class="pre tk-desc">${linkify(t.description)}</div>` : ''}
-      ${t.has_screenshot ? `<a href="/api/tickets/${t.id}/screenshot" target="_blank" rel="noopener" title="Open the screenshot"><img class="tk-thumb" src="/api/tickets/${t.id}/screenshot" alt="Screenshot" loading="lazy"></a>` : ''}
+      ${t.has_screenshot ? `<a href="/api/tickets/${t.id}/screenshot" data-tk-shot="${t.id}" data-tk-alt="${esc(`${t.ref} · ${t.title}`)}" target="_blank" rel="noopener" title="View the screenshot"><img class="tk-thumb" src="/api/tickets/${t.id}/screenshot" alt="Screenshot" loading="lazy"></a>` : ''}
       ${canHandle ? `<label class="na-line tk-reply-line" title="An answer for whoever sent it — saved as you type">↩ <input type="text" class="tk-reply" maxlength="2000" value="${esc(t.reply || '')}" placeholder="Answer (e.g. fixed in the next update, or a question back)"></label>`
         : t.reply ? `<div class="tk-reply-show">↩ ${linkify(t.reply)}</div>` : ''}
       <details class="small muted tk-ctx"><summary>Details sent with it</summary>${esc(t.context.version ? `Version ${t.context.version}` : '')}${t.context.screen ? ` · window ${esc(t.context.screen)}` : ''}${t.context.computer ? ` · ${esc(t.context.computer)}` : ''}
@@ -104,6 +104,13 @@ async function renderTickets() {
   $('#tk-show').onclick = (e) => { const b = e.target.closest('[data-show]'); if (b) setF({ show: b.dataset.show }); };
   $('#tk-filter-kind').onchange = (e) => setF({ kind: e.target.value });
   $('#tk-mine')?.addEventListener('change', (e) => setF({ mine: e.target.checked }));
+  // 📷 a screenshot opens in the image viewer over the page (zoom, ← → through the others shown); ⧉ there opens it in a tab
+  main().onclick = (e) => {
+    const a = e.target.closest('[data-tk-shot]'); if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
+    e.preventDefault();
+    const shots = $$('[data-tk-shot]');
+    imageViewer(shots.map((x) => ({ src: x.getAttribute('href'), alt: x.dataset.tkAlt })), shots.indexOf(a));
+  };
   for (const el of $$('.tk-card')) {
     const id = el.dataset.tk;
     const save = async (body) => { try { await api.patch(`/tickets/${id}`, body); return true; } catch (err) { toast(err.message, 'error'); return false; } };
@@ -118,4 +125,27 @@ async function renderTickets() {
       try { await api.del(`/tickets/${id}`); toast('Ticket deleted'); renderTickets(); } catch (err) { toast(err.message, 'error'); }
     });
   }
+}
+
+// 🎫 one ticket in a popout: what was sent (with its screenshot) and the answer, opened from a message about it, so
+// whoever sent it needn't go to the Tickets page. Those who handle tickets get a link to it there.
+async function ticketPopout(id) {
+  let t;
+  try { t = await api.get(`/tickets/${id}`); } catch (err) { toast(err.message === 'Ticket not found' ? 'That ticket has been deleted' : err.message, 'error'); return; }
+  const [icon, kindLabel] = TICKET_KIND[t.kind] || ['🎫', 'Ticket'];
+  openModal(`<div class="modal-head"><h2 style="margin:0">${icon} ${esc(t.title)}</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="tk-pop">
+      <div class="row small" style="gap:8px;flex-wrap:wrap;align-items:center">${ticketPill(t.status)}<span class="muted">${esc(kindLabel)} · ${esc(t.ref)}${t.reporter ? ` · from ${esc(t.reporter)}` : ''} · ${esc(fmtDateTime(t.created_at))}</span></div>
+      ${t.reply ? `<div class="tk-pop-answer"><b>↩ The answer</b><div class="pre">${linkify(t.reply)}</div></div>`
+        : `<div class="tk-pop-answer none small muted">No answer yet${t.status === 'new' ? ': it hasn\'t been looked at yet.' : '.'}</div>`}
+      ${t.description ? `<div><b class="small muted">What was sent</b><div class="pre tk-desc">${linkify(t.description)}</div></div>` : ''}
+      ${t.has_screenshot ? `<a href="/api/tickets/${t.id}/screenshot" data-tk-pop-shot target="_blank" rel="noopener" title="View the screenshot"><img class="tk-thumb" src="/api/tickets/${t.id}/screenshot" alt="Screenshot"></a>` : ''}
+    </div>
+    <div class="modal-foot row" style="gap:8px;margin-top:14px"><div class="spacer"></div>
+      ${t.can_handle ? `<a class="button" href="#/tickets" data-tk-pop-page>Open on the Tickets page</a>` : ''}<button class="primary" data-action="close-modal">Close</button></div>`, { cls: 'tk-pop-modal' });
+  $('[data-tk-pop-page]')?.addEventListener('click', () => closeModal());
+  $('[data-tk-pop-shot]')?.addEventListener('click', (e) => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+    e.preventDefault(); imageViewer([{ src: e.currentTarget.getAttribute('href'), alt: `${t.ref} · ${t.title}` }], 0);
+  });
 }

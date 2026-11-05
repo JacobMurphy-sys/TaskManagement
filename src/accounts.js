@@ -339,12 +339,15 @@ function pwState(now = new Date()) {
   return { weeks, checked_at: checked, checked_by: kv('server_pw_checked_by'), due_at: due ? due.toISOString() : null,
     due: !!due && now >= due, reminded_at: kv('server_pw_reminded_at'), account: windowsAccount(), computer: process.env.COMPUTERNAME || null };
 }
-// everyone who looks after the server: active accounts with the Server right (admins and the host have it)
-const serverPeople = () => {
+// the people (names) of the active accounts with a right: admins and the host have them all; none with accounts off
+const peopleWithRight = (right) => {
+  if (!enabled()) return [];
   const seen = new Map();
-  for (const a of db.all('SELECT * FROM accounts WHERE active = 1')) if (rightsOf(a).includes('server') && a.person?.trim()) seen.set(a.person.trim().toLowerCase(), a.person.trim());
+  for (const a of db.all('SELECT * FROM accounts WHERE active = 1')) if (rightsOf(a).includes(right) && a.person?.trim()) seen.set(a.person.trim().toLowerCase(), a.person.trim());
   return [...seen.values()];
 };
+// everyone who looks after the server: active accounts with the Server right
+const serverPeople = () => peopleWithRight('server');
 // sends the reminder when it's due (and a week has passed since the last one); returns how many went out
 function pwRemind(now = new Date()) {
   if (!enabled()) return 0;
@@ -394,4 +397,4 @@ router.post('/server/password', h((req, res) => {
   res.json({ ...pwState(), people: serverPeople() });
 }));
 
-module.exports = { gate, router, moduleGate, setupGate, hasRight, rightsOf, RIGHTS, canUse, modulesOf, MODULES, hashPassword, checkPassword, enabled, accountOf, publicAccount };
+module.exports = { gate, router, moduleGate, setupGate, hasRight, rightsOf, peopleWithRight, RIGHTS, canUse, modulesOf, MODULES, hashPassword, checkPassword, enabled, accountOf, publicAccount };
