@@ -25,7 +25,7 @@ function opsDraw() {
   for (const [id, spec] of OPS_CHARTS) {
     const el = document.getElementById(id); if (!el) { OPS_CHARTS.delete(id); continue; }
     if (!el.offsetParent) continue; // on a hidden mini-tab: drawn when shown
-    el.innerHTML = opsSvg(spec, Math.max(300, el.clientWidth), Math.max(180, el.clientHeight || 220));
+    el.innerHTML = opsSvg(spec, Math.max(300, el.clientWidth), Math.max(110, el.clientHeight || 220));
   }
 }
 window.addEventListener('resize', () => { clearTimeout(opsDraw.t); opsDraw.t = setTimeout(opsDraw, 150); });
@@ -35,8 +35,10 @@ function opsSvg(spec, W, H) {
   const L = 44; const R = 12; const T = 16; const B = 22;
   const vals = spec.values;
   const all = [...spec.bars.flatMap((b) => vals.map((v) => v[b.key] || 0)), ...(spec.lines || []).flatMap((l) => vals.map((v) => v[l.key] ?? 0)), spec.target || 0];
-  let max = spec.max || Math.max(...all, 1e-9) * 1.12;
-  const raw = (max - (spec.min ?? 0)) / 4; const p = 10 ** Math.floor(Math.log10(raw)); const step = [1, 2, 2.5, 5, 10].map((x) => x * p).find((s) => s >= raw) || 10 * p;
+  // a little headroom, then the smallest round step that needs no more than 7 gridlines: the bars fill the chart
+  let max = spec.max || Math.max(...all, 1e-9) * 1.04;
+  const range = max - (spec.min ?? 0); const p = 10 ** Math.floor(Math.log10(range / 6));
+  const step = [1, 2, 2.5, 5, 10, 20].map((x) => x * p).find((s) => Math.ceil(range / s - 1e-9) <= 7);
   max = Math.ceil(max / step - 1e-9) * step;
   const min = Math.floor((spec.min ?? 0) / step + 1e-9) * step;
   const y = (v) => T + (H - T - B) * (1 - (Math.max(min, Math.min(max, v)) - min) / (max - min || 1));
@@ -114,13 +116,13 @@ function opsHtml(d) {
         <td class="small">${s.customers.map((c) => `${esc(c.name)} <span class="muted">${ON(c.qty)}</span>`).join(' · ')}</td>${d.scrap_from === 'consumption' ? `<td class="small">${s.items.map((c) => `${esc(c.name)} <span class="muted">${ON(c.qty)}</span>`).join(' · ')}</td>` : ''}</tr>`).join('')}</tbody></table></div>`
     : `<div class="empty small">No scrap recorded for ${esc(d.label)}.</div>`;
   return `
-    <div class="qd">
+    <div class="qd ops">
     <div class="q-tiles qd-tiles">
       ${qTile(`OTD SC in ${esc(qShort(d.month))}`, OP(o.otd_sc), `<div>OTD C ${OP(o.otd_c)} · year ${OP(o.ytd_sc)}</div><div>${opsPtDelta(o.otd_sc, o.prev_sc)}</div>`, o.otd_sc !== null && o.otd_sc < target ? 'warn' : '')}
       ${qTile('Work orders on time', OP(ot.daily.pct), `<div>dailies · renewals ${OP(ot.renewal.pct)}</div><div>${ON(ot.daily.wos + ot.renewal.wos)} due in ${esc(qShort(d.month))}${ot.daily.overdue + ot.renewal.overdue ? ` · <b class="q-bad">${OK(ot.daily.overdue + ot.renewal.overdue)} overdue</b>` : ''}</div>`, ot.daily.pct !== null && ot.daily.pct < 0.9 ? 'warn' : '')}
       ${qTile('Cards persoed', OK(t.persoed), `<div>${t.persoed_pin ? `${OK(t.persoed_pin)} PIN mailers · ` : ''}${OK(t.persoed_ytd)} this year</div><div>${opsPctDelta(t.persoed, t.persoed_prev)}</div>`)}
       ${qTile('Cards shipped', OK(t.shipped), `<div>${t.shipped_pin ? `${OK(t.shipped_pin)} PIN mailers · ` : ''}${OK(t.shipped_ytd)} this year</div><div>${opsPctDelta(t.shipped, t.shipped_prev)}</div>`)}
-      ${qTile('Scrap', ON(t.scrap), `<div>${t.scrap_rate === null ? 'no cards persoed' : `${(t.scrap_rate * 100).toFixed(2)}% of cards persoed`}</div><div>${opsPtDelta(t.scrap_rate, t.scrap_rate_prev, false)}</div>`, t.scrap_rate_prev !== null && t.scrap_rate > t.scrap_rate_prev * 1.2 ? 'warn' : '')}
+      ${qTile('Scrap rate', t.scrap_rate === null ? '—' : `${(t.scrap_rate * 100).toFixed(2)}%`, `<div>${ON(t.scrap)} cards scrapped${t.scrap_rate === null ? ', none persoed' : ' ÷ cards persoed'}</div><div>${opsPtDelta(t.scrap_rate, t.scrap_rate_prev, false)}</div>`, t.scrap_rate_prev !== null && t.scrap_rate > t.scrap_rate_prev * 1.2 ? 'warn' : '')}
       ${qTile('Late, still open', ON(t.open_late.wos), `<div>work orders past their deadline now</div><div>${OK(t.open_late.cards)} cards</div>`, t.open_late.wos ? 'warn' : '')}
     </div>
     <div class="qd-top">

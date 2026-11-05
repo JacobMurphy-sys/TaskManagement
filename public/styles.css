@@ -2385,3 +2385,6 @@ dialog#modal .tm-title:focus { border-color: var(--accent); background: var(--pa
 .ops-slot { height: 100%; }
 .q-bars.wide .q-bar-row { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 44px 44px; }
 .q-chart .ops-target-l { paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; }
+/* 🏭 Operations: the charts and customers row gives room to the tables below it */
+.qd.ops .qd-top { flex: 1 1 0; }
+.qd.ops .qd-cases { flex: 1 1 0; }
