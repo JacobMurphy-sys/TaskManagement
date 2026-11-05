@@ -37,7 +37,15 @@ async function renderQualityTab(kind) {
   $('#q-month').addEventListener('change', (e) => { store.set('qMonth', e.target.value); renderQualityTab(kind); });
   // a case or form opens out to its details
   // a case or form opens out with its ▸, or a click anywhere on its row that isn't on its text (text stays selectable)
-  main().onclick = (e) => {
+  main().onclick = async (e) => {
+    const cp = e.target.closest('[data-q-copy]');
+    if (cp && !String(window.getSelection?.() || '')) {
+      if (await copyText(cp.textContent.trim())) {
+        toast(`${cp.dataset.qCopy} copied`); cp.classList.add('copied'); setTimeout(() => cp.classList.remove('copied'), 900);
+      } else toast('Couldn\'t copy here: select the text and press Ctrl+C', 'error');
+      return;
+    }
+    if (cp) return; // selecting part of it
     let b = e.target.closest('[data-q-more]');
     if (!b) {
       const tr = e.target.closest('.q-cases tbody tr:not(.q-more)');
@@ -131,7 +139,8 @@ function qBars(title, list, monthLabel) {
       <span class="q-bar-n"><b>${x.month || ''}</b></span><span class="q-bar-n muted">${x.ytd}</span></div>`).join('')}</div>
     <div class="q-bars-key small muted"><span><i class="q-sw mon"></i>${esc(monthLabel)}</span><span><i class="q-sw ytd"></i>year to date</span></div></div>`;
 }
-const qText = (label, v) => (v ? `<div class="q-more-f"><b>${label}</b><div class="pre">${esc(v)}</div></div>` : '');
+// a case's or form's text: a click on it copies it (for the monthly slides); selecting part of it still works
+const qText = (label, v) => (v ? `<div class="q-more-f"><b>${label}</b><div class="pre q-copy" data-q-copy="${esc(label)}" title="Click to copy">${esc(v)}</div></div>` : '');
 
 // ---- 🧪 Quality -----------------------------------------------------------------------------------
 function qualityHtml(d) {
@@ -141,7 +150,7 @@ function qualityHtml(d) {
   const series = Q_SEV.map(([k, cls]) => [k, cls, k]);
   const caseRow = (c, i, list) => `<tr class="${c.contain_late ? 'q-late' : ''}"><td><button type="button" class="icon q-more-btn" data-q-more="q-${list}-${i}" aria-expanded="false" title="Root causes and more">▸</button></td>
       <td><b>${esc(c.ref ?? '')}</b></td><td>${qDate(c.day)}</td><td>${esc(c.customer || '')}</td><td>${sevPill(c.severity)}</td><td>${esc(c.status || '')}</td>
-      <td class="q-sum">${esc(c.summary || '')}</td><td>${esc(c.defect || '')}</td>
+      <td class="q-sum">${c.summary ? `<span class="q-copy" data-q-copy="Summary" title="Click to copy">${esc(c.summary)}</span>` : ''}</td><td>${esc(c.defect || '')}</td>
       <td>${c.contained ? qDate(c.contained) : c.target ? `<span class="${c.contain_late ? 'q-bad' : 'muted'}">due ${qDate(c.target)}</span>` : '<span class="muted">—</span>'}</td>
       <td>${c.closed ? qDate(c.closed) : `<span class="muted">${c.age ?? ''} d open</span>`}</td><td class="num">${c.cost ? QEUR(c.cost) : ''}</td></tr>
     <tr id="q-${list}-${i}" class="q-more" hidden><td></td><td colspan="10"><div class="q-more-grid">
@@ -190,7 +199,7 @@ function qualityHtml(d) {
     </div>
     <section class="ck-panel qd-cases">
       <div class="ck-ph"><div class="seg qd-tabs">${tab('cases', 'month', `Opened in ${esc(qShort(d.month))} <span class="tm-count">${d.cases.length}</span>`)}${tab('cases', 'open', `Still open <span class="tm-count">${d.open.length}</span>`, 'Any month: the oldest and those past their containment date first')}</div>
-        <span class="small muted">▸ or click a row for its root causes</span></div>
+        <span class="small muted">▸ or click a row for its root causes · click a root cause or summary to copy it</span></div>
       <div class="qd-body">${pane('cases', 'month', table(d.cases, 'm', `No complaints opened in ${esc(d.label)}.`))}${pane('cases', 'open', table(d.open, 'o', 'Nothing open.'))}</div>
     </section>
     </div>`;
@@ -306,7 +315,7 @@ function ehsHtml(d) {
     </div>
     <section class="ck-panel qd-cases">
       <div class="ck-ph"><div class="seg qd-tabs">${tab('eforms', 'month', `In ${esc(qShort(d.month))} <span class="tm-count">${d.forms.length}</span>`)}${tab('eforms', 'open', `Still open <span class="tm-count">${d.open.length}</span>`, 'Any month: the highest risk first')}</div>
-        <span class="small muted">▸ or click a row for what was done</span></div>
+        <span class="small muted">▸ or click a row for what was done · click the text to copy it</span></div>
       <div class="qd-body">${pane('eforms', 'month', table(d.forms, 'm', `No forms for ${esc(d.label)}.`))}${pane('eforms', 'open', table(d.open, 'o', 'Nothing open.'))}</div>
     </section>
     </div>`;

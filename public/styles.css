@@ -2388,3 +2388,7 @@ dialog#modal .tm-title:focus { border-color: var(--accent); background: var(--pa
 /* 🏭 Operations: the charts and customers row gives room to the tables below it */
 .qd.ops .qd-top { flex: 1 1 0; }
 .qd.ops .qd-cases { flex: 1 1 0; }
+/* 🧪 Quality and ⛑ EHS: text that a click copies (root causes, actions, summaries) */
+.q-copy { cursor: copy; border-radius: 4px; transition: background .15s; }
+.q-copy:hover { background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-soft); }
+.q-copy.copied { background: color-mix(in srgb, var(--ok) 22%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
