@@ -1845,6 +1845,20 @@ const kpiData = require('./kpidata');
 // ♻ scrap from consumption or machine rejections: automatic only takes consumption while its export is linked
 kpiData.useScrapPref(() => { const s = getSettings(); const p = s.kpi_scrap_from || 'auto'; return p === 'auto' && !String(s.kpi_src_consumption || '').trim() ? 'remakes' : p; });
 const splitWeekends = () => getSettings().kpi_split_weekends === '1';
+// 🚚 OTD delays: from the Excel OTD report (as before) or entered on Reporting's OTD tab (Despatch)
+const otdEntry = require('./otdentry');
+const otdFrom = () => (getSettings().kpi_otd_from === 'entered' ? 'entered' : 'report');
+kpiData.useOtdEntered(() => otdFrom() === 'entered');
+otdEntry.useOtdPref(otdFrom);
+// customer names from the card database (trigram → name), for pages that show the planner's codes
+function customerNames() {
+  const set = getSettings(); const names = new Map();
+  try {
+    const cards = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+    if (cards.status === 'ok') for (const c of cards.cards.values()) if (c.trigram && c.customer && !names.has(c.trigram.toUpperCase())) names.set(c.trigram.toUpperCase(), c.customer);
+  } catch { /* no card database: codes only */ }
+  return names;
+}
 
 // 🧪 Quality and ⛑ EHS (the Quality module): a month (YYYY-MM) at a time. Each reads its own source file
 // first when it's changed (a quick look at the file's date otherwise), so the page is up to date when it opens.
@@ -1862,13 +1876,39 @@ function refreshSource(name, also = []) {
 const operationsPage = require('./operations');
 router.get('/kpi/operations', h((req, res) => {
   const read = refreshSource('perso', ['shipped', 'otd', 'remakes', 'consumption']);
-  const set = getSettings();
-  const names = new Map(); // customer names from the card database (trigram → name)
-  try {
-    const cards = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
-    if (cards.status === 'ok') for (const c of cards.cards.values()) if (c.trigram && c.customer && !names.has(c.trigram.toUpperCase())) names.set(c.trigram.toUpperCase(), c.customer);
-  } catch { /* no card database: codes only */ }
-  res.json({ ...operationsPage.operations(req.query.month, { names }), read });
+  res.json({ ...operationsPage.operations(req.query.month, { names: customerNames() }), read });
+}));
+
+// 🚚 OTD (the Despatch module): late deliveries logged against a work order the planner knows; the rest
+// (customer, cards, due out, week) comes from the planner. Counted as the OTD source once Sources says so.
+const who = (req) => req.account?.person || req.account?.username || null;
+router.get('/kpi/otd', h((req, res) => {
+  refreshSource('shipped');
+  res.json({ ...otdEntry.page(req.query.week, { names: customerNames() }), from: otdFrom() });
+}));
+router.get('/kpi/otd/wo', h((req, res) => res.json(otdEntry.search(req.query.q, { names: customerNames() }))));
+router.get('/kpi/otd/wo/:wo', h((req, res) => {
+  const w = otdEntry.woOf(req.params.wo);
+  if (!w) return res.status(404).json({ error: 'The planner doesn\'t know that work order' });
+  res.json({ ...w, name: customerNames().get(w.customer) || null, week: otdEntry.weekOfDay(w.due) });
+}));
+router.post('/kpi/otd', h((req, res) => res.status(201).json(otdEntry.add(req.body || {}, who(req)))));
+router.patch('/kpi/otd/:id', h((req, res) => res.json(otdEntry.update(Number(req.params.id), req.body || {}, who(req)))));
+router.delete('/kpi/otd/:id', h((req, res) => {
+  const old = otdEntry.remove(Number(req.params.id));
+  if (!old) return res.status(404).json({ error: 'That delay isn\'t there any more' });
+  res.json({ ok: true, removed: old });
+}));
+// where OTD is counted from (Sources): switching to the entries writes them in; back to the report reads it again
+router.put('/kpi/otd-from', h((req, res) => {
+  const from = req.body?.from === 'entered' ? 'entered' : 'report';
+  db.run("INSERT INTO settings (key, value) VALUES ('kpi_otd_from', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [from]);
+  if (from === 'entered') otdEntry.sync();
+  else {
+    const set = getSettings();
+    kpiData.importSources({ paths: { otd: set.kpi_src_otd }, workbook: set.kpi_workbook_path || null, splitWeekends: splitWeekends(), only: ['otd'], force: true });
+  }
+  res.json({ from });
 }));
 router.get('/kpi/quality', h((req, res) => {
   const read = refreshSource('salesforce', ['shipped', 'otd']); // the pack's OTD and CPMS need the cards shipped and the delays
@@ -2994,7 +3034,7 @@ const SETTING_DEFAULTS = {
   kpi_export_dir: '', kpi_export_sub: 'WK{wk}', kpi_export_name: 'A3 {year} WK{wk}.xlsx',
   // The source files the KPIs are worked out from (blank: use the workbook's import sheets),
   // and whether weekend days in a week split across two months count in their month's part.
-  kpi_src_perso: '', kpi_src_shipped: '', kpi_src_remakes: '', kpi_src_consumption: '', kpi_scrap_from: 'auto', kpi_src_otd: '', kpi_src_salesforce: '', kpi_src_ehs: '', kpi_split_weekends: '0',
+  kpi_src_perso: '', kpi_src_shipped: '', kpi_src_remakes: '', kpi_src_consumption: '', kpi_scrap_from: 'auto', kpi_otd_from: 'report', kpi_src_otd: '', kpi_src_salesforce: '', kpi_src_ehs: '', kpi_split_weekends: '0',
   // The customer forecast files (blank: the workbook's copy of them).
   kpi_fc_benelux: '', kpi_fc_amex: '',
   // ⏱ The daily timing reports (each job's start and end on its machine), perso and Matching.

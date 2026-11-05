@@ -8,12 +8,12 @@ const MOD_OF_VIEW = { team: 'team', capex: 'capex', kanban: 'projects', project:
 const modOk = (area) => !ACCT.account || (ACCT.account.areas || []).includes(area);
 // 📊 Reporting's tabs, each with the area (module) it needs: the Weekly SC Report, Database and Operations (Prod
 // Management), Quality and EHS (Quality), Sources (Admin). Reporting is in the top bar for any of them.
-const KPI_TABS = [['a3', 'Weekly SC Report', 'kpi', '#/kpi'], ['database', 'Database', 'kpi', '#/kpi/0/database'], ['operations', '🏭 Operations', 'kpi', '#/kpi/operations'], ['quality', '🧪 Quality', 'quality', '#/kpi/quality'],
+const KPI_TABS = [['a3', 'Weekly SC Report', 'kpi', '#/kpi'], ['database', 'Database', 'kpi', '#/kpi/0/database'], ['operations', '🏭 Operations', 'kpi', '#/kpi/operations'], ['otd', '🚚 OTD', 'otd', '#/kpi/otd'], ['quality', '🧪 Quality', 'quality', '#/kpi/quality'],
   ['ehs', '⛑ EHS', 'quality', '#/kpi/ehs'], ['sources', 'Sources', 'kpi_sources', '#/kpi/sources']];
 const kpiTabOk = (tab) => modOk(KPI_TABS.find((t) => t[0] === tab)?.[2] || 'kpi');
 const reportingOk = () => KPI_TABS.some(([k]) => kpiTabOk(k));
 // the Reporting tab an address is on (#/kpi/12/database → database)
-const kpiTabOf = (rest) => (['sources', 'calc'].includes(rest[0]) ? 'sources' : ['quality', 'ehs', 'operations'].includes(rest[0]) ? rest[0] : rest[1] === 'database' ? 'database' : 'a3');
+const kpiTabOf = (rest) => (['sources', 'calc'].includes(rest[0]) ? 'sources' : ['quality', 'ehs', 'operations', 'otd'].includes(rest[0]) ? rest[0] : rest[1] === 'database' ? 'database' : 'a3');
 // 🔒 admin rights (src/accounts.js RIGHTS): setup, accounts, backups, server. Admins and the host have
 // them all; the host gives some to other accounts. With accounts off, whoever is here has them.
 const acctRight = (key) => !ACCT.enabled || (ACCT.account?.rights || []).includes(key);

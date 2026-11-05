@@ -19,6 +19,7 @@ function kpiTabsHtml(active, snapId = '') {
 async function renderKpi(arg, tab) {
   if (arg === 'calc' || arg === 'sources') return renderKpiSources();
   if (arg === 'quality' || arg === 'ehs' || arg === 'operations') return renderQualityTab(arg);
+  if (arg === 'otd') return renderOtdTab();
   if (arg === 'prepare') return renderKpiPrepare(tab);
   if (arg === 'production') { store.set('planInsight', 'timing'); store.set('planHalf', 'insights'); location.replace('#/planning'); return; } // ⏱ Timing moved to Production › Insights
   const [weeks, settings, year] = await Promise.all([api.get('/kpi/snapshots'), api.get('/settings'), api.get('/kpi/weeks').catch(() => null)]);
@@ -570,6 +571,11 @@ async function renderKpiSources() {
         <select id="kc-scrap-from" style="width:auto;max-width:100%">${[['auto', `Automatic — goods consumption once its file is set and read (now: ${calc.scrap_from === 'consumption' ? 'consumption' : 'machine rejections'})`], ['consumption', 'Goods consumption — cards taken with an …Err reason code'], ['remakes', 'Machine rejections (KPI_2_remakes)']]
           .map(([v, l]) => `<option value="${v}" ${(settings.kpi_scrap_from || 'auto') === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
 </div>
+      <div class="row small kc-scrap-from" style="gap:8px;align-items:center;margin:8px 0">
+        <b>🚚 OTD delays counted from</b>
+        <select id="kc-otd-from" style="width:auto;max-width:100%">${[['report', 'The OTD report (Excel), as above'], ['entered', 'Entered in SITHUB on Reporting › 🚚 OTD (Despatch)']]
+          .map(([v, l]) => `<option value="${v}" ${(settings.kpi_otd_from || 'report') === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+</div>
       <p class="small muted">Leave a file blank to use the matching import sheet of the CI workbook — handy until the paths are set.
         Only files saved since the last read are read again. Nothing is changed in any file.</p>
       <label class="row small"><input type="checkbox" id="kc-weekends" ${calc.split_weekends ? 'checked' : ''}>
@@ -591,6 +597,13 @@ async function renderKpiSources() {
   wireKpiShared();
   $('#kc-scrap-from').addEventListener('change', async (e) => {
     try { await api.patch('/settings', { kpi_scrap_from: e.target.value }); toast('Scrap source changed — built A3s show as out of date until rebuilt'); } catch (err) { toast(err.message, 'error'); }
+    route();
+  });
+  $('#kc-otd-from').addEventListener('change', async (e) => {
+    try {
+      await api.put('/kpi/otd-from', { from: e.target.value });
+      toast(e.target.value === 'entered' ? 'OTD now counted from the delays logged on 🚚 OTD — rebuild the A3s to use it' : 'OTD counted from the OTD report again — rebuild the A3s to use it');
+    } catch (err) { toast(err.message, 'error'); }
     route();
   });
   $('#kc-weekends').addEventListener('change', async (e) => {

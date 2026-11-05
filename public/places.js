@@ -47,6 +47,7 @@ const PLACES = [
   { label: 'Priority modifiers', where: 'Production › ⚖ Modifiers', keys: 'modifiers priority score customers tags shifts', area: 'planning', right: 'setup', hash: '#/planning', prep: () => { store.set('planHalf', 'perso'); store.set('planModsOpen', true); }, find: '⚖ Priority modifiers' },
   // 📊 Reporting
   { label: 'Weekly SC Report (A3)', where: 'Reporting', keys: 'a3 weekly report sc ops kpi', area: 'kpi', hash: '#/kpi' },
+  { label: 'OTD: log a late delivery against a work order', where: 'Reporting › 🚚 OTD', keys: 'otd late delivery delay despatch dispatch logistics internal external reason work order', area: 'otd', hash: '#/kpi/otd' },
   { label: 'Operations: OTD, production and scrap by month', where: 'Reporting › 🏭 Operations', keys: 'operations otd dailies renewals scrap produced persoed shipped customers month late work orders', area: 'kpi', hash: '#/kpi/operations' },
   { label: 'Prepare this week', where: 'Reporting › ▶ Prepare this week', keys: 'prepare week read sources missing checklist', area: 'kpi', hash: '#/kpi/prepare' },
   { label: 'KPI database', where: 'Reporting › Database', keys: 'database figures manual adjust kpi table', area: 'kpi', hash: '#/kpi/0/database' },

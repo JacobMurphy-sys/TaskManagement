@@ -2392,3 +2392,38 @@ dialog#modal .tm-title:focus { border-color: var(--accent); background: var(--pa
 .q-copy { cursor: copy; border-radius: 4px; transition: background .15s; }
 .q-copy:hover { background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-soft); }
 .q-copy.copied { background: color-mix(in srgb, var(--ok) 22%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+/* 🚚 OTD (Despatch): log a late delivery beside the week's list */
+.otd-grid > .card { margin: 0; }
+.otd-grid { display: grid; grid-template-columns: minmax(340px, 440px) minmax(0, 1fr); gap: 12px; align-items: start; margin-top: 12px; }
+@media (max-width: 1000px) { .otd-grid { grid-template-columns: 1fr; } }
+.otd-l { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+.otd-l input { font-size: 14px; }
+.otd-search { position: relative; }
+.otd-search input { width: 100%; font-size: 15px; font-family: ui-monospace, Consolas, monospace; letter-spacing: .02em; }
+.otd-sugg { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 30; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgb(0 0 0 / .18); max-height: 340px; overflow: auto; padding: 4px; }
+.otd-s { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; border: 0; background: none; border-radius: 6px; padding: 6px 8px; color: var(--text); }
+.otd-s.on, .otd-s:hover { background: var(--accent-soft); }
+.otd-s.none { padding: 8px; }
+.otd-s-sub { font-size: 12px; color: var(--muted); }
+.otd-st { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; background: var(--panel-2); color: var(--muted); margin-left: 6px; font-weight: 600; }
+.otd-st.open { background: var(--ok-soft); color: var(--ok); } .otd-st.done { background: var(--accent-soft); color: var(--accent); } .otd-st.warn { background: var(--warn-soft); color: var(--warn); }
+.otd-wo { margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--panel-2); }
+.otd-wo-h { font-family: ui-monospace, Consolas, monospace; font-size: 15px; }
+.otd-facts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .8fr) minmax(0, 1.4fr) minmax(0, .8fr); gap: 8px; margin-top: 8px; }
+.otd-facts div { display: flex; flex-direction: column; min-width: 0; }
+.otd-facts span { font-size: 11px; color: var(--muted); }
+.otd-facts b { font-size: 14px; overflow-wrap: anywhere; }
+.otd-facts i { font-style: normal; font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.otd-type { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.otd-type button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 8px 10px; border-radius: 8px; border: 2px solid var(--border); background: var(--panel); color: var(--text); }
+.otd-type button span { font-size: 11.5px; color: var(--muted); font-weight: 400; }
+.otd-type button[data-otd-type="Internal"].on { border-color: var(--danger); background: var(--danger-soft); }
+.otd-type button[data-otd-type="External"].on { border-color: var(--accent); background: var(--accent-soft); }
+.otd-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.otd-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.otd-chip { font-size: 11.5px; padding: 2px 8px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); color: var(--muted); }
+.otd-chip:hover { color: var(--accent); border-color: var(--accent); }
+.otd-sum { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0 6px; }
+.otd-pill { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 10px; white-space: nowrap; }
+.otd-pill.int { background: var(--danger-soft); color: var(--danger); } .otd-pill.ext { background: var(--accent-soft); color: var(--accent); }
+.otd-table td { vertical-align: top; }

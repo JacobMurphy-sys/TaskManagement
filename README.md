@@ -63,7 +63,7 @@ The top bar's tabs were renamed for 1.0 (the addresses behind them are unchanged
 | Board | 🗂 **Projects** | the projects board | Management |
 | Ideas | 💡 **Ideas** | | Continuous Improvement |
 | Library | 📚 **Library** | | Basic pack |
-| KPIs | 📊 **Reporting** | **Weekly SC Report** (the A3), Database and 🏭 **Operations** · 🧪 **Quality** and ⛑ **EHS** · Sources | Prod Management · Quality · Admin (each tab its own) |
+| KPIs | 📊 **Reporting** | **Weekly SC Report** (the A3), Database and 🏭 **Operations** · 🚚 **OTD** · 🧪 **Quality** and ⛑ **EHS** · Sources | Prod Management · Despatch · Quality · Admin (each tab its own) |
 | Planning | 🏭 **Production** | 💳 Perso, ✉️ Matching, 🚚 Dispatch, 🧠 Insights (🔬 Learned, 📆 D+ due out, ⏱ Timing) | Prod Management |
 | Report | 🗄 *Archive* | the status report | Archive |
 | Contacts | 📇 **Contacts** | | Admin |
@@ -254,6 +254,15 @@ A one-screen dashboard of the chosen **month**, like Quality and EHS (the same m
 - **Customers** (mini-tabs): cards persoed, shipped and scrapped per customer, and scrap by **cause** (reason code), each the month and the year to date.
 - **Below** (mini-tabs): **on time by customer**, dailies and renewals side by side, with the delays the OTD report gives them; the **OTD report** per customer (cards shipped, internal and external delays, OTD SC and C, the main reasons); the month's **late work orders** (finished late, or past their deadline and not finished); and **scrap by cause**, with the customers and cards behind each.
 - **Dailies and renewals:** a renewal is a planner work order with **Low** priority, a daily is any other. A work order counts in the month of its **deadline**; **on time** means finished by the deadline, of those finished. One that left the planner without a finish time counts as neither.
+
+### 🚚 OTD: logging late deliveries (Reporting, the Despatch module)
+
+Where the logistics team logs each late delivery instead of typing it into the Excel OTD report.
+- **Work order:** type part of a work order (e.g. *CADXS…*) or a customer code and **pick it from the list**: only work orders the planner knows can be chosen, those open on it and those finished in the last 4 weeks (a late one is often logged once it has gone). ↑ ↓ and Enter pick from the keyboard. Something the planner doesn't know can't be logged.
+- **Filled in from the planner:** the customer (code and name), the cards on the work order (all its lines together), when it was **due out**, open or finished (and how late), daily or renewal, and the **reporting week** it counts in: the week it was due out. A weekend day in a week split across two months goes to its own month's part.
+- **What's typed:** **🏭 Internal** (the Service Center's own delay, counted against OTD SC) or **👤 External** (the customer's, against OTD C); the **reason** (pick one used before, from the list or the chips, or type a new one); optionally fewer **cards** than the whole work order, another **week**, and a note. A work order already logged is flagged so a delay isn't entered twice.
+- **The week beside it:** the week's delays (pick any week in the drop-down; the number logged is in brackets), internal and external cards, and OTD SC and C for the week once the cards shipped have been read. ✎ changes an entry, 🗑 removes it. Who logged each and when is kept.
+- **Counted once switched on:** on **Sources**, *🚚 OTD delays counted from* stays on **the OTD report (Excel)** until it's set to **Entered in SITHUB**. From then on the logged delays *are* the OTD source: the Weekly SC Report, Quality's OTD chart and 🏭 Operations count them exactly as they counted the report (rebuild the A3s to use them), and the Excel report isn't read. Setting it back reads the report again; the entries are kept either way, so nothing is counted twice.
 
 ### 🧪 Quality and ⛑ EHS (Reporting, the Quality module)
 
@@ -521,6 +530,7 @@ Instead of a copy on each PC, one computer runs SITHUB and everyone opens it in 
     - **🗂 Management:** Projects (the board, project pages and charters, the projects list in the sidebar), 👥 People and 💶 CAPEX.
     - **💡 Continuous Improvement:** Ideas.
     - **🏭 Prod Management:** Production, including 🧠 Insights and its ⏱ Timing; 📐 Capacity planning; and 📊 Reporting's **Weekly SC Report** (the A3), its **Database**, 🏭 **Operations** and ▶ Prepare this week.
+    - **🚚 Despatch:** 📊 Reporting's **🚚 OTD**: logging late deliveries against the planner's work orders.
     - **🛡 Quality:** 📊 Reporting's **🧪 Quality** (customer complaints) and **⛑ EHS** (safety concern forms), month by month.
     - **🗄 Archive:** the status report.
     - **📇 Admin:** Contacts, for editing the lists (names can still be picked as owners without it), and 📊 Reporting's **Sources** (where every file is; changing them still takes the ⚙ setup right).

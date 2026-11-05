@@ -360,6 +360,9 @@ function storeConsumption(rows, meta = {}) {
 
 // Where the scrap (remakes) figure comes from: 'consumption' (goods used with an …Err reason) or 'remakes'
 // (the machine rejections export). The setting can say; 'auto' takes consumption once it's been read.
+// 🚚 OTD delays entered in SITHUB instead of read from the OTD report (src/otdentry.js writes them in)
+let otdEntered = () => false;
+const useOtdEntered = (fn) => { otdEntered = fn; };
 let scrapPref = () => 'auto';
 const useScrapPref = (fn) => { scrapPref = fn; };
 function scrapSource() {
@@ -387,6 +390,7 @@ function importSources({ paths = {}, workbook = null, force = false, splitWeeken
   let wbBook = null; // the CI workbook is read once for all the sources it stands in for
   for (const name of Object.keys(SOURCES)) {
     if (only && !only.includes(name)) continue;
+    if (name === 'otd' && otdEntered()) { results.push({ source: name, status: 'entered', rows: db.get("SELECT rows FROM kpi_sources WHERE source = 'otd'")?.rows || 0 }); continue; }
     const file = String(paths[name] || '').trim().replace(/^"|"$/g, '');
     const useWorkbook = !file;
     if (useWorkbook && !SOURCES[name].workbook) { results.push({ source: name, status: 'not set up' }); continue; }
@@ -666,4 +670,4 @@ const hoursFromProtime = (days) => {
   return Math.round((all.reduce((a, b) => a + b, 0) * 7.5 + weekdays * 7.5) * 100) / 100;
 };
 
-module.exports = { scrapSource, useScrapPref, isRemakeCode, trigramOfWo, complaintsOf, ADJUSTABLE, derive, figureDetail, SOURCES, FORECASTS, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, typedWeekCode, monthIndex, otdRows, topScrap, shippedFor, weekEnd, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };
+module.exports = { scrapSource, useScrapPref, useOtdEntered, isRemakeCode, trigramOfWo, complaintsOf, ADJUSTABLE, derive, figureDetail, SOURCES, FORECASTS, DATABASE_COLUMNS, MANUAL_FIELDS, hoursFromProtime, WEEK_RE, typedWeekCode, monthIndex, otdRows, topScrap, shippedFor, weekEnd, dayOf, weekCode, weeksOf, sheetRows, readSource, storeSource, importSources, rewriteWeeks, weeklyVolumes, sourcesStatus, ensure };

@@ -1389,6 +1389,42 @@ async function waitForServer() {
         assert.equal((await call('GET', '/kpi/operations?month=nonsense')).month.length, 7, 'a month that isn\'t one: the last full month');
         const sqd = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); sqd.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'OPS%'").run(); sqd.close();
       }
+      // 🚚 OTD (Despatch): a late delivery logged against a work order the planner knows; the rest comes from the planner
+      {
+        const nowIso = new Date().toISOString();
+        const sqo = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
+        const job = sqo.prepare('INSERT INTO plan_history_jobs (key, wo, per, customer, qty, prio, due, deadline, first_seen, last_seen, done_at, late_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        job.run('OTDW1/1', 'OTDW1', '0001', 'BKA', 600, 'High', '2026-04-14', '2026-04-14T16:00', nowIso, nowIso, null, null); // open: two lines
+        job.run('OTDW1/2', 'OTDW1', '0002', 'BKA', 400, 'High', '2026-04-15', '2026-04-15T16:00', nowIso, nowIso, null, null);
+        job.run('OTDW2/1', 'OTDW2', '0001', 'ICA', 50, 'Low', '2026-03-01', '2026-03-01T16:00', '2026-02-27', '2026-03-02', '2026-03-02T10:00', 1080); // finished long ago
+        sqo.close();
+        const found = await call('GET', '/kpi/otd/wo?q=otdw');
+        assert.deepEqual(found.map((w) => [w.wo, w.customer, w.qty, w.due, w.open]), [['OTDW1', 'BKA', 1000, '2026-04-14', true]], 'open (or lately finished) work orders only, their lines together');
+        await assert.rejects(call('POST', '/kpi/otd', { wo: 'NOPE1', type: 'Internal', reason: 'x' }), /isn't known to the planner/);
+        await assert.rejects(call('POST', '/kpi/otd', { wo: 'OTDW1', reason: 'x' }), /internal .* or external/);
+        await assert.rejects(call('POST', '/kpi/otd', { wo: 'OTDW1', type: 'Internal', reason: 'x', qty: 1001 }), /1,000 cards/);
+        await assert.rejects(call('POST', '/kpi/otd', { wo: 'OTDW1', type: 'External' }), /reason/);
+        const wk = require('../src/kpidata').weekCode('2026-04-14', { splitWeekends: true });
+        const en = await call('POST', '/kpi/otd', { wo: 'otdw1', type: 'internal', reason: 'Machine Issues' });
+        assert.deepEqual([en.wo, en.customer, en.qty, en.wo_qty, en.due, en.week, en.type], ['OTDW1', 'BKA', 1000, 1000, '2026-04-14', wk, 'Internal'], 'the rest from the planner: all its cards, due out, its week');
+        const en2 = await call('POST', '/kpi/otd', { wo: 'OTDW1', type: 'External', reason: 'customer change request', qty: 200, week: 'W2617' });
+        assert.equal(en2.week, 'W2617', 'a week typed instead');
+        let pg = await call('GET', `/kpi/otd?week=${wk}`);
+        assert.deepEqual([pg.counted, pg.entries.length, pg.internal, pg.external, pg.reasons.includes('Machine Issues')], [false, 1, 1000, 0, true], 'the week\'s delays; not counted yet');
+        assert.ok(!(await call('GET', `/kpi/calc/otd?week=${wk}`)).some((r) => r.qty === 1000), 'the OTD report still counts');
+        await call('PATCH', `/kpi/otd/${en.id}`, { qty: 700 });
+        // counted from the entries: they become the OTD source, as the report was
+        await call('PUT', '/kpi/otd-from', { from: 'entered' });
+        assert.deepEqual((await call('GET', `/kpi/calc/otd?week=${wk}`)).map((r) => [r.customer, r.qty, r.type, r.reason]), [['BKA', 700, 'Internal', 'Machine Issues']], 'the entries are the OTD source');
+        assert.equal((await call('POST', '/kpi/calc/import', {})).find((r) => r.source === 'otd').status, 'entered', 'the OTD report isn\'t read meanwhile');
+        await call('DELETE', `/kpi/otd/${en2.id}`);
+        assert.equal((await call('GET', '/kpi/calc/otd?week=W2617')).length, 0, 'removed: gone from the figures too');
+        await call('PUT', '/kpi/otd-from', { from: 'report' });
+        assert.deepEqual((await call('GET', '/kpi/calc/otd?week=W2614_2')).map((r) => r.customer), ['ICA', 'BEL'], 'back to the OTD report: read again');
+        assert.equal((await call('GET', `/kpi/otd?week=${wk}`)).entries.length, 1, 'the entries are kept');
+        await call('DELETE', `/kpi/otd/${en.id}`);
+        const sqd = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); sqd.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'OTDW%'").run(); sqd.close();
+      }
       // week numbers typed other ways; a date never decides the week
       const otd2 = src('OTD Report 2.xlsx', [['Customer'], ['Quantity', 'number'], ['Type'], ['Date', 'date'], ['Week'], ['Month'], ['Reason']], [
         ['A', 1000, 'Internal', '2026-10-09', '37', 'Sept', 'swapped date, week typed as a number'], ['B', 2000, 'Internal', null, 'Wk 14', 'Mar', 'split week: part from the month'],
@@ -2790,6 +2826,11 @@ async function waitForServer() {
       assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'production'], ['planning', 'cpm', 'kpi']], 'the basic pack always, unknown ones dropped; Prod Management includes 📐 Capacity planning and the Weekly SC Report');
       assert.equal((await sam('GET', '/kpi/snapshots')).status, 200, 'the Weekly SC Report is Prod Management\'s');
       assert.equal((await sam('GET', '/kpi/operations')).status, 200, '🏭 Operations too');
+      assert.equal((await sam('GET', '/kpi/otd')).status, 403, '🚚 OTD is Despatch\'s');
+      await admin('PATCH', `/accounts/${samId}`, { modules: ['despatch'] });
+      assert.deepEqual([(await sam('GET', '/kpi/otd')).status, (await sam('GET', '/kpi/otd/wo?q=ab')).status, (await sam('GET', '/kpi/snapshots')).status, (await sam('PUT', '/kpi/otd-from', { from: 'entered' })).status],
+        [200, 200, 403, 403], 'Despatch: the OTD tab and its work orders, not the rest of Reporting, nor where OTD is counted from');
+      await admin('PATCH', `/accounts/${samId}`, { modules: ['production'] });
       assert.equal((await sam('GET', '/kpi/quality')).status, 403, 'Quality isn\'t');
       assert.equal((await sam('GET', '/ideas')).status, 403, 'no ideas');
       assert.equal((await sam('GET', '/plan/find?q=ab')).status, 200, 'planning');
