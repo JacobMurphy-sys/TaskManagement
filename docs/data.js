@@ -152,7 +152,7 @@ window.TIMELINE = {
       points: ['People cards: names, counts and tags lined up, and every card in a row starting at the same height', 'Reporting\'s tabs stay in one place from page to page', 'Quality and EHS on one screen, like Home: charts, where from and the cases or forms behind mini-tabs', 'The Reporting header, picker and tabs in the same place on every tab and every screen size', 'Quality and EHS rows open with a click anywhere on them'] },
     { id: 'quality', date: '2026-11-04', area: 'reporting', title: 'Quality and EHS',
       text: 'Reporting gains two monthly pages, and each of its tabs now belongs to the people who need it.',
-      points: ['Quality: customer complaints by month, by severity, containment, cost and where they came from', 'The Quality team\'s monthly slides: OTD and CPMS for the year, lead time over the last 13 months, drawn like their Excel charts and copied into PowerPoint with one button', 'EHS: accidents, near misses and safety concerns, days without an accident, and the risk grid from the safety form', 'A new Quality module; the weekly report sits with Production management, the source files with Admin'] },
+      points: ['Quality: customer complaints by month, by severity, containment, cost and where they came from', 'The Quality team\'s monthly slides: OTD and CPMS for the year, lead time over the last 13 months, drawn like their Excel charts and copied into PowerPoint with one button', 'EHS: accidents, near misses and safety concerns, days without an accident, and the risk grid from the safety form', 'A new Quality module; the weekly report sits with Production management, the source files with Admin', 'Fixed: days to be communicated missing from the lead time chart until the export was saved again'] },
     { id: 'operations', date: '2026-11-05', area: 'reporting', title: 'Operations dashboard',
       text: 'A third monthly page on Reporting: the month\'s delivery, production and scrap on one screen, from the files already linked.',
       points: ['OTD for the month, Service Center and customer, against the 98% target and the month before', 'Work orders on time, dailies and renewals apart, per customer', 'Cards persoed and shipped by day and by month, with the customers behind them', 'Scrap rate, its causes and the customers and cards behind each', 'The weekly report is now called the Weekly SC Report', 'Tidied up: the scrap rate leads its tile, charts scaled to fill their space, and more room for the tables below'] },
@@ -166,6 +166,9 @@ window.TIMELINE = {
 
   // 🎬 The blooper reel: the hidden easter egg (click the logo five times, type "oops", or find the 🐞)
   BLOOPERS: [
+    { date: '2026-11-05', title: 'Read it already, thanks',
+      text: 'The lead time chart learned to show days to be communicated. It then showed none at all: the Salesforce export had been read the day before, hadn\'t changed since, so it was never read again for the new column.',
+      lesson: 'When you start keeping more from a file, read it again.' },
     { date: '2026-11-03', title: 'The menu behind the curtain',
       text: 'The new task window got coloured tags with little menus. Click one: nothing. The menu had opened perfectly, just behind the window, where nobody could click it.',
       lesson: 'A pop-up has to know which layer it lives on.' },

@@ -37,7 +37,9 @@ const SOURCES = {
   // The Salesforce complaints (an export, or the workbook's SalesforceImport2.0): one row per case,
   // counted in the week it was opened. Shown behind the complaint figures.
   salesforce: {
-    label: 'Salesforce complaints', file: 'Salesforce.xlsx', sheet: 'Salesforce', workbook: 'SalesforceImport2.0',
+    // version: raised when more is kept from each row (2: the ages, days to communicate, costs), so a file
+    // read before then is read again once even if it hasn't changed
+    label: 'Salesforce complaints', file: 'Salesforce.xlsx', sheet: 'Salesforce', workbook: 'SalesforceImport2.0', version: 2,
     optional: ['kind', 'owner', 'target', 'contained', 'closed', 'status', 'category', 'summary', 'defect', 'failure', 'origin', 'cause', 'non_detection', 'parts', 'recurrence', 'failure_type', 'cost',
       'cost_analysis', 'cost_replacement', 'cost_scrap', 'cost_penalty', 'age_closure', 'age_containment', 'days_to_communicate'],
     columns: { ref: 'Reference number', kind: 'Type', owner: 'Case Owner', customer: 'Account Name', day: 'Opened Date', target: 'Containement target date', contained: 'Date contained',
@@ -394,11 +396,14 @@ function importSources({ paths = {}, workbook = null, force = false, splitWeeken
     try { stat = fs.statSync(target); } catch { results.push({ source: name, status: 'missing', file: target }); continue; }
     const prev = db.get('SELECT * FROM kpi_sources WHERE source = ?', [name]);
     const modified = stat.mtime.toISOString();
-    if (!force && prev && prev.file === target && prev.modified === modified) { results.push({ source: name, status: 'unchanged', file: target, rows: prev.rows }); continue; }
+    const verKey = `kpi_read_version_${name}`; const version = SOURCES[name].version || 1;
+    const readVersion = Number(db.get('SELECT value FROM settings WHERE key = ?', [verKey])?.value || 1);
+    if (!force && prev && prev.file === target && prev.modified === modified && readVersion >= version) { results.push({ source: name, status: 'unchanged', file: target, rows: prev.rows }); continue; }
     try {
       const from = useWorkbook ? (wbBook ||= readBook(fs.readFileSync(target))) : fs.readFileSync(target);
       const rows = readSource(name, from, { fromWorkbook: useWorkbook });
       results.push({ ...storeSource(name, rows, { file: target, modified, splitWeekends }), status: 'imported', file: target, from: useWorkbook ? 'workbook' : 'file' });
+      if (version > 1) db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [verKey, String(version)]);
     } catch (err) {
       results.push({ source: name, status: 'error', file: target, error: err.code === 'EBUSY' || err.code === 'EPERM' ? 'The file is locked — try again in a moment' : err.message });
     }

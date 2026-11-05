@@ -1332,6 +1332,11 @@ async function waitForServer() {
           'OTD and CPMS: the calendar year, the months after the chosen one empty');
         assert.deepEqual(pk.targets, { otd: 1, cpms: 0.75, contain: 2, communicate: 20 }, 'the targets in the team\'s charts');
         assert.deepEqual(pk.months[11].contain, 1, 'March: contained a day after opening');
+        // a file read before days to communicate were kept: read again once, though it hasn't changed
+        assert.equal(pk.months[12].communicate, 0, 'not in this export');
+        { const sqv = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); sqv.prepare("DELETE FROM settings WHERE key = 'kpi_read_version_salesforce'").run(); sqv.close(); }
+        assert.equal((await call('POST', '/kpi/calc/import', {})).find((r) => r.source === 'salesforce').status, 'imported', 'an older read: read again');
+        assert.equal((await call('POST', '/kpi/calc/import', {})).find((r) => r.source === 'salesforce').status, 'unchanged', 'then only when the file changes');
         const tg = await call('PUT', '/kpi/quality/targets', { otd: '98', cpms: 0.6, titles: { lead: 'Lead Time Service Center - Site' } });
         assert.deepEqual([tg.targets.otd, tg.targets.cpms, tg.titles.lead], [0.98, 0.6, 'Lead Time Service Center - Site'], 'targets set (98 → 98%), titles kept');
         await assert.rejects(call('PUT', '/kpi/quality/targets', { otd: 150 }), /target for OTD/);
