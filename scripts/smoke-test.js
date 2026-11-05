@@ -1400,6 +1400,11 @@ async function waitForServer() {
         sqo.close();
         const found = await call('GET', '/kpi/otd/wo?q=otdw');
         assert.deepEqual(found.map((w) => [w.wo, w.customer, w.qty, w.due, w.open]), [['OTDW1', 'BKA', 1000, '2026-04-14', true]], 'open (or lately finished) work orders only, their lines together');
+        assert.deepEqual([found[0].cutoff, found[0].pickup_kind, found[0].pickup > new Date().toISOString().slice(0, 10), [1, 2, 3, 4, 5].includes(new Date(`${found[0].pickup.slice(0, 10)}T00:00:00`).getDay())], ['16:00', 'next', true, true],
+          'the next pickup: the shipper\'s cut-off on the next working day');
+        const pk = require('../src/otdentry').pickupAfter;
+        assert.deepEqual([pk('16:00', '2026-11-06T15:59'), pk('16:00', '2026-11-06T16:00'), pk('16:00', '2026-11-07T09:00'), pk(null, '2026-11-06T09:00')], ['2026-11-06T16:00', '2026-11-09T16:00', '2026-11-09T16:00', null],
+          'Friday before the cut-off: that day; after it, or at the weekend: Monday; no shipping time: none');
         await assert.rejects(call('POST', '/kpi/otd', { wo: 'NOPE1', type: 'Internal', reason: 'x' }), /isn't known to the planner/);
         await assert.rejects(call('POST', '/kpi/otd', { wo: 'OTDW1', reason: 'x' }), /internal .* or external/);
         await assert.rejects(call('POST', '/kpi/otd', { wo: 'OTDW1', type: 'Internal', reason: 'x', qty: 1001 }), /1,000 cards/);
@@ -1411,6 +1416,8 @@ async function waitForServer() {
         assert.equal(en2.week, 'W2617', 'a week typed instead');
         let pg = await call('GET', `/kpi/otd?week=${wk}`);
         assert.deepEqual([pg.counted, pg.entries.length, pg.internal, pg.external, pg.reasons.includes('Machine Issues')], [false, 1, 1000, 0, true], 'the week\'s delays; not counted yet');
+        const dd = pg.days.find((x) => x.day === '2026-04-14');
+        assert.deepEqual([pg.days.every((x) => x.day.length === 10), dd.internal, dd.due, pg.entries[0].pickup_kind], [true, 1000, 600, 'next'], 'day by day: the delays by the day due out, the planner\'s cards due; the entry\'s next pickup');
         assert.ok(!(await call('GET', `/kpi/calc/otd?week=${wk}`)).some((r) => r.qty === 1000), 'the OTD report still counts');
         await call('PATCH', `/kpi/otd/${en.id}`, { qty: 700 });
         // counted from the entries: they become the OTD source, as the report was

@@ -18,12 +18,7 @@ const like = (q) => `%${String(q).replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 let ready = false;
 function ensure() {
   if (ready) return;
-  kpiData.ensure();
-  db.conn.exec(`CREATE TABLE IF NOT EXISTS otd_entries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    wo TEXT NOT NULL, customer TEXT, qty INTEGER NOT NULL, wo_qty INTEGER, due TEXT, week TEXT NOT NULL,
-    type TEXT NOT NULL, reason TEXT NOT NULL, note TEXT,
-    created_by TEXT, created_at TEXT NOT NULL, updated_by TEXT, updated_at TEXT)`);
+  kpiData.ensure(); // the table itself is in schema.js (backed up, restored and in the activity log)
   db.conn.exec('CREATE INDEX IF NOT EXISTS otd_entries_week ON otd_entries (week)');
   ready = true;
 }
@@ -33,9 +28,32 @@ let pref = () => 'report';
 const useOtdPref = (fn) => { pref = fn; };
 const counted = () => pref() === 'entered';
 
+// the working days (0 Sun … 6 Sat) and closed days (YYYY-MM-DD) the next pickup skips: Planning's and
+// Capacity planning's settings (set from api.js)
+let calendar = () => ({ workDays: new Set([1, 2, 3, 4, 5]), holidays: new Set() });
+const useCalendar = (fn) => { calendar = fn; };
+const pad = (n) => String(n).padStart(2, '0');
+const localStamp = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+// the shipper's pickup: each working day at its cut-off (the planner's Shipping Time, kept as the time of the
+// deadline). The first one after `from` (a local 'YYYY-MM-DDTHH:MM'): the next one for an open work order, the
+// one it could go with for a finished one. null when the planner has no shipping time for it.
+function pickupAfter(cutoff, from) {
+  if (!cutoff || !from) return null;
+  const { workDays, holidays } = calendar();
+  const [y, m, d] = from.slice(0, 10).split('-').map(Number);
+  for (let i = 0; i < 21; i++) {
+    const day = new Date(y, m - 1, d + i);
+    const iso = `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
+    if (!workDays.has(day.getDay()) || holidays.has(iso)) continue;
+    const at = `${iso}T${cutoff}`;
+    if (at > from) return at;
+  }
+  return null;
+}
+
 // a work order as the planner knows it: its lines (WO + PER) together
 function woOf(wo, today = new Date()) {
-  const lines = db.all('SELECT key, wo, per, customer, qty, due, deadline, prio, done_at, late_minutes, last_seen FROM plan_history_jobs WHERE upper(wo) = ? ORDER BY deadline, per', [String(wo || '').trim().toUpperCase()]);
+  const lines = db.all('SELECT key, wo, per, customer, qty, due, deadline, prio, shipper, done_at, late_minutes, last_seen FROM plan_history_jobs WHERE upper(wo) = ? ORDER BY deadline, per', [String(wo || '').trim().toUpperCase()]);
   if (!lines.length) return null;
   const seenSince = new Date(today - 3 * 86400000).toISOString().slice(0, 10);
   const open = lines.filter((l) => !l.done_at && String(l.last_seen || '') >= seenSince);
@@ -47,8 +65,18 @@ function woOf(wo, today = new Date()) {
     prio: lines.find((l) => l.prio)?.prio || null, renewal: lines.some((l) => /^low/i.test(String(l.prio || ''))),
     open: open.length > 0, done_at: open.length ? null : done[done.length - 1] || null,
     late_minutes: Math.max(0, ...lines.map((l) => Number(l.late_minutes) || 0)) || null,
+    ...pickupOf(lines, open.length > 0, done[done.length - 1], today),
     lines: lines.map((l) => ({ per: l.per, qty: l.qty, deadline: l.deadline, done_at: l.done_at, late_minutes: l.late_minutes })),
   };
+}
+
+// its shipper's cut-off (the earliest of its lines that has one) and the pickup it can go with: the next one
+// from now while it's open, the first after it was finished otherwise
+function pickupOf(lines, isOpen, doneAt, today) {
+  const cut = lines.map((l) => String(l.deadline || '').slice(11, 16)).filter((t) => /^\d\d:\d\d$/.test(t) && t !== '23:59').sort()[0] || null;
+  const shipper = lines.find((l) => l.shipper)?.shipper || null;
+  const from = isOpen ? localStamp(today) : doneAt ? localStamp(new Date(doneAt)) : null;
+  return { shipper, cutoff: cut, pickup: pickupAfter(cut, from), pickup_kind: isOpen ? 'next' : doneAt ? 'went' : null };
 }
 
 // work orders to pick from as the user types: open on the planner, or finished in the last few weeks
@@ -142,7 +170,10 @@ function page(week, { names = new Map(), splitWeekends = false, today = new Date
   const y = 2000 + Number(wk.slice(1, 3));
   const weeks = [...kpiData.weeksOf(y - 1), ...kpiData.weeksOf(y), ...kpiData.weeksOf(y + 1)].filter((w) => w.week <= thisWeek || w.week === wk);
   const months = new Map(weeks.map((w) => [w.week, w.month]));
-  const entries = db.all('SELECT * FROM otd_entries WHERE week = ? ORDER BY created_at DESC, id DESC', [wk]).map((e) => ({ ...e, name: names.get(e.customer) || null }));
+  const entries = db.all('SELECT * FROM otd_entries WHERE week = ? ORDER BY created_at DESC, id DESC', [wk]).map((e) => {
+    const w = woOf(e.wo, today);
+    return { ...e, name: names.get(e.customer) || null, shipper: w?.shipper || null, cutoff: w ? w.cutoff : null, pickup: w?.pickup || null, pickup_kind: w?.pickup_kind || null, open: w?.open ?? null };
+  });
   const sum = (t) => entries.filter((e) => e.type === t).reduce((s, e) => s + e.qty, 0);
   // cards shipped that week (the shipped export, as the Weekly SC Report counts OTD against)
   const shipped = safe(() => db.get("SELECT SUM(qty) AS q FROM kpi_rows WHERE source = 'shipped' AND week = ? AND lower(type) LIKE '%card%'", [wk]).q);
@@ -155,9 +186,37 @@ function page(week, { names = new Map(), splitWeekends = false, today = new Date
     weeks: weeks.slice().reverse().slice(0, 80).map((w) => ({ week: w.week, month: w.month, n: counts.get(w.week) || 0 })),
     counted: counted(), entries, internal: sum('Internal'), external: sum('External'), shipped,
     otd_sc: shipped ? 1 - sum('Internal') / shipped : null, otd_c: shipped ? 1 - sum('External') / shipped : null,
-    reasons, total: db.get('SELECT COUNT(*) AS n FROM otd_entries').n,
+    reasons, total: db.get('SELECT COUNT(*) AS n FROM otd_entries').n, days: daysOf(wk, today),
   };
+}
+// 📅 the week day by day: cards shipped (the shipped export) against the delays logged for work orders due out
+// that day (OTD SC and C, as the week's), and, from the planner, the cards due that day and how many were
+// finished by their deadline, which is there even when nothing's logged
+function daysOf(wk, today) {
+  const end = kpiData.weekEnd(wk); if (!end) return [];
+  const todayIso = localStamp(today).slice(0, 10);
+  const days = [];
+  for (let i = 6; i >= -1; i--) {
+    const d = new Date(`${end}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - i); const day = d.toISOString().slice(0, 10);
+    if (kpiData.weekCode(day, { splitWeekends: true }) === wk && !days.includes(day)) days.push(day);
+  }
+  const shipped = new Map(db.all(`SELECT day, SUM(qty) AS q FROM kpi_rows WHERE source = 'shipped' AND lower(type) LIKE '%card%' AND day IN (${days.map(() => '?').join(',')}) GROUP BY day`, days).map((r) => [r.day, r.q]));
+  const logged = db.all(`SELECT due, type, SUM(qty) AS q FROM otd_entries WHERE due IN (${days.map(() => '?').join(',')}) GROUP BY due, type`, days);
+  const jobs = db.all(`SELECT substr(deadline, 1, 10) AS day, qty, done_at, late_minutes FROM plan_history_jobs WHERE substr(deadline, 1, 10) IN (${days.map(() => '?').join(',')})`, days);
+  return days.map((day) => {
+    const dow = new Date(`${day}T00:00:00Z`).getUTCDay();
+    const s = shipped.get(day) || 0;
+    const internal = logged.filter((r) => r.due === day && r.type === 'Internal').reduce((t, r) => t + r.q, 0);
+    const external = logged.filter((r) => r.due === day && r.type === 'External').reduce((t, r) => t + r.q, 0);
+    const js = jobs.filter((j) => j.day === day);
+    const due = js.reduce((t, j) => t + (Number(j.qty) || 0), 0);
+    const onTime = js.filter((j) => j.done_at && !(Number(j.late_minutes) > 0)).reduce((t, j) => t + (Number(j.qty) || 0), 0);
+    const late = js.filter((j) => j.done_at && Number(j.late_minutes) > 0).reduce((t, j) => t + (Number(j.qty) || 0), 0);
+    return { day, weekend: dow === 0 || dow === 6, future: day > todayIso, shipped: s, internal, external,
+      otd_sc: s ? 1 - internal / s : null, otd_c: s ? 1 - external / s : null,
+      due, on_time: onTime, late, open: due - onTime - late, planner_pct: onTime + late ? onTime / (onTime + late) : null };
+  });
 }
 function safe(fn) { try { const v = fn(); return Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null; } catch { return null; } }
 
-module.exports = { search, woOf, add, update, remove, get, page, sync, useOtdPref, counted, ENTERED, ensure, weekOfDay };
+module.exports = { useCalendar, pickupAfter, search, woOf, add, update, remove, get, page, sync, useOtdPref, counted, ENTERED, ensure, weekOfDay };

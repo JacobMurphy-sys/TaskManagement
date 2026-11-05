@@ -1850,6 +1850,8 @@ const otdEntry = require('./otdentry');
 const otdFrom = () => (getSettings().kpi_otd_from === 'entered' ? 'entered' : 'report');
 kpiData.useOtdEntered(() => otdFrom() === 'entered');
 otdEntry.useOtdPref(otdFrom);
+otdEntry.useCalendar(() => { const s = getSettings(); return { workDays: new Set(String(s.plan_days || '1,2,3,4,5').split(',').map(Number).filter((d) => d >= 0 && d <= 6)),
+  holidays: new Set(String(s.cpm_holidays || '').split(/[\s,;]+/).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x))) }; });
 // customer names from the card database (trigram → name), for pages that show the planner's codes
 function customerNames() {
   const set = getSettings(); const names = new Map();

@@ -2394,7 +2394,7 @@ dialog#modal .tm-title:focus { border-color: var(--accent); background: var(--pa
 .q-copy.copied { background: color-mix(in srgb, var(--ok) 22%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
 /* 🚚 OTD (Despatch): log a late delivery beside the week's list */
 .otd-grid > .card { margin: 0; }
-.otd-grid { display: grid; grid-template-columns: minmax(340px, 440px) minmax(0, 1fr); gap: 12px; align-items: start; margin-top: 12px; }
+.otd-grid { display: grid; grid-template-columns: minmax(330px, 400px) minmax(0, 1fr); gap: 12px; align-items: start; margin-top: 12px; }
 @media (max-width: 1000px) { .otd-grid { grid-template-columns: 1fr; } }
 .otd-l { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); margin-top: 10px; }
 .otd-l input { font-size: 14px; }
@@ -2427,3 +2427,12 @@ dialog#modal .tm-title:focus { border-color: var(--accent); background: var(--pa
 .otd-pill { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 10px; white-space: nowrap; }
 .otd-pill.int { background: var(--danger-soft); color: var(--danger); } .otd-pill.ext { background: var(--accent-soft); color: var(--accent); }
 .otd-table td { vertical-align: top; }
+.otd-pickline { display: flex; align-items: baseline; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: 12.5px; }
+.otd-pickline > span:first-child { color: var(--muted); }
+.otd-pickline .small { display: inline; margin-left: 4px; }
+.otd-pick { font-weight: 600; }
+.otd-pick.next { color: var(--accent); }
+.otd-days-h { margin: 16px 0 6px; font-size: 14px; }
+.otd-days td, .otd-days th { white-space: nowrap; }
+.otd-table th, .otd-table td { padding-left: 6px; padding-right: 6px; }
+.otd-table td:nth-child(1) { white-space: nowrap; }

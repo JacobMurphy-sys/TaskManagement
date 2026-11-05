@@ -7,6 +7,16 @@
 let otdState = { wo: null, editing: null, type: null };
 const OTDN = (v) => Number(v || 0).toLocaleString('en-GB');
 const otdDue = (dl) => (dl ? `${fmtShortDate(dl.slice(0, 10))}${dl.length > 10 && !dl.endsWith('T23:59') ? ` ${dl.slice(11, 16)}` : ''}` : '—');
+// the pickup a work order can go with: the next one while it's open, the one after it was finished otherwise
+const otdPickup = (x, { long = false } = {}) => {
+  if (!x?.pickup) return `<span class="muted">${x?.cutoff === null && x?.shipper !== undefined ? 'no shipping time on the planner' : '—'}</span>`;
+  const day = new Date(`${x.pickup.slice(0, 10)}T00:00:00`); const t = x.pickup.slice(11, 16);
+  const today = new Date(); today.setHours(0, 0, 0, 0); const diff = Math.round((day - today) / 86400000);
+  const when = diff === 0 ? 'today' : diff === 1 ? 'tomorrow' : day.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  return `<span class="otd-pick ${x.pickup_kind === 'next' ? 'next' : ''}" title="${esc(x.pickup_kind === 'next' ? 'The next pickup from now: the shipper\'s cut-off on the next working day' : 'The first pickup after it was finished')}">${x.pickup_kind === 'went' ? (long ? 'went with ' : 'went ') : ''}${esc(when)} ${esc(t)}</span>${x.shipper ? `<div class="small muted">${esc(x.shipper)}</div>` : ''}`;
+};
+const otdDay = (s) => new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+const otdStamp = (s) => { const d = new Date(s); return `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const otdTypePill = (t) => `<span class="otd-pill ${t === 'Internal' ? 'int' : 'ext'}">${t === 'Internal' ? '🏭 Internal' : '👤 External'}</span>`;
 
 async function renderOtdTab() {
@@ -73,6 +83,7 @@ function otdWoCard() {
       <div><span>Due out</span><b>${esc(otdDue(w.deadline))}</b></div>
       <div><span>Week</span><b>${esc(w.week || '—')}</b>${w.week ? `<i>${esc(otdMonthOf(w.week))}</i>` : ''}</div>
     </div>
+    <div class="otd-pickline"><span>${w.pickup_kind === 'went' ? '🚚 Pickup after it was finished' : '🚚 Next possible pickup'}</span>${otdPickup(w)}</div>
     ${w.logged ? `<div class="small" style="color:var(--warn);margin-top:6px">⚠ Already logged ${w.logged.n}× (${OTDN(w.logged.q)} cards): check it isn't a second entry for the same delay.</div>` : ''}
   </div>`;
 }
@@ -88,13 +99,31 @@ function otdWeekHtml(d) {
       <div class="q-tile"><div class="q-tile-l">👤 External</div><div class="q-tile-v">${OTDN(d.external)}</div><div class="q-tile-s">cards late, the customer's</div></div>
       <div class="q-tile"><div class="q-tile-l">OTD SC this week</div><div class="q-tile-v">${pct(d.otd_sc)}</div><div class="q-tile-s">${d.shipped ? `of ${OTDN(d.shipped)} cards shipped · OTD C ${pct(d.otd_c)}` : 'cards shipped not read yet'}</div></div>
     </div>
-    ${d.entries.length ? `<div class="kdb-scroll"><table class="log otd-table"><thead><tr><th>Work order</th><th>Customer</th><th class="num">Cards</th><th>Due out</th><th>Delay</th><th>Reason</th><th>Logged</th><th></th></tr></thead><tbody>
+    ${d.entries.length ? `<div class="kdb-scroll"><table class="log otd-table"><thead><tr><th>Work order</th><th>Customer</th><th class="num">Cards</th><th>Due out</th><th title="The shipper's next cut-off on a working day (or, once finished, the one it went with)">Next pickup</th><th>Delay</th><th>Reason</th><th>Logged</th><th></th></tr></thead><tbody>
       ${d.entries.map((e) => `<tr><td><b>${esc(e.wo)}</b></td><td>${esc(e.customer || '')}${e.name ? `<div class="small muted">${esc(e.name)}</div>` : ''}</td>
-        <td class="num">${OTDN(e.qty)}${e.wo_qty && e.wo_qty !== e.qty ? `<div class="small muted">of ${OTDN(e.wo_qty)}</div>` : ''}</td><td>${e.due ? esc(fmtShortDate(e.due)) : '—'}</td>
+        <td class="num">${OTDN(e.qty)}${e.wo_qty && e.wo_qty !== e.qty ? `<div class="small muted">of ${OTDN(e.wo_qty)}</div>` : ''}</td><td class="nowrap">${e.due ? esc(otdDay(e.due)) : '—'}</td><td>${otdPickup(e)}</td>
         <td>${otdTypePill(e.type)}</td><td>${esc(e.reason)}${e.note ? `<div class="small muted">${esc(e.note)}</div>` : ''}</td>
-        <td class="small muted">${esc(e.created_by || '')}<div>${esc(fmtDateTime(e.updated_at || e.created_at))}</div></td>
+        <td class="small muted nowrap" title="${esc(`Logged ${fmtDateTime(e.created_at)}${e.updated_by ? ` · changed ${fmtDateTime(e.updated_at)} by ${e.updated_by}` : ''}`)}">${esc(otdStamp(e.created_at))}${e.created_by ? `<div>${esc(e.created_by)}</div>` : ''}</td>
         <td class="nowrap"><button class="icon" data-otd-edit="${e.id}" title="Change">✎</button><button class="icon" data-otd-del="${e.id}" title="Remove">🗑</button></td></tr>`).join('')}</tbody></table></div>`
-      : '<div class="empty small" style="margin-top:12px">No late deliveries logged for this week.</div>'}`;
+      : '<div class="empty small" style="margin-top:12px">No late deliveries logged for this week.</div>'}
+    ${otdDaysHtml(d)}`;
+}
+
+// 📅 day by day: OTD SC and C from cards shipped and the delays logged against that due-out day; beside it,
+// the planner's work orders due that day and how many cards were finished by their deadline
+function otdDaysHtml(d) {
+  const days = (d.days || []).filter((x) => !x.weekend || x.shipped || x.due || x.internal || x.external);
+  if (!days.length) return '';
+  const pct = (v) => (v === null || v === undefined ? '<span class="muted">—</span>' : `<span class="ops-pct ${v >= 0.98 ? 'good' : v >= 0.9 ? 'warn' : 'bad'}">${(v * 100).toFixed(1)}%</span>`);
+  const dayName = (s) => new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  return `<h3 class="otd-days-h">Day by day</h3>
+    <div class="kdb-scroll"><table class="log otd-days"><thead><tr><th>Day</th><th class="num">Cards shipped</th><th class="num">🏭 Internal</th><th class="num">👤 External</th><th class="num">OTD SC</th><th class="num">OTD C</th>
+      <th class="num" title="From the planner: of the cards on work orders due out that day and finished, the share finished by their deadline">Planner on time</th></tr></thead><tbody>
+      ${days.map((x) => `<tr class="${x.future ? 'muted' : ''}"><td class="nowrap"><b>${esc(dayName(x.day))}</b></td>
+        <td class="num">${x.shipped ? OTDN(x.shipped) : '<span class="muted">—</span>'}</td><td class="num">${x.internal ? OTDN(x.internal) : ''}</td><td class="num">${x.external ? OTDN(x.external) : ''}</td>
+        <td class="num">${x.shipped ? pct(x.otd_sc) : '<span class="muted">—</span>'}</td><td class="num">${x.shipped ? pct(x.otd_c) : '<span class="muted">—</span>'}</td>
+        <td class="num" title="${esc(`${OTDN(x.due)} cards due: ${OTDN(x.on_time)} on time, ${OTDN(x.late)} late, ${OTDN(x.open)} not finished`)}">${pct(x.planner_pct)}${x.due ? `<span class="small muted"> of ${OTDN(x.due)}</span>` : ''}</td></tr>`).join('')}</tbody></table></div>
+    <div class="small muted" style="margin:6px 0 0">OTD per day = 1 − cards logged late (by due-out day) ÷ cards shipped that day: as complete as what's logged. <i>Planner on time</i> needs no logging (hover a day for its cards).</div>`;
 }
 
 function wireOtd(d) {
