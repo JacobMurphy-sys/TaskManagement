@@ -2,6 +2,30 @@
 // admin's list of accounts in Settings. Off until the first account is made: nothing changes until then.
 const ACCT = { enabled: false, account: null, newCount: 0, modules: [], areas: [], rights: [] };
 
+// 👁 every password box gets an eye to show what's been typed (sign-in, changing your own, setting one for someone):
+// added to any that appears, now or later; it goes back to hidden when the form is sent or the box is left empty
+const PW_EYE = { show: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>',
+  hide: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M2 12s3.6-7 10-7c2 0 3.8.7 5.2 1.6M22 12s-3.6 7-10 7c-2 0-3.8-.7-5.2-1.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2M4 20 20 4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>' };
+function pwEyes(root = document) {
+  for (const inp of root.querySelectorAll('input[type=password]:not([data-pw-eye])')) {
+    inp.dataset.pwEye = '1';
+    const wrap = document.createElement('span'); wrap.className = 'pw-wrap';
+    inp.replaceWith(wrap); wrap.append(inp);
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'pw-eye'; b.tabIndex = -1; b.innerHTML = PW_EYE.show; b.title = 'Show the password'; b.setAttribute('aria-label', 'Show the password');
+    const set = (shown) => { inp.type = shown ? 'text' : 'password'; b.innerHTML = shown ? PW_EYE.hide : PW_EYE.show; const t = shown ? 'Hide the password' : 'Show the password'; b.title = t; b.setAttribute('aria-label', t); b.classList.toggle('on', shown); };
+    b.addEventListener('mousedown', (e) => e.preventDefault()); // keep the typing where it is
+    b.addEventListener('click', () => { const at = [inp.selectionStart, inp.selectionEnd]; set(inp.type === 'password'); inp.focus(); try { inp.setSelectionRange(...at); } catch { /* fine */ } });
+    inp.form?.addEventListener('submit', () => set(false));
+    inp.addEventListener('input', () => { if (!inp.value) set(false); });
+    wrap.append(b);
+  }
+}
+new MutationObserver((list) => { // only what was just added is looked at
+  for (const m of list) for (const n of m.addedNodes) if (n.nodeType === 1 && (n.matches('input[type=password]') || n.querySelector?.('input[type=password]'))) { pwEyes(n.parentNode || document); return; }
+}).observe(document.documentElement, { childList: true, subtree: true });
+document.addEventListener('DOMContentLoaded', () => pwEyes());
+
 // 🧩 Modules: the parts of the app an account can see (admins and no-accounts: all of them).
 const MOD_OF_VIEW = { team: 'team', capex: 'capex', kanban: 'projects', project: 'projects', ideas: 'ideas', idea: 'ideas', planning: 'planning', cpm: 'cpm', report: 'report', contacts: 'contacts' };
 // areas (projects, kpi, ideas, planning, report, contacts), each part of a module (Management: projects and kpi)

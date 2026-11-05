@@ -45,7 +45,7 @@ window.TIMELINE = {
   PINS: [
     { id: 'ticket-news', date: '2026-11-05', area: 'platform', title: 'Tickets: told straight away',
       text: 'Whoever looks after tickets hears of a new one as it comes in, and answers reach the sender in a window of their own.',
-      points: ['A message to admins (and anyone who handles tickets) for every new ticket', 'A message about a ticket opens it in a popout: what was sent, the screenshot and the answer', 'Screenshots open in the image viewer over the page instead of a new tab'] },
+      points: ['A message to admins (and anyone who handles tickets) for every new ticket', 'A message about a ticket opens it in a popout: what was sent, the screenshot and the answer', 'Screenshots open in the image viewer over the page instead of a new tab', 'An eye in every password box, to check what you typed'] },
     { id: 'start', date: '2026-09-29', area: 'platform', title: 'It begins: a personal task manager',
       text: 'A small Node.js and Express app for projects and tasks.',
       points: ['Moved from PostgreSQL to SQLite on day one: nothing to install but the app', 'A launcher that runs it in the background, and a way to stop it', 'update.bat: back up, pull the latest version, restart'] },

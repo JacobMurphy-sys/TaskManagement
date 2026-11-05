@@ -2441,3 +2441,10 @@ dialog#modal .tm-title:focus { border-color: var(--accent); background: var(--pa
 .tk-pop-answer { border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 8px 12px; }
 .tk-pop-answer.none { border-left-color: var(--border); background: var(--panel-2); }
 .tk-pop .tk-thumb { cursor: zoom-in; }
+/* 👁 show / hide a password as it's typed */
+.pw-wrap { position: relative; display: block; }
+.pw-wrap > input { width: 100%; padding-right: 38px; }
+.pw-eye { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 28px; padding: 0; border: 0; background: none; color: var(--muted); border-radius: 6px; cursor: pointer; }
+.pw-eye:hover, .pw-eye.on { color: var(--accent); background: var(--accent-soft); }
+input::-ms-reveal { display: none; } /* Edge's own eye: ours instead, so there's one */
