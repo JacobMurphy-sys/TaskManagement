@@ -46,7 +46,8 @@ const PLACES = [
   { label: 'Customer split and OEE for capacity planning', where: 'Production › 📐 Capacity › Customers', keys: 'split laser emboss dod oee trigram customer forecast names', area: 'cpm', hash: '#/cpm/customers' },
   { label: 'Priority modifiers', where: 'Production › ⚖ Modifiers', keys: 'modifiers priority score customers tags shifts', area: 'planning', right: 'setup', hash: '#/planning', prep: () => { store.set('planHalf', 'perso'); store.set('planModsOpen', true); }, find: '⚖ Priority modifiers' },
   // 📊 Reporting
-  { label: 'Weekly Ops Report (A3)', where: 'Reporting', keys: 'a3 weekly report ops kpi', area: 'kpi', hash: '#/kpi' },
+  { label: 'Weekly SC Report (A3)', where: 'Reporting', keys: 'a3 weekly report sc ops kpi', area: 'kpi', hash: '#/kpi' },
+  { label: 'Operations: OTD, production and scrap by month', where: 'Reporting › 🏭 Operations', keys: 'operations otd dailies renewals scrap produced persoed shipped customers month late work orders', area: 'kpi', hash: '#/kpi/operations' },
   { label: 'Prepare this week', where: 'Reporting › ▶ Prepare this week', keys: 'prepare week read sources missing checklist', area: 'kpi', hash: '#/kpi/prepare' },
   { label: 'KPI database', where: 'Reporting › Database', keys: 'database figures manual adjust kpi table', area: 'kpi', hash: '#/kpi/0/database' },
   { label: 'Sources and forecasts', where: 'Reporting › Sources', keys: 'sources forecast workbook files paths salesforce otd safety concern ehs', area: 'kpi_sources', hash: '#/kpi/sources' },

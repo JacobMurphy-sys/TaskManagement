@@ -1852,11 +1852,24 @@ const qualityPages = require('./quality');
 function refreshSource(name, also = []) {
   const set = getSettings();
   try {
-    const res = kpiData.importSources({ paths: { salesforce: set.kpi_src_salesforce, ehs: set.kpi_src_ehs, shipped: set.kpi_src_shipped, otd: set.kpi_src_otd },
+    const res = kpiData.importSources({ paths: { salesforce: set.kpi_src_salesforce, ehs: set.kpi_src_ehs, shipped: set.kpi_src_shipped, otd: set.kpi_src_otd,
+      perso: set.kpi_src_perso, remakes: set.kpi_src_remakes, consumption: set.kpi_src_consumption },
       workbook: set.kpi_workbook_path || null, splitWeekends: splitWeekends(), only: [name, ...also] });
     return res.find((r) => r.source === name) || null;
   } catch (err) { return { source: name, status: 'error', error: err.message }; }
 }
+// 🏭 Operations (Prod Management): the month's OTD, production and scrap, and the planner's work orders on time
+const operationsPage = require('./operations');
+router.get('/kpi/operations', h((req, res) => {
+  const read = refreshSource('perso', ['shipped', 'otd', 'remakes', 'consumption']);
+  const set = getSettings();
+  const names = new Map(); // customer names from the card database (trigram → name)
+  try {
+    const cards = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+    if (cards.status === 'ok') for (const c of cards.cards.values()) if (c.trigram && c.customer && !names.has(c.trigram.toUpperCase())) names.set(c.trigram.toUpperCase(), c.customer);
+  } catch { /* no card database: codes only */ }
+  res.json({ ...operationsPage.operations(req.query.month, { names }), read });
+}));
 router.get('/kpi/quality', h((req, res) => {
   const read = refreshSource('salesforce', ['shipped', 'otd']); // the pack's OTD and CPMS need the cards shipped and the delays
   res.json({ ...qualityPages.quality(req.query.month), read, path_set: !!String(getSettings().kpi_src_salesforce || '').trim() });
@@ -4581,7 +4594,7 @@ router.get('/search', h((req, res) => {
     // 📇 Contacts: the people and departments in the lists
     contacts: !accounts.canUse(req, 'contacts') ? [] : db.all(`SELECT i.name, i.detail, i.department, l.name AS list FROM name_list_items i JOIN name_lists l ON l.id = i.list_id
       WHERE ${like('i.name')} OR ${like('i.department')} OR ${like('i.detail')} ORDER BY i.name LIMIT 20`, [q, q, q]),
-    // 📊 Reporting: what was typed on the Weekly Ops Report (its boxes and the week's notes)
+    // 📊 Reporting: what was typed on the Weekly SC Report (its boxes and the week's notes)
     reporting: !accounts.canUse(req, 'kpi') ? [] : [
       ...db.all(`SELECT week, ref, text, (SELECT max(s.id) FROM kpi_snapshots s WHERE s.week = e.week) AS snap FROM kpi_edits e WHERE ${like('text')} ORDER BY week DESC LIMIT 20`, [q]),
       ...db.all(`SELECT week, NULL AS ref, text, (SELECT max(s.id) FROM kpi_snapshots s WHERE s.week = n.week) AS snap FROM kpi_notes n WHERE ${like('text')} ORDER BY week DESC LIMIT 10`, [q])],

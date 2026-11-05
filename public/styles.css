@@ -2370,3 +2370,18 @@ dialog#modal .tm-title:focus { border-color: var(--accent); background: var(--pa
 :root { --qx-text: #595959; --qx-grid: #D9D9D9; --qx-axis: #BFBFBF; --qx-purple: #43009A; --qx-violet: #7030A0; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --qx-text: #b3b0c9; --qx-grid: #34314a; --qx-axis: #4c4866; --qx-purple: #8f6cf2; --qx-violet: #b07ad9; } }
 :root[data-theme="dark"] { --qx-text: #b3b0c9; --qx-grid: #34314a; --qx-axis: #4c4866; --qx-purple: #8f6cf2; --qx-violet: #b07ad9; }
+
+/* 🏭 Operations: lines, points and the target on its charts; a weekend's day dimmed; on-time percentages */
+.q-chart .ops-line { fill: none; stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
+.q-chart .ops-line.q-c1 { stroke: var(--q-c1); } .q-chart .ops-line.q-c2 { stroke: var(--q-c2); } .q-chart .ops-line.q-c3 { stroke: var(--q-c3); }
+.q-chart .ops-dot { stroke: var(--panel); stroke-width: 1.5; }
+.q-chart .ops-target { stroke: var(--muted); stroke-width: 1.25; stroke-dasharray: 5 4; }
+.q-chart .q-col.dim .q-ax { opacity: .55; }
+.q-chart .q-col.dim .q-hit { fill: var(--panel-2); opacity: .5; }
+.q-sw.line { height: 3px; border-radius: 2px; width: 14px; }
+.ops-pct { font-weight: 700; font-variant-numeric: tabular-nums; }
+.ops-pct.good { color: var(--ok); } .ops-pct.warn { color: var(--warn); } .ops-pct.bad { color: var(--danger); }
+.ops-table td { vertical-align: top; }
+.ops-slot { height: 100%; }
+.q-bars.wide .q-bar-row { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 44px 44px; }
+.q-chart .ops-target-l { paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; }

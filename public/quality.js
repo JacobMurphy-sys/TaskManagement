@@ -17,7 +17,7 @@ async function renderQualityTab(kind) {
   let d;
   try { d = await api.get(`/kpi/${kind}${month ? `?month=${encodeURIComponent(month)}` : ''}`); } catch (err) { main().innerHTML = `<div class="card">${esc(err.message)}</div>`; return; }
   const src = d.source;
-  const srcName = kind === 'quality' ? 'the Salesforce export' : 'the safety concern form';
+  const srcName = kind === 'quality' ? 'the Salesforce export' : kind === 'operations' ? 'the perso export' : 'the safety concern form';
   const read = d.read || {};
   const sourcesLink = modOk('kpi_sources') ? '<a class="button small" href="#/kpi/sources">Set it on Sources</a>' : '<span class="small muted">ask an admin to set it on Reporting › Sources</span>';
   const note = read.status === 'error' || read.status === 'missing'
@@ -28,12 +28,12 @@ async function renderQualityTab(kind) {
       <select id="q-month" class="kpi-pick" title="The month to show">${d.months.map((m) => `<option value="${m.month}" ${m.month === d.month ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select>
       ${kpiTabsHtml(kind)}
       <div class="spacer"></div>
-      <span class="small muted q-src" title="${esc(src?.file || '')}">${src ? `${kind === 'quality' ? '🧪 Salesforce' : '⛑ Safety concern forms'} · read ${esc(fmtDateTime(src.imported_at))}${src.modified ? ` · file saved ${esc(fmtDateTime(src.modified))}` : ''}` : ''}</span>
+      <span class="small muted q-src" title="${esc(kind === 'operations' ? Object.entries(d.sources || {}).filter(([, s]) => s).map(([k, s]) => `${k}: ${s.file || ''}`).join('\n') : src?.file || '')}">${kind === 'operations' ? opsSourcesLine(d) : src ? `${kind === 'quality' ? '🧪 Salesforce' : '⛑ Safety concern forms'} · read ${esc(fmtDateTime(src.imported_at))}${src.modified ? ` · file saved ${esc(fmtDateTime(src.modified))}` : ''}` : ''}</span>
     </div>
     ${note}
-    ${kind === 'quality' ? qualityHtml(d) : ehsHtml(d)}`;
+    ${kind === 'quality' ? qualityHtml(d) : kind === 'operations' ? opsHtml(d) : ehsHtml(d)}`;
   main().classList.add('cockpit-main', 'kpi-dash'); // 🧪 Quality and ⛑ EHS are dashboards: one screen, panels scroll on their own
-  qDrawCharts();
+  qDrawCharts(); if (kind === 'operations') opsDraw();
   $('#q-month').addEventListener('change', (e) => { store.set('qMonth', e.target.value); renderQualityTab(kind); });
   // a case or form opens out to its details
   // a case or form opens out with its ▸, or a click anywhere on its row that isn't on its text (text stays selectable)
@@ -112,13 +112,14 @@ const qTrendTable = (trend, series) => `<details class="q-table-toggle"><summary
   <tbody>${trend.map((t) => `<tr><td>${esc(t.label)}</td>${series.map(([k]) => `<td class="num">${t[k] || ''}</td>`).join('')}<td class="num"><b>${series.reduce((s, [k]) => s + (t[k] || 0), 0) || ''}</b></td></tr>`).join('')}</tbody></table></div></details>`;
 
 // where they came from: a bar per name, the year to date light and this month dark within it
-function qBarsList(list, monthLabel) {
+// fmt: how a number is written (Operations' card counts, compact like 515k, in wider columns)
+function qBarsList(list, monthLabel, fmt) {
   if (!list?.length) return '<div class="empty small">Nothing this year yet.</div>';
-  const max = Math.max(1, ...list.map((x) => x.ytd));
-  return `<div class="q-bars">${list.map((x) => `<div class="q-bar-row${x.other ? ' other' : ''}" title="${esc(x.name)}: ${x.month} in ${esc(monthLabel)}, ${x.ytd} this year">
+  const max = Math.max(1, ...list.map((x) => x.ytd)); const f = fmt || ((v) => v);
+  return `<div class="q-bars${fmt ? ' wide' : ''}">${list.map((x) => `<div class="q-bar-row${x.other ? ' other' : ''}" title="${esc(x.name)}: ${x.month.toLocaleString('en-GB')} in ${esc(monthLabel)}, ${x.ytd.toLocaleString('en-GB')} this year">
       <span class="q-bar-name">${esc(x.name)}</span>
       <span class="q-bar"><i class="ytd" style="width:${(x.ytd / max) * 100}%"></i><i class="mon" style="width:${(x.month / max) * 100}%"></i></span>
-      <span class="q-bar-n"><b>${x.month || ''}</b></span><span class="q-bar-n muted">${x.ytd}</span></div>`).join('')}</div>`;
+      <span class="q-bar-n"><b>${x.month ? f(x.month) : ''}</b></span><span class="q-bar-n muted">${f(x.ytd)}</span></div>`).join('')}</div>`;
 }
 function qBars(title, list, monthLabel) {
   if (!list?.length) return `<div class="card q-card"><h3>${title}</h3><div class="empty small">Nothing this year yet.</div></div>`;

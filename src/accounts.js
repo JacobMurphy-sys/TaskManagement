@@ -39,7 +39,7 @@ const MODULES = [
   { key: 'basic', label: 'Basic pack', icon: '📋', what: 'Home, Tasks, Calendar, Library, 📥 My work, quick notes and search', always: true, areas: [] },
   { key: 'management', label: 'Management', icon: '🗂', what: 'Projects (the board, project pages and charters, the projects list in the sidebar), 👥 People (each person\'s open work and next action) and 💶 CAPEX (planned investments)', areas: ['projects', 'team', 'capex'] },
   { key: 'ci', label: 'Continuous Improvement', icon: '💡', what: 'Ideas: the ideas, their notes and the pipeline', areas: ['ideas'] },
-  { key: 'production', label: 'Prod Management', icon: '🏭', what: 'Production: perso, Matching, Insights (🔬 Learned, 📆 D+ due out, ⏱ Timing) and 🔍 search; 📐 Capacity planning (forecasts, flex, scenarios); 📊 Reporting\'s Weekly Ops Report (the A3), its Database and ▶ Prepare this week', areas: ['planning', 'cpm', 'kpi'] },
+  { key: 'production', label: 'Prod Management', icon: '🏭', what: 'Production: perso, Matching, Insights (🔬 Learned, 📆 D+ due out, ⏱ Timing) and 🔍 search; 📐 Capacity planning (forecasts, flex, scenarios); 📊 Reporting\'s Weekly SC Report (the A3), its Database, 🏭 Operations and ▶ Prepare this week', areas: ['planning', 'cpm', 'kpi'] },
   { key: 'quality', label: 'Quality', icon: '🛡', what: '📊 Reporting\'s 🧪 Quality (customer complaints, from the Salesforce export) and ⛑ EHS (safety concern forms), month by month', areas: ['quality'] },
   { key: 'archive', label: 'Archive', icon: '🗄', what: 'the archived status report', areas: ['report'] },
   { key: 'admin', label: 'Admin', icon: '📇', what: 'Contacts, to edit the lists (names can still be picked as owners without it), and 📊 Reporting\'s Sources: where every source file is (changing them takes the setup right)', areas: ['contacts', 'kpi_sources'] },
@@ -54,7 +54,7 @@ const keysOf = (list) => new Set((Array.isArray(list) ? list : String(list || ''
 const MODULE_API = [
   [/^\/kpi\/(quality|ehs)(\/|$)/, ['quality']], // 🧪 Quality and ⛑ EHS
   [/^\/kpi\/calc(\/import|\/weekends)?$/, ['kpi', 'kpi_sources']], // the source files: Database and Sources both show them
-  [/^\/kpi(\/|$)/, ['kpi']], // the Weekly Ops Report, its Database and Prepare
+  [/^\/kpi(\/|$)/, ['kpi']], // the Weekly SC Report, its Database, Operations and Prepare
   [/^\/people\/(overview|focus)(\/|$)/, ['team']], [/^\/capex(\/|$)/, ['capex']], [/^\/(ideas|idea-notes)(\/|$)/, ['ideas']],
   [/^\/(plan|prod)(\/|$)/, ['planning']], [/^\/cpm(\/|$)/, ['cpm']], [/^\/report(\/|$)/, ['report']], [/^\/contacts(\/|$)/, ['contacts']],
 ];

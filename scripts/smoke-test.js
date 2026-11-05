@@ -1361,6 +1361,29 @@ async function waitForServer() {
         assert.ok((await call('GET', '/kpi/calc?year=2026')).sources.some((s) => s.source === 'ehs' && s.rows === 3), 'listed on Sources');
         assert.equal((await call('GET', '/kpi/ehs?month=2026-10')).tiles.month.NM, 1);
       }
+      // 🏭 Operations: the month's OTD, cards persoed and shipped, scrap, and the planner's work orders on time
+      {
+        const sqo = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
+        const job = sqo.prepare('INSERT INTO plan_history_jobs (key, wo, customer, qty, prio, deadline, first_seen, last_seen, done_at, late_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        job.run('OPS1', 'OPS1', 'BKA', 100, 'High', '2026-04-10T16:00', '2026-04-09', '2026-04-10', '2026-04-10T15:00', -60); // a daily, on time
+        job.run('OPS2', 'OPS2', 'BKA', 300, 'Normal', '2026-04-14T16:00', '2026-04-13', '2026-04-15', '2026-04-15T10:00', 1080); // a daily, late
+        job.run('OPS3', 'OPS3', 'BKA', 50, 'Low', '2026-04-20T16:00', '2026-04-15', '2026-04-20', '2026-04-20T12:00', -240); // a renewal, on time
+        job.run('OPS4', 'OPS4', 'BKA', 70, 'Low', '2026-04-22T16:00', '2026-04-15', '2026-04-16', null, null); // gone from the planner, never finished
+        sqo.close();
+        const op = await call('GET', '/kpi/operations?month=2026-04');
+        assert.deepEqual([op.month, op.label, op.trend.length, op.trend[11].month], ['2026-04', 'April 2026', 12, '2026-04'], 'the month and the 12 up to it');
+        assert.deepEqual([op.tiles.otd.shipped, op.tiles.otd.internal, op.tiles.otd.external, op.tiles.otd.otd_sc, op.tiles.otd.otd_c], [800, 400, 100, 0.5, 0.875],
+          'OTD SC = 1 − internal ÷ shipped, OTD C = 1 − external ÷ shipped, as the Weekly SC Report');
+        assert.deepEqual([op.tiles.persoed, op.tiles.persoed_prev, op.tiles.persoed_pin, op.tiles.shipped, op.tiles.scrap_prev], [550, 1300, 200, 800, 2], 'persoed (PIN mailers apart), shipped, scrap');
+        assert.deepEqual(op.customers.persoed.map((x) => [x.name, x.month]), [['Techniker Krankenkasse', 500], ['Bank A', 50]], 'persoed by customer');
+        const ot = op.tiles.on_time;
+        assert.deepEqual([ot.daily.wos, ot.daily.on_time, ot.daily.late, ot.daily.pct, ot.renewal.on_time, ot.renewal.gone, ot.renewal.overdue, ot.renewal.pct], [2, 100, 300, 0.25, 50, 70, 0, 1],
+          'dailies and renewals (Low priority): on time of what\'s finished; one gone from the planner isn\'t overdue');
+        assert.deepEqual([op.late.map((l) => l.wo), op.late[0].late_hours, op.on_time_customers[0].customer], [['OPS2'], 18, 'BKA'], 'the late work orders; per customer');
+        assert.deepEqual(op.otd_customers.map((c) => [c.customer, c.internal, c.external]), [['BEL', 400, 0], ['ICA', 0, 100]], 'delays per customer from the OTD report');
+        assert.equal((await call('GET', '/kpi/operations?month=nonsense')).month.length, 7, 'a month that isn\'t one: the last full month');
+        const sqd = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); sqd.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'OPS%'").run(); sqd.close();
+      }
       // week numbers typed other ways; a date never decides the week
       const otd2 = src('OTD Report 2.xlsx', [['Customer'], ['Quantity', 'number'], ['Type'], ['Date', 'date'], ['Week'], ['Month'], ['Reason']], [
         ['A', 1000, 'Internal', '2026-10-09', '37', 'Sept', 'swapped date, week typed as a number'], ['B', 2000, 'Internal', null, 'Wk 14', 'Mar', 'split week: part from the month'],
@@ -2759,8 +2782,9 @@ async function waitForServer() {
       assert.ok((await sam('GET', '/auth/me')).data.account.areas.includes('kpi'), 'no modules set: all');
       const samId = (await admin('GET', '/accounts')).data.find((a) => a.username === 'sam').id;
       r = await admin('PATCH', `/accounts/${samId}`, { modules: ['production', 'nonsense'] });
-      assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'production'], ['planning', 'cpm', 'kpi']], 'the basic pack always, unknown ones dropped; Prod Management includes 📐 Capacity planning and the Weekly Ops Report');
-      assert.equal((await sam('GET', '/kpi/snapshots')).status, 200, 'the Weekly Ops Report is Prod Management\'s');
+      assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'production'], ['planning', 'cpm', 'kpi']], 'the basic pack always, unknown ones dropped; Prod Management includes 📐 Capacity planning and the Weekly SC Report');
+      assert.equal((await sam('GET', '/kpi/snapshots')).status, 200, 'the Weekly SC Report is Prod Management\'s');
+      assert.equal((await sam('GET', '/kpi/operations')).status, 200, '🏭 Operations too');
       assert.equal((await sam('GET', '/kpi/quality')).status, 403, 'Quality isn\'t');
       assert.equal((await sam('GET', '/ideas')).status, 403, 'no ideas');
       assert.equal((await sam('GET', '/plan/find?q=ab')).status, 200, 'planning');

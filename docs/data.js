@@ -38,6 +38,8 @@ window.TIMELINE = {
       text: 'Company colours, one place for notices, fewer buttons, a People overview, daily focus and a CAPEX planner.' },
     { id: 'sithub', from: '2026-11-02', to: '2026-11-02', area: 'platform', title: 'SITHUB: ready for server/client',
       text: 'The new name and icon, freeze-proofing, tickets, messages, a guide written for the server set-up, and a layout for phones.' },
+    { id: 'monthly', from: '2026-11-04', to: '2026-11-05', area: 'reporting', title: 'Monthly dashboards',
+      text: 'Reporting grows beyond the weekly report: Quality, EHS and Operations, each a one-screen dashboard by month.' },
   ],
 
   PINS: [
@@ -151,6 +153,9 @@ window.TIMELINE = {
     { id: 'quality', date: '2026-11-04', area: 'reporting', title: 'Quality and EHS',
       text: 'Reporting gains two monthly pages, and each of its tabs now belongs to the people who need it.',
       points: ['Quality: customer complaints by month, by severity, containment, cost and where they came from', 'The Quality team\'s monthly slides: OTD and CPMS for the year, lead time over the last 13 months, drawn like their Excel charts and copied into PowerPoint with one button', 'EHS: accidents, near misses and safety concerns, days without an accident, and the risk grid from the safety form', 'A new Quality module; the weekly report sits with Production management, the source files with Admin'] },
+    { id: 'operations', date: '2026-11-05', area: 'reporting', title: 'Operations dashboard',
+      text: 'A third monthly page on Reporting: the month\'s delivery, production and scrap on one screen, from the files already linked.',
+      points: ['OTD for the month, Service Center and customer, against the 98% target and the month before', 'Work orders on time, dailies and renewals apart, per customer', 'Cards persoed and shipped by day and by month, with the customers behind them', 'Scrap rate, its causes and the customers and cards behind each', 'The weekly report is now called the Weekly SC Report'] },
     { id: 'branches', date: '2026-11-04', area: 'platform', title: 'Live and dev',
       text: 'Ready for the shared server: what it runs and what is still being built are kept apart.',
       points: ['The server installs from the live branch and updates from it every night', 'New work is built and tested on a dev branch first, and reaches the server only once it\'s merged', 'This timeline is published from the live branch: what\'s here is what\'s live'] },

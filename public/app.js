@@ -2022,7 +2022,7 @@ async function renderSearch(q) {
       ${card('✅ Tasks', r.tasks, `<ul class="mini">${r.tasks.map(miniTask).join('')}</ul>`)}
       ${modOk('ideas') ? card('💡 Ideas', r.ideas, `<ul class="mini">${r.ideas.map((i) => `<li>
         <span class="t" data-action="open-idea" data-id="${i.id}"><b>${esc(i.ref)}</b> ${esc(i.title)}</span> ${ideaStatusPill(i.status)}</li>`).join('')}</ul>`) : ''}
-      ${modOk('kpi') ? card('📊 Reporting <span class="muted small">— typed on the Weekly Ops Report</span>', r.reporting, `<ul class="mini">${r.reporting.map(kpiWeek).join('')}</ul>`) : ''}
+      ${modOk('kpi') ? card('📊 Reporting <span class="muted small">— typed on the Weekly SC Report</span>', r.reporting, `<ul class="mini">${r.reporting.map(kpiWeek).join('')}</ul>`) : ''}
       ${card('📚 Library', r.library, `<ul class="mini">${r.library.map((d) => `<li style="display:block">
         <a href="#/library/${d.id}">📄 <b>${esc(d.title)}</b></a> <span class="small muted">${esc(d.folder)}</span>
         <div class="small muted">${esc(d.snippet)}</div></li>`).join('')}</ul>`)}
