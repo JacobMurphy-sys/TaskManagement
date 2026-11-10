@@ -2469,7 +2469,7 @@ details.msel > summary.on { border-color: var(--accent); background: var(--accen
 details.msel[open] > summary { border-color: var(--accent); }
 .msel-pop { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; min-width: 230px; max-width: 320px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
   box-shadow: 0 10px 28px rgb(0 0 0 / .18); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
-.msel-q { width: 100%; }
+details.msel .msel-pop input.msel-q { flex: none; width: 100%; min-width: 0; max-width: none; height: auto; } /* not the toolbar search box's size */
 .msel-acts { display: flex; align-items: center; gap: 6px; }
 .msel-list { max-height: 300px; overflow: auto; display: flex; flex-direction: column; }
 .msel-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 5px; cursor: pointer; font-size: 13px; }
