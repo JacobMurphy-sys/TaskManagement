@@ -78,6 +78,12 @@ module.exports = {
     dir: inData(env.BACKUP_DIR, 'backups'),
     intervalHours: num(env.BACKUP_INTERVAL_HOURS, 24),
     keep: Math.max(1, num(env.BACKUP_KEEP, 30)),
+    // gzip each backup (checked by unzipping it again) unless BACKUP_COMPRESS=0
+    compress: String(env.BACKUP_COMPRESS ?? '1').trim() !== '0',
+    // keep by age instead of by count: everything from the last KEEP_ALL_HOURS (default: all of KEEP_DAYS),
+    // then the last backup of each day, none older than KEEP_DAYS. 0 = by count (BACKUP_KEEP).
+    keepDays: Math.max(0, num(env.BACKUP_KEEP_DAYS, 0)),
+    keepAllHours: Math.max(0, num(env.BACKUP_KEEP_ALL_HOURS, 0)),
   },
   logDir: inData(env.LOG_DIR, 'logs'),
   // Shared defaults (the network file paths everyone uses): DEFAULTS_FILE, else

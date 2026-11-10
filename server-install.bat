@@ -55,6 +55,13 @@ call :set_env HOST "0.0.0.0"
 call :set_env PORT "%PORT%"
 call :set_env DATA_DIR "%DATA%"
 echo       Set in .env: HOST=0.0.0.0, PORT=%PORT%, DATA_DIR=%DATA%
+REM Backups on the server: every 2 hours, compressed, kept 30 days (only when .env doesn't say already)
+findstr /b /i /c:"BACKUP_KEEP_DAYS=" ".env" >nul 2>&1
+if errorlevel 1 (
+  call :set_env BACKUP_INTERVAL_HOURS "2"
+  call :set_env BACKUP_KEEP_DAYS "30"
+  echo       Backups: every 2 hours, compressed, kept 30 days ^(BACKUP_ settings in .env^)
+)
 
 REM The data of a copy that ran here for one person can be the shared copy's starting point.
 if exist "%DATA%\taskmgr.db" goto :data_done

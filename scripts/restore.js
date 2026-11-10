@@ -1,7 +1,7 @@
 // Restores ALL data from a backup (.db or .json), replacing what is in the database.
 // A safety backup of the current data is taken first. (The Backups page in the app
 // has a Restore button that does the same.)
-// Usage: npm run restore -- backups/db/taskmgr-YYYYMMDD-HHMMSS.db
+// Usage: npm run restore -- backups/db/taskmgr-YYYYMMDD-HHMMSS.db.gz (compressed or not)
 const readline = require('readline');
 const db = require('../src/db');
 const backup = require('../src/backup');
@@ -10,7 +10,7 @@ const { readBackup, restoreData } = require('../src/restore');
 async function main() {
   const file = process.argv[2];
   if (!file) {
-    console.log('Usage: npm run restore -- <backup file (.db or .json)>\n\nAvailable backups (newest first):');
+    console.log('Usage: npm run restore -- <backup file (.db or .json, compressed .gz too)>\n\nAvailable backups (newest first):');
     for (const b of backup.listBackups()) console.log(`  ${b.path}`);
     return;
   }

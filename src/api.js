@@ -4262,9 +4262,27 @@ router.get('/audit', h((req, res) => {
 
 router.get('/info', h((req, res) => res.json({
   data_dir: config.dataDir, db_file: config.dbFile, backup_dir: config.backup.dir, log_dir: config.logDir,
+  backup: { interval_hours: config.backup.intervalHours, keep: config.backup.keep, keep_days: config.backup.keepDays,
+    keep_all_hours: config.backup.keepDays > 0 ? (config.backup.keepAllHours || config.backup.keepDays * 24) : null, compress: config.backup.compress, disk: backup.freeSpace() },
 })));
 router.get('/backups', h((req, res) => res.json(backup.listBackups())));
-router.post('/backups', h((req, res) => res.status(201).json(backup.runBackup('manual (UI)'))));
+router.post('/backups', h((req, res) => {
+  try { res.status(201).json(backup.runBackup('manual (UI)')); } catch (err) { throw new HttpError(err.status || 500, err.message); }
+}));
+// a listed backup by its name, with or without .gz (one is compressed a moment after it's made, so a name
+// handed out as .db is still found once it's .db.gz)
+const backupNamed = (kind, file) => { const bare = String(file).replace(/\.gz$/, ''); return backup.listBackups().find((x) => x.kind === kind && x.file.replace(/\.gz$/, '') === bare); };
+// a backup as a plain file (a compressed one unzipped on the way), e.g. to open the .db in DBeaver
+router.get('/backups/:kind/:file/download', h((req, res) => {
+  if (!accounts.hasRight(req, 'backups')) throw new HttpError(403, 'Downloading a backup needs the Backups right');
+  const b = backupNamed(req.params.kind, req.params.file);
+  if (!b) throw notFound('Backup');
+  const name = b.file.replace(/\.gz$/, '');
+  res.set('Content-Type', b.kind === 'db' ? 'application/vnd.sqlite3' : 'application/json');
+  res.set('Content-Disposition', `attachment; filename="${name}"`);
+  const src = fs.createReadStream(b.path);
+  (b.compressed ? src.pipe(require('zlib').createGunzip()) : src).on('error', (err) => { log.warn(`Backup download ${b.file}: ${err.message}`); res.destroy(err); }).pipe(res);
+}));
 
 // Restore from an uploaded backup file (?check=1 only reads it and reports what's in it).
 const loadBackup = (fn) => {
@@ -4281,7 +4299,7 @@ router.post('/backups/restore', express.raw({ type: '*/*', limit: '500mb' }), h(
 }));
 // Restore one of the backups listed on the Backups page.
 router.post('/backups/:kind/:file/restore', h((req, res) => {
-  const b = backup.listBackups().find((x) => x.kind === req.params.kind && x.file === req.params.file);
+  const b = backupNamed(req.params.kind, req.params.file);
   if (!b) throw notFound('Backup');
   restoreReply(req, res, loadBackup(() => readBackup(b.path)), b.file);
 }));

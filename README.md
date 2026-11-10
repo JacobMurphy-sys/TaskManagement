@@ -601,6 +601,7 @@ Planning can run as a separate app, **SITHUB Planner**, on one computer (a serve
 - **Restore from the command line:** `npm run restore -- "%LOCALAPPDATA%\CIManager\backups\db\taskmgr-YYYYMMDD-HHMMSS.db"` (a `.json` backup works too). It asks you to confirm, then takes a safety backup of the current data before replacing it. Run `npm run restore` with no file to list the available backups. It's best to stop the app first.
 - A backup `.db` file is a normal database, so you can also just open it in DBeaver to look something up without restoring.
 - **Tip:** set `BACKUP_DIR` in `.env` to a OneDrive or network folder so the backups are kept off your PC.
+- **Compressed backups:** each backup (the `.db` copy and the JSON export) is gzip-compressed once it's made, in the background so SITHUB stays responsive, to about a sixth of the database's size. Each one is then unzipped again and compared with the original (a checksum of each) before the plain copy is removed; if that check ever fails, the plain copy is kept and the problem is logged. gzip is lossless: a restore gets back exactly what was backed up. **⬇** on the Backups page gives the plain `.db` or `.json` (e.g. to open in DBeaver); **Restore**, **Restore from file…** and `npm run restore` take compressed and plain backups alike, and a damaged compressed file is refused rather than half-restored. The JSON export is written from the database copy in a background thread, so it matches the `.db` exactly and a large one doesn't hold the app up. The Backups page shows how often backups run, how long they're kept, the space they take and what's free; a backup isn't started with less than 1 GB free (it's logged instead).
 
 ## 4. Working with the data directly (DBeaver)
 
@@ -635,7 +636,10 @@ In DBeaver: *Database → New Database Connection → SQLite*, and pick `%LOCALA
 | `DB_FILE` | `DATA_DIR\taskmgr.db` | The database file |
 | `BACKUP_DIR` | `DATA_DIR\backups` | Where backups go (a OneDrive or network folder is a good choice) |
 | `BACKUP_INTERVAL_HOURS` | `24` | Hours between automatic backups (`0` turns them off) |
-| `BACKUP_KEEP` | `30` | Number of backups of each type to keep |
+| `BACKUP_KEEP` | `30` | Number of backups of each type to keep (when `BACKUP_KEEP_DAYS` isn't set) |
+| `BACKUP_KEEP_DAYS` | `0` (by count) | Keep backups by age instead: none older than this many days. The shared server's install sets **30**, with `BACKUP_INTERVAL_HOURS=2` |
+| `BACKUP_KEEP_ALL_HOURS` | all of `BACKUP_KEEP_DAYS` | Keep every backup from the last this many hours, then only the last one of each day (e.g. `48`: two-hourly for 2 days, then daily) |
+| `BACKUP_COMPRESS` | `1` | Compress backups (gzip); `0` keeps plain files |
 | `LOG_DIR` | `DATA_DIR\logs` | Daily log files |
 
 ## 6. Project layout

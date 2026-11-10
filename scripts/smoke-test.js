@@ -204,8 +204,10 @@ async function waitForServer() {
     assert.equal((await call('GET', '/search?q=%25')).tasks.length, 0);
 
     const b = await call('POST', '/backups');
-    assert.ok(b.json.endsWith('.json') && fs.existsSync(b.json), 'JSON backup written');
-    assert.ok(b.db.endsWith('.db') && fs.existsSync(b.db), 'database copy written');
+    assert.ok(b.db.endsWith('.db') && (fs.existsSync(b.db) || fs.existsSync(`${b.db}.gz`)), 'database copy written');
+    // the JSON export follows in the background (from the snapshot), then both are compressed
+    for (let i = 0; i < 50 && !fs.existsSync(`${b.json}.gz`); i++) await new Promise((r) => setTimeout(r, 100));
+    assert.ok(b.json.endsWith('.json') && fs.existsSync(`${b.json}.gz`), 'JSON backup written');
 
     // ---- Ideation
     const areas = await call('GET', '/areas');
@@ -1008,6 +1010,34 @@ async function waitForServer() {
     assert.ok(log.some((e) => e.action === 'DELETE' && e.table_name === 'projects'), 'project delete audited');
     assert.equal((await call('GET', `/tasks?project_id=${p.id}`)).length, 0, 'tasks cascaded');
 
+    // ---- Backups are compressed once made (gzip, checked by unzipping); the plain file is gone only after that
+    const onDisk = (f) => (fs.existsSync(`${f}.gz`) ? `${f}.gz` : f);
+    for (let i = 0; i < 50 && !(fs.existsSync(`${b.db}.gz`) && fs.existsSync(`${b.json}.gz`)); i++) await new Promise((r) => setTimeout(r, 100));
+    assert.ok(fs.existsSync(`${b.db}.gz`) && !fs.existsSync(b.db) && fs.existsSync(`${b.json}.gz`) && !fs.existsSync(b.json), 'both compressed, the plain copies removed');
+    {
+      const zlib = require('zlib');
+      const dbPlain = zlib.gunzipSync(fs.readFileSync(`${b.db}.gz`));
+      assert.equal(dbPlain.subarray(0, 16).toString('latin1'), 'SQLite format 3\0', 'unzips to the database file');
+      assert.ok(JSON.parse(zlib.gunzipSync(fs.readFileSync(`${b.json}.gz`)).toString('utf8')).tables.projects, 'and the JSON export');
+      const dl = await fetch(`${BASE}/backups/db/${encodeURIComponent(path.basename(b.db))}.gz/download`, { headers: { 'X-Requested-With': 'TaskManager' } });
+      assert.equal(dl.status, 200);
+      assert.ok(Buffer.from(await dl.arrayBuffer()).equals(dbPlain), '⬇ gives the plain .db, byte for byte');
+      assert.match(dl.headers.get('content-disposition'), /\.db"$/, '…named .db');
+      // a damaged one is refused, not half-restored
+      const bad = fs.readFileSync(`${b.db}.gz`); bad[Math.floor(bad.length / 2)] ^= 0xff;
+      const badUp = await fetch(`${BASE}/backups/restore?check=1`, { method: 'POST', body: bad, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': 'broken.db.gz' } });
+      assert.equal(badUp.status, 400, 'a damaged compressed backup is refused');
+      // how they're kept: everything from the last 48 hours, then the last one each day, nothing past 30 days
+      const BK = require('../src/backup');
+      const now = new Date(2026, 10, 30, 12, 0);
+      const names = [];
+      for (let h = 0; h < 40 * 24; h += 2) { const t = new Date(now - h * 3600000); const p2 = (n) => String(n).padStart(2, '0'); names.push(`taskmgr-${t.getFullYear()}${p2(t.getMonth() + 1)}${p2(t.getDate())}-${p2(t.getHours())}0000`); }
+      const two = BK.keepSet(names, now, { keepDays: 30, keepAllHours: 48, keep: 30 });
+      assert.equal(two.size, 25 + 29, 'two-hourly for 2 days (25), then one a day to 30 days (29)');
+      assert.ok(!two.has(names[names.length - 1]), 'nothing older than 30 days');
+      assert.equal(BK.keepSet(names, now, { keepDays: 30, keepAllHours: 0, keep: 30 }).size, 361, 'or every one from the last 30 days');
+      assert.equal(BK.keepSet(names, now, { keepDays: 0, keep: 30 }).size, 30, 'by count, as before, when no days are set');
+    }
     // ---- Restore from the Backups page: a listed backup, and an uploaded file.
     const before = (await call('GET', '/backups')).length;
     const listedUrl = `/backups/db/${encodeURIComponent(path.basename(b.db))}/restore`;
@@ -1015,7 +1045,7 @@ async function waitForServer() {
     assert.ok(peek.counts.projects >= 1 && peek.counts.tasks >= 1, 'check reports what the backup holds');
     assert.equal((await call('GET', `/projects/${p.id}`).catch(() => null)), null, 'check alone changes nothing');
     const restored = await call('POST', listedUrl);
-    assert.ok(fs.existsSync(restored.safety), 'safety backup taken before restoring');
+    assert.ok(fs.existsSync(onDisk(restored.safety)), 'safety backup taken before restoring');
     assert.equal((await call('GET', `/projects/${p.id}`)).name, p.name, 'deleted project is back');
     assert.ok((await call('GET', '/backups')).length > before);
     const afterRestore = await call('POST', '/tasks', { title: 'After restore' });
@@ -1023,10 +1053,10 @@ async function waitForServer() {
     await assert.rejects(call('POST', '/backups/db/nope.db/restore'), /not found/i);
     const upload = (body, name, q = '') => fetch(`${BASE}/backups/restore${q}`, { method: 'POST', body,
       headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(name) } });
-    let up2 = await upload(fs.readFileSync(b.json), 'copy é.json', '?check=1');
+    let up2 = await upload(fs.readFileSync(onDisk(b.json)), 'copy é.json.gz', '?check=1');
     assert.equal(up2.status, 200);
     assert.equal((await up2.json()).counts.projects, peek.counts.projects, 'JSON and .db backups agree');
-    up2 = await upload(fs.readFileSync(b.json), 'copy é.json');
+    up2 = await upload(fs.readFileSync(onDisk(b.json)), 'copy é.json.gz');
     assert.equal(up2.status, 200, 'uploaded JSON backup restored');
     assert.equal((await call('GET', `/tasks/${afterRestore.id}`).catch(() => null)), null, 'data since the backup replaced');
     up2 = await upload(Buffer.from('hello'), 'notes.txt', '?check=1');

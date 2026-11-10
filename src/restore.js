@@ -15,8 +15,13 @@ const summarize = (tables) => Object.fromEntries(TABLE_NAMES.map((t) => [t, (tab
 
 // Reads a backup given as a file path or as uploaded bytes (+ its file name).
 function readBackup(source, name = typeof source === 'string' ? source : '') {
-  const buf = typeof source === 'string' ? fs.readFileSync(source) : source;
+  let buf = typeof source === 'string' ? fs.readFileSync(source) : source;
   const created = typeof source === 'string' ? fs.statSync(source).mtime.toISOString() : null;
+  // compressed (gzip): unzipped first, exactly as it was backed up; a damaged file fails its checksum here
+  if (buf[0] === 0x1f && buf[1] === 0x8b) {
+    try { buf = require('zlib').gunzipSync(buf); } catch (err) { throw new BadBackup(`Couldn't unzip ${name ? `"${path.basename(name)}"` : 'that file'}: it may be damaged or incomplete (${err.code || err.message})`); }
+    source = buf; // from here on, as uploaded bytes (a database goes through a temporary copy)
+  }
   if (buf.subarray(0, 16).toString('latin1') === 'SQLite format 3\0') {
     // node:sqlite opens files, so an upload goes through a temporary copy.
     const tmp = typeof source === 'string' ? source : path.join(os.tmpdir(), `cimanager-restore-${process.pid}-${Date.now()}.db`);

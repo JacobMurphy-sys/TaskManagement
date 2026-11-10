@@ -1938,8 +1938,8 @@ async function renderBackups() {
   const size = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
   main().innerHTML = `
     <div class="kanban-tools"><h1 style="margin:0">Backups</h1><div class="spacer"></div>
-      <button data-action="restore-pick" title="Replace all data with a backup file (.db or .json)">⤺ Restore from file…</button>
-      <input type="file" id="restore-file" accept=".db,.json" hidden>
+      <button data-action="restore-pick" title="Replace all data with a backup file (.db or .json, compressed .gz too)">⤺ Restore from file…</button>
+      <input type="file" id="restore-file" accept=".db,.json,.gz" hidden>
       <button class="primary" data-action="backup-now">💾 Back up now</button></div>
     <div class="card stack">
       <p><b>Your data folder:</b> <code>${esc(info.data_dir)}</code><br>
@@ -1948,15 +1948,22 @@ async function renderBackups() {
         This is outside the app folder, so updating the app never touches it.</span></p>
       <p>Backups run automatically (at start-up and on the interval set in <code>.env</code>). Each backup is a
         complete copy of the <b>database file</b> (<code>.db</code> — opens in DBeaver) plus a <b>JSON export</b> of every table.</p>
+      <p class="small">${(() => { const k = info.backup || {}; const gb = (n) => `${(n / 1024 ** 3).toFixed(n < 10 * 1024 ** 3 ? 1 : 0)} GB`;
+        const used = list.reduce((t, b) => t + b.size, 0);
+        return `<b>${k.interval_hours > 0 ? `Every ${k.interval_hours === 1 ? 'hour' : `${k.interval_hours} hours`}` : 'Automatic backups off'}</b>`
+          + ` · kept: ${k.keep_days > 0 ? (k.keep_all_hours >= k.keep_days * 24 ? `all from the last ${k.keep_days} days` : `all from the last ${k.keep_all_hours} hours, then one a day for ${k.keep_days} days`) : `the newest ${k.keep} of each kind`}`
+          + ` · ${k.compress ? '🗜 compressed (each checked by unzipping it again; ⬇ gives the plain file)' : 'not compressed'}`
+          + ` · ${size(used)} used${k.disk ? `, ${gb(k.disk.free)} free of ${gb(k.disk.total)}` : ''}`; })()}</p>
       <p class="small muted"><b>Restore</b> replaces <i>all</i> current data with a backup: use <b>Restore</b> on a row below, or
         <b>Restore from file…</b> for a backup kept somewhere else (e.g. a copy on OneDrive). You'll see what's in the backup
         and confirm first, and a safety backup of the current data is always taken, so a restore can itself be undone.</p>
     </div>
     <div class="card" style="margin-top:16px"><table class="log">
       <thead><tr><th>Created</th><th>Type</th><th>File</th><th>Size</th><th></th></tr></thead>
-      <tbody>${list.map((b) => `<tr><td class="nowrap">${esc(fmtDateTime(b.created_at))}</td><td>${b.kind}</td>
+      <tbody>${list.map((b) => `<tr><td class="nowrap">${esc(fmtDateTime(b.created_at))}</td><td>${b.kind}${b.compressed ? ' <span class="muted small" title="Compressed; ⬇ gives the plain file">🗜</span>' : ''}</td>
         <td>${esc(b.file)}</td><td>${size(b.size)}</td>
-        <td><button class="small" data-action="restore-listed" data-kind="${esc(b.kind)}" data-file="${esc(b.file)}">⤺ Restore</button></td></tr>`).join('')}</tbody></table>
+        <td class="nowrap"><a class="button small" href="/api/backups/${encodeURIComponent(b.kind)}/${encodeURIComponent(b.file)}/download" download title="Download it as a plain ${b.kind === 'db' ? '.db (opens in DBeaver)' : '.json'} file">⬇</a>
+          <button class="small" data-action="restore-listed" data-kind="${esc(b.kind)}" data-file="${esc(b.file)}">⤺ Restore</button></td></tr>`).join('')}</tbody></table>
       ${list.length ? '' : '<div class="empty">No backups yet.</div>'}</div>`;
 }
 
