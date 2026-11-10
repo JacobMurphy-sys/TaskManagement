@@ -2356,7 +2356,7 @@ setTimeout(checkPlanExport, 3000).unref();
 setInterval(checkPlanExport, 2 * 60 * 1000).unref();
 const planTime = (s, fallback) => { const m = String(s || '').match(/^(\d{1,2}):(\d{2})$/); return m ? Number(m[1]) * 60 + Number(m[2]) : fallback; };
 // The open work orders, as jobs in order (mode fifo | bau), with the capacity projection.
-router.get('/plan', h((req, res) => {
+function planData(modeQ) {
   const set = getSettings();
   const src = planning.readSource({ file: cleanPath(set.plan_src) || null, uploaded: PLAN_UPLOAD });
   recordPlan(src);
@@ -2373,8 +2373,8 @@ router.get('/plan', h((req, res) => {
   const now = new Date();
   const windows = planning.workingWindows(now, new Date(now.getTime() + 14 * 86400000), capacity).map((w) => ({ start: w.start.toISOString(), end: w.end.toISOString() }));
   const available = planning.minutesByDay(now, new Date(now.getTime() + 14 * 86400000), capacity);
-  if (src.status !== 'ok') { const otto0 = ottoOf(set, [], capacity); return res.json({ shared_setup: sharedSetup, windows, available, now: now.toISOString(), otto: otto0, disp: dispOf(set, [], [...otto0.running, ...otto0.queue]), machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: (['bau', 'score', 'mitigation'].includes(req.query.mode) ? req.query.mode : 'fifo'), running: [], queue: [], slots: [] }); }
-  const mode = (['bau', 'score', 'mitigation'].includes(req.query.mode) ? req.query.mode : 'fifo');
+  if (src.status !== 'ok') { const otto0 = ottoOf(set, [], capacity); return ({ shared_setup: sharedSetup, windows, available, now: now.toISOString(), otto: otto0, disp: dispOf(set, [], [...otto0.running, ...otto0.queue]), machines: db.all('SELECT * FROM plan_machines ORDER BY sort_order, id'), machine_load: [], capacity_by_type: [], product_types: [], source, cards_db: cardsDb, rules, combos: [], capacity, mode: (['bau', 'score', 'mitigation'].includes(modeQ) ? modeQ : 'fifo'), running: [], queue: [], slots: [] }); }
+  const mode = (['bau', 'score', 'mitigation'].includes(modeQ) ? modeQ : 'fifo');
   const oeeRows = db.all('SELECT customer, oee FROM plan_oee ORDER BY customer');
   const oeeDefault = Number(set.plan_oee_default) > 0 && Number(set.plan_oee_default) <= 100 ? Number(set.plan_oee_default) / 100 : null;
   const maxAge = planMaxAge(set);
@@ -2436,12 +2436,13 @@ router.get('/plan', h((req, res) => {
   delete modifiers.tagBy;
   const pdataStatus = (() => { const f = cleanPath(set.kpi_perso_data) || null; if (!f) return null; let st; try { st = require('./persodata').stamp(); } catch { st = {}; }
     return { status: fs.existsSync(f) ? 'ok' : 'missing', rows: st.n || 0, first: st.first || null, last: st.last || null }; })();
-  res.json({ volume: volumeOf(set, custNames), pdata: pdataStatus, shared_setup: sharedSetup, mitigation, modifiers, backlog, otto, disp, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
+  return ({ volume: volumeOf(set, custNames), pdata: pdataStatus, shared_setup: sharedSetup, mitigation, modifiers, backlog, otto, disp, oee: oeeList, oee_default: oeeDefault, windows, available, machines, machine_load: machineLoad || [], capacity_by_type: planning.capacityByType(lines, machines, capacity), product_types: types,
     source, cards_db: cardsDb, rules, combos: planning.combos(lines, rules), unknown_articles: unknown, no_speed: lines.filter((l) => l.speed === null || l.speed_from === 'average').length,
     learned_times: { on: learnOn, runs: model?.runs || 0, setup: model ? Math.round(model.setup * 10) / 10 : null, lines: lines.length,
       card: lines.filter((l) => l.speed_from === 'learned:card').length, kind: lines.filter((l) => l.speed_from === 'learned:kind').length, all: lines.filter((l) => l.speed_from === 'learned:all').length }, averaged: lines.some((l) => l.speed_from === 'average'),
     capacity, mode, projected, now: new Date().toISOString(), running, queue, slots: planning.loadByDeadline([...running, ...queue]) });
-}));
+}
+router.get('/plan', h((req, res) => res.json(planData(req.query.mode))));
 // The machines and the product types each runs ("DOD, Laser"; blank = any).
 const machineFields = (b) => {
   const f = {};
@@ -2610,6 +2611,28 @@ router.post('/plan/sheet', express.json({ limit: '10mb' }), h(async (req, res) =
   const name = `${String(m.file_label || 'Plan').replace(/[^\w .-]/g, '').trim() || 'Plan'} ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}.pdf`;
   planPdfs.set(id, { buf, name, at: now });
   res.status(201).json({ url: `/api/plan/sheet/${id}/${encodeURIComponent(name)}`, name, bytes: buf.length });
+}));
+// 📄 Automatic plans (Production › Setup): the plan made on a schedule into a set file, overwritten each time
+const planAuto = require('./planauto');
+planAuto.useDeps({ planData, renderPlanPdf, log });
+planAuto.start();
+router.get('/plan/auto', h((req, res) => res.json({ plans: planAuto.overview() })));
+router.put('/plan/auto', h((req, res) => { planAuto.save(req.body?.plans); res.json({ plans: planAuto.overview() }); }));
+router.post('/plan/auto/:id/run', h(async (req, res) => {
+  const s = planAuto.list().find((x) => x.id === req.params.id);
+  if (!s) throw notFound('Automatic plan');
+  const r = await planAuto.run(s);
+  res.status(r.ok ? 200 : 502).json({ ...r, error: r.error || undefined, plans: planAuto.overview() });
+}));
+// the file it last wrote, to check it
+router.get('/plan/auto/:id/file', h((req, res) => {
+  const s = planAuto.list().find((x) => x.id === req.params.id);
+  if (!s) throw notFound('Automatic plan');
+  const file = planAuto.target(s);
+  if (!fs.existsSync(file)) throw new HttpError(404, 'Not made yet (or the folder can\'t be reached from the server)');
+  res.set('Content-Type', 'application/pdf');
+  res.set('Content-Disposition', `inline; filename="${path.basename(file).replace(/"/g, '')}"`);
+  res.sendFile(path.resolve(file));
 }));
 router.get('/plan/sheet/:id/:name?', h((req, res) => {
   const f = planPdfs.get(req.params.id);

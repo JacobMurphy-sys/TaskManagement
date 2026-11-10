@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+    { id: 'auto-plans', date: '2026-11-10', area: 'production', title: 'Plans made on a schedule',
+      text: 'The production plan can now make itself: at set times the server makes the plan PDF and saves it over the same file, like a report subscription.',
+      points: ['Perso or Matching, with the same choices as Generate plan: order, cells, layout, rows, overdue apart', 'One or more times a day, on the days ticked', 'Always the same file in a shared folder, so the floor opens one file and finds the latest plan', 'Run now to check it, and the last run and the next one shown with each'] },
     { id: 'ticket-news', date: '2026-11-05', area: 'platform', title: 'Tickets: told straight away',
       text: 'Whoever looks after tickets hears of a new one as it comes in, and answers reach the sender in a window of their own.',
       points: ['A message to admins (and anyone who handles tickets) for every new ticket', 'A message about a ticket opens it in a popout: what was sent, the screenshot and the answer', 'Screenshots open in the image viewer over the page instead of a new tab', 'An eye in every password box, to check what you typed'] },
@@ -172,6 +175,9 @@ window.TIMELINE = {
 
   // 🎬 The blooper reel: the hidden easter egg (click the logo five times, type "oops", or find the 🐞)
   BLOOPERS: [
+    { date: '2026-11-10', title: 'The test that went off',
+      text: 'A new feature, a fresh test run, and a failure nowhere near it. The planning test had October work orders in it, and the planner hides anything due over 30 days ago. Come 10 November, the test\'s own work orders quietly vanished.',
+      lesson: 'A test with a date in it is a test with an expiry date.' },
     { date: '2026-11-05', title: 'Read it already, thanks',
       text: 'The lead time chart learned to show days to be communicated. It then showed none at all: the Salesforce export had been read the day before, hadn\'t changed since, so it was never read again for the new column.',
       lesson: 'When you start keeping more from a file, read it again.' },

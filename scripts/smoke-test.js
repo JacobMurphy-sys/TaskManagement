@@ -1704,12 +1704,48 @@ async function waitForServer() {
       const up = await fetch(`${BASE}/plan/upload`, { method: 'POST', body: exp, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
       assert.equal(up.status, 201);
       assert.equal((await fetch(`${BASE}/plan/upload`, { method: 'POST', body: Buffer.from('nope'), headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } })).status, 400);
+      // this export's work orders are due in early October 2026: keep them however long ago that is (no age limit)
+      await call('PATCH', '/settings', { plan_max_age: '0' });
       pl = await call('GET', '/plan?mode=bau');
       assert.deepEqual([pl.source.status, pl.source.uploaded, pl.mode, pl.running.length, pl.queue.map((j) => j.customer), pl.projected], ['ok', true, 'bau', 1, ['IND', 'KBC', 'AES', 'SIX'], false]);
       const linked = path.join(tmp, 'OpenPersoWorkorders_PerAx.xlsx'); fs.writeFileSync(linked, exp);
       await call('PATCH', '/settings', { plan_src: linked, plan_rate: '1000', plan_lines: '2' });
       pl = await call('GET', '/plan');
       assert.deepEqual([pl.source.uploaded, pl.source.name, pl.projected, pl.capacity.rate, pl.capacity.lines], [false, 'OpenPersoWorkorders_PerAx.xlsx', true, 1000, 2]);
+      // 📄 automatic plans: the Generate plan PDF made on a schedule, overwriting the same file each time
+      {
+        await assert.rejects(call('PUT', '/plan/auto', { plans: [{ name: 'Morning', times: '25:00', folder: tmp }] }), /isn't a time/);
+        await assert.rejects(call('PUT', '/plan/auto', { plans: [{ name: 'Morning', times: '06:00' }] }), /which folder/);
+        await assert.rejects(call('PUT', '/plan/auto', { plans: [{ name: 'Morning', times: '06:00', folder: 'relative/plans' }] }), /full path/);
+        const plansDir = path.join(tmp, 'plans');
+        let au = await call('PUT', '/plan/auto', { plans: [{ name: 'Morning', half: 'perso', mode: 'bau', times: '13:45, 5.45', days: [1, 2, 3, 4, 5], folder: plansDir, file: 'Floor plan.pdf', layout: 'side', limit: 20 }] });
+        const a0 = au.plans[0];
+        assert.deepEqual([a0.times, a0.file, a0.path, a0.last, !!a0.next, a0.enabled], [['05:45', '13:45'], 'Floor plan', path.join(plansDir, 'Floor plan.pdf'), null, true, true], 'times tidied and sorted; .pdf added once');
+        let ran = await call('POST', `/plan/auto/${a0.id}/run`, {});
+        const pdfFile = path.join(plansDir, 'Floor plan.pdf');
+        assert.deepEqual([ran.ok, ran.file, fs.readFileSync(pdfFile).slice(0, 4).toString(), ran.rows > 0], [true, pdfFile, '%PDF', true], 'made into the folder (made if missing)');
+        const first = fs.statSync(pdfFile).mtimeMs;
+        await new Promise((r) => setTimeout(r, 30));
+        ran = await call('POST', `/plan/auto/${a0.id}/run`, {});
+        assert.ok(ran.ok && fs.statSync(pdfFile).mtimeMs > first && fs.readdirSync(plansDir).length === 1, 'run again: the same file overwritten, nothing else left behind');
+        const got = await fetch(`${BASE}/plan/auto/${a0.id}/file`);
+        assert.deepEqual([got.status, got.headers.get('content-type')], [200, 'application/pdf'], 'the last one, to check');
+        au = await call('GET', '/plan/auto');
+        assert.deepEqual([au.plans[0].last.ok, au.plans[0].last.rows], [true, ran.rows], 'its last run kept');
+        // a folder it can't write to: said, not thrown
+        const blocker = path.join(tmp, 'not-a-folder'); fs.writeFileSync(blocker, 'x');
+        au = await call('PUT', '/plan/auto', { plans: [{ ...au.plans[0], folder: path.join(blocker, 'sub') }] });
+        await assert.rejects(call('POST', `/plan/auto/${au.plans[0].id}/run`, {}), /./);
+        assert.equal((await call('GET', '/plan/auto')).plans[0].last.ok, false, 'a failed run is shown with its reason');
+        // when it runs next: the next time on one of its days (Friday 14:00 → Monday 05:45)
+        const PA = require('../src/planauto');
+        assert.equal(PA.nextRun({ times: ['05:45', '13:45'], days: [1, 2, 3, 4, 5] }, new Date(2026, 10, 13, 14, 0)), '2026-11-16T05:45');
+        assert.equal(PA.nextRun({ times: ['05:45', '13:45'], days: [1, 2, 3, 4, 5] }, new Date(2026, 10, 13, 9, 0)), '2026-11-13T13:45');
+        await call('PUT', '/plan/auto', { plans: [] });
+      }
+      // the age limit always reaches back past these fixed October 2026 dates (30 days, or more as time goes on)
+      const AGE = Math.max(30, Math.ceil((Date.now() - Date.parse('2026-10-01')) / 86400000) + 5);
+      await call('PATCH', '/settings', { plan_max_age: String(AGE) });
       // Otto: its own export, matched to the perso work orders by the start of Name
       {
         const oCols = ['Name', '', 'Is Test', 'Is Done', 'Prod. Status', 'Priority', 'Items ', 'Plan Date', 'PlanTime', 'Machine', 'Customer', 'Comment', 'End Date']
@@ -1722,7 +1758,7 @@ async function waitForServer() {
           o('CZZZS26100699MAT0001', 'False', 'False', 'In Progress', 'Normal', 9, '07/10/2026', '10:00:00'),
           o('CADXS26010101MAT0001', 'False', 'True', 'Finished', 'Urgent', 6, '02/01/2026', '23:59:59'),
           o('CTSTS26100600MAT0001', 'True', 'False', 'Planned', 'Normal', 1, '07/10/2026', '09:00:00'),
-          o('COLDS26010199MAT0001', 'False', 'False', 'Planned', 'Normal', 77, dmy(45), '09:00:00'),
+          o('COLDS26010199MAT0001', 'False', 'False', 'Planned', 'Normal', 77, dmy(AGE + 15), '09:00:00'),
           o('CDONS26100501MAT0001', 'False', 'True', 'Finished', 'Normal', 400, dmy(3), '12:00:00', dmy(3)),
           o('CDONS26100502MAT0001', 'False', 'True', 'Finished', 'Normal', 300, dmy(2), '12:00:00', dmy(1))] }]);
         const parsed = P.parseOtto(otto);
@@ -1735,7 +1771,7 @@ async function waitForServer() {
         const po = await call('GET', '/plan');
         assert.deepEqual([po.otto.source.status, po.otto.done, po.otto.tests], ['ok', 3, 1], 'finished and test jobs are counted, not listed');
         assert.ok((await call('GET', '/plan/dplus?source=otto')).since, 'the Matching export is recorded (📆 D+ due out)');
-        assert.deepEqual([po.otto.backlog.hidden_jobs, po.otto.backlog.hidden_qty, po.otto.backlog.max_age], [1, 77, 30], 'due more than 30 days ago: not shown');
+        assert.deepEqual([po.otto.backlog.hidden_jobs, po.otto.backlog.hidden_qty, po.otto.backlog.max_age], [1, 77, AGE], 'due longer ago than the age limit: not shown');
         // 🕰 the hidden ones, to investigate
         const hx = await fetch(`${BASE}/plan/hidden.xlsx`);
         assert.equal(hx.status, 200);
@@ -1748,7 +1784,7 @@ async function waitForServer() {
         assert.ok(po.backlog && 'overdue_qty' in po.backlog && po.backlog.catch_up, 'perso backlog too');
         await call('PATCH', '/settings', { plan_max_age: '0' });
         assert.equal((await call('GET', '/plan')).otto.queue.some((j) => j.name.startsWith('COLDS')), true, '0: everything shown');
-        await call('PATCH', '/settings', { plan_max_age: '30' });
+        await call('PATCH', '/settings', { plan_max_age: String(AGE) });
         assert.deepEqual(po.otto.running.map((j) => j.name), ['CZZZS26100699MAT0001']);
         assert.deepEqual(po.otto.queue.map((j) => j.name), ['CKBCS26100603MAT0001', 'CINDS26100602MAT0001'], 'by plan date and time');
         const ind = po.otto.queue[1];
