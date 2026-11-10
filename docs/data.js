@@ -51,7 +51,7 @@ window.TIMELINE = {
       points: ['Carries each week as it was, with what was typed on it, its notes, the figures typed in or adjusted and the logged late deliveries', 'Importing only adds: where both copies have a week, the one changed last is kept'] },
     { id: 'server-noadmin', date: '2026-11-10', area: 'platform', title: 'A server without an administrator account',
       text: 'The shared server can now be set up without administrator rights: it then runs as the person who set it up, while they are logged on.',
-      points: ['Starts by itself at log-in and keeps itself up to date, as before', 'Opening the network port still needs IT: the setup writes out exactly what to ask for'] },
+      points: ['Starts by itself at log-in and keeps itself up to date, as before', 'Opening the network port still needs IT: the setup writes out exactly what to ask for', 'On the server PC, the SITHUB shortcut starts it as the server too, so it can always restart and update itself'] },
     { id: 'guide-nov', date: '2026-11-10', area: 'knowledge', title: 'The guide brought up to date',
       text: 'The Library guide now covers everything added since it was written, with new pictures.',
       points: ['New pages: Quality and EHS, Operations, logging late deliveries, backups and restoring, releasing and undoing updates, and who can use what', 'The task window, Production and tickets pages redone for how they work now', 'Library notes marked for Reporting now reach the people who have Reporting'] },

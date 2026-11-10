@@ -315,7 +315,7 @@ router.get('/server/log', h((req, res) => {
 }));
 router.post('/server/restart', h((req, res) => {
   needServer(req);
-  if (process.env.CIM_SERVER !== '1') throw bad('Restarting from here works on the shared server (run by server-run.bat), which starts it again by itself');
+  if (process.env.CIM_SERVER !== '1') throw bad('This SITHUB wasn\'t started as the server (by server-run.bat), so it can\'t restart itself. On the server PC: ⋯ › Stop server, then start it again with the SITHUB shortcut (or server-start.vbs)');
   log.info(`Restart asked for by ${req.account?.username || req.ip}`);
   res.json({ ok: true });
   setTimeout(() => process.exit(75), 300).unref();

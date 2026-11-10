@@ -12,6 +12,29 @@ dir = fso.GetParentFolderName(WScript.ScriptFullName)
 sh.CurrentDirectory = dir
 url = "http://localhost:" & ReadPort() & "/"
 
+If Not IsRunning() And IsServer() Then
+  ' The shared server's PC (HOST in .env answers the network): start it the server's way, through
+  ' server-run.bat, which keeps it going, updates it and lets it be restarted from Settings.
+  If sh.Run("cmd /c where node", 0, True) <> 0 Then
+    MsgBox "Node.js was not found. Install it from https://nodejs.org and try again.", vbExclamation, "SITHUB"
+    WScript.Quit 1
+  End If
+  If fso.FileExists(dir & "\server-start.vbs") Then
+    sh.Run "wscript """ & dir & "\server-start.vbs""", 0, True
+  Else
+    sh.Run "cmd /c """ & dir & "\server-run.bat""", 0, False
+  End If
+  For i = 1 To 120
+    WScript.Sleep 500
+    If IsRunning() Then Exit For
+  Next
+  If Not IsRunning() Then
+    MsgBox "The SITHUB server hasn't started yet (it may be updating)." & vbCrLf & vbCrLf & _
+      "Give it a minute and try again, or look in logs\server-run.log in " & dir & ".", vbExclamation, "SITHUB"
+    WScript.Quit 1
+  End If
+End If
+
 If Not IsRunning() Then
   If sh.Run("cmd /c where node", 0, True) <> 0 Then
     MsgBox "Node.js was not found. Install it from https://nodejs.org and try again.", vbExclamation, "SITHUB"
@@ -64,6 +87,23 @@ If Not IsRunning() Then
 End If
 
 sh.Run url
+
+' True on the shared server's PC: HOST in .env is set to answer the network (server-install).
+Function IsServer()
+  Dim f, line, h
+  IsServer = False
+  If fso.FileExists(dir & "\.env") Then
+    Set f = fso.OpenTextFile(dir & "\.env", 1)
+    Do Until f.AtEndOfStream
+      line = Trim(f.ReadLine)
+      If LCase(Left(line, 5)) = "host=" Then
+        h = LCase(Trim(Mid(line, 6)))
+        IsServer = (h <> "" And h <> "127.0.0.1" And h <> "localhost" And h <> "::1")
+      End If
+    Loop
+    f.Close
+  End If
+End Function
 
 ' True if SITHUB answers on its port.
 Function IsRunning()
