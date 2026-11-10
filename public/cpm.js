@@ -1,7 +1,7 @@
 // 📐 CPM — capacity planning (Prod Management): the forecasts against the machines' capacity per
 // technology by month or week, the forecasts against what was done (flex), the customers' split and
 // OEE, the capacity settings, and each person's scenarios (src/cpm.js does the sums).
-const CPM_TABS = [['overview', '📊 Overview'], ['day', '🕐 Day by hour'], ['flex', '📈 Forecast vs actual'], ['customers', '👥 Customers'], ['capacity', '⚙ Capacity'], ['scenarios', '🧪 Scenarios']];
+const CPM_TABS = [['overview', '📊 Overview'], ['site', '🏭 Site capacity'], ['day', '🕐 Day by hour'], ['flex', '📈 Forecast vs actual'], ['customers', '👥 Customers'], ['capacity', '⚙ Capacity'], ['scenarios', '🧪 Scenarios']];
 const cpmN = (v, d = 0) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: d }));
 // each machine's colour, the same on every chart (by its place among the machines)
 const CPM_MACH_COL = ['#e4572e', '#f3a712', '#3fa34d', '#2e86ab', '#9b5de5', '#f15bb5', '#00a6a6', '#8d6a9f', '#c0843b', '#5c8001'];
@@ -52,6 +52,7 @@ async function renderCpm(tab) {
   const body = $('#cpm-body'); cpmFoldable(body, tab);
   try {
     if (tab === 'overview') await cpmOverview(body);
+    else if (tab === 'site') await cpmSite(body);
     else if (tab === 'day') await cpmDay(body);
     else if (tab === 'flex') await cpmFlex(body);
     else if (tab === 'customers') await cpmCustomers(body);
@@ -656,6 +657,51 @@ async function cpmCapacity(body) {
     Object.assign(opts, o);
     try { await api.put('/cpm/settings', { cpm_machines: JSON.stringify(o) }); toast('Saved'); } catch (err) { toast(err.message, 'error'); }
   }; });
+}
+
+// ---- 🏭 Site capacity: what the machines could make flat out — run speed × available hours, no OEE ----
+async function cpmSite(body) {
+  const year = Number(store.get('cpmSiteYear', new Date().getFullYear())) || new Date().getFullYear();
+  const d = await api.get(`/cpm/site?year=${year}`);
+  const names = d.machines.map((m) => m.name);
+  const top = Math.max(1, ...d.machines.map((m) => m.best?.year || 0));
+  const avgMonth = (x) => x.year / 12;
+  const tile = (label, v, sub) => `<div class="cpm-site-tile"><div class="small muted">${label}</div><div class="cpm-site-big">${cpmK(v)}</div>${sub ? `<div class="small muted">${sub}</div>` : ''}</div>`;
+  const usedTechs = d.techs.filter((t) => d.by_tech[t].machines);
+  const fromTip = (x, t) => (x.from === 'machine' ? `${t} speed set for this machine on ⚙ Capacity` : x.from === 'production' ? `${t}: ${d.speed_from[t]?.from || 'Production\'s speed'}` : `No ${t} speed`);
+  const multi = d.machines.some((m) => m.techs.length > 1);
+  body.innerHTML = `
+    <div class="card"><div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><h3 style="margin:0">🏭 Theoretical site capacity</h3>
+        <span class="row" style="gap:4px"><button type="button" class="icon" data-site-year="${year - 1}" title="${year - 1}">‹</button><b>${year}</b><button type="button" class="icon" data-site-year="${year + 1}" title="${year + 1}">›</button></span></div>
+      <p class="small muted">Cards the machines could make running flat out at their run speed through every available hour: <b>no OEE</b> and no forecast.
+        <b>${d.workdays}</b> working days in ${year}${d.holidays ? ` (${d.holidays} holiday${d.holidays === 1 ? '' : 's'} out)` : ''} × <b>${cpmN(d.shifts)}</b> shift${d.shifts === 1 ? '' : 's'} × <b>${cpmN(d.hours, 2)}</b> productive hours = <b>${cpmN(d.hours_day, 2)} h</b> a working day, × each machine's availability for perso.
+        <a href="#/cpm/capacity">Change these on ⚙ Capacity</a>.</p>
+      ${d.warnings.length ? `<div class="kpi-actions">${d.warnings.map((w) => `<div class="kpi-action notice"><span>⚠ ${esc(w)}</span></div>`).join('')}</div>` : ''}
+      <div class="cpm-site-tiles">
+        ${tile('Site, a working day', d.total.day, `${cpmN(d.machines.length)} machine${d.machines.length === 1 ? '' : 's'}${multi ? ', each at its fastest' : ''}`)}
+        ${tile('Site, a week', d.total.week, `${d.week_days} working days`)}
+        ${tile('Site, a month', avgMonth(d.total), 'on average')}
+        ${tile(`Site, ${year}`, d.total.year)}
+        ${usedTechs.length > 1 ? usedTechs.map((t) => tile(`${CPM_TECH_ICON[t] || ''} ${esc(t)} only, ${year}`, d.by_tech[t].year, `if the ${d.by_tech[t].machines} machine${d.by_tech[t].machines === 1 ? '' : 's'} that can ran only ${esc(t)}`)).join('') : ''}
+      </div></div>
+    <div class="card"><h3>Per machine</h3>
+      <div class="kdb-scroll"><table class="log small cpm-site-table"><thead><tr><th>Machine</th><th>Technology</th><th class="num">Speed /h</th><th class="num">Available</th><th class="num">Hours a day</th><th class="num">A day</th><th class="num">A week</th><th class="num">A month <span class="muted">(avg)</span></th><th class="num">${year}</th><th>Share of the site</th></tr></thead><tbody>
+      ${d.machines.map((m) => m.techs.map((t, i) => { const x = m.per[t]; const best = m.best?.tech === t && m.techs.length > 1;
+        return `<tr>${i ? '' : `<td rowspan="${m.techs.length}"><i class="sw" style="background:${cpmMachCol(m.name, names)}"></i> <b>${esc(m.name)}</b></td>`}
+          <td>${CPM_TECH_ICON[t] || ''} ${esc(t)}${best ? ' <span class="chip" title="Its fastest: the one counted in the site total">★ fastest</span>' : ''}</td>
+          <td class="num" title="${esc(fromTip(x, t))}">${x.speed ? cpmN(x.speed) : '<b class="pl-late">none</b>'}${x.from === 'machine' ? ' <span class="muted">✎</span>' : ''}</td>
+          ${i ? '' : `<td class="num" rowspan="${m.techs.length}">${cpmPct(m.avail)}</td><td class="num" rowspan="${m.techs.length}">${cpmN(m.hours_day, 2)}</td>`}
+          <td class="num">${cpmN(x.day)}</td><td class="num">${cpmN(x.week)}</td><td class="num">${cpmN(avgMonth(x))}</td><td class="num"><b>${cpmN(x.year)}</b></td>
+          ${i ? '' : `<td rowspan="${m.techs.length}"><span class="cpm-site-bar"><i style="width:${Math.round(((m.best?.year || 0) / top) * 100)}%;background:${cpmMachCol(m.name, names)}"></i></span> ${d.total.year ? cpmPct((m.best?.year || 0) / d.total.year) : '—'}</td>`}</tr>`; }).join('')).join('')}
+      </tbody><tfoot><tr><th colspan="5">Site${multi ? ' <span class="muted small">(each machine at its fastest)</span>' : ''}</th><th class="num">${cpmN(d.total.day)}</th><th class="num">${cpmN(d.total.week)}</th><th class="num">${cpmN(avgMonth(d.total))}</th><th class="num">${cpmN(d.total.year)}</th><th></th></tr>
+        ${usedTechs.length > 1 ? usedTechs.map((t) => `<tr class="muted"><td colspan="5">${CPM_TECH_ICON[t] || ''} ${esc(t)} only <span class="small">(every machine that can run it, running nothing else)</span></td><td class="num">${cpmN(d.by_tech[t].day)}</td><td class="num">${cpmN(d.by_tech[t].week)}</td><td class="num">${cpmN(avgMonth(d.by_tech[t]))}</td><td class="num">${cpmN(d.by_tech[t].year)}</td><td></td></tr>`).join('') : ''}</tfoot></table></div>
+      <p class="small muted">${multi ? 'A machine that runs several technologies can\'t run them at once: each line is what it makes running only that one, and the site total counts it at its fastest (★). ' : ''}A speed marked ✎ is set for that machine on ⚙ Capacity; the others are Production's (⚙ Setup › speeds). Hover over a speed for where it comes from.</p></div>
+    <div class="card"><h3>Month by month${multi ? ' <span class="muted small">(each machine at its fastest)</span>' : ''}</h3>
+      <div class="kdb-scroll"><table class="log small cpm-site-table"><thead><tr><th>Machine</th>${d.months.map((mo) => `<th class="num">${esc(mo.label)}</th>`).join('')}<th class="num">${year}</th></tr>
+        <tr class="muted"><td><i>Working days</i></td>${d.months.map((mo) => `<td class="num">${mo.workdays}</td>`).join('')}<td class="num">${d.workdays}</td></tr></thead><tbody>
+      ${d.machines.map((m) => `<tr><td><i class="sw" style="background:${cpmMachCol(m.name, names)}"></i> ${esc(m.name)}${m.best && m.techs.length > 1 ? ` <span class="muted">(${esc(m.best.tech)})</span>` : ''}</td>${(m.best?.months || d.months.map(() => 0)).map((v) => `<td class="num">${cpmK(v)}</td>`).join('')}<td class="num"><b>${cpmK(m.best?.year || 0)}</b></td></tr>`).join('')}
+      </tbody><tfoot><tr><th>Site</th>${d.total.months.map((v) => `<th class="num">${cpmK(v)}</th>`).join('')}<th class="num">${cpmK(d.total.year)}</th></tr></tfoot></table></div></div>`;
+  $$('[data-site-year]').forEach((b) => { b.onclick = () => { store.set('cpmSiteYear', Number(b.dataset.siteYear)); renderCpm('site'); }; });
 }
 
 // ---- 🧪 Scenarios: changes over the base, each person's own -----------------------------------------

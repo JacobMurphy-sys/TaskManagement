@@ -2476,3 +2476,12 @@ details.msel .msel-pop input.msel-q { flex: none; width: 100%; min-width: 0; max
 .msel-row:hover { background: var(--accent-soft); }
 .msel-row[hidden] { display: none; }
 .msel-foot { display: flex; justify-content: flex-end; border-top: 1px solid var(--border); padding-top: 6px; }
+/* 📐 🏭 Site capacity: the tiles, and each machine's share of the site */
+.cpm-site-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 10px; margin-top: 10px; }
+.cpm-site-tile { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--panel); }
+.cpm-site-big { font-size: 1.6em; font-weight: 700; line-height: 1.2; }
+.cpm-site-table .sw { display: inline-block; width: 12px; height: 10px; border-radius: 2px; vertical-align: middle; }
+.cpm-site-table td.num, .cpm-site-table th.num { text-align: right; white-space: nowrap; }
+.cpm-site-table tfoot tr:first-child > * { border-top: 2px solid var(--border); }
+.cpm-site-bar { display: inline-block; width: 90px; height: 8px; border-radius: 4px; background: var(--border); vertical-align: middle; overflow: hidden; }
+.cpm-site-bar i { display: block; height: 100%; }

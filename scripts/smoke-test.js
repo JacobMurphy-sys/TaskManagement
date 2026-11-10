@@ -1922,6 +1922,25 @@ async function waitForServer() {
           fs.writeFileSync(axF, bx([{ name: 'Sittard', columns: ['Column1', 'Column2', `01/01/${Y}`, `01/02/${Y}`].map((header) => ({ header })), rows: [
             ['LASER', 'Total', 300, 300], ['DOD Total', 'Total', 700, 700], ['TOTAL BAU', 'Total', 1000, 1000]] }]));
           await call('PATCH', '/settings', { kpi_fc_benelux: bnF, kpi_fc_amex: axF });
+          // 🏭 theoretical site capacity: run speed × available hours, no OEE
+          {
+            const s0 = await call('GET', '/settings');
+            await call('PUT', '/cpm/settings', { cpm_shifts: '2', cpm_hours: '7.5', cpm_holidays: `${Y}-01-02`, cpm_machines: JSON.stringify({ 'SITE A': { speed: { DOD: 1200 } }, 'SITE B': { avail: 0.5, speed: { Laser: 900, DOD: 600 } } }) });
+            const ma = await call('POST', '/plan/machines', { name: 'SITE A', types: 'DOD' }); const mb = await call('POST', '/plan/machines', { name: 'SITE B', types: 'DOD, Laser' });
+            const st = await call('GET', `/cpm/site?year=${Y}`);
+            const A = st.machines.find((m) => m.name === 'SITE A'); const B = st.machines.find((m) => m.name === 'SITE B');
+            const days = new Set(String(s0.plan_days || '1,2,3,4,5').split(',').map(Number));
+            let jan = 0; for (let dd = new Date(Y, 0, 1, 12); dd.getMonth() === 0; dd.setDate(dd.getDate() + 1)) if (days.has(dd.getDay())) jan++;
+            if (days.has(new Date(Y, 0, 2, 12).getDay())) jan--;
+            assert.deepEqual([st.hours_day, st.months[0].workdays, st.workdays], [15, jan, st.months.reduce((t, m) => t + m.workdays, 0)], '2 shifts × 7.5 h; the holiday out');
+            assert.deepEqual([A.per.DOD.day, A.per.DOD.year, A.per.DOD.from], [1200 * 15, 1200 * 15 * st.workdays, 'machine'], 'speed × hours a day × working days');
+            assert.deepEqual([B.hours_day, B.per.Laser.day, B.per.DOD.day, B.best.tech, B.best.year], [7.5, 900 * 7.5, 600 * 7.5, 'Laser', 900 * 7.5 * st.workdays], 'half available; several technologies: each, and its fastest counted');
+            assert.equal(Math.round(st.total.year), Math.round(st.machines.reduce((t, m) => t + (m.best?.year || 0), 0)), 'the site: every machine at its fastest');
+            assert.equal(st.by_tech.DOD.year, st.machines.reduce((t, m) => t + (m.per.DOD?.year || 0), 0), 'a technology only: every machine that can run it');
+            assert.equal(Math.round(st.total.months.reduce((a, b) => a + b, 0)), Math.round(st.total.year), 'the months add up to the year');
+            await call('DELETE', `/plan/machines/${ma.id}`); await call('DELETE', `/plan/machines/${mb.id}`);
+            await call('PUT', '/cpm/settings', { cpm_shifts: s0.cpm_shifts ?? '3', cpm_hours: s0.cpm_hours ?? '6', cpm_holidays: s0.cpm_holidays ?? '' });
+          }
           await call('PUT', '/cpm/settings', { cpm_machines: '{}' });
           const pm = await call('POST', '/plan/machines', { name: 'CPM DOD', types: 'DOD' });
           const ov0 = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0`);

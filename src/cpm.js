@@ -550,4 +550,43 @@ function parseConfig(buf) {
   throw new Error('No Config sheet with a Trigram column');
 }
 
-module.exports = { TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf };
+/**
+ * 🏭 Theoretical site capacity: what each machine could make running flat out at its run speed through
+ * every available hour — no OEE, no forecast. Hours: working days (Production's) less holidays ×
+ * shifts × productive hours a shift × the machine's availability for perso (⚙ Capacity). A machine
+ * running several technologies is shown at each of its speeds; its "most" is at its fastest.
+ */
+function siteCapacity(year) {
+  const cal = calendarOf(year);
+  const shifts = Number(setting('cpm_shifts', '3')) || 0; const hours = Number(setting('cpm_hours', '6')) || 0;
+  const dayHours = shifts * hours;
+  const sp = speeds(true); const opts = json(setting('cpm_machines', '{}'), {});
+  const months = Array.from({ length: 12 }, (_, i) => ({ key: ym(year, i + 1), label: new Date(year, i, 1, 12).toLocaleDateString('en-GB', { month: 'short' }), workdays: 0 }));
+  for (const d of cal) if (d.work) months[Number(d.month.slice(5)) - 1].workdays++;
+  const workdays = months.reduce((a, m) => a + m.workdays, 0);
+  const weekDays = String(setting('plan_days', '1,2,3,4,5')).split(',').filter((x) => /^[0-6]$/.test(x.trim())).length;
+  const warnings = [];
+  const machines = db.all('SELECT * FROM plan_machines WHERE active = 1 ORDER BY sort_order, id').map((m) => {
+    let techs = String(m.types || '').split(/[,;/]/).map(normTech).filter(Boolean); if (!techs.length) techs = [...TECHS];
+    const o = opts[m.name] || {};
+    const avail = o.avail === undefined || o.avail === null || o.avail === '' ? 1 : Math.max(0, Math.min(1, Number(o.avail)));
+    const h = dayHours * avail;
+    const per = {};
+    for (const t of techs) {
+      const own = Number(o.speed?.[t]) || 0; const speed = own || sp[t]?.speed || 0;
+      if (!speed) warnings.push(`${m.name}: no ${t} speed (Production › ⚙ Setup › speeds, or ⚙ Capacity) — counted as 0`);
+      per[t] = { speed, from: own ? 'machine' : sp[t]?.speed ? 'production' : null, hour: speed, day: speed * h, week: speed * h * weekDays, months: months.map((mo) => speed * h * mo.workdays), year: speed * h * workdays };
+    }
+    const bestT = techs.reduce((b, t) => (!b || per[t].speed > per[b].speed ? t : b), null);
+    return { name: m.name, techs, avail, hours_day: h, hours_year: h * workdays, per, best: bestT ? { tech: bestT, ...per[bestT] } : null };
+  });
+  if (!machines.length) warnings.push('No machines in Production › ⚙ Setup — there\'s no capacity to show');
+  if (!dayHours) warnings.push('No working hours: set the shifts a day and productive hours a shift on ⚙ Capacity');
+  const sum = (pick) => ({ day: 0, week: 0, year: 0, months: months.map(() => 0), ...machines.reduce((acc, m) => { const x = pick(m); if (!x) return acc;
+    acc.day = (acc.day || 0) + x.day; acc.week = (acc.week || 0) + x.week; acc.year = (acc.year || 0) + x.year; acc.months = (acc.months || months.map(() => 0)).map((v, i) => v + x.months[i]); return acc; }, {}) });
+  const byTech = Object.fromEntries(TECHS.map((t) => [t, { machines: machines.filter((m) => m.per[t]).length, ...sum((m) => m.per[t]) }]));
+  return { year, shifts, hours, hours_day: dayHours, week_days: weekDays, workdays, holidays: cal.filter((d) => !d.work && String(setting('plan_days', '1,2,3,4,5')).split(',').map(Number).includes(d.dow)).length,
+    months, techs: TECHS, speed_from: Object.fromEntries(Object.entries(sp).map(([t, x]) => [t, x])), machines, total: sum((m) => m.best), by_tech: byTech, warnings: [...new Set(warnings)] };
+}
+
+module.exports = { TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity };
