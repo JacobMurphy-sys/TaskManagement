@@ -53,6 +53,8 @@ async function renderKpi(arg, tab) {
           <button data-kpi="download">⬇ Download the A3 (values, charts as pictures)</button><hr>` : ''}
         ${settings.kpi_workbook_path ? '<button data-kpi="load-path">📥 Load the week from Excel</button>' : ''}
         <label>📂 Load the workbook from a file…<input type="file" accept=".xlsm,.xlsx" hidden id="kpi-file"></label>
+        <hr><a href="/api/kpi/history" download title="Every week's report, what was typed on them, notes, figures typed in or adjusted, logged late deliveries and the A3 template — one file, to move them to another install (e.g. the server)">⬇ Export all weeks</a>
+        ${acctAdmin() ? '<label title="Add the weeks from a file exported on another install. Weeks here are kept; where both have a week, the one changed last wins. Nothing is removed.">⬆ Import weeks from another install…<input type="file" accept=".json" hidden id="kpi-hist-file"></label>' : ''}
         ${snap ? '<hr><button class="danger" data-kpi="delete">🗑 Remove this week</button>' : ''}`, { title: 'Save or download the A3, load from Excel, remove the week' })}
     </div>
     ${setupMissing ? `<div class="kpi-actions"><div class="kpi-action"><span>⚠ ${!settings.kpi_workbook_path ? 'Set where the CI workbook is saved' : 'Set the folder the A3 is saved in'} to load weeks and save the A3.</span><a class="button small" href="#/kpi/sources">Go to Sources</a></div></div>` : ''}
@@ -91,6 +93,19 @@ async function renderKpi(arg, tab) {
     if (f) await kpiLoad(() => fetch('/api/kpi/load', { method: 'POST', body: f,
       headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(f.name), 'X-File-Modified': new Date(f.lastModified).toISOString() } }));
     e.target.value = '';
+  });
+  $('#kpi-hist-file')?.addEventListener('change', async (e) => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    if (!confirm(`Add the Reporting weeks in ${f.name} to this SITHUB?\n\nWeeks this one doesn't have are added. Where both have a week, the copy changed last is kept. Nothing is removed.`)) return;
+    toast('Importing…');
+    try {
+      const res = await fetch('/api/kpi/history', { method: 'POST', body: f, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } });
+      const r = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(r.error || `Import failed (${res.status})`);
+      toast(`Imported: ${r.weeks_added} week${r.weeks_added === 1 ? '' : 's'} added, ${r.weeks_updated} updated${r.weeks_kept ? `, ${r.weeks_kept} kept as they were here` : ''} · ${r.rows} edits, notes and figures · ${r.otd} late deliveries${r.template ? ' · the A3 template' : ''}`);
+      renderKpi();
+    } catch (err) { toast(err.message, 'error'); }
   });
   if (calc) wireKpiTables();
   const notesEl = $('#kpi-notes');

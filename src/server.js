@@ -34,7 +34,7 @@ const jsonSmall = express.json({ limit: '1mb' });
 const jsonLarge = express.json({ limit: '80mb' });
 // Routes that read their own (larger) body — the planning setup + history, a plan sheet, the team
 // pack — are left alone here: once a body is read, their own limit would never get a say.
-const OWN_BODY = /^\/api\/(plan\/setup|plan\/sheet|team-pack)$/;
+const OWN_BODY = /^\/api\/(plan\/setup|plan\/sheet|team-pack|kpi\/history)$/;
 app.use((req, res, next) => (OWN_BODY.test(req.path) ? next() : (req.path.startsWith('/api/library/import') || (req.path === '/api/tickets' && req.method === 'POST') || /^\/api\/kpi\/snapshots\/\d+\/export$/.test(req.path) ? jsonLarge : jsonSmall)(req, res, next)));
 
 // Large answers (the planning list runs to megabytes) go compressed: a fraction of the data to

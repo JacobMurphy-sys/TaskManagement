@@ -1835,6 +1835,73 @@ router.post('/kpi/edits/:week/copy', h((req, res) => {
   res.json({ copied: n, edits: kpiEdits(week) });
 }));
 
+// 📦 Reporting history: every week's report as it was (the A3 and Database of each week, loaded or
+// built), what was typed and coloured on them, rows added, notes, the figures typed in or adjusted
+// by hand, the logged late deliveries, the A3 template and the Quality targets — to move them to
+// another install (a new server) without missing a week. Importing only adds and updates: a week the
+// install doesn't have is added; one it has too keeps whichever copy was changed last. Nothing is
+// removed. (The figures read from the source exports aren't in it: the install reads those itself.)
+const KPI_HISTORY_TABLES = {
+  kpi_edits: ['week', 'ref'], kpi_notes: ['week'], kpi_rows_added: ['week', 'row', 'col_left'],
+  kpi_manual: ['week'], kpi_overrides: ['week', 'col'],
+};
+const KPI_HISTORY_SETTINGS = /^(kpi_a3_joins|kpi_template_week|quality_target_[a-z_]+|quality_title_[a-z_]+)$/;
+router.get('/kpi/history', h((req, res) => {
+  const tables = Object.fromEntries(Object.keys(KPI_HISTORY_TABLES).map((t) => [t, db.all(`SELECT * FROM ${t} ORDER BY id`).map(({ id, ...rest }) => rest)]));
+  const settings = Object.fromEntries(db.all('SELECT key, value FROM settings').filter((r) => KPI_HISTORY_SETTINGS.test(r.key) && r.value !== null && r.value !== '').map((r) => [r.key, r.value]));
+  let template = null;
+  try { if (fs.existsSync(KPI_TEMPLATE)) template = fs.readFileSync(KPI_TEMPLATE).toString('base64'); } catch { /* none */ }
+  const body = {
+    kind: 'sithub-reporting-history', version: 1, exported_at: new Date().toISOString(),
+    snapshots: db.all('SELECT * FROM kpi_snapshots ORDER BY year, week').map(({ id, ...rest }) => rest),
+    tables, otd_entries: db.all('SELECT * FROM otd_entries ORDER BY id').map(({ id, ...rest }) => rest), settings, template,
+  };
+  res.set('Content-Disposition', `attachment; filename="sithub-reporting-history-${new Date().toISOString().slice(0, 10)}.json"`);
+  res.type('application/json').send(JSON.stringify(body));
+}));
+const newer = (a, b) => String(a || '') > String(b || '');
+function mergeKpiHistory(b) {
+  if (b?.kind !== 'sithub-reporting-history' || !Array.isArray(b.snapshots)) throw new HttpError(400, 'Not a Reporting history file (export it from 📊 Reporting › ⋯ › ⬇ Export all weeks)');
+  const out = { weeks_added: 0, weeks_updated: 0, weeks_kept: 0, rows: 0, otd: 0, settings: 0, template: false };
+  const pick = (t, row) => { const cols = new Set(db.all(`PRAGMA table_info(${t})`).map((c) => c.name)); return Object.fromEntries(Object.entries(row || {}).filter(([k]) => cols.has(k) && k !== 'id')); };
+  db.tx(() => {
+    for (const s of b.snapshots) {
+      const row = pick('kpi_snapshots', s);
+      if (!row.week || !kpiData.WEEK_RE.test(row.week) || !row.model || !row.pkg) continue;
+      const old = db.get('SELECT id, updated_at FROM kpi_snapshots WHERE week = ?', [row.week]);
+      if (!old) { insertRow('kpi_snapshots', row); out.weeks_added++; } else if (newer(row.updated_at, old.updated_at)) {
+        const { created_at, ...rest } = row; updateRow('kpi_snapshots', old.id, rest); out.weeks_updated++;
+      } else out.weeks_kept++;
+    }
+    for (const [t, key] of Object.entries(KPI_HISTORY_TABLES)) {
+      for (const r of Array.isArray(b.tables?.[t]) ? b.tables[t] : []) {
+        const row = pick(t, r);
+        if (key.some((k) => row[k] === undefined || row[k] === null)) continue;
+        const old = db.get(`SELECT id, updated_at FROM ${t} WHERE ${key.map((k) => `${k} = ?`).join(' AND ')}`, key.map((k) => row[k]));
+        if (!old) { insertRow(t, row); out.rows++; } else if (newer(row.updated_at, old.updated_at)) { const { created_at, ...rest } = row; updateRow(t, old.id, rest); out.rows++; }
+      }
+    }
+    for (const r of Array.isArray(b.otd_entries) ? b.otd_entries : []) {
+      const row = pick('otd_entries', r);
+      if (!row.wo || !row.week || !row.type || !row.reason || !row.created_at || !Number.isFinite(Number(row.qty))) continue;
+      if (db.get('SELECT 1 FROM otd_entries WHERE wo = ? AND week = ? AND type = ? AND created_at = ?', [row.wo, row.week, row.type, row.created_at])) continue;
+      insertRow('otd_entries', row); out.otd++;
+    }
+    for (const [k, v] of Object.entries(b.settings || {})) {
+      if (!KPI_HISTORY_SETTINGS.test(k) || v === null || v === '') continue;
+      if (db.get("SELECT 1 FROM settings WHERE key = ? AND value IS NOT NULL AND value <> ''", [k])) continue; // this install's own is kept
+      db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, String(v)]); out.settings++;
+    }
+  });
+  if (b.template && !fs.existsSync(KPI_TEMPLATE)) {
+    try { fs.mkdirSync(path.dirname(KPI_TEMPLATE), { recursive: true }); fs.writeFileSync(KPI_TEMPLATE, Buffer.from(b.template, 'base64')); out.template = true; } catch (err) { log.warn('Could not keep the imported A3 template', err.message); }
+  }
+  if (out.otd) otdEntry.sync();
+  log.info('Reporting history imported', out);
+  return out;
+}
+router.post('/kpi/history', express.json({ limit: '1gb' }), h((req, res) => res.json(mergeKpiHistory(req.body))));
+
 router.delete('/kpi/snapshots/:id', h((req, res) => {
   if (!db.run('DELETE FROM kpi_snapshots WHERE id = ?', [req.params.id]).changes) throw notFound('Week');
   res.status(204).end();

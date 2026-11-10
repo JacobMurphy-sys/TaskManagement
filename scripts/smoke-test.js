@@ -1626,7 +1626,30 @@ async function waitForServer() {
       assert.deepEqual(imp.slice(0, 2).map((r) => [r.status, r.from || null]), [['error', null], ['missing', null]]);
       assert.match(imp[0].error, /"PersoImport" isn't in the file/);
 
+      // 📦 Reporting history: every week, to another install (e.g. the server), merged in
+      await call('PUT', '/kpi/notes/W2639', { text: 'Moved with the week' });
+      await call('PUT', '/kpi/edits/W2639', { ref: 'B2', text: 'Typed on the A3' });
+      const hx = await (await fetch(`${BASE}/kpi/history`, { headers: { 'X-Requested-With': 'TaskManager' } })).json();
+      assert.deepEqual([hx.kind, hx.snapshots.map((x) => x.week), typeof hx.template, hx.tables.kpi_notes.length, hx.tables.kpi_edits.some((e) => e.ref === 'B2')],
+        ['sithub-reporting-history', ['W2639'], 'string', 1, true], 'the weeks, their notes and edits, and the A3 template');
       await call('DELETE', `/kpi/snapshots/${wk.id}`);
+      await call('PUT', '/kpi/notes/W2639', { text: '' });
+      fs.rmSync(path.join(tmp, 'kpi', 'template.xlsm'));
+      const postHist = async (body) => { const r = await fetch(`${BASE}/kpi/history`, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } }); const j = await r.json(); if (!r.ok) throw new Error(j.error); return j; };
+      let hr = await postHist(hx);
+      assert.deepEqual([hr.weeks_added, hr.weeks_kept, hr.rows >= 1, hr.template], [1, 0, true, true], 'the missing week, its notes and the template added');
+      const back = (await call('GET', '/kpi/snapshots')).find((x) => x.week === 'W2639');
+      const backFull = await call('GET', `/kpi/snapshots/${back.id}`);
+      assert.deepEqual([backFull.notes?.text, backFull.edits.B2?.text, !!backFull.views?.a3], ['Moved with the week', 'Typed on the A3', true], 'back as it was');
+      await call('PUT', '/kpi/notes/W2639', { text: 'Changed here since' });
+      hr = await postHist(hx);
+      assert.deepEqual([hr.weeks_added, hr.weeks_updated, hr.weeks_kept, hr.rows, hr.template], [0, 0, 1, 0, false], 'again: nothing added twice, newer here kept');
+      assert.equal((await call('GET', `/kpi/snapshots/${back.id}`)).notes.text, 'Changed here since');
+      await assert.rejects(postHist({ kind: 'ci-planning-setup' }), /Not a Reporting history file/);
+      await call('PUT', '/kpi/notes/W2639', { text: '' });
+      await call('DELETE', `/kpi/edits/W2639`);
+
+      await call('DELETE', `/kpi/snapshots/${back.id}`);
       assert.equal((await call('GET', '/kpi/snapshots')).length, 0);
     }
 
