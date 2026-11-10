@@ -2459,3 +2459,20 @@ input::-ms-reveal { display: none; } /* Edge's own eye: ours instead, so there's
 @media (max-width: 900px) { .pa-grid { grid-template-columns: 1fr 1fr; } }
 .pa-status { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--border); overflow-wrap: anywhere; }
 .pa-ok { color: var(--ok); font-weight: 600; } .pa-bad { color: var(--danger); font-weight: 600; }
+/* ☑ a drop-down of tick boxes (Production's customer filters) */
+details.msel { position: relative; display: inline-block; }
+details.msel > summary { list-style: none; cursor: pointer; padding: 5px 28px 5px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text);
+  font-size: 13.5px; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; position: relative; min-width: 140px; }
+details.msel > summary::-webkit-details-marker { display: none; }
+details.msel > summary::after { content: '▾'; position: absolute; right: 9px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 11px; }
+details.msel > summary.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+details.msel[open] > summary { border-color: var(--accent); }
+.msel-pop { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; min-width: 230px; max-width: 320px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 10px 28px rgb(0 0 0 / .18); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.msel-q { width: 100%; }
+.msel-acts { display: flex; align-items: center; gap: 6px; }
+.msel-list { max-height: 300px; overflow: auto; display: flex; flex-direction: column; }
+.msel-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 5px; cursor: pointer; font-size: 13px; }
+.msel-row:hover { background: var(--accent-soft); }
+.msel-row[hidden] { display: none; }
+.msel-foot { display: flex; justify-content: flex-end; border-top: 1px solid var(--border); padding-top: 6px; }

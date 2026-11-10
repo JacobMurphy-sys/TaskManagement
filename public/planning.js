@@ -7,6 +7,41 @@
 // Long lists show this many rows at first, with "Show more" for the rest.
 const PL_PAGE = 150;
 
+// ☑ The customer filter on Perso, Matching, Dispatch and ⏱ Delays: a drop-down of tick boxes (none ticked: every
+// customer). Kept as { customers: [...] } in each tab's filter; an older single { customer } still reads.
+const plCusts = (f) => (Array.isArray(f?.customers) ? f.customers : f?.customer ? [f.customer] : []);
+const plCustOk = (f, c) => { const l = plCusts(f); return !l.length || l.includes(c); };
+function custPickHtml(id, list, sel, names = null) {
+  const on = new Set(sel.filter((c) => list.includes(c)));
+  const label = !on.size ? 'All customers' : on.size <= 2 ? [...on].join(', ') : `${on.size} customers`;
+  return `<details class="msel" id="${id}"><summary class="${on.size ? 'on' : ''}" title="Pick one or more customers">${esc(label)}</summary>
+    <div class="msel-pop">${list.length > 8 ? '<input type="search" class="msel-q" placeholder="Find a customer…" autocomplete="off">' : ''}
+      <div class="msel-acts"><span class="small muted msel-n">${on.size ? `${on.size} ticked` : 'None ticked: all'}</span><span class="spacer"></span><button type="button" class="link small" data-msel="clear">Clear</button></div>
+      <div class="msel-list">${list.map((c) => `<label class="msel-row"><input type="checkbox" value="${esc(c)}" ${on.has(c) ? 'checked' : ''}> <b>${esc(c)}</b>${names?.get(c) ? ` <span class="muted small">${esc(names.get(c))}</span>` : ''}</label>`).join('') || '<div class="small muted">No customers.</div>'}</div>
+      <div class="msel-foot"><button type="button" class="small primary" data-msel="apply">Show these</button></div></div></details>`;
+}
+// applied when it closes (Show these, a click elsewhere or Esc) and only if something changed
+function custPickWire(id, onApply) {
+  const d = document.getElementById(id); if (!d) return;
+  const vals = () => [...d.querySelectorAll('.msel-list input:checked')].map((x) => x.value);
+  const start = JSON.stringify(vals());
+  const count = () => { const n = vals().length; d.querySelector('.msel-n').textContent = n ? `${n} ticked` : 'None ticked: all'; };
+  d.addEventListener('change', count);
+  d.addEventListener('toggle', () => {
+    if (d.open) { setTimeout(() => d.querySelector('.msel-q')?.focus(), 0); return; }
+    if (JSON.stringify(vals()) !== start) onApply(vals());
+  });
+  d.querySelector('.msel-q')?.addEventListener('input', (e) => { const q = e.target.value.trim().toLowerCase(); d.querySelectorAll('.msel-row').forEach((r) => { r.hidden = !!q && !r.textContent.toLowerCase().includes(q); }); });
+  d.querySelector('.msel-q')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const first = [...d.querySelectorAll('.msel-row')].find((r) => !r.hidden); if (first) { const cb = first.querySelector('input'); cb.checked = !cb.checked; count(); } } });
+  d.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-msel]'); if (!b) return;
+    if (b.dataset.msel === 'clear') { d.querySelectorAll('.msel-list input').forEach((x) => { x.checked = false; }); count(); }
+    if (b.dataset.msel === 'apply') d.open = false;
+  });
+}
+document.addEventListener('click', (e) => { for (const d of document.querySelectorAll('details.msel[open]')) if (!d.contains(e.target)) d.open = false; });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') for (const d of document.querySelectorAll('details.msel[open]')) { d.open = false; d.querySelector('summary')?.focus(); } });
+
 // 🏭 Production's three tabs: Perso (with its order — FIFO, BAU, Score, Mitigation — in a drop-down on
 // the tab), Matching, 🚚 Dispatch and 🧠 Insights (🔬 Learned and 📆 D+ due out, in dplus.js).
 const PL_MODES = [['fifo', 'FIFO', 'By deadline only'], ['bau', 'BAU', 'By due day, then High / Normal / Low, then cut-off'], ['score', '⚖ Score', 'Highest score first: the deadline plus the ⚖ modifiers'],
@@ -109,7 +144,7 @@ async function renderPlanning() {
     if (min < 0) return { text: `${fmtSpan(-min)} overdue`, cls: 'pl-over' };
     return { text: `in ${fmtSpan(min)}`, cls: j.due === todayIso ? 'pl-today' : j.due === ymd(tomorrow) ? 'pl-tomorrow' : '' };
   };
-  const match = (j) => (!f.customer || j.customer === f.customer) && (!f.shipper || j.shipper === f.shipper) && (!f.prio || String(j.prio).toLowerCase() === f.prio)
+  const match = (j) => plCustOk(f, j.customer) && (!f.shipper || j.shipper === f.shipper) && (!f.prio || String(j.prio).toLowerCase() === f.prio)
     && (!f.q || `${j.wo} ${j.per} ${j.customer} ${j.group} ${j.shipper} ${j.articles.map((a) => a.article).join(' ')}`.toLowerCase().includes(f.q.toLowerCase()));
   const customers = [...new Set(all.map((j) => j.customer).filter(Boolean))].sort();
   const shippers = [...new Set(all.map((j) => j.shipper).filter(Boolean))].sort();
@@ -383,7 +418,7 @@ async function renderPlanning() {
       ${dp.source.status === 'missing' ? `<p class="pl-late">⚠ Can't find <code>${esc(dp.source.file)}</code>.</p>` : dp.source.status === 'error' ? `<p class="pl-late">⚠ ${esc(dp.source.error)}</p>` : ''}</div>`;
     const df = store.get('planDispFilter', {}) || {};
     const all = dp.jobs;
-    const dm = (d) => (!df.customer || d.customer === df.customer) && (!df.stage || d.stage === df.stage)
+    const dm = (d) => plCustOk(df, d.customer) && (!df.stage || d.stage === df.stage)
       && (!df.q || `${d.name} ${d.customer} ${d.customer_name || ''} ${d.group || ''} ${d.status || ''}`.toLowerCase().includes(df.q.toLowerCase()));
     const dCust = [...new Set(all.map((d) => d.customer).filter(Boolean))].sort();
     const over = all.filter((d) => d.due && d.due < todayIso); const today_ = all.filter((d) => d.due === todayIso);
@@ -426,7 +461,7 @@ async function renderPlanning() {
       const pf = store.get('planDelayFilter', {}) || {};
       const late = all.filter((d) => d.delayed);
       const missed = (d) => d.delay?.new_date && d.delay.new_date < todayIso;
-      const list = late.filter((d) => (!pf.customer || d.customer === pf.customer) && (pf.show !== 'unset' || !d.delay?.new_date) && (pf.show !== 'missed' || missed(d)));
+      const list = late.filter((d) => plCustOk(pf, d.customer) && (pf.show !== 'unset' || !d.delay?.new_date) && (pf.show !== 'missed' || missed(d)));
       const gk = (d) => `${d.customer || ''}|${d.due || ''}`;
       const groups = new Map(); for (const d of list) (groups.get(gk(d)) || groups.set(gk(d), []).get(gk(d))).push(d);
       const byCust = new Map(); for (const [k, l] of [...groups].sort((a, b) => String(a[1][0].customer).localeCompare(String(b[1][0].customer)) || String(a[1][0].due).localeCompare(String(b[1][0].due)))) (byCust.get(l[0].customer) || byCust.set(l[0].customer, []).get(l[0].customer)).push([k, l]);
@@ -483,8 +518,8 @@ async function renderPlanning() {
           <li><b>3</b> Send it on: <b>⬇ Excel report</b> or <b>📋 Copy summary</b>.</li></ol>
         <div class="row pl-filters">
           <select id="pldl-show"><option value="">All overdue</option><option value="unset" ${pf.show === 'unset' ? 'selected' : ''}>Still need a new date</option><option value="missed" ${pf.show === 'missed' ? 'selected' : ''}>Past their new date</option></select>
-          <select id="pldl-customer"><option value="">All customers</option>${lCust.map((c) => `<option ${pf.customer === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
-          ${pf.show || pf.customer ? '<button class="link small" data-pld="fclear">Show all</button>' : ''}
+          ${custPickHtml('pldl-customer', lCust, plCusts(pf), new Map(plDelayCusts.map((c) => [c.code, c.name])))}
+          ${pf.show || plCusts(pf).length ? '<button class="link small" data-pld="fclear">Show all</button>' : ''}
           <button class="link small" data-pld="expand">Expand all</button><button class="link small" data-pld="collapse">Collapse all</button>
           <div class="spacer"></div>
           <button class="small" data-pld="copy" title="A short summary to paste into an email or report">📋 Copy summary</button>
@@ -531,9 +566,9 @@ async function renderPlanning() {
       ${dp.hidden ? `<p class="small muted">${n(dp.hidden)} dispatch job${dp.hidden === 1 ? '' : 's'} (${n(dp.hidden_qty)} pieces) due more than ${dp.max_age} days ago ${dp.hidden === 1 ? 'isn\'t' : 'aren\'t'} shown — likely errors. <a class="button small" href="/api/plan/hidden.xlsx" download>⬇ Export them to Excel</a></p>` : ''}
       <div class="row pl-filters">
         <input type="search" id="pld-q" placeholder="Search WO, customer, group, status…" value="${esc(df.q || '')}">
-        <select id="pld-customer"><option value="">All customers</option>${dCust.map((c) => `<option ${df.customer === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+        ${custPickHtml('pld-customer', dCust, plCusts(df))}
         <select id="pld-stage"><option value="">Any stage</option>${Object.entries(STAGE).map(([k, [l]]) => `<option value="${k}" ${df.stage === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-        ${df.q || df.customer || df.stage ? '<button class="link small" data-pl="dclear">Clear</button>' : ''}</div>
+        ${df.q || plCusts(df).length || df.stage ? '<button class="link small" data-pl="dclear">Clear</button>' : ''}</div>
       <div class="card"><h3 class="pl-h">🚚 Dispatch — by due date, then priority <span class="muted small">${shown.length} job${shown.length === 1 ? '' : 's'} · ${n(sum_(shown))} pieces · click a job for its perso and Matching jobs</span></h3>
         <div class="kdb-scroll"><table class="log pl-table"><thead><tr><th></th><th>Due out</th><th>Work order</th><th>Customer</th><th class="num">Qty</th><th>Priority</th><th>Status (export)</th><th>Where it is</th></tr></thead>
         <tbody>${shown.map((d) => drow(d, all.indexOf(d))).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>
@@ -545,7 +580,7 @@ async function renderPlanning() {
     if (os.status === 'error') return `<div class="kc-note notice">Couldn't read <code>${esc(os.file)}</code>: ${esc(os.error)}</div>`;
     if (os.status !== 'ok') return '<div class="card lib-empty"><h2>Matching</h2><p>Set where the Matching export is saved in ⚙ Setup (or try it with 📂 Load file…). Each Matching job is matched to its perso work order by the start of its Name, so you can see which are still waiting on perso.</p></div>';
     const of = store.get('planOttoFilter', {}) || {};
-    const om = (o) => (!of.customer || o.customer === of.customer) && (!of.waiting || (of.waiting === 'perso' ? o.perso_open : !o.perso_open))
+    const om = (o) => plCustOk(of, o.customer) && (!of.waiting || (of.waiting === 'perso' ? o.perso_open : !o.perso_open))
       && (!of.q || `${o.name} ${o.customer} ${o.customer_name || ''} ${o.group || ''} ${o.machine || ''}`.toLowerCase().includes(of.q.toLowerCase()));
     const oCust = [...new Set(allO.map((o) => o.customer).filter(Boolean))].sort();
     const behind = (o) => o.perso_finish_at && o.deadline && new Date(o.perso_finish_at) > deadlineAt(o);
@@ -580,9 +615,9 @@ async function renderPlanning() {
     ${view !== 'list' ? '' : `${backlogCard(ot.backlog, 'items', true)}
     <div class="row pl-filters">
       <input type="search" id="plo-q" placeholder="Search name, customer, plan group…" value="${esc(of.q || '')}">
-      <select id="plo-customer"><option value="">All customers</option>${oCust.map((c) => `<option ${of.customer === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      ${custPickHtml('plo-customer', oCust, plCusts(of))}
       <select id="plo-waiting"><option value="">Perso: any</option><option value="perso" ${of.waiting === 'perso' ? 'selected' : ''}>Waiting on perso</option><option value="ready" ${of.waiting === 'ready' ? 'selected' : ''}>Perso done</option></select>
-      ${of.q || of.customer || of.waiting ? '<button class="link small" data-pl="oclear">Clear</button>' : ''}</div>
+      ${of.q || plCusts(of).length || of.waiting ? '<button class="link small" data-pl="oclear">Clear</button>' : ''}</div>
     ${ot.projected ? `<div class="card"><h3 class="pl-h">Matching capacity <span class="muted small">— ${esc(dayText)}, ${cap.days.length} day${cap.days.length === 1 ? '' : 's'} a week</span></h3>
       <div class="kdb-scroll"><table class="log pl-cap"><thead><tr><th>Machine</th><th class="num">Speed</th><th class="num">Max items a day</th><th class="num">Jobs</th><th class="num">Items planned</th><th class="num">Work</th><th>Booked until</th></tr></thead><tbody>
       ${(ot.machines || []).filter((m) => m.active).map((m) => { const l = (ot.load || []).find((x) => x.id === m.id) || {};
@@ -713,10 +748,10 @@ ${half === 'otto' ? ottoSetup() : `
       </tbody></table></div></div>
     <div class="row pl-filters">
       <input type="search" id="pl-q" placeholder="Search work order, customer, article…" value="${esc(f.q || '')}">
-      <select id="pl-customer"><option value="">All customers</option>${customers.map((c) => `<option ${f.customer === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      ${custPickHtml('pl-customer', customers, plCusts(f))}
       <select id="pl-shipper"><option value="">All shippers</option>${shippers.map((c) => `<option ${f.shipper === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
       <select id="pl-prio"><option value="">All priorities</option>${['high', 'normal', 'low'].map((c) => `<option value="${c}" ${f.prio === c ? 'selected' : ''}>${c[0].toUpperCase()}${c.slice(1)}</option>`).join('')}</select>
-      ${f.q || f.customer || f.shipper || f.prio ? '<button class="link small" data-pl="clear">Clear</button>' : ''}
+      ${f.q || plCusts(f).length || f.shipper || f.prio ? '<button class="link small" data-pl="clear">Clear</button>' : ''}
     </div>
     ${runningShown.length ? `<div class="card"><h3 class="pl-h">▶ Running <span class="muted small">${runningShown.length} job${runningShown.length === 1 ? '' : 's'} · ${n(sum(runningShown))} cards</span></h3>
       <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${runningShown.map((j) => row(j, null)).join('')}</tbody></table></div></div>` : ''}
@@ -764,7 +799,7 @@ ${half === 'otto' ? ottoSetup() : `
     } catch (err) { toast(err.message, 'error'); e.target.value = ''; }
   });
   $('#pldl-show')?.addEventListener('change', (e) => setDl('show', e.target.value));
-  $('#pldl-customer')?.addEventListener('change', (e) => setDl('customer', e.target.value));
+  custPickWire('pldl-customer', (v) => { const x = store.get('planDelayFilter', {}) || {}; delete x.customer; x.customers = v; store.set('planDelayFilter', x); renderPlanning(); });
   $$('.pld-sel').forEach((el) => el.addEventListener('change', () => { const k = el.closest('[data-pld-g]').dataset.pldG; if (el.checked) plDelaySel.add(k); else plDelaySel.delete(k); renderPlanning(); }));
   $$('.pld-csel').forEach((el) => el.addEventListener('change', () => { for (const k of JSON.parse(el.dataset.keys)) { if (el.checked) plDelaySel.add(k); else plDelaySel.delete(k); } renderPlanning(); }));
   $$('.pld-gdate, .pld-greason').forEach((el) => el.addEventListener('change', async () => {
@@ -775,13 +810,13 @@ ${half === 'otto' ? ottoSetup() : `
     const tr = el.closest('[data-pld-job]');
     try { await api.put('/plan/disp/delay/job', { key: tr.dataset.pldJob, customer: tr.dataset.customer, due: tr.dataset.due, new_date: tr.querySelector('.pld-jdate').value, reason: tr.querySelector('.pld-jreason').value }); plDelayFlash = `j:${tr.dataset.pldJob}`; toast('Saved'); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
   }));
-  $('#pld-customer')?.addEventListener('change', (e) => setD('customer', e.target.value));
+  custPickWire('pld-customer', (v) => { const x = store.get('planDispFilter', {}) || {}; delete x.customer; x.customers = v; store.set('planDispFilter', x); renderPlanning(); });
   $('#pld-stage')?.addEventListener('change', (e) => setD('stage', e.target.value));
-  $('#plo-customer')?.addEventListener('change', (e) => setO('customer', e.target.value));
+  custPickWire('plo-customer', (v) => { const x = store.get('planOttoFilter', {}) || {}; delete x.customer; x.customers = v; store.set('planOttoFilter', x); renderPlanning(); });
   $('#plo-waiting')?.addEventListener('change', (e) => setO('waiting', e.target.value));
   const setF = (k, v) => { f[k] = v || ''; store.set('planFilter', f); renderPlanning(); };
   $('#pl-q')?.addEventListener('change', (e) => setF('q', e.target.value.trim()));
-  $('#pl-customer')?.addEventListener('change', (e) => setF('customer', e.target.value));
+  custPickWire('pl-customer', (v) => { delete f.customer; f.customers = v; store.set('planFilter', f); renderPlanning(); });
   $('#pl-shipper')?.addEventListener('change', (e) => setF('shipper', e.target.value));
   $('#pl-prio')?.addEventListener('change', (e) => setF('prio', e.target.value));
   $('#pl-file').addEventListener('change', async (e) => {
@@ -939,12 +974,12 @@ ${half === 'otto' ? ottoSetup() : `
     const pld = e.target.closest('[data-pld]')?.dataset.pld;
     if (pld === 'copy') { const t = plDelayText(); try { await navigator.clipboard.writeText(t); toast('Summary copied — paste it into your email or report'); } catch { prompt('Copy the summary:', t); } return; }
     if (pld === 'xlsx') {
-      const pre = (store.get('planDelayFilter', {}) || {}).customer;
+      const preL = plCusts(store.get('planDelayFilter', {}) || {}); const pre = preL.length > 0;
       openModal(`<div class="modal-head"><h2 style="margin:0">⬇ Delays report</h2><button class="icon" data-action="close-modal">✕</button></div>
         <form id="pld-xlsx" class="form-grid">
           <div class="f full"><label class="row"><input type="radio" name="who" value="all" ${pre ? '' : 'checked'}> All customers</label>
             <label class="row"><input type="radio" name="who" value="some" ${pre ? 'checked' : ''}> Only these customers:</label>
-            <div class="row" style="flex-wrap:wrap;gap:6px 16px;margin:6px 0 0 24px">${plDelayCusts.map((c) => `<label class="row small"><input type="checkbox" name="cust" value="${esc(c.code)}" ${pre === c.code ? 'checked' : ''}> <b>${esc(c.code)}</b> <span class="muted">${esc(c.name)} · ${c.wos}</span></label>`).join('') || '<span class="muted small">No customer has delayed work orders.</span>'}</div></div>
+            <div class="row" style="flex-wrap:wrap;gap:6px 16px;margin:6px 0 0 24px">${plDelayCusts.map((c) => `<label class="row small"><input type="checkbox" name="cust" value="${esc(c.code)}" ${preL.includes(c.code) ? 'checked' : ''}> <b>${esc(c.code)}</b> <span class="muted">${esc(c.name)} · ${c.wos}</span></label>`).join('') || '<span class="muted small">No customer has delayed work orders.</span>'}</div></div>
           <div class="full row"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button><button class="primary" type="submit">⬇ Download</button></div>
         </form>`);
       const form = $('#pld-xlsx');

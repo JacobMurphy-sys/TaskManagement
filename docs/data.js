@@ -45,7 +45,7 @@ window.TIMELINE = {
   PINS: [
     { id: 'auto-plans', date: '2026-11-10', area: 'production', title: 'Plans made on a schedule',
       text: 'The production plan can now make itself: at set times the server makes the plan PDF and saves it over the same file, like a report subscription.',
-      points: ['Perso or Matching, with the same choices as Generate plan: order, cells, layout, rows, overdue apart', 'One or more times a day, on the days ticked', 'Always the same file in a shared folder, so the floor opens one file and finds the latest plan', 'Run now to check it, and the last run and the next one shown with each'] },
+      points: ['Perso or Matching, with the same choices as Generate plan: order, cells, layout, rows, overdue apart', 'One or more times a day, on the days ticked', 'Always the same file in a shared folder, so the floor opens one file and finds the latest plan', 'Run now to check it, and the last run and the next one shown with each', 'Production\'s customer filters take several customers at once, ticked in a drop-down'] },
     { id: 'ticket-news', date: '2026-11-05', area: 'platform', title: 'Tickets: told straight away',
       text: 'Whoever looks after tickets hears of a new one as it comes in, and answers reach the sender in a window of their own.',
       points: ['A message to admins (and anyone who handles tickets) for every new ticket', 'A message about a ticket opens it in a popout: what was sent, the screenshot and the answer', 'Screenshots open in the image viewer over the page instead of a new tab', 'An eye in every password box, to check what you typed'] },
