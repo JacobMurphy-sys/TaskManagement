@@ -1938,6 +1938,22 @@ async function waitForServer() {
             assert.equal(Math.round(st.total.year), Math.round(st.machines.reduce((t, m) => t + (m.best?.year || 0), 0)), 'the site: every machine at its fastest');
             assert.equal(st.by_tech.DOD.year, st.machines.reduce((t, m) => t + (m.per.DOD?.year || 0), 0), 'a technology only: every machine that can run it');
             assert.equal(Math.round(st.total.months.reduce((a, b) => a + b, 0)), Math.round(st.total.year), 'the months add up to the year');
+            assert.equal(B.counted.basis, 'fastest', 'no history of what it ran: counted at its fastest');
+            // …with history: counted at the mix it ran over the last 12 months, each technology at its own speed
+            const cf = path.join(tmp, 'SiteCards.xlsx');
+            fs.writeFileSync(cf, bx([{ name: 'Cards', columns: ['AX Ref', 'Type'].map((hd) => ({ header: hd })), rows: [['SA1', 'DOD'], ['SB1', 'Laser']] }]));
+            await call('PATCH', '/settings', { plan_db: cf });
+            const sqs = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
+            const dy = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+            const insR = sqs.prepare("INSERT INTO prod_runs (source, job, machine, start_at, end_at, qty, remake, item, trigram, read_at) VALUES ('perso', ?, 'Site B', ?, ?, ?, 0, ?, 'KBC', ?)");
+            insR.run('SJ1', `${dy}T08:00`, `${dy}T09:00`, 7000, 'SA1', dy); insR.run('SJ2', `${dy}T10:00`, `${dy}T11:00`, 3000, 'SB1', dy);
+            const st2 = await call('GET', `/cpm/site?year=${Y}`); const B2 = st2.machines.find((m) => m.name === 'SITE B');
+            const mixHour = 1 / (0.7 / 600 + 0.3 / 900);
+            assert.deepEqual([B2.mix?.split.DOD, B2.mix?.split.Laser, B2.mix?.cards, B2.counted.basis, Math.round(B2.mix?.day)], [0.7, 0.3, 10000, 'mix', Math.round(mixHour * 7.5)], 'its usual mix: 70% DOD at 600/h, 30% Laser at 900/h');
+            assert.equal(Math.round(st2.total.year), Math.round(st2.machines.reduce((t, m) => t + (m.counted?.year || 0), 0)), 'the site counts it at its mix');
+            assert.equal(Math.round(st2.counted_by_tech.DOD.year + st2.counted_by_tech.Laser.year + st2.counted_by_tech.Emboss.year), Math.round(st2.total.year), 'the site total by technology adds up');
+            sqs.prepare("DELETE FROM prod_runs WHERE job IN ('SJ1', 'SJ2')").run(); sqs.close();
+            await call('PATCH', '/settings', { plan_db: s0.plan_db || '' });
             await call('DELETE', `/plan/machines/${ma.id}`); await call('DELETE', `/plan/machines/${mb.id}`);
             await call('PUT', '/cpm/settings', { cpm_shifts: s0.cpm_shifts ?? '3', cpm_hours: s0.cpm_hours ?? '6', cpm_holidays: s0.cpm_holidays ?? '' });
           }

@@ -168,7 +168,7 @@ function actuals(fromDay, toDay, cards) {
   return rows.map((r) => {
     const card = cards ? cards.get(planning.axKey(r.item)) : null;
     const mt = machineTech.get(String(r.machine || '').toLowerCase()) || [];
-    return { day: r.day, trigram: String(r.trigram || '').toUpperCase() || null, tech: normTech(card?.type) || (mt.length === 1 ? mt[0] : null), qty: r.qty || 0, card: card || null };
+    return { day: r.day, trigram: String(r.trigram || '').toUpperCase() || null, machine: r.machine || '', tech: normTech(card?.type) || (mt.length === 1 ? mt[0] : null), qty: r.qty || 0, card: card || null };
   });
 }
 
@@ -556,7 +556,19 @@ function parseConfig(buf) {
  * shifts × productive hours a shift × the machine's availability for perso (⚙ Capacity). A machine
  * running several technologies is shown at each of its speeds; its "most" is at its fastest.
  */
-function siteCapacity(year) {
+// What each machine ran over the last 12 months, by technology (cards persoed; the technology from the card
+// database, or the machine's only one): { 'machine name lowercased': { qty: { DOD: n }, unknown: n } }
+function machineMix(cards) {
+  const to = ymd(new Date()); const fromD = new Date(); fromD.setFullYear(fromD.getFullYear() - 1);
+  const by = new Map();
+  for (const a of actuals(ymd(fromD), to, cards)) {
+    const k = String(a.machine || '').trim().toLowerCase(); if (!k || !(a.qty > 0)) continue;
+    const x = by.get(k) || by.set(k, { qty: {}, unknown: 0 }).get(k);
+    if (a.tech) x.qty[a.tech] = (x.qty[a.tech] || 0) + a.qty; else x.unknown += a.qty;
+  }
+  return { by, from: ymd(fromD), to };
+}
+function siteCapacity(year, cards = null) {
   const cal = calendarOf(year);
   const shifts = Number(setting('cpm_shifts', '3')) || 0; const hours = Number(setting('cpm_hours', '6')) || 0;
   const dayHours = shifts * hours;
@@ -566,6 +578,7 @@ function siteCapacity(year) {
   const workdays = months.reduce((a, m) => a + m.workdays, 0);
   const weekDays = String(setting('plan_days', '1,2,3,4,5')).split(',').filter((x) => /^[0-6]$/.test(x.trim())).length;
   const warnings = [];
+  const mixes = machineMix(cards);
   const machines = db.all('SELECT * FROM plan_machines WHERE active = 1 ORDER BY sort_order, id').map((m) => {
     let techs = String(m.types || '').split(/[,;/]/).map(normTech).filter(Boolean); if (!techs.length) techs = [...TECHS];
     const o = opts[m.name] || {};
@@ -578,15 +591,34 @@ function siteCapacity(year) {
       per[t] = { speed, from: own ? 'machine' : sp[t]?.speed ? 'production' : null, hour: speed, day: speed * h, week: speed * h * weekDays, months: months.map((mo) => speed * h * mo.workdays), year: speed * h * workdays };
     }
     const bestT = techs.reduce((b, t) => (!b || per[t].speed > per[b].speed ? t : b), null);
-    return { name: m.name, techs, avail, hours_day: h, hours_year: h * workdays, per, best: bestT ? { tech: bestT, ...per[bestT] } : null };
+    const best = bestT ? { tech: bestT, ...per[bestT] } : null;
+    // several technologies: at the mix it ran over the last 12 months — each technology's share of the cards,
+    // made at its own speed (so the cards an hour are 1 ÷ Σ share ÷ speed)
+    let mix = null;
+    if (techs.length > 1) {
+      const hist = mixes.by.get(String(m.name).trim().toLowerCase());
+      const q = Object.fromEntries(techs.map((t) => [t, hist?.qty[t] || 0])); const tot = Object.values(q).reduce((a, b) => a + b, 0);
+      const ok = tot > 0 && techs.every((t) => !q[t] || per[t].speed > 0);
+      if (ok) {
+        const split = Object.fromEntries(techs.map((t) => [t, q[t] / tot]));
+        const hour = 1 / techs.reduce((a, t) => a + (split[t] ? split[t] / per[t].speed : 0), 0);
+        mix = { split, cards: tot, unknown: hist.unknown || 0, from: mixes.from, to: mixes.to, hour, day: hour * h, week: hour * h * weekDays, months: months.map((mo) => hour * h * mo.workdays), year: hour * h * workdays };
+      }
+    }
+    const counted = mix ? { basis: 'mix', ...mix } : best ? { basis: techs.length > 1 ? 'fastest' : 'only', ...best } : null;
+    return { name: m.name, techs, avail, hours_day: h, hours_year: h * workdays, per, best, mix, counted };
   });
   if (!machines.length) warnings.push('No machines in Production › ⚙ Setup — there\'s no capacity to show');
   if (!dayHours) warnings.push('No working hours: set the shifts a day and productive hours a shift on ⚙ Capacity');
   const sum = (pick) => ({ day: 0, week: 0, year: 0, months: months.map(() => 0), ...machines.reduce((acc, m) => { const x = pick(m); if (!x) return acc;
     acc.day = (acc.day || 0) + x.day; acc.week = (acc.week || 0) + x.week; acc.year = (acc.year || 0) + x.year; acc.months = (acc.months || months.map(() => 0)).map((v, i) => v + x.months[i]); return acc; }, {}) });
   const byTech = Object.fromEntries(TECHS.map((t) => [t, { machines: machines.filter((m) => m.per[t]).length, ...sum((m) => m.per[t]) }]));
+  // the site total by technology: each machine's cards at its mix (or its one / fastest technology)
+  const countedBy = Object.fromEntries(TECHS.map((t) => [t, sum((m) => { const c = m.counted; if (!c) return null; const f = c.basis === 'mix' ? c.split[t] || 0 : c.tech === t ? 1 : 0;
+    return f ? { day: c.day * f, week: c.week * f, year: c.year * f, months: c.months.map((v) => v * f) } : null; })]));
+  for (const m of machines) if (m.techs.length > 1 && !m.mix && m.best) warnings.push(`${m.name}: no record of what it ran by technology in the last 12 months${cards ? '' : ' (the card database, which tells the technology, isn\'t linked in Production › ⚙ Setup)'}, so it's counted at its fastest`);
   return { year, shifts, hours, hours_day: dayHours, week_days: weekDays, workdays, holidays: cal.filter((d) => !d.work && String(setting('plan_days', '1,2,3,4,5')).split(',').map(Number).includes(d.dow)).length,
-    months, techs: TECHS, speed_from: Object.fromEntries(Object.entries(sp).map(([t, x]) => [t, x])), machines, total: sum((m) => m.best), by_tech: byTech, warnings: [...new Set(warnings)] };
+    months, techs: TECHS, speed_from: Object.fromEntries(Object.entries(sp).map(([t, x]) => [t, x])), machines, total: sum((m) => m.counted), by_tech: byTech, counted_by_tech: countedBy, cards: !!cards, warnings: [...new Set(warnings)] };
 }
 
-module.exports = { TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity };
+module.exports = { TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity, machineMix };

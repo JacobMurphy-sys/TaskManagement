@@ -3223,7 +3223,7 @@ router.get('/cpm/overview', h((req, res) => {
     scenarios: scenarios.map((sc) => ({ id: sc.id, name: sc.name, ...cpm.compute({ year, period, useFlex, cards, changes: sc.changes }) })) });
 }));
 // 🏭 Theoretical site capacity per machine: run speed × available hours, no OEE (src/cpm.js)
-router.get('/cpm/site', h((req, res) => res.json(cpm.siteCapacity(Number(req.query.year) || new Date().getFullYear()))));
+router.get('/cpm/site', h((req, res) => res.json(cpm.siteCapacity(Number(req.query.year) || new Date().getFullYear(), cpmCards()))));
 router.put('/cpm/settings', h((req, res) => {
   for (const k of CPM_SETTINGS) if (req.body[k] !== undefined) db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, String(req.body[k]).trim()]);
   res.json(Object.fromEntries(CPM_SETTINGS.map((k) => [k, getSettings()[k]])));

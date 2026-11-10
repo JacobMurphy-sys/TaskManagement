@@ -48,7 +48,7 @@ window.TIMELINE = {
       points: ['Each backup checked by unzipping it again before the original is removed', 'Kept by age: every backup for 30 days on the server, or every one for two days and then one a day', 'Download any backup as a plain file; restore takes compressed and plain alike', 'Made in the background, so a large backup never holds the site up', 'The Backups page shows the space used and what is free'] },
     { id: 'site-capacity', date: '2026-11-10', area: 'capacity', title: 'Theoretical site capacity',
       text: 'Capacity planning has a new Site capacity tab: what every machine could make running flat out at its run speed through the available hours, without OEE.',
-      points: ['A day, a week, a month and a year, for the site and for each machine', 'Month by month, with each month\'s working days', 'Machines that run several technologies shown at each speed, and counted at their fastest'] },
+      points: ['A day, a week, a month and a year, for the site and for each machine', 'Month by month, with each month\'s working days', 'Machines that run several technologies shown at each speed, and counted at the mix they actually ran over the last 12 months'] },
     { id: 'reporting-move', date: '2026-11-10', area: 'reporting', title: 'Reporting weeks move with you',
       text: 'Every week of the Weekly SC Report can be exported as one file and added to another copy of SITHUB, such as the shared server, so no history is left behind.',
       points: ['Carries each week as it was, with what was typed on it, its notes, the figures typed in or adjusted and the logged late deliveries', 'Importing only adds: where both copies have a week, the one changed last is kept'] },
