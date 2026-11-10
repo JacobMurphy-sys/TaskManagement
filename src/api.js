@@ -4336,7 +4336,7 @@ const joinRel = (from, t) => path.posix.normalize(path.posix.join(folderOf(from)
 // "%% end %%" show only to those (Obsidian hides %% lines, so the note reads as one there). With accounts
 // off everyone sees everything.
 const LIB_MOD = (() => { const m = new Map(); for (const x of accounts.MODULES) { m.set(x.key, x.key); m.set(x.label.toLowerCase(), x.key); for (const a of x.areas) m.set(a, x.key); }
-  Object.entries({ projects: 'management', kpi: 'management', reporting: 'management', production: 'production', planning: 'production', capacity: 'production', ideas: 'ci' }).forEach(([k, v]) => m.set(k, v)); return m; })();
+  Object.entries({ projects: 'management', kpi: 'production', reporting: 'production', production: 'production', planning: 'production', capacity: 'production', ideas: 'ci', otd: 'despatch', ehs: 'quality' }).forEach(([k, v]) => m.set(k, v)); return m; })();
 const LIB_RIGHT = new Set(accounts.RIGHTS.map((r) => r.key));
 const libList = (v) => (Array.isArray(v) ? v : String(v ?? '').split(',')).map((x) => String(x).trim().toLowerCase()).filter(Boolean);
 function libAudience(body) {
