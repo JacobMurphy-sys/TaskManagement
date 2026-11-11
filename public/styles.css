@@ -2518,3 +2518,14 @@ details.msel .msel-pop input.msel-q { flex: none; width: 100%; min-width: 0; max
 .q-tile.ops-kpi .q-tile-l { display: block; line-height: 1.25; }
 .q-tile.ops-kpi .ops-k-dot { margin-left: 5px; vertical-align: 1px; }
 @media (min-width: 1101px) { .ops-kpi-row .ops-kpis { grid-template-columns: repeat(var(--ops-n), minmax(0, 1fr)); } }
+/* 🏭 Operations: 👁 hide a panel for presenting (faint until pointed at); the others take its room */
+.ops-eye { margin-left: auto; flex: none; border: 0; background: none; padding: 2px 4px; color: var(--muted); opacity: .3; line-height: 0; cursor: pointer; border-radius: 4px; }
+.ops-eye:hover, .ops-eye:focus-visible { opacity: 1; color: var(--accent); background: var(--accent-soft); }
+.qd.ops .ck-ph > .ops-eye { order: 9; }
+.qd.ops .ck-ph > a.button, .qd.ops .ck-ph > button.small { order: 10; margin-left: 0; } /* the panel's buttons after the eye, on the right */
+.qd.ops .ck-panel[hidden] { display: none !important; }
+.qd.ops .qd-top:not(:has(> .ck-panel:not([hidden]))) { display: none; }
+.qd.ops .qd-top:has(> .ck-panel[hidden]) { grid-template-columns: 1fr; }
+.ops-unhide { flex: none; align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 3px 8px; border: 1px dashed var(--border); background: none; color: var(--muted); opacity: .6; border-radius: 6px; cursor: pointer; }
+.ops-unhide:hover { opacity: 1; color: var(--accent); border-color: var(--accent); }
+.qd.ops > .ck-panel.qd-cases:only-of-type, .qd.ops .qd-top:not(:has(> .ck-panel:not([hidden]))) + .qd-cases { flex: 1 1 0; }

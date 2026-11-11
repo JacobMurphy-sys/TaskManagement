@@ -144,6 +144,8 @@ function opsKpiSettings(d) {
 
 // ---- the dashboard ---------------------------------------------------------------------------------------
 let OPS_D = null;
+const opsHidden = () => { const h = store.get('opsHidden', []); return Array.isArray(h) ? h : []; };
+const OPS_EYE = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
 const opsFocus = () => { const f = store.get('opsFocus', ''); return OPS_D?.site.config.some((k) => k.key === f && k.on) ? f : ''; };
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-ops-kpi]'); if (b && OPS_D) {
@@ -152,6 +154,13 @@ document.addEventListener('click', (e) => {
     return;
   }
   if (e.target.closest('[data-ops-kset]') && OPS_D) opsKpiSettings(OPS_D);
+  const hb = e.target.closest('[data-ops-hide], [data-ops-unhide]');
+  if (hb && OPS_D) {
+    const h = opsHidden();
+    const next = hb.dataset.opsHide ? [...h, hb.dataset.opsHide] : h.filter((k) => !k.startsWith(`${hb.dataset.opsUnhide}:`));
+    try { store.set('opsHidden', next); } catch { /* not kept */ }
+    const el = document.querySelector('.qd.ops'); if (el) { el.outerHTML = opsHtml(OPS_D); opsDraw(); }
+  }
 });
 // a figure typed in for a month: saved as it's left
 document.addEventListener('change', async (e) => {
@@ -219,7 +228,12 @@ function opsHtml(d) {
     : `<div class="empty small">No scrap recorded for ${esc(d.label)}.</div>`;
 
   // a panel: a heading (and mini-tabs) and its body
-  const panel = (cls, head, body, foot = '') => `<section class="ck-panel ${cls}"><div class="ck-ph">${head}</div><div class="qd-body${cls.includes('qd-charts') ? ' qd-chart-body' : ''}">${body}</div>${foot}</section>`;
+  // 👁 a panel can be hidden (for presenting): remembered in this browser, per view (the overview, or the KPI clicked)
+  const view = focus || 'overview'; const hidden = opsHidden(); const seen = new Set();
+  const panel = (cls, head, body, foot = '') => {
+    let key = `${view}:${cls.split(' ')[0]}`; while (seen.has(key)) key += '+'; seen.add(key);
+    return `<section class="ck-panel ${cls}" data-ops-panel="${esc(key)}"${hidden.includes(key) ? ' hidden' : ''}><div class="ck-ph">${head}<button type="button" class="ops-eye" data-ops-hide="${esc(key)}" title="Hide this (for presenting): 👁 next to ⚙ shows it again" aria-label="Hide this panel">${OPS_EYE}</button></div><div class="qd-body${cls.includes('qd-charts') ? ' qd-chart-body' : ''}">${body}</div>${foot}</section>`;
+  };
   const chartBox = (legend, chart) => `<div class="qd-trend">${legend}${chart}</div>`;
   const barsKey = `<div class="qd-foot q-bars-key small muted"><span><i class="q-sw mon"></i>${esc(d.label)}</span><span><i class="q-sw ytd"></i>year to date</span></div>`;
   // a KPI month by month: its line and its target
@@ -320,6 +334,7 @@ function opsHtml(d) {
     <div class="qd ops${focus ? ' focused' : ''}">
     <div class="ops-kpi-row">
       <div class="q-tiles qd-tiles ops-kpis" style="--ops-n:${Math.max(1, kpis.length)}">${kpis.map((k) => opsKpiTile(d, k, focus)).join('')}</div>
+      ${(() => { const n = hidden.filter((k) => k.startsWith(`${view}:`)).length; return n ? `<button type="button" class="ops-unhide" data-ops-unhide="${esc(view)}" title="Show the hidden panels again">${OPS_EYE} ${n} hidden</button>` : ''; })()}
       ${acctAdmin() ? '<button type="button" class="icon ops-kset" data-ops-kset title="⚙ Site KPIs: which are shown and their targets">⚙</button>' : ''}
     </div>
     ${body}
