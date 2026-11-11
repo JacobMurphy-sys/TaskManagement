@@ -154,7 +154,7 @@ function siteKpis(ops) {
       const pm = new Map(q.pack.months.map((r) => [r.month, r]));
       values.cpms = { ...pick(byMonth((mm) => pm.get(mm)?.cpms ?? null)), ytd: q.pack.ytd.cpms };
       detail.cpms = { from: 'salesforce', trend: months.map((mm) => ({ month: mm, cc: pm.get(mm)?.cc ?? 0, shipped: pm.get(mm)?.shipped ?? 0 })) };
-      const all = per.ytd ? per.months.flatMap((mm) => (mm === m ? q : require('./quality').quality(mm)).cases) : q.cases;
+      const all = per.multi || per.ytd ? per.months.flatMap((mm) => (mm === m ? q : require('./quality').quality(mm)).cases) : q.cases;
       cases = all.filter((c) => /customer\s*complaint/i.test(String(c.kind || ''))).map((c) => ({ ref: c.ref, day: c.day, customer: c.customer, severity: c.severity, summary: c.summary, status: c.status }));
     } catch { /* below */ }
   }
@@ -199,11 +199,23 @@ function siteKpis(ops) {
     const v = typed[k.key] || {};
     values[k.key] = { ...pick(byMonth((mm) => (Number.isFinite(v[mm]) ? (k.pct ? v[mm] / 100 : v[mm]) : null))), ytd: null, typed: true }; // a % typed as 73: kept as 0.73, as the others
   }
-  // a year to date: each KPI's figure is the year so far (a typed one: the average of the months typed in), nothing to compare
-  if (per.ytd) for (const [key, v] of Object.entries(values)) {
-    if (['ontime', 'openlate', 'capex'].includes(key)) continue; // already the period's, now, and the year's
-    if (v.typed) { const xs = (v.trend || []).filter((t) => inPer(t.month) && t.value !== null).map((t) => t.value); v.ytd = xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; }
-    v.now = v.ytd ?? null; v.prev = null;
+  // a period of several months (a year to date, the last 12 months): each KPI over the whole period (a typed one: the
+  // average of the months typed in), nothing to compare it with
+  if (per.multi || per.ytd) {
+    const t = ops.tiles; const sum = (f) => per.months.reduce((a, mm) => a + (f(mm) || 0), 0);
+    const period = {
+      otd: otdCfg.measure === 'c' ? t.otd.otd_c : otdCfg.measure === 'all' ? (t.otd.shipped ? 1 - (t.otd.internal + t.otd.external) / t.otd.shipped : null) : t.otd.otd_sc,
+      wastage: t.scrap_rate, volume: t.persoed,
+      productivity: (() => { const h = sum((mm) => wk.get(mm)?.hours); return h ? sum((mm) => wk.get(mm)?.cards_with_hours) / h : null; })(),
+      cpms: (() => { const cc = detail.cpms.trend.filter((x) => inPer(x.month) && x.cc !== null); const sh = cc.reduce((a, x) => a + (x.shipped || 0), 0); return cc.length && sh ? (cc.reduce((a, x) => a + x.cc, 0) / sh) * 1e6 : null; })(),
+      mir: detail.mir ? detail.mir.accidents.length : undefined,
+    };
+    for (const [key, v] of Object.entries(values)) {
+      if (['ontime', 'openlate', 'capex'].includes(key)) continue; // already the period's, now, and the year's
+      if (v.typed) { const xs = (v.trend || []).filter((x) => inPer(x.month) && x.value !== null).map((x) => x.value); v.now = xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; }
+      else if (period[key] !== undefined) v.now = period[key];
+      v.prev = null; if (per.multi && !per.ytd) v.ytd = null;
+    }
   }
   return { config: cfg, values, detail };
 }

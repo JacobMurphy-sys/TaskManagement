@@ -31,8 +31,9 @@ function opsDraw() {
 window.addEventListener('resize', () => { clearTimeout(opsDraw.t); opsDraw.t = setTimeout(opsDraw, 150); });
 document.addEventListener('click', (e) => { if (e.target.closest('[data-qd-tab^="ochart:"]')) setTimeout(opsDraw); });
 // spec: { cats: [{ label, title, dim, on }], bars: [{ key, cls, label }], lines: [{ key, cls, label }], values: [{ … }], fmt, max, target, targetLabel }
+// spec.right: { key, cls, label, fmt } bars on a scale of their own, read on the right (e.g. cards under a rate)
 function opsSvg(spec, W, H) {
-  const L = 44; const R = 12; const T = 16; const B = 22;
+  const L = 44; const R = spec.right ? 48 : 12; const T = 16; const B = 22;
   const vals = spec.values;
   const all = [...spec.bars.flatMap((b) => vals.map((v) => v[b.key] || 0)), ...(spec.lines || []).flatMap((l) => vals.map((v) => v[l.key] ?? 0)), spec.target || 0];
   // a little headroom, then the smallest round step that needs no more than 7 gridlines: the bars fill the chart
@@ -44,13 +45,23 @@ function opsSvg(spec, W, H) {
   const y = (v) => T + (H - T - B) * (1 - (Math.max(min, Math.min(max, v)) - min) / (max - min || 1));
   const n = vals.length; const cw = (W - L - R) / n;
   const nb = spec.bars.length; const bw = Math.max(2, Math.min(18, (cw * 0.72) / Math.max(1, nb)));
+  // the right-hand scale: as many steps as the left, each a round number
+  const nG = Math.max(1, Math.round((max - min) / step));
+  let rStep = 0; let yR = null;
+  if (spec.right) {
+    const raw = Math.max(1e-9, ...vals.map((v) => v[spec.right.key] || 0)) * 1.04 / nG; const rp = 10 ** Math.floor(Math.log10(raw));
+    rStep = [1, 2, 2.5, 5, 10].map((x) => x * rp).find((x) => x >= raw - 1e-12) || 10 * rp;
+    yR = (v) => T + (H - T - B) * (1 - Math.max(0, v) / (rStep * nG));
+  }
   const out = [];
+  if (spec.right) for (let i = 0; i <= nG; i++) out.push(`<text x="${W - R + 6}" y="${T + (H - T - B) * (1 - i / nG) + 4}" class="q-ax ops-ax-r" text-anchor="start">${spec.right.fmt ? spec.right.fmt(rStep * i) : OK(rStep * i)}</text>`);
   for (let v = min; v <= max + 1e-9; v += step) out.push(`<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="q-grid${v === min ? ' base' : ''}"/><text x="${L - 6}" y="${y(v) + 4}" class="q-ax" text-anchor="end">${spec.fmt ? spec.fmt(v) : OK(v)}</text>`);
   const every = Math.max(1, Math.ceil(n / Math.floor((W - L) / 34)));
   vals.forEach((v, i) => {
     const c = spec.cats[i]; const x0 = L + i * cw; const gx = x0 + (cw - bw * nb) / 2;
-    const tip = `${c.title || c.label}: ${[...spec.bars, ...(spec.lines || [])].map((s) => `${s.label} ${spec.fmt && s.lineFmt !== false && (spec.lines || []).includes(s) ? spec.fmt(v[s.key] ?? 0) : s.fmt ? s.fmt(v[s.key]) : ON(v[s.key])}`).join(' · ')}`;
+    const tip = `${c.title || c.label}: ${[...spec.bars, ...(spec.right ? [{ ...spec.right, fmt: spec.right.tipFmt || ON }] : []), ...(spec.lines || [])].map((s) => `${s.label} ${spec.fmt && s.lineFmt !== false && (spec.lines || []).includes(s) ? spec.fmt(v[s.key] ?? 0) : s.fmt ? s.fmt(v[s.key]) : ON(v[s.key])}`).join(' · ')}`;
     out.push(`<g class="q-col${c.on ? ' on' : ''}${c.dim ? ' dim' : ''}"><title>${esc(tip)}</title><rect x="${x0}" y="${T}" width="${cw}" height="${H - T - B}" class="q-hit"/>`);
+    if (spec.right) { const rv = v[spec.right.key] || 0; const rw = Math.max(3, Math.min(30, cw * 0.55)); if (rv > 0) out.push(`<rect x="${x0 + (cw - rw) / 2}" y="${yR(rv)}" width="${rw}" height="${Math.max(0, yR(0) - yR(rv))}" rx="2" class="${spec.right.cls} ops-bar-r"/>`); }
     spec.bars.forEach((b, j) => { const val = v[b.key] || 0; if (val > 0) out.push(`<rect x="${gx + j * bw + 0.5}" y="${y(val)}" width="${Math.max(1, bw - 1)}" height="${Math.max(0, y(min) - y(val))}" rx="2" class="${b.cls}"/>`); });
     if (i % every === 0 || c.on) out.push(`<text x="${x0 + cw / 2}" y="${H - 6}" class="q-ax${c.on ? ' on' : ''}" text-anchor="middle">${esc(c.label)}</text>`);
     out.push('</g>');
@@ -109,10 +120,10 @@ function opsKpiTile(d, k, focus) {
     mir: d.site.detail.mir ? (d.site.detail.mir.last ? `last accident ${esc(fmtShortDate(d.site.detail.mir.last))}` : 'no accidents recorded') : '',
     productivity: d.site.detail.productivity.range ? `@ site level (${opsKpiFmt(k, d.site.detail.productivity.range[0])} – ${opsKpiFmt(k, d.site.detail.productivity.range[1])})` : '',
   }[k.key];
-  if (!d.period?.ytd && v.ytd !== null && v.ytd !== undefined && !['capex', 'volume'].includes(k.key)) bits.push(`<span>year ${opsKpiFmt(k, v.ytd)}</span>`);
+  if (!d.period?.multi && v.ytd !== null && v.ytd !== undefined && !['capex', 'volume'].includes(k.key)) bits.push(`<span>year ${opsKpiFmt(k, v.ytd)}</span>`);
   if (extra) bits.push(`<span>${extra}</span>`);
-  if (k.typed && v.now === null) bits.push(`<span>✎ ${d.period?.ytd ? 'none typed in yet' : 'type this month\'s in'}</span>`);
-  if (d.period?.ytd && k.typed && v.now !== null) bits.push('<span>average of the months typed in</span>');
+  if (k.typed && v.now === null) bits.push(`<span>✎ ${d.period?.multi ? 'none typed in yet' : 'type this month\'s in'}</span>`);
+  if (d.period?.multi && k.typed && v.now !== null) bits.push('<span>average of the months typed in</span>');
   const tone = meets === null ? '' : meets ? 'ok' : 'warn';
   return `<button type="button" class="q-tile ops-kpi ${tone}${focus === k.key ? ' on' : ''}${k.typed && v.now === null ? ' quiet' : ''}" data-ops-kpi="${k.key}" aria-pressed="${focus === k.key}" title="${esc(`${k.label}${k.unit ? ` (${k.unit})` : ''}: click to see it on its own, again to go back`)}">
     <div class="q-tile-l">${opsKpiTitle(k)}${meets === null ? '' : `<span class="ops-k-dot ${meets ? 'ok' : 'bad'}" title="${meets ? 'On target' : 'Off target'}"></span>`}</div>
@@ -185,7 +196,7 @@ function opsHtml(d) {
   const tab = (group, key, label, title = '') => `<button type="button" class="${qdOn(group, key) ? 'on' : ''}" data-qd-tab="${group}:${key}"${title ? ` title="${esc(title)}"` : ''}>${label}</button>`;
   const pane = (group, key, html) => `<div class="qd-pane" data-qd-pane="${group}:${key}"${qdOn(group, key) ? '' : ' hidden'}>${html}</div>`;
   qdDefaults({ ochart: 'day', ocust: 'persoed', otable: 'ontime', f_otd: 'otd', f_waste: 'cause', f_prod: 'machines', f_vol: 'persoed' });
-  const ytd = !!d.period?.ytd; const perShort = ytd ? `${d.year} so far` : qShort(d.month); // the period, short: "Oct", or "2026 so far"
+  const ytd = !!d.period?.multi; const perShort = d.period?.r12 ? 'the last 12 months' : ytd ? `${d.year} so far` : qShort(d.month); // the period, short: "Oct", "2026 so far"
   const day = (s) => Number(s.slice(8, 10));
   const dayCats = d.by_day.map((x) => ({ label: ytd ? `${day(x.day)}/${Number(x.day.slice(5, 7))}` : String(day(x.day)), title: new Date(`${x.day}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }), dim: x.weekend }));
   const monCats = d.trend.map((x) => ({ label: qShort(x.month), title: x.label, on: x.month === d.month }));
@@ -235,13 +246,13 @@ function opsHtml(d) {
     return `<section class="ck-panel ${cls}" data-ops-panel="${esc(key)}"${hidden.includes(key) ? ' hidden' : ''}><div class="ck-ph">${head}<button type="button" class="ops-eye" data-ops-hide="${esc(key)}" title="Hide this (for presenting): 👁 next to ⚙ shows it again" aria-label="Hide this panel">${OPS_EYE}</button></div><div class="qd-body${cls.includes('qd-charts') ? ' qd-chart-body' : ''}">${body}</div>${foot}</section>`;
   };
   const chartBox = (legend, chart) => `<div class="qd-trend">${legend}${chart}</div>`;
-  const barsKey = `<div class="qd-foot q-bars-key small muted"><span><i class="q-sw mon"></i>${esc(d.label)}</span><span><i class="q-sw ytd"></i>year to date</span></div>`;
+  const barsKey = `<div class="qd-foot q-bars-key small muted"><span><i class="q-sw mon"></i>${esc(d.label)}</span>${ytd ? '' : '<span><i class="q-sw ytd"></i>year to date</span>'}</div>`;
   // a KPI month by month: its line and its target
-  const kpiChart = (key, { min = null, max = null } = {}) => {
+  const kpiChart = (key, { min = null, max = null, right = null } = {}) => {
     const k = kOf(key); const v = d.site.values[key];
-    const vals = v.trend.map((x) => ({ v: x.value }));
+    const vals = v.trend.map((x, i) => ({ v: x.value, ...(right ? { r: right.values[i] } : {}) }));
     if (!vals.some((x) => x.v !== null)) return `<div class="empty small">No ${esc(k.label)} figures in the 12 months up to ${esc(d.label)}${k.typed ? ': type them in on the right.' : '.'}</div>`;
-    return chartBox(opsLegend([['q-c3', `${k.label}${k.sub ? ` (${k.sub})` : ''}`, true]]), opsChart({ aria: `${k.label} by month`, cats: monCats, values: vals, bars: [], lines: [{ key: 'v', cls: 'q-c3', label: k.label }], fmt: (x) => opsKpiFmt(k, x), ...(min !== null ? { min } : {}), ...(max !== null ? { max } : {}), ...tgt(key) }));
+    return chartBox(opsLegend([['q-c3', `${k.label}${k.sub ? ` (${k.sub})` : ''}`, true], ...(right ? [['q-c4', right.label]] : [])]), opsChart({ aria: `${k.label} by month`, cats: monCats, values: vals, bars: [], lines: [{ key: 'v', cls: 'q-c3', label: k.label }], fmt: (x) => opsKpiFmt(k, x), ...(min !== null ? { min } : {}), ...(max !== null ? { max } : {}), ...(right ? { right: { key: 'r', cls: 'q-c4', label: right.label, fmt: OK } } : {}), ...tgt(key) }));
   };
   const head = (title, note = '') => `<h3>${title}</h3>${note ? `<span class="small muted">${note}</span>` : ''}`;
   const back = `<button type="button" class="small" data-ops-kpi="${focus}" title="Back to the overview">✕ Back to the overview</button>`;
@@ -271,7 +282,7 @@ function opsHtml(d) {
       const weeks = p.weeks.length ? `<div class="kdb-scroll"><table class="log q-cases ops-table"><thead><tr><th>Week</th><th class="num">Cards persoed</th><th class="num">Working hours</th><th class="num">Cards an hour</th></tr></thead><tbody>
         ${p.weeks.map((w) => `<tr><td>${esc(w.week)}</td><td class="num">${ON(w.cards)}</td><td class="num">${w.hours === null ? '<span class="muted" title="Not typed in on the Weekly SC Report">—</span>' : ON(w.hours)}</td><td class="num">${opsKpiFmt(k, w.productivity)}</td></tr>`).join('')}</tbody></table></div>`
         : `<div class="empty small">No reporting weeks in ${esc(d.label)}.</div>`;
-      return `<div class="qd-top">${panel('qd-charts', head('⚙ Productivity, month by month', 'cards persoed ÷ working hours (Protime, typed in each week)'), kpiChart('productivity'))}
+      return `<div class="qd-top">${panel('qd-charts', head('⚙ Productivity, month by month', 'cards persoed ÷ working hours (Protime, typed in each week)'), kpiChart('productivity', { right: { label: 'Cards persoed (right-hand scale)', values: d.trend.map((t) => t.persoed) } }))}
         ${panel('qd-where', head('Machines', `cards an hour of run time${p.range ? ` · ${opsKpiFmt(k, p.range[0])} – ${opsKpiFmt(k, p.range[1])}` : ''}`), mach)}</div>
         ${panel('qd-cases', `${head(`Weeks in ${esc(perShort)}`, p.hours_typed ? '' : 'no working hours typed in yet: ✎ on the Weekly SC Report\'s weeks')}${back}`, weeks)}`;
     },

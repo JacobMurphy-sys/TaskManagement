@@ -1427,6 +1427,10 @@ async function waitForServer() {
         assert.ok(yt.tiles.persoed >= op.tiles.persoed + 1300 && yt.late.some((l) => l.wo === 'OPS2') && yt.tiles.on_time.daily.wos >= 2, 'April\'s cards and work orders are in the year so far');
         assert.deepEqual([yt.site.values.volume.now, yt.site.values.otd.now, yt.site.values.otd.prev], [yt.tiles.persoed, yt.tiles.otd.ytd_sc, null], 'the KPIs: the year so far');
         assert.equal(yt.tiles.otd.otd_sc, yt.tiles.otd.ytd_sc, 'OTD over the whole period');
+        // the last 12 months, rolling: the 12 full months up to last month
+        const rl = await call('GET', '/kpi/operations?month=r12');
+        assert.deepEqual([op.months[0].month, rl.period.r12, rl.period.months.length, rl.period.to, rl.label.startsWith('Last 12 months')], ['r12', true, 12, rl.trend[11].month, true], 'first in the picker; the 12 months up to last month');
+        assert.deepEqual([rl.tiles.persoed, rl.site.values.volume.now, rl.site.values.volume.prev, rl.site.values.wastage.now], [rl.trend.reduce((t, x) => t + x.persoed, 0), rl.tiles.persoed, null, rl.tiles.scrap_rate], 'every figure over the 12 months');
         // 🏭 the site KPIs: the standard set, each with a target that can be set and switched off; OTD counted three ways
         const sk = op.site;
         assert.deepEqual(sk.config.map((k) => k.key), ['transfo', 'cpms', 'otd', 'wastage', 'productivity', 'mir', 'gci', 'inventory', 'capex', 'volume', 'ontime', 'openlate'], 'the KPIs, in order');

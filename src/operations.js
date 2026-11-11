@@ -30,7 +30,8 @@ function monthsOf() {
   const have = db.all("SELECT DISTINCT substr(day, 1, 7) AS m FROM kpi_rows WHERE source IN ('perso', 'shipped') AND day <> ''").map((r) => r.m).filter(validMonth);
   const list = [...new Set([thisMonth(), addMonths(thisMonth(), -1), ...have])].sort().reverse();
   // each year's "year to date" first, then its months, newest first
-  const out = []; let yr = null;
+  const last = addMonths(thisMonth(), -1);
+  const out = [{ month: 'r12', label: 'Last 12 months', multi: true }]; let yr = null;
   for (const m of list) { if (m.slice(0, 4) !== yr) { yr = m.slice(0, 4); out.push({ month: `${yr}-ytd`, label: `${yr} year to date`, ytd: true }); } out.push({ month: m, label: monthLabel(m) }); }
   return out;
 }
@@ -55,14 +56,16 @@ function operations(month, { names = new Map(), today = new Date() } = {}) {
   const months = monthsOf();
   // a month (YYYY-MM), or a year to date (YYYY-ytd: January up to today, or to December for a past year)
   const ytdY = /^(\d{4})-ytd$/i.exec(String(month || ''))?.[1];
-  const m = ytdY ? (ytdY < thisMonth().slice(0, 4) ? `${ytdY}-12` : ytdY > thisMonth().slice(0, 4) ? `${ytdY}-01` : thisMonth()) : validMonth(month) || addMonths(thisMonth(), -1); // else the last full month
+  const r12 = String(month || '').toLowerCase() === 'r12'; // the last 12 full months, rolling
+  const multi = !!ytdY || r12; // more than one month
+  const m = r12 ? addMonths(thisMonth(), -1) : ytdY ? (ytdY < thisMonth().slice(0, 4) ? `${ytdY}-12` : ytdY > thisMonth().slice(0, 4) ? `${ytdY}-01` : thisMonth()) : validMonth(month) || addMonths(thisMonth(), -1); // else the last full month
   const y = m.slice(0, 4); const prevM = addMonths(m, -1);
-  const pFrom = ytdY ? `${y}-01` : m; // the period shown: the month, or January to it
+  const pFrom = r12 ? addMonths(m, -11) : ytdY ? `${y}-01` : m; // the period shown: the month, January to it, or the 12 months to it
   const inPeriodM = (mm) => mm >= pFrom && mm <= m;
-  const periodMonths = Array.from({ length: Number(m.slice(5, 7)) - Number(pFrom.slice(5, 7)) + 1 }, (_, i) => addMonths(pFrom, i));
+  const periodMonths = Array.from({ length: (Number(m.slice(0, 4)) - Number(pFrom.slice(0, 4))) * 12 + Number(m.slice(5, 7)) - Number(pFrom.slice(5, 7)) + 1 }, (_, i) => addMonths(pFrom, i));
   const from12 = addMonths(m, -11);
   const inMonth = (r) => inPeriodM(r.day.slice(0, 7));
-  const inYtd = (r) => r.day.slice(0, 4) === y && r.day.slice(0, 7) <= m;
+  const inYtd = multi ? inMonth : (r) => r.day.slice(0, 4) === y && r.day.slice(0, 7) <= m; // several months: the bars are the period's
   const sumBy = (rows, f) => rows.reduce((t, r) => t + (f(r) || 0), 0);
   const range = [`${from12 < `${y}-01` ? from12 : `${y}-01`}-01`, `${addMonths(m, 1)}-01`];
 
@@ -100,7 +103,7 @@ function operations(month, { names = new Map(), today = new Date() } = {}) {
   // the period's OTD: its months' delays against its cards shipped (a month: that month)
   const otdPeriod = (mms) => { const sh = mms.reduce((t, mm) => t + vol(shipped, mm), 0); const dl = mms.reduce((t, mm) => { const x = delaysOf(mm); return { internal: t.internal + x.internal, external: t.external + x.external }; }, { internal: 0, external: 0 });
     return { shipped: sh, ...dl, otd_sc: sh ? 1 - dl.internal / sh : null, otd_c: sh ? 1 - dl.external / sh : null }; };
-  const otdM = otdPeriod(periodMonths); const otdP = ytdY ? { otd_sc: null, otd_c: null } : otdOf(prevM);
+  const otdM = otdPeriod(periodMonths); const otdP = multi ? { otd_sc: null, otd_c: null } : otdOf(prevM);
   const ytdMonths = Array.from({ length: Number(m.slice(5, 7)) }, (_, i) => `${y}-${pad(i + 1)}`);
   const ytdShip = sumBy(ytdMonths, (mm) => vol(shipped, mm));
   const ytdDel = ytdMonths.reduce((t, mm) => { const d = delaysOf(mm); return { internal: t.internal + d.internal, external: t.external + d.external }; }, { internal: 0, external: 0 });
@@ -153,14 +156,14 @@ function operations(month, { names = new Map(), today = new Date() } = {}) {
   });
 
   const sumP = (f) => periodMonths.reduce((t, mm) => t + f(mm), 0); // the period's (a month: that month's)
-  const persoM = sumP((mm) => vol(perso, mm)); const persoP = ytdY ? null : vol(perso, prevM);
-  const shipM = sumP((mm) => vol(shipped, mm)); const shipP = ytdY ? null : vol(shipped, prevM);
-  const scrapM = sumP(scrapOf); const scrapP = ytdY ? null : scrapOf(prevM);
+  const persoM = sumP((mm) => vol(perso, mm)); const persoP = multi ? null : vol(perso, prevM);
+  const shipM = sumP((mm) => vol(shipped, mm)); const shipP = multi ? null : vol(shipped, prevM);
+  const scrapM = sumP(scrapOf); const scrapP = multi ? null : scrapOf(prevM);
   const cardsRows = (rows) => rows.filter((r) => isCard(r.type));
   const src = (s) => db.get('SELECT file, modified, imported_at, rows FROM kpi_sources WHERE source = ?', [s]) || null;
   return {
-    month: m, label: ytdY ? `${y} year to date` : monthLabel(m), months, year: Number(y), scrap_from: scrapFrom,
-    period: { ytd: !!ytdY, from: pFrom, to: m, key: ytdY ? `${y}-ytd` : m, months: periodMonths },
+    month: m, label: r12 ? `Last 12 months (${monthLabel(pFrom)} – ${monthLabel(m)})` : ytdY ? `${y} year to date` : monthLabel(m), months, year: Number(y), scrap_from: scrapFrom,
+    period: { ytd: !!ytdY, r12, multi, kind: r12 ? 'r12' : ytdY ? 'ytd' : 'month', from: pFrom, to: m, key: r12 ? 'r12' : ytdY ? `${y}-ytd` : m, months: periodMonths },
     sources: { perso: src('perso'), shipped: src('shipped'), otd: src('otd'), scrap: src(scrapFrom) },
     tiles: {
       otd: { ...otdM, prev_sc: otdP.otd_sc, prev_c: otdP.otd_c, ytd_sc: ytdShip ? 1 - ytdDel.internal / ytdShip : null, ytd_c: ytdShip ? 1 - ytdDel.external / ytdShip : null, ytd_all: ytdShip ? 1 - (ytdDel.internal + ytdDel.external) / ytdShip : null },
