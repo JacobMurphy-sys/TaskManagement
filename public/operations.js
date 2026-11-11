@@ -50,7 +50,7 @@ function opsSvg(spec, W, H) {
   let rStep = 0; let yR = null;
   if (spec.right) {
     const raw = Math.max(1e-9, ...vals.map((v) => v[spec.right.key] || 0)) * 1.04 / nG; const rp = 10 ** Math.floor(Math.log10(raw));
-    rStep = [1, 2, 2.5, 5, 10].map((x) => x * rp).find((x) => x >= raw - 1e-12) || 10 * rp;
+    rStep = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].map((x) => x * rp).find((x) => x >= raw - 1e-12) || 10 * rp; // fine steps: the tallest bar near the top
     yR = (v) => T + (H - T - B) * (1 - Math.max(0, v) / (rStep * nG));
   }
   const out = [];
