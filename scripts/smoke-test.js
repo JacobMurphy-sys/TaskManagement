@@ -1953,21 +1953,23 @@ async function waitForServer() {
         {
           const { seek, linesOfJobs } = require('../src/optimise');
           const job = (wo, article, due, { shipper = 'bpost', cutoff = 960, prio = 'High', qty = 100, customer = 'ABC' } = {}) => ({ wo, per: '0001', customer, due, shipper, cutoff, prio, articles: [{ article, qty }] });
-          const cardsMap = new Map([['A1', { type: 'DOD', material: 'PVC', sides: '1', name: 'Gold' }], ['A2', { type: 'DOD', material: 'PVC', sides: '1', name: 'Silver' }]]);
+          const cardsMap = new Map([['A1', { type: 'DOD', material: 'PVC', sides: '1', name: 'Gold' }], ['A2', { type: 'DOD', material: 'PVC', sides: '1', name: 'Silver' }],
+            ['A3', { type: 'DOD', material: 'PC', sides: '2', name: 'Black' }], ['B1', { type: 'Emboss', material: 'PVC', sides: '1', name: 'Red' }]]);
           const L = linesOfJobs([job('WO1', 'A1', '2026-04-14'), job('WO2', 'A1', '2026-04-14'), job('WO3', 'A1', '2026-04-15'), job('WO4', 'A1', '2026-04-14', { shipper: 'DHL' }),
-            job('WO5', 'A1', '2026-04-14', { prio: 'Low' }), job('WO6', 'A1', '2026-04-14', { customer: 'XYZ' }), job('WO7', 'A2', '2026-04-14'), job('WO8', 'A1', '2026-04-14', { cutoff: 600 })], cardsMap);
+            job('WO5', 'A1', '2026-04-14', { prio: 'Low' }), job('WO6', 'A1', '2026-04-14', { customer: 'XYZ' }), job('WO7', 'A2', '2026-04-14'), job('WO8', 'A1', '2026-04-14', { cutoff: 600 }), job('WO9', 'A3', '2026-04-14'), job('WO10', 'B1', '2026-04-14')], cardsMap);
           const f = (o) => { const r = seek(L, o); return [r.total.sets, r.total.saving, r.groups.map((g) => g.lines.map((l) => l.wo).join('+'))]; };
-          assert.deepEqual(f({}), [1, 1, ['WO1+WO2']], 'the same card, method, shipper, shipping time and day, dailies apart: WO1 and WO2 could be one');
-          assert.deepEqual(f({ due: 'w1' }), [1, 2, ['WO1+WO2+WO3']], 'due within a day');
-          assert.deepEqual(f({ shipper: 0 }), [1, 2, ['WO1+WO2+WO4']], 'any shipper');
-          assert.deepEqual(f({ prio: 0 }), [1, 2, ['WO1+WO2+WO5']], 'a renewal with dailies');
-          assert.deepEqual(f({ time: 0 })[2], ['WO1+WO2+WO8'], 'any shipping time');
-          assert.deepEqual(f({ card: 'kind' })[2], ['WO1+WO2+WO7'], 'the same kind of card (type, material, sides): another design on the same set-up');
+          assert.deepEqual(f({}), [1, 3, ['WO1+WO2+WO7+WO9']], 'by default: the same production technology (any DOD cards), shipper, shipping time and day, dailies apart; the Emboss one apart');
+          assert.deepEqual(f({ card: 'ax' }), [1, 1, ['WO1+WO2']], 'stricter: the same card');
+          assert.deepEqual(f({ card: 'kind' })[2], ['WO1+WO2+WO7'], 'the same kind of card (type, material, sides)');
+          assert.deepEqual(f({ card: 'ax', due: 'w1' }), [1, 2, ['WO1+WO2+WO3']], 'due within a day');
+          assert.deepEqual(f({ card: 'ax', shipper: 0 }), [1, 2, ['WO1+WO2+WO4']], 'any shipper');
+          assert.deepEqual(f({ card: 'ax', prio: 0 }), [1, 2, ['WO1+WO2+WO5']], 'a renewal with dailies');
+          assert.deepEqual(f({ card: 'ax', time: 0 })[2], ['WO1+WO2+WO8'], 'any shipping time');
           const r = seek(L, {});
-          assert.deepEqual([r.customers[0].customer, r.customers[0].saving, r.groups[0].method, r.total.wos], ['ABC', 1, 'DOD', 8], 'per customer; the personalisation method from the card database');
+          assert.deepEqual([r.customers[0].customer, r.customers[0].saving, r.groups[0].method, r.groups[0].cards_n, r.total.wos], ['ABC', 3, 'DOD', 3, 10], 'per customer; the technology from the card database');
           // a work order with two cards, each shared with the same other work order: still one fewer, not two
           const two = seek(linesOfJobs([{ wo: 'M1', per: '0001', customer: 'DEF', due: '2026-04-14', shipper: 'x', cutoff: 960, prio: 'High', articles: [{ article: 'A1', qty: 5 }, { article: 'A2', qty: 5 }] },
-            { wo: 'M2', per: '0001', customer: 'DEF', due: '2026-04-14', shipper: 'x', cutoff: 960, prio: 'High', articles: [{ article: 'A1', qty: 5 }, { article: 'A2', qty: 5 }] }], cardsMap), {});
+            { wo: 'M2', per: '0001', customer: 'DEF', due: '2026-04-14', shipper: 'x', cutoff: 960, prio: 'High', articles: [{ article: 'A1', qty: 5 }, { article: 'A2', qty: 5 }] }], cardsMap), { card: 'ax' });
           assert.deepEqual([two.total.sets, two.total.saving, two.customers[0].could_be], [2, 1, 1], 'two sets, but the same two work orders: one fewer');
           assert.equal((await call('GET', '/plan/optimise?source=history&days=30')).source, 'history', 'the route: the open work orders or the history');
         }

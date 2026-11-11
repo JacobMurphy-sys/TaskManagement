@@ -8,6 +8,7 @@
 
 const db = require('./db');
 const planning = require('./planning');
+const { normTech } = require('./cpm'); // the card database's type as a production technology: DOD, Emboss or Laser
 
 const pad = (n) => String(n).padStart(2, '0');
 const hhmm = (m) => (m === null || m === undefined ? null : `${pad(Math.floor(m / 60))}:${pad(m % 60)}`);
@@ -15,13 +16,14 @@ const isRenewal = (prio) => /^low/i.test(String(prio || '').trim());
 const dayDiff = (a, b) => Math.round((new Date(`${b}T12:00:00Z`) - new Date(`${a}T12:00:00Z`)) / 86400000);
 
 // What has to be the same, from the page's choices (each one optional):
-//  card: 'ax' the same card (Card AX) | 'kind' the same kind of card (type, material, print sides: the method too)
+//  card: 'tech' the same production technology (DOD, Emboss, Laser: the card database's type), the default |
+//        'kind' the same kind of card (type, material, print sides) | 'ax' the same card (Card AX)
 //  shipper, time: the same shipper / shipping time; due: 'day' the same due-out day | 'w1'…'w5' within that many
 //  days of each other | 'any'; prio: dailies and renewals kept apart
 function options(q = {}) {
   const on = (v, d) => (v === undefined || v === null || v === '' ? d : !['0', 'false', 'no', 'off'].includes(String(v).toLowerCase()));
   const due = /^(day|any|w[1-5])$/.test(String(q.due || '')) ? String(q.due) : 'day';
-  return { card: q.card === 'kind' ? 'kind' : 'ax', shipper: on(q.shipper, true), time: on(q.time, true), due, prio: on(q.prio, true) };
+  return { card: ['ax', 'kind'].includes(q.card) ? q.card : 'tech', shipper: on(q.shipper, true), time: on(q.time, true), due, prio: on(q.prio, true) };
 }
 
 // one line a card: { wo, per, customer, article, qty, card: { type, material, sides, name }, due, time, shipper, renewal }
@@ -32,7 +34,7 @@ function linesOfJobs(jobs, cards) {
       if (!a.article || !j.customer || !j.due) continue;
       const card = a.card || cards?.get(planning.axKey(a.article)) || null;
       out.push({ wo: j.wo, per: j.per || '', customer: String(j.customer).toUpperCase(), article: a.article, qty: Number(a.qty) || 0,
-        card: card ? { type: card.type || null, material: card.material || null, sides: card.sides || null, name: card.name || null } : null,
+        card: card ? { type: card.type || null, tech: normTech(card.type), material: card.material || null, sides: card.sides || null, name: card.name || null } : null,
         due: j.due, time: j.time ?? hhmm(j.cutoff ?? null), shipper: j.shipper || null, renewal: isRenewal(j.prio), prio: j.prio || null, done: !!j.done });
     }
   }
@@ -42,7 +44,9 @@ function linesOfJobs(jobs, cards) {
 function seek(lines, opts, { names = new Map() } = {}) {
   const o = options(opts);
   const keyOf = (l) => [l.customer,
-    o.card === 'kind' ? (l.card ? ['type', 'material', 'sides'].map((k) => String(l.card[k] || '').toLowerCase()).join('|') : `ax:${l.article}`) : l.article,
+    // a card whose technology isn't known (not in the card database) only goes with the same card
+    o.card === 'tech' ? (l.card?.tech ? `tech:${l.card.tech}` : `ax:${l.article}`)
+      : o.card === 'kind' ? (l.card ? ['type', 'material', 'sides'].map((k) => String(l.card[k] || '').toLowerCase()).join('|') : `ax:${l.article}`) : l.article,
     o.shipper ? (l.shipper || '').toLowerCase() : '', o.time ? l.time || '' : '', o.prio ? (l.renewal ? 'R' : 'D') : '', o.due === 'day' ? l.due : ''].join('\u0001');
   const buckets = new Map();
   for (const l of lines) { const k = keyOf(l); if (!buckets.has(k)) buckets.set(k, []); buckets.get(k).push(l); }
@@ -66,7 +70,7 @@ function seek(lines, opts, { names = new Map() } = {}) {
     return {
       customer: f.customer, name: names.get(f.customer) || null,
       article: o.card === 'ax' ? f.article : [...new Set(g.map((l) => l.article))].join(', '), card: f.card,
-      method: f.card?.type || null, shipper: o.shipper ? f.shipper : [...new Set(g.map((l) => l.shipper).filter(Boolean))].join(', ') || null,
+      method: f.card?.tech || f.card?.type || null, cards_n: new Set(g.map((l) => l.article)).size, shipper: o.shipper ? f.shipper : [...new Set(g.map((l) => l.shipper).filter(Boolean))].join(', ') || null,
       time: o.time ? f.time : [...new Set(g.map((l) => l.time).filter(Boolean))].join(', ') || null,
       renewal: o.prio ? f.renewal : null, from: dues[0], to: dues[dues.length - 1],
       wos: wos.length, could_be: 1, saving: wos.length - 1, cards: g.reduce((t, l) => t + l.qty, 0),

@@ -3,7 +3,7 @@
 // the same card (or kind of card, so the same personalisation method), shipper, shipping time and due-out day —
 // in the open work orders now or the history of the past weeks. What must match is chosen on the page.
 
-const optState = () => ({ source: 'open', days: 28, card: 'ax', shipper: true, time: true, due: 'day', prio: true, ...(store.get('optState', {}) || {}) });
+const optState = () => ({ source: 'open', days: 28, card: 'tech', shipper: true, time: true, due: 'day', prio: true, ...(store.get('optState', {}) || {}) });
 
 async function renderPlanOptimise() {
   const st = optState();
@@ -19,15 +19,15 @@ async function renderPlanOptimise() {
   const tick = (name, val, label, t) => `<label class="opt-tick" title="${esc(t)}"><input type="checkbox" data-opt-tick="${name}" ${val ? 'checked' : ''}> ${label}</label>`;
   const where = d.source === 'history' ? `work orders due ${esc(fmtShortDate(d.from))} – ${esc(fmtShortDate(d.to))}` : 'the open work orders now';
   const note = d.source === 'open' && d.status !== 'ok' ? `<div class="kpi-action notice"><span>⚠ The open work orders export couldn't be read${d.error ? `: ${esc(d.error)}` : ''}. Set it in ⚙ Setup.</span></div>` : '';
-  const cardsNote = d.cards_db !== 'ok' ? '<div class="kpi-action notice"><span>⚠ The card database isn\'t linked (⚙ Setup), so cards are matched on their Card AX only and their personalisation method isn\'t shown.</span></div>' : '';
-  const method = (g) => [g.method, g.card?.material, g.card?.sides].filter(Boolean).join(' · ');
+  const cardsNote = d.cards_db !== 'ok' ? '<div class="kpi-action notice"><span>⚠ The card database isn\'t linked (⚙ Setup), so a card\'s technology isn\'t known: cards are matched on their Card AX only.</span></div>' : '';
+  const method = (g) => (st.card === 'tech' ? g.method || '' : [g.method, g.card?.material, g.card?.sides].filter(Boolean).join(' · '));
   const timeOf = (t) => t || '<span class="muted">no time</span>';
   const custRows = d.customers.filter((c) => c.saving).map((c) => `<tr><td><b>${esc(c.customer)}</b>${c.name ? ` <span class="small muted">${esc(c.name)}</span>` : ''}</td>
     <td class="num">${n(c.wos)}</td><td class="num">${n(c.in_sets)}</td><td class="num">${n(c.sets)}</td><td class="num"><b>${n(c.could_be)}</b></td><td class="num"><b>${n(c.saving)}</b></td>
     <td><div class="pllx-share"><div class="pll-track"><div style="width:${Math.min(100, c.share * 100)}%"></div></div><span>${pc(c.share)}</span></div></td></tr>`).join('');
   const groupRows = d.groups.map((g, i) => `<tr class="opt-g" data-opt-more="${i}"><td><button type="button" class="icon small opt-more" aria-expanded="false" title="Its work orders">▸</button></td>
       <td><b>${esc(g.customer)}</b>${g.name ? `<div class="small muted">${esc(g.name)}</div>` : ''}</td>
-      <td><b>${esc(g.article)}</b>${g.card?.name ? `<div class="small muted">${esc(g.card.name)}</div>` : ''}</td><td class="small">${esc(method(g)) || '<span class="muted">—</span>'}</td>
+      <td>${g.cards_n > 1 ? `<b>${g.cards_n} cards</b><div class="small muted" title="${esc(g.article)}">${esc(g.article.length > 40 ? `${g.article.slice(0, 40)}…` : g.article)}</div>` : `<b>${esc(g.article)}</b>${g.card?.name ? `<div class="small muted">${esc(g.card.name)}</div>` : ''}`}</td><td class="small">${esc(method(g)) || '<span class="muted">—</span>'}</td>
       <td class="small">${esc(g.shipper || '—')}<div>${timeOf(g.time)}</div></td>
       <td class="small nowrap">${esc(fmtShortDate(g.from))}${g.to !== g.from ? ` – ${esc(fmtShortDate(g.to))}` : ''}${g.renewal === null ? '' : `<div><span class="chip${g.renewal ? ' ops-renewal' : ''}">${g.renewal ? 'Renewal' : 'Daily'}</span></div>`}</td>
       <td class="num"><b>${n(g.wos)}</b> → 1</td><td class="num">${n(g.cards)}</td></tr>
@@ -39,9 +39,9 @@ async function renderPlanOptimise() {
         <h3 class="pl-h" style="margin:0">🔎 Work orders that could be fewer</h3>
         ${seg('source', d.source === 'history' ? `h${st.days}` : 'open', [['open', 'Open now', 'The open work orders export, as it is now'], ['h28', 'Last 4 weeks', 'Work orders due in the last 4 weeks (the planner\'s history)'], ['h90', 'Last 90 days']])}
       </div>
-      <p class="small muted" style="margin:6px 0 10px">For each customer, separate work orders in ${where} whose cards could run as one work order. Each set below could be one: fewer set-ups, change-overs, paperwork and despatches. Choose what has to match:</p>
+      <p class="small muted" style="margin:6px 0 10px">For each customer, separate work orders in ${where} whose cards are made with the same production technology (or, stricter, the same kind of card or the same card), so could run as one work order. Each set below could be one: fewer set-ups, change-overs, paperwork and despatches. Choose what has to match:</p>
       <div class="opt-match">
-        <span class="small muted">Card</span>${seg('card', st.card, [['ax', 'The same card', 'The same Card AX'], ['kind', 'The same kind of card', 'The same type (personalisation method), material and print sides: different card designs on the same set-up']])}
+        <span class="small muted">Card</span>${seg('card', st.card, [['tech', 'The same technology', 'DOD, Emboss or Laser (the card database\'s type): any cards made on the same kind of machine'], ['kind', 'The same kind of card', 'Stricter: the same type, material and print sides'], ['ax', 'The same card', 'Strictest: the same Card AX']])}
         <span class="small muted">Due out</span>${seg('due', st.due, [['day', 'Same day'], ['w1', 'Within 1 day'], ['w2', 'Within 2 days'], ['w5', 'Within 5 days'], ['any', 'Any day']])}
         ${tick('shipper', st.shipper, 'Same shipper', 'Only work orders going with the same shipper')}${tick('time', st.time, 'Same shipping time', 'Only work orders with the same shipping time (cut-off)')}${tick('prio', st.prio, 'Dailies and renewals apart', 'A renewal (Low priority) isn\'t put with a daily')}
       </div>
