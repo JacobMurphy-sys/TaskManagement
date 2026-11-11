@@ -95,7 +95,28 @@ async function waitForServer() {
           headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager', ...(who ? { 'X-User-Name': encodeURIComponent(who) } : {}) } });
         return { status: res.status, data: res.status === 204 ? null : await res.json() };
       };
-      const tk = await call('POST', '/tasks', { project_id: p.id, title: 'Update the line 3 SOP', owner: 'Alex Kim, Sam Patel' });
+      // 🗂 My lists: a person's own kanban lists that any task is filed in, apart from its status
+    {
+      const t1 = await call('POST', '/tasks', { title: 'File me' }); const t2 = await call('POST', '/tasks', { title: 'File me too' });
+      const week = await call('POST', '/task-lists', { name: 'This week' }); const wait = await call('POST', '/task-lists', { name: 'Waiting on suppliers' });
+      await assert.rejects(call('POST', '/task-lists', { name: ' ' }), /Give the list a name/);
+      await call('PUT', `/task-lists/task/${t1.id}`, { list: week.id });
+      await call('PUT', `/task-lists/task/${t2.id}`, { list: week.id });
+      await call('PUT', `/task-lists/task/${t1.id}`, { list: wait.id });
+      let L = await call('GET', '/task-lists');
+      assert.deepEqual([L.lists.map((l) => l.name), L.items.filter((x) => x.task_id === t1.id).map((x) => x.list_id), L.items.filter((x) => x.list_id === week.id).map((x) => x.task_id)],
+        [['This week', 'Waiting on suppliers'], [wait.id], [t2.id]], 'a task in one of my lists at a time: moving it takes it out of the other');
+      assert.equal((await call('GET', `/tasks/${t1.id}`)).status, 'todo', 'its status untouched');
+      await call('PATCH', `/task-lists/${wait.id}`, { move: -1, name: 'Waiting' });
+      L = await call('GET', '/task-lists');
+      assert.deepEqual(L.lists.map((l) => l.name), ['Waiting', 'This week'], 'renamed, and moved left');
+      await call('PUT', `/task-lists/task/${t2.id}`, { list: null });
+      await call('DELETE', `/task-lists/${wait.id}`);
+      L = await call('GET', '/task-lists');
+      assert.deepEqual([L.lists.length, L.items.length, (await call('GET', `/tasks/${t1.id}`)).title], [1, 0, 'File me'], 'out of a list; a list removed, its tasks untouched');
+      await call('DELETE', `/task-lists/${week.id}`); await call('DELETE', `/tasks/${t1.id}`); await call('DELETE', `/tasks/${t2.id}`);
+    }
+    const tk = await call('POST', '/tasks', { project_id: p.id, title: 'Update the line 3 SOP', owner: 'Alex Kim, Sam Patel' });
       assert.equal((await as(null, 'POST', `/tasks/${tk.id}/poke`, {})).status, 400, 'who poked has to be known');
       let r = await as('Morgan Lee', 'POST', `/tasks/${tk.id}/poke`, { note: 'Can you finish it by Friday?' });
       assert.equal(r.status, 201); assert.deepEqual(r.data.sent, ['Alex Kim', 'Sam Patel']);
@@ -3143,6 +3164,13 @@ async function waitForServer() {
         assert.equal((await tkBox(sam)).length, 0, 'not whoever sent it');
         assert.equal((await tkBox(as('mgr'))).length, 0, 'nor someone who doesn\'t handle tickets');
         await admin('DELETE', `/tickets/${tk.id}`);
+      }
+      // 🗂 My lists are each person's own
+      {
+        const mine = (await admin('POST', '/task-lists', { name: 'Boss only' })).data;
+        assert.deepEqual([(await sam('GET', '/task-lists')).data.lists.length, (await sam('PATCH', `/task-lists/${mine.id}`, { name: 'Mine now' })).status, (await sam('DELETE', `/task-lists/${mine.id}`)).status],
+          [0, 404, 404], 'someone else\'s lists aren\'t seen or changed');
+        await admin('DELETE', `/task-lists/${mine.id}`);
       }
       // 🎓 training: a training account works in a copy of live, shown as a department sees it, and changes nothing real
       {

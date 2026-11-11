@@ -421,6 +421,47 @@ router.delete('/phases/:id', h((req, res) => {
 
 // ------------------------------------------------------------------ tasks
 
+// 🗂 My lists: a person's own kanban lists of tasks (the Tasks page), apart from status, owner and project
+const listOwner = (req) => (req.account ? String(req.account.id) : 'local');
+const myList = (req, id) => { const l = db.get('SELECT * FROM task_lists WHERE id = ? AND owner = ?', [Number(id), listOwner(req)]); if (!l) throw notFound('List'); return l; };
+router.get('/task-lists', h((req, res) => {
+  const lists = db.all('SELECT id, name, sort_order FROM task_lists WHERE owner = ? ORDER BY sort_order, id', [listOwner(req)]);
+  const items = lists.length ? db.all(`SELECT i.list_id, i.task_id, i.sort_order FROM task_list_items i WHERE i.list_id IN (${lists.map(() => '?').join(',')}) ORDER BY i.sort_order, i.id`, lists.map((l) => l.id)) : [];
+  res.json({ lists, items });
+}));
+router.post('/task-lists', h((req, res) => {
+  const name = String(req.body?.name || '').trim().slice(0, 60);
+  if (!name) throw new HttpError(400, 'Give the list a name');
+  const owner = listOwner(req);
+  if (db.get('SELECT COUNT(*) AS n FROM task_lists WHERE owner = ?', [owner]).n >= 30) throw new HttpError(400, 'That\'s 30 lists already');
+  const next = (db.get('SELECT MAX(sort_order) AS m FROM task_lists WHERE owner = ?', [owner]).m ?? -1) + 1;
+  res.status(201).json(insertRow('task_lists', { owner, name, sort_order: next }));
+}));
+router.patch('/task-lists/:id', h((req, res) => {
+  const l = myList(req, req.params.id); const f = {};
+  if ('name' in (req.body || {})) { f.name = String(req.body.name || '').trim().slice(0, 60); if (!f.name) throw new HttpError(400, 'Give the list a name'); }
+  if ('move' in (req.body || {})) { // one place left (-1) or right (+1)
+    const all = db.all('SELECT id FROM task_lists WHERE owner = ? ORDER BY sort_order, id', [l.owner]).map((x) => x.id);
+    const i = all.indexOf(l.id); const j = Math.max(0, Math.min(all.length - 1, i + (Number(req.body.move) < 0 ? -1 : 1)));
+    [all[i], all[j]] = [all[j], all[i]];
+    db.tx(() => all.forEach((id, k) => db.run('UPDATE task_lists SET sort_order = ? WHERE id = ?', [k, id])));
+  }
+  if (Object.keys(f).length) updateRow('task_lists', l.id, f);
+  res.json(db.get('SELECT id, name, sort_order FROM task_lists WHERE id = ?', [l.id]));
+}));
+router.delete('/task-lists/:id', h((req, res) => { const l = myList(req, req.params.id); db.run('DELETE FROM task_lists WHERE id = ?', [l.id]); res.status(204).end(); }));
+// a task into one of my lists (out of any other of mine), or out of them all (list: null)
+router.put('/task-lists/task/:taskId', h((req, res) => {
+  const task = db.get('SELECT id FROM tasks WHERE id = ?', [Number(req.params.taskId)]); if (!task) throw notFound('Task');
+  const owner = listOwner(req);
+  const target = req.body?.list === null || req.body?.list === undefined || req.body?.list === '' ? null : myList(req, req.body.list);
+  db.tx(() => {
+    db.run('DELETE FROM task_list_items WHERE task_id = ? AND list_id IN (SELECT id FROM task_lists WHERE owner = ?)', [task.id, owner]);
+    if (target) { const next = (db.get('SELECT MAX(sort_order) AS m FROM task_list_items WHERE list_id = ?', [target.id]).m ?? -1) + 1; db.run('INSERT INTO task_list_items (list_id, task_id, sort_order) VALUES (?, ?, ?)', [target.id, task.id, next]); }
+  });
+  res.json({ task_id: task.id, list: target ? target.id : null });
+}));
+
 router.get('/tasks', h((req, res) => {
   const where = ["(p.id IS NULL OR p.status <> 'archived')"];
   const params = [];

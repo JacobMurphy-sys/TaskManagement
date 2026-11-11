@@ -231,7 +231,7 @@ function freshTraining() {
 // keeps the site's data to practise on: planning and its history, the reports, OTD, quality and EHS, capacity,
 // contacts and lists, settings and the Library. (Sign-ins aren't kept either: they're only checked on live.)
 const TRAINING_EMPTY = ['task_links', 'reminders', 'reschedules', 'attachments', 'project_costs', 'project_team', 'project_kpis', 'project_phases', 'tasks', 'projects',
-  'notes', 'meetings', 'idea_notes', 'ideas', 'capex', 'tickets', 'messages', 'people_focus', 'cpm_scenarios', 'sessions', 'audit_log'];
+  'notes', 'meetings', 'idea_notes', 'ideas', 'capex', 'tickets', 'messages', 'people_focus', 'cpm_scenarios', 'task_list_items', 'task_lists', 'sessions', 'audit_log'];
 function clearPersonal() {
   const c = cur();
   c.exec('PRAGMA foreign_keys = OFF');

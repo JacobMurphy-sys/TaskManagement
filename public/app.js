@@ -1472,6 +1472,16 @@ function taskBoardHtml(tasks, o = {}) {
     </div>`;
   }).join('');
   const board = (list, laneKey) => `<div class="tboard" style="--cols:${cols.length}">${columns(list, laneKey)}</div>`;
+  // 🗂 My lists: columns of the person's own (o.groups: [{ key, title, ids, foot }]) in place of statuses
+  if (o.groups) {
+    const byId = new Map(cards.map((c) => [c.id, c]));
+    return `<div class="tboard tlists${o.extra ? ' has-new' : ''}" style="--cols:${o.groups.length}">${o.groups.map((g) => {
+      const inCol = g.ids.map((id) => byId.get(id)).filter(Boolean);
+      return `<div class="column tcol more-scope tlist${g.key === 'none' ? ' tlist-none' : ''}" data-list="${g.key}">
+        <h3 class="tcol-head">${g.title}<span class="tcol-n">${inCol.length}</span></h3>
+        <div class="tcol-cards">${inCol.map(card).join('') || `<div class="tcol-empty">${g.key === 'none' ? 'Nothing left to file' : 'Drop a task here'}</div>`}</div>${g.foot || ''}</div>`;
+    }).join('')}${o.extra || ''}</div>`;
+  }
   if (!o.lanes) return board(cards);
   // swimlanes: one row of columns per person or per project
   const keyOf = o.lanes === 'owner' ? (t) => splitOwners(t.owner)[0] || '' : (t) => (t.project_id ? t.project_name : '');

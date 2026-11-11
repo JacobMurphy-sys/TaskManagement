@@ -2577,3 +2577,14 @@ body.in-training #topbar { border-bottom-color: #f3a712; }
 .opt-scale { display: flex; justify-content: space-between; margin-left: calc(min(190px, 40%) + 8px); margin-right: 62px; font-size: 11px; color: var(--muted); }
 .opt-detail summary { cursor: pointer; font-size: 12.5px; color: var(--accent); margin-bottom: 6px; }
 @media (max-width: 800px) { .opt-viz { grid-template-columns: 1fr; } .opt-arrow { transform: rotate(90deg); justify-self: center; } }
+/* ✅ 🗂 My lists: your own kanban columns of tasks */
+.tlists { grid-template-columns: repeat(var(--cols, 4), minmax(280px, 1fr)); }
+.tlists.has-new { grid-template-columns: repeat(var(--cols, 4), minmax(280px, 1fr)) 200px; }
+.tlists .tlist .tcol-head { gap: 6px; }
+.tlist-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
+.tlist-tools { display: inline-flex; gap: 0; opacity: .35; transition: opacity .15s; }
+.tlist:hover .tlist-tools, .tlist-tools:focus-within { opacity: 1; }
+.tlist-tools .icon { padding: 0 4px; min-width: 0; height: 22px; font-size: 13px; }
+.tlist-none { background: color-mix(in srgb, var(--accent) 5%, var(--panel-2)); }
+.tlist-pool { display: flex; gap: 10px; padding: 6px 4px 2px; color: var(--muted); }
+.kanban-tools .tlist-newin { width: 220px; flex: 0 1 220px; min-width: 140px; margin: 0; }

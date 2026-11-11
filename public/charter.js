@@ -243,6 +243,7 @@ async function promoteDialog(t) {
 
 async function renderTasks() {
   if (store.get('tasksScope', 'standalone') === 'all') return renderAllTasks();
+  if (store.get('tasksScope', 'standalone') === 'lists') return renderMyLists();
   const list = await api.get('/tasks?standalone=1');
   const board = store.get('taskPageView', 'board') === 'board'; // ▦ the board first
   const hideDone = store.get('hideDoneStandalone', false);
@@ -286,7 +287,7 @@ async function renderTasks() {
 // ▦ Board (first) or ☰ List, for both of the Tasks page's views
 const taskViewSeg = (board) => `<div class="seg" role="group" aria-label="View"><button data-action="standalone-view" data-view="board" class="${board ? 'on' : ''}" title="A column per status">▦ Board</button><button data-action="standalone-view" data-view="list" class="${board ? '' : 'on'}" title="A checklist">☰ List</button></div>`;
 // ✅ the Tasks page's two views: the standalone tasks, or every open task (projects' too, subtasks among them)
-const tasksScopeSeg = (on) => `<div class="seg" role="group" aria-label="Which tasks"><button type="button" data-tasks-scope="standalone" class="${on === 'standalone' ? 'on' : ''}" title="Ad-hoc tasks outside projects">Standalone</button><button type="button" data-tasks-scope="all" class="${on === 'all' ? 'on' : ''}" title="Every open task, in projects or not — filter by person or project">All open tasks</button></div>`;
+const tasksScopeSeg = (on) => `<div class="seg" role="group" aria-label="Which tasks"><button type="button" data-tasks-scope="standalone" class="${on === 'standalone' ? 'on' : ''}" title="Ad-hoc tasks outside projects">Standalone</button><button type="button" data-tasks-scope="all" class="${on === 'all' ? 'on' : ''}" title="Every open task, in projects or not — filter by person or project">All open tasks</button><button type="button" data-tasks-scope="lists" class="${on === 'lists' ? 'on' : ''}" title="Your own lists: file any task in them, kanban style, apart from its status">🗂 My lists</button></div>`;
 document.addEventListener('click', (e) => { const b = e.target.closest('[data-tasks-scope]'); if (!b) return; store.set('tasksScope', b.dataset.tasksScope); route(); });
 
 async function renderAllTasks() {
@@ -449,4 +450,58 @@ async function renderCharterSettings(root) {
       reload();
     }
   };
+}
+
+// ---- 🗂 My lists: your own kanban lists (e.g. "This week", "Waiting on suppliers") that any open task can be filed
+// in, apart from its status, owner and project; 📥 Not in a list holds your open tasks that aren't in one yet
+async function renderMyLists() {
+  const [all, L] = await Promise.all([api.get('/tasks?open=1'), api.get('/task-lists')]);
+  const me = (typeof ACCT !== 'undefined' && ACCT.account?.person) || '';
+  const pool = store.get('listsPool', me ? 'mine' : 'all'); // what "Not in a list" offers: my open tasks, or every open one
+  const filed = new Map(L.items.map((x) => [x.task_id, x.list_id]));
+  const open = new Set(all.map((t) => t.id));
+  const mine = (t) => !me || splitOwners(t.owner).some((o) => sameName(o, me));
+  const loose = all.filter((t) => !filed.has(t.id) && (pool === 'all' || mine(t)))
+    .sort((a, b) => String(a.due_at || '9').localeCompare(String(b.due_at || '9')) || b.priority - a.priority).map((t) => t.id);
+  const head = (l, i) => `<span class="tlist-name" data-list-act="rename" data-id="${l.id}" title="Rename">${esc(l.name)}</span>
+    <span class="tlist-tools">${i ? `<button type="button" class="icon" data-list-act="left" data-id="${l.id}" title="Move it left">‹</button>` : ''}${i < L.lists.length - 1 ? `<button type="button" class="icon" data-list-act="right" data-id="${l.id}" title="Move it right">›</button>` : ''}<button type="button" class="icon" data-list-act="rename" data-id="${l.id}" title="Rename">✎</button><button type="button" class="icon" data-list-act="delete" data-id="${l.id}" title="Remove the list (its tasks go back to Not in a list)">🗑</button></span>`;
+  const groups = [
+    { key: 'none', title: `<span>📥 Not in a list</span>`, ids: loose,
+      foot: `<div class="tlist-pool small"><label><input type="radio" name="lists-pool" value="mine" ${pool === 'mine' ? 'checked' : ''} ${me ? '' : 'disabled'}> My tasks</label> <label><input type="radio" name="lists-pool" value="all" ${pool === 'all' ? 'checked' : ''}> All open tasks</label></div>` },
+    ...L.lists.map((l, i) => ({ key: String(l.id), title: head(l, i), ids: L.items.filter((x) => x.list_id === l.id && open.has(x.task_id)).map((x) => x.task_id) })),
+  ];
+  main().innerHTML = `
+    <div class="kanban-tools"><h1 style="margin:0">✅ Tasks</h1>${tasksScopeSeg('lists')}<span class="muted small">${L.lists.length ? `${L.lists.length} list${L.lists.length === 1 ? '' : 's'} · ${L.items.filter((x) => open.has(x.task_id)).length} open tasks filed` : 'make a list, then drag tasks into it'}</span><input type="text" id="new-list" class="tlist-newin" placeholder="＋ New list (name, Enter)" maxlength="60" autocomplete="off" title="Your own lists: drag a task into one to file it there. Its status, owner and project stay as they are, and only you see your lists."><div class="spacer"></div>${subCardsToggle().replace(/<label[\s\S]*<\/label>/, '')}</div>
+    <div class="task-board-wrap">${taskBoardHtml(all, { groups, subCards: true, project: true })}
+      <div class="small muted" style="margin-top:6px">Drag a card between lists to file it · back to 📥 Not in a list to take it out · done tasks leave the board (they're back in their list if reopened) · ✎ or click a list's name to rename it · only you see your lists</div></div>`;
+  // drag a card to a list
+  $$('.tlists .kcard[draggable]').forEach((c) => {
+    c.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', c.dataset.id); c.classList.add('dragging'); });
+    c.addEventListener('dragend', () => c.classList.remove('dragging'));
+  });
+  $$('.tlists .column[data-list]').forEach((col) => {
+    col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('drag-over'); });
+    col.addEventListener('dragleave', (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove('drag-over'); });
+    col.addEventListener('drop', async (e) => {
+      e.preventDefault(); col.classList.remove('drag-over');
+      const id = e.dataTransfer.getData('text/plain'); if (!id) return;
+      const to = col.dataset.list === 'none' ? null : Number(col.dataset.list);
+      if ((filed.get(Number(id)) ?? null) === to) return;
+      try { await api.put(`/task-lists/task/${id}`, { list: to }); route(); } catch (err) { toast(err.message, 'error'); }
+    });
+  });
+  $('#new-list')?.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter' || !e.target.value.trim()) return;
+    try { await api.post('/task-lists', { name: e.target.value.trim() }); await route(); $('#new-list')?.focus(); } catch (err) { toast(err.message, 'error'); }
+  });
+  $$('[name="lists-pool"]').forEach((r) => r.addEventListener('change', () => { store.set('listsPool', r.value); route(); }));
+  $$('[data-list-act]').forEach((b) => b.addEventListener('click', async () => {
+    const id = Number(b.dataset.id); const l = L.lists.find((x) => x.id === id); const act = b.dataset.listAct;
+    try {
+      if (act === 'rename') { const name = prompt('The list\'s name', l.name); if (!name || !name.trim() || name.trim() === l.name) return; await api.patch(`/task-lists/${id}`, { name: name.trim() }); }
+      else if (act === 'left' || act === 'right') await api.patch(`/task-lists/${id}`, { move: act === 'left' ? -1 : 1 });
+      else if (act === 'delete') { if (!confirm(`Remove the list “${l.name}”? Its tasks aren't touched: they go back to Not in a list.`)) return; await api.del(`/task-lists/${id}`); }
+      route();
+    } catch (err) { toast(err.message, 'error'); }
+  }));
 }

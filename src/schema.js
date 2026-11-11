@@ -167,6 +167,24 @@ const TABLES = {
     UNIQUE (task_id, depends_on_id),
     CHECK (task_id <> depends_on_id)`,
 
+  // 🗂 Personal task lists (the Tasks page's "My lists"): each person's own kanban columns, e.g. "This week" or
+  // "Waiting on suppliers", that any task can be filed in, apart from its status. owner: the account (or 'local'
+  // with accounts off). A task is in at most one of a person's lists.
+  task_lists: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner       TEXT    NOT NULL,
+    name        TEXT    NOT NULL,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+  task_list_items: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    list_id     INTEGER NOT NULL REFERENCES task_lists(id) ON DELETE CASCADE,
+    task_id     INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    UNIQUE (list_id, task_id)`,
+
   // Actual spend against a project's budget.
   project_costs: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
