@@ -106,6 +106,7 @@ function opsKpiTile(d, k, focus) {
     ontime: `renewals ${OP(t.on_time.renewal.pct)}`,
     openlate: `${OK(t.open_late.cards)} cards past their deadline`,
     capex: d.site.detail.capex.pipeline ? `+ ${OK(d.site.detail.capex.pipeline / 1000)}k€ in the pipeline` : `${d.site.detail.capex.year}, committed`,
+    mir: d.site.detail.mir ? (d.site.detail.mir.last ? `last accident ${esc(fmtShortDate(d.site.detail.mir.last))}` : 'no accidents recorded') : '',
     productivity: d.site.detail.productivity.range ? `@ site level (${opsKpiFmt(k, d.site.detail.productivity.range[0])} – ${opsKpiFmt(k, d.site.detail.productivity.range[1])})` : '',
   }[k.key];
   if (v.ytd !== null && v.ytd !== undefined && !['capex', 'volume'].includes(k.key)) bits.push(`<span>year ${opsKpiFmt(k, v.ytd)}</span>`);
@@ -127,7 +128,7 @@ function opsKpiSettings(d) {
       <td><b>${esc(k.label)}</b>${k.sub ? ` <span class="muted">${esc(k.sub)}</span>` : ''}${k.key === 'otd' ? `<br><select data-ks-measure="otd">${Object.entries(k.measures).map(([m, l]) => `<option value="${m}" ${k.measure === m ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>` : ''}</td>
       <td><span class="row" style="gap:4px;flex-wrap:nowrap">${k.key === 'transfo' ? '€' : ''}<input type="number" step="any" style="width:90px" data-ks-target="${k.key}" value="${k.target ?? ''}" placeholder="none">${k.pct ? '%' : k.key === 'capex' || k.key === 'inventory' ? 'k€' : k.key === 'productivity' ? 'c/h' : ''}</span></td>
       <td>${k.better === 'down' ? '▼ lower' : '▲ higher'}</td>
-      <td class="small muted">${k.typed ? '✎ typed in each month' : { cpms: 'complaints (Salesforce, else typed weekly) ÷ cards shipped', otd: 'the OTD report ÷ cards shipped', wastage: 'scrap ÷ cards persoed', productivity: 'cards persoed ÷ Protime hours', capex: '💶 CAPEX: approved and on, this year', volume: 'the perso export', ontime: 'the planner\'s work orders', openlate: 'the planner\'s work orders' }[k.key] || ''}</td></tr>`).join('')}
+      <td class="small muted">${k.typed ? `✎ typed in each month${k.key === 'mir' ? ' (until the safety concern forms are linked on Sources)' : ''}` : { mir: 'accidents (AC) on the safety concern forms (⛑ EHS)', cpms: 'complaints (Salesforce, else typed weekly) ÷ cards shipped', otd: 'the OTD report ÷ cards shipped', wastage: 'scrap ÷ cards persoed', productivity: 'cards persoed ÷ Protime hours', capex: '💶 CAPEX: approved and on, this year', volume: 'the perso export', ontime: 'the planner\'s work orders', openlate: 'the planner\'s work orders' }[k.key] || ''}</td></tr>`).join('')}
     </tbody></table></div>
     <div class="row" style="justify-content:flex-end;gap:8px;margin-top:12px"><button data-action="close-modal">Cancel</button><button class="primary" id="ks-save">Save</button></div>`, { wide: true });
   $('#ks-save').onclick = async () => {
@@ -220,11 +221,11 @@ function opsHtml(d) {
   const chartBox = (legend, chart) => `<div class="qd-trend">${legend}${chart}</div>`;
   const barsKey = `<div class="qd-foot q-bars-key small muted"><span><i class="q-sw mon"></i>${esc(d.label)}</span><span><i class="q-sw ytd"></i>year to date</span></div>`;
   // a KPI month by month: its line and its target
-  const kpiChart = (key, { min = null } = {}) => {
+  const kpiChart = (key, { min = null, max = null } = {}) => {
     const k = kOf(key); const v = d.site.values[key];
     const vals = v.trend.map((x) => ({ v: x.value }));
     if (!vals.some((x) => x.v !== null)) return `<div class="empty small">No ${esc(k.label)} figures in the 12 months up to ${esc(d.label)}${k.typed ? ': type them in on the right.' : '.'}</div>`;
-    return chartBox(opsLegend([['q-c3', `${k.label}${k.sub ? ` (${k.sub})` : ''}`, true]]), opsChart({ aria: `${k.label} by month`, cats: monCats, values: vals, bars: [], lines: [{ key: 'v', cls: 'q-c3', label: k.label }], fmt: (x) => opsKpiFmt(k, x), ...(min !== null ? { min } : {}), ...tgt(key) }));
+    return chartBox(opsLegend([['q-c3', `${k.label}${k.sub ? ` (${k.sub})` : ''}`, true]]), opsChart({ aria: `${k.label} by month`, cats: monCats, values: vals, bars: [], lines: [{ key: 'v', cls: 'q-c3', label: k.label }], fmt: (x) => opsKpiFmt(k, x), ...(min !== null ? { min } : {}), ...(max !== null ? { max } : {}), ...tgt(key) }));
   };
   const head = (title, note = '') => `<h3>${title}</h3>${note ? `<span class="small muted">${note}</span>` : ''}`;
   const back = `<button type="button" class="small" data-ops-kpi="${focus}" title="Back to the overview">✕ Back to the overview</button>`;
@@ -281,6 +282,15 @@ function opsHtml(d) {
       return `<div class="qd-top">${panel('qd-charts', head(`💶 CAPEX ${c.year}, by planned month`, 'k, committed and in the pipeline'), chartBox(opsLegend([['q-c3', 'Committed'], ['q-c2', 'Pipeline']]), opsChart({ aria: 'CAPEX by month', cats, values: vals, bars: [{ key: 'committed', cls: 'q-c3', label: 'Committed (k)' }, { key: 'pipeline', cls: 'q-c2', label: 'Pipeline (k)' }], fmt: (x) => `${Math.round(x)}k` })))}
         ${panel('qd-where', head(`The year ${c.year}`), sum)}</div>
         ${panel('qd-cases', `${head(`Investments planned in ${c.year} <span class="tm-count">${c.items.length}</span>`)}${modOk('capex') ? '<a class="button small" href="#/capex">💶 CAPEX</a>' : ''}${back}`, items)}`;
+    },
+    mir: () => {
+      const a = d.site.detail.mir; const list = a?.accidents || [];
+      const rows = list.length ? `<div class="kdb-scroll"><table class="log q-cases ops-table"><thead><tr><th>Form</th><th>Day</th><th>Where</th><th>What happened</th><th>First aid</th><th>Status</th></tr></thead><tbody>
+        ${list.map((x) => `<tr><td><b>${esc(x.num ?? '')}</b></td><td>${esc(fmtShortDate(x.day))}</td><td>${esc(x.location || '')}</td><td class="small">${esc(x.description || x.detail || '')}</td><td class="small">${esc(x.first_aid || '')}</td><td class="small">${esc(x.status || '')}</td></tr>`).join('')}</tbody></table></div>`
+        : `<div class="empty small">No accidents in ${esc(d.label)}.${a?.last ? ` The last was on ${esc(fmtShortDate(a.last))}.` : ''}</div>`;
+      return `<div class="qd-top">${panel('qd-charts', head('⛑ MIR, month by month', 'medical incidents: accidents on the safety concern forms'), kpiChart('mir', { max: Math.max(6, ...d.site.values.mir.trend.map((x) => x.value || 0)) }))}
+        ${panel('qd-where', head('By month'), `<div class="kdb-scroll"><table class="log q-cases ops-table"><thead><tr><th>Month</th><th class="num">Accidents</th></tr></thead><tbody>${d.site.values.mir.trend.slice().reverse().map((x) => `<tr><td>${esc(qShort(x.month))} ${x.month.slice(0, 4)}</td><td class="num">${x.value ?? 0}</td></tr>`).join('')}</tbody></table></div>`)}</div>
+        ${panel('qd-cases', `${head(`Accidents in ${esc(qShort(d.month))} <span class="tm-count">${list.length}</span>`)}${modOk('quality') ? '<a class="button small" href="#/kpi/ehs">⛑ EHS</a>' : ''}${back}`, rows)}`;
     },
     ontime: () => `${panel('qd-cases', `<div class="seg qd-tabs">${tab('otable', 'ontime', 'On time by customer')}${tab('otable', 'late', `Late work orders <span class="tm-count">${d.late.length}</span>`)}</div><span class="small muted">On time: finished by the deadline, of what's finished · dailies: not Low priority · renewals: Low priority</span>${back}`, `${pane('otable', 'ontime', onTime)}${pane('otable', 'late', lateTable)}`)}`,
     openlate: () => `${panel('qd-cases', `${head(`Late work orders in ${esc(qShort(d.month))} <span class="tm-count">${d.late.length}</span>`, `${ON(t.open_late.wos)} past their deadline and still open now`)}${back}`, lateTable)}`,

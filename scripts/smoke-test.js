@@ -1432,7 +1432,12 @@ async function waitForServer() {
         await call('PUT', '/kpi/operations/value', { kpi: 'transfo', month: '2026-04', value: '0,58' });
         await call('PUT', '/kpi/operations/value', { kpi: 'gci', month: '2026-03', value: 73 });
         await assert.rejects(call('PUT', '/kpi/operations/value', { kpi: 'otd', month: '2026-04', value: 1 }), /isn't typed in/);
-        await assert.rejects(call('PUT', '/kpi/operations/value', { kpi: 'mir', month: '2026-13', value: 1 }), /Not a month/);
+        await assert.rejects(call('PUT', '/kpi/operations/value', { kpi: 'gci', month: '2026-13', value: 1 }), /Not a month/);
+        // MIR (medical incident rate): the accidents on the safety concern forms, once they're linked
+        const mirOf = (await call('GET', '/kpi/operations?month=2026-08')).site;
+        assert.deepEqual([mirOf.config.find((k) => k.key === 'mir').typed, mirOf.values.mir.now, mirOf.values.mir.ytd, mirOf.detail.mir.accidents.map((x) => [x.location, x.description])],
+          [false, 1, 1, [['Warehouse', 'Van operator stuck']]], 'MIR: August\'s accident from the EHS forms');
+        await assert.rejects(call('PUT', '/kpi/operations/value', { kpi: 'mir', month: '2026-08', value: 0 }), /isn't typed in/);
         const op2 = (await call('GET', '/kpi/operations?month=2026-04')).site;
         assert.deepEqual([op2.values.otd.now, op2.values.transfo.now, op2.values.gci.prev], [1 - 500 / 800, 0.58, 0.73], 'OTD with all delays; typed in figures (a % typed as 73)');
         await call('PUT', '/kpi/operations/value', { kpi: 'transfo', month: '2026-04', value: null });
@@ -2978,7 +2983,7 @@ async function waitForServer() {
       assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'production'], ['planning', 'cpm', 'kpi']], 'the basic pack always, unknown ones dropped; Prod Management includes 📐 Capacity planning and the Weekly SC Report');
       assert.equal((await sam('GET', '/kpi/snapshots')).status, 200, 'the Weekly SC Report is Prod Management\'s');
       assert.equal((await sam('GET', '/kpi/operations')).status, 200, '🏭 Operations too');
-      assert.deepEqual([(await sam('PUT', '/kpi/operations/config', { kpis: { otd: { target: 99 } } })).status, (await sam('PUT', '/kpi/operations/value', { kpi: 'mir', month: '2026-01', value: 0 })).status],
+      assert.deepEqual([(await sam('PUT', '/kpi/operations/config', { kpis: { otd: { target: 99 } } })).status, (await sam('PUT', '/kpi/operations/value', { kpi: 'gci', month: '2026-01', value: 70 })).status],
         [403, 200], 'the KPIs\' targets take the setup right; a figure typed in, Prod Management');
       assert.equal((await sam('GET', '/kpi/otd')).status, 403, '🚚 OTD is Despatch\'s');
       await admin('PATCH', `/accounts/${samId}`, { modules: ['despatch'] });

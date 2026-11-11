@@ -7,9 +7,11 @@
 //  - Wastage: the scrap rate (scrap ÷ cards persoed, as the A3)
 //  - Productivity: cards persoed per working hour (the weekly Protime hours), and each machine's cards per
 //    hour of run time (the timing reports) for the range across the site
+//  - MIR (medical incident rate): the accidents (AC) on the safety concern forms, by the month of the incident
+//    (the EHS source); typed in each month while that isn't linked
 //  - CAPEX: the year's investments in the 💶 CAPEX register, committed (approved and on) and in the pipeline
 //  - Cards persoed / shipped, work orders on time, late and still open: as on the page before
-// Others there's no source for yet (transformation costs, MIR, GCI, gross inventory) are typed in each month.
+// Others there's no source for yet (transformation costs, GCI, gross inventory) are typed in each month.
 
 const db = require('./db');
 const kpiData = require('./kpidata');
@@ -28,7 +30,7 @@ const KPIS = [
   { key: 'otd', label: 'Service level', sub: 'OTD', unit: '%', better: 'up', pct: true, decimals: 1 },
   { key: 'wastage', label: 'Wastage', sub: 'scrap rate', unit: '%', better: 'down', pct: true, decimals: 2 },
   { key: 'productivity', label: 'Productivity', unit: 'cards an hour', better: 'up', decimals: 0 },
-  { key: 'mir', label: 'MIR', unit: '', better: 'down', typed: true, on: true, decimals: 0 },
+  { key: 'mir', label: 'MIR', sub: 'medical incidents', unit: 'accidents', better: 'down', typed: true, on: true, decimals: 0 }, // from the EHS forms when linked
   { key: 'gci', label: 'GCI', unit: '%', better: 'up', typed: true, on: false, pct: true, decimals: 0 },
   { key: 'inventory', label: 'Gross inventory', unit: 'k€', better: 'down', typed: true, on: false, decimals: 0 },
   { key: 'capex', label: 'CAPEX', unit: 'k€ this year', better: 'down', decimals: 0 },
@@ -36,6 +38,7 @@ const KPIS = [
   { key: 'ontime', label: 'Work orders on time', sub: 'dailies', unit: '%', better: 'up', pct: true, decimals: 1 },
   { key: 'openlate', label: 'Late, still open', unit: 'work orders', better: 'down', decimals: 0 },
 ];
+const ehsLinked = () => { try { return !!db.get("SELECT 1 FROM kpi_sources WHERE source = 'ehs'"); } catch { return false; } };
 const OTD_MEASURES = { sc: 'OTD SC (Service Center delays)', c: 'OTD C (customer delays)', all: 'OTD (all delays)' };
 
 // the KPIs as set up here: switched on or off, their target, and how OTD is counted
@@ -44,7 +47,8 @@ function config() {
   return KPIS.map((k) => {
     const s = saved[k.key] || {};
     const target = s.target === null || s.target === undefined || s.target === '' || !Number.isFinite(Number(s.target)) ? null : Number(s.target);
-    return { ...k, on: typeof s.on === 'boolean' ? s.on : k.on !== false, target, ...(k.key === 'otd' ? { measure: OTD_MEASURES[s.measure] ? s.measure : 'sc', measures: OTD_MEASURES } : {}) };
+    const typed = k.key === 'mir' ? !ehsLinked() : !!k.typed;
+    return { ...k, typed, on: typeof s.on === 'boolean' ? s.on : k.on !== false, target, ...(k.key === 'otd' ? { measure: OTD_MEASURES[s.measure] ? s.measure : 'sc', measures: OTD_MEASURES } : {}) };
   });
 }
 // { kpis: { key: { on, target, measure } } }: only what's given changes
@@ -66,7 +70,7 @@ function setConfig(body) {
 }
 // a figure typed in for a month (null removes it)
 function setValue(key, month, value) {
-  const k = KPIS.find((x) => x.key === key && x.typed);
+  const k = config().find((x) => x.key === key && x.typed);
   if (!k) throw Object.assign(new Error('That KPI isn\'t typed in'), { status: 400 });
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month || ''))) throw Object.assign(new Error('Not a month (YYYY-MM)'), { status: 400 });
   const all = json(setting('ops_values'), {}); const v = all[key] || {};
@@ -176,9 +180,19 @@ function siteKpis(ops) {
     items: capex.filter((c) => c.status !== 'rejected').map((c) => ({ ...c })),
   };
 
+  // ---- MIR: the accidents on the safety concern forms, by the month of the incident
+  if (ehsLinked()) {
+    const acc = db.all("SELECT day, customer, extra FROM kpi_rows WHERE source = 'ehs' AND upper(type) = 'AC' AND day <> '' ORDER BY day")
+      .map((r) => { const x = json(r.extra, {}); return { day: r.day, location: r.customer, num: x.num ?? null, detail: x.detail ?? null, description: x.description ?? null, first_aid: x.first_aid ?? null, category: x.category ?? null, status: x.status ?? null }; });
+    const n = (mm) => acc.filter((a) => a.day.slice(0, 7) === mm).length;
+    values.mir = { ...pick(byMonth(n)), ytd: acc.filter((a) => a.day.slice(0, 4) === String(y) && a.day.slice(0, 7) <= m).length };
+    const before = acc.filter((a) => a.day.slice(0, 7) <= m).pop();
+    detail.mir = { accidents: acc.filter((a) => a.day.slice(0, 7) === m).reverse(), last: before?.day || null };
+  }
+
   // ---- typed in each month
   const typed = json(setting('ops_values'), {});
-  for (const k of KPIS.filter((x) => x.typed)) {
+  for (const k of cfg.filter((x) => x.typed)) {
     const v = typed[k.key] || {};
     values[k.key] = { ...pick(byMonth((mm) => (Number.isFinite(v[mm]) ? (k.pct ? v[mm] / 100 : v[mm]) : null))), ytd: null, typed: true }; // a % typed as 73: kept as 0.73, as the others
   }
