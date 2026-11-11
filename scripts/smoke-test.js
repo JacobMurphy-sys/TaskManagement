@@ -1491,6 +1491,9 @@ async function waitForServer() {
         await call('PUT', '/kpi/otd-from', { from: 'entered' });
         assert.deepEqual((await call('GET', `/kpi/calc/otd?week=${wk}`)).map((r) => [r.customer, r.qty, r.type, r.reason]), [['BKA', 700, 'Internal', 'Machine Issues']], 'the entries are the OTD source');
         assert.equal((await call('POST', '/kpi/calc/import', {})).find((r) => r.source === 'otd').status, 'entered', 'the OTD report isn\'t read meanwhile');
+        assert.equal((await call('GET', `/kpi/otd?week=${wk}`)).entries[0].renewal, false, 'a High priority work order: a daily');
+        const bka = (await call('GET', '/kpi/operations?month=2026-04')).otd_customers.find((c) => c.customer === 'BKA');
+        assert.deepEqual([bka.daily, bka.renewal, bka.kind_unknown], [700 + 200, 0, 0], 'Operations\' OTD table: April\'s logged delays (both of them) as dailies and renewals');
         await call('DELETE', `/kpi/otd/${en2.id}`);
         assert.equal((await call('GET', '/kpi/calc/otd?week=W2617')).length, 0, 'removed: gone from the figures too');
         await call('PUT', '/kpi/otd-from', { from: 'report' });

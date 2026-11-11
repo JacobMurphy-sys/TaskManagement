@@ -96,7 +96,8 @@ function operations(month, { names = new Map(), today = new Date() } = {}) {
   const weekMonth = new Map();
   for (const yy of [Number(y) - 1, Number(y)]) for (const w of kpiData.weeksOf(yy)) weekMonth.set(w.week, `${yy}-${pad(kpiData.monthIndex(w.month) + 1)}`);
   const delays = db.all("SELECT week, customer, type, qty, extra FROM kpi_rows WHERE source = 'otd' AND week <> ''")
-    .map((r) => ({ month: weekMonth.get(String(r.week).toUpperCase()), customer: r.customer, internal: /^int/i.test(r.type || ''), external: /^ext/i.test(r.type || ''), qty: r.qty || 0, reason: parseExtra(r.extra).reason || null }))
+    .map((r) => { const x = parseExtra(r.extra); return { month: weekMonth.get(String(r.week).toUpperCase()), customer: r.customer, internal: /^int/i.test(r.type || ''), external: /^ext/i.test(r.type || ''), qty: r.qty || 0, reason: x.reason || null,
+      renewal: typeof x.renewal === 'boolean' ? x.renewal : null }; }) // daily or renewal: known for delays logged against a work order (🚚 OTD), not for the report's rows
     .filter((r) => r.month);
   const delaysOf = (mm) => ({ internal: sumBy(delays.filter((r) => r.month === mm && r.internal), (r) => r.qty), external: sumBy(delays.filter((r) => r.month === mm && r.external), (r) => r.qty) });
   const otdOf = (mm) => { const s = vol(shipped, mm); const d = delaysOf(mm); return { shipped: s, ...d, otd_sc: s ? 1 - d.internal / s : null, otd_c: s ? 1 - d.external / s : null }; };
@@ -112,14 +113,15 @@ function operations(month, { names = new Map(), today = new Date() } = {}) {
   for (const r of shipped) if (inPeriodM(r.day.slice(0, 7)) && isCard(r.type)) shipByCust.set(norm(r.customer), (shipByCust.get(norm(r.customer)) || 0) + (r.qty || 0));
   const delayCust = new Map();
   for (const r of delays.filter((x) => inPeriodM(x.month))) {
-    const k = norm(r.customer); const e = delayCust.get(k) || { customer: r.customer, internal: 0, external: 0, reasons: new Map() };
+    const k = norm(r.customer); const e = delayCust.get(k) || { customer: r.customer, internal: 0, external: 0, daily: 0, renewal: 0, reasons: new Map() };
     if (r.internal) e.internal += r.qty; if (r.external) e.external += r.qty;
+    if (r.renewal === true) e.renewal += r.qty; else if (r.renewal === false) e.daily += r.qty;
     if (r.reason) e.reasons.set(r.reason, (e.reasons.get(r.reason) || 0) + r.qty);
     delayCust.set(k, e);
   }
   const otdCustomers = [...delayCust.entries()].map(([k, e]) => {
     const s = shipByCust.get(k) || null;
-    return { customer: e.customer, shipped: s, internal: e.internal, external: e.external, otd_sc: s ? 1 - e.internal / s : null, otd_c: s ? 1 - e.external / s : null,
+    return { customer: e.customer, shipped: s, internal: e.internal, external: e.external, daily: e.daily, renewal: e.renewal, kind_unknown: e.internal + e.external - e.daily - e.renewal, otd_sc: s ? 1 - e.internal / s : null, otd_c: s ? 1 - e.external / s : null,
       reasons: [...e.reasons.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([reason, qty]) => ({ reason, qty })) };
   }).sort((a, b) => (b.internal + b.external) - (a.internal + a.external));
 

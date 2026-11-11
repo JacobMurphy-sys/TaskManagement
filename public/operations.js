@@ -84,6 +84,12 @@ function opsSourcesLine(d) {
   return names.length ? `🏭 ${esc(names.join(' · '))}${read ? ` · read ${esc(fmtDateTime(read))}` : ''}` : '';
 }
 
+// a customer's delays as dailies and renewals (known for delays logged against a work order on 🚚 OTD)
+function opsKindCell(c) {
+  const bits = [c.daily ? `<span class="chip">Daily</span> ${ON(c.daily)}` : '', c.renewal ? `<span class="chip ops-renewal">Renewal</span> ${ON(c.renewal)}` : ''].filter(Boolean);
+  if (c.kind_unknown > 0) bits.push(`<span class="muted" title="From the OTD report, which doesn't say">${bits.length ? `${ON(c.kind_unknown)} not known` : '—'}</span>`);
+  return bits.join('<br>') || '<span class="muted">—</span>';
+}
 // ---- the site KPIs: a tile each along the top (src/sitekpis.js), its target set on ⚙ KPIs -----------------------
 // A KPI's figure as it's written: percentages from fractions, money, cards an hour …
 function opsKpiFmt(k, v, { unit = false } = {}) {
@@ -223,8 +229,8 @@ function opsHtml(d) {
         return `<tr><td><b>${esc(c.customer)}</b>${c.name ? `<div class="small muted">${esc(c.name)}</div>` : ''}</td><td>${pctCell(c.daily)}</td><td>${pctCell(c.renewal)}</td>
           <td class="num">${dl ? `${dl.internal ? `${ON(dl.internal)} SC` : ''}${dl.internal && dl.external ? ' · ' : ''}${dl.external ? `${ON(dl.external)} customer` : ''}` : '<span class="muted">—</span>'}</td></tr>`; }).join('')}</tbody></table></div>`
     : `<div class="empty small">${d.planner ? `No work orders were due in ${esc(d.label)}.` : 'The planner has no history yet: work orders are recorded from the open perso export (Production) as it\'s read.'}</div>`;
-  const otdTable = d.otd_customers.length ? `<div class="kdb-scroll"><table class="log q-cases ops-table"><thead><tr><th>Customer</th><th class="num">Shipped</th><th class="num">SC delays</th><th class="num">OTD SC</th><th class="num">Customer delays</th><th class="num">OTD C</th><th>Main reasons</th></tr></thead><tbody>
-      ${d.otd_customers.map((c) => `<tr><td><b>${esc(c.customer || '?')}</b></td><td class="num">${c.shipped ? ON(c.shipped) : '<span class="muted" title="No cards shipped under this name this month">—</span>'}</td>
+  const otdTable = d.otd_customers.length ? `<div class="kdb-scroll"><table class="log q-cases ops-table"><thead><tr><th>Customer</th><th title="Delays logged on 🚚 OTD against a work order: daily, or renewal (the planner's Low priority). The OTD report's own rows don't say.">Daily / renewal</th><th class="num">Shipped</th><th class="num">SC delays</th><th class="num">OTD SC</th><th class="num">Customer delays</th><th class="num">OTD C</th><th>Main reasons</th></tr></thead><tbody>
+      ${d.otd_customers.map((c) => `<tr><td><b>${esc(c.customer || '?')}</b></td><td class="small">${opsKindCell(c)}</td><td class="num">${c.shipped ? ON(c.shipped) : '<span class="muted" title="No cards shipped under this name this month">—</span>'}</td>
         <td class="num">${c.internal ? ON(c.internal) : ''}</td><td class="num">${OP(c.otd_sc)}</td><td class="num">${c.external ? ON(c.external) : ''}</td><td class="num">${OP(c.otd_c)}</td>
         <td class="small">${c.reasons.map((r) => `${esc(r.reason)} <span class="muted">${ON(r.qty)}</span>`).join(' · ')}</td></tr>`).join('')}</tbody></table></div>`
     : `<div class="empty small">No delays in the OTD report for ${esc(d.label)}.</div>`;

@@ -2532,3 +2532,5 @@ details.msel .msel-pop input.msel-q { flex: none; width: 100%; min-width: 0; max
 /* 🏭 bars on a scale of their own (read on the right), behind the line */
 .q-chart .ops-bar-r { opacity: .45; }
 .q-chart .ops-ax-r { fill: var(--muted); }
+/* 🚚 a renewal (the planner's Low priority) told apart from a daily */
+.chip.ops-renewal { background: color-mix(in srgb, var(--q-c2) 22%, var(--panel)); color: var(--text); }

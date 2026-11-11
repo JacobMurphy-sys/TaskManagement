@@ -152,7 +152,7 @@ function sync() {
       if (r.due && (!first || r.due < first)) first = r.due;
       if (r.due && (!last || r.due > last)) last = r.due;
       ins.run('otd', r.due || '', r.week, r.customer, r.type, r.qty, 0, JSON.stringify({ reason: r.reason, typed_week: r.week, date_week: r.due ? kpiData.weekCode(r.due) : null,
-        week_raw: r.week, month_raw: null, wo: r.wo, entry: r.id, by: r.created_by }));
+        week_raw: r.week, month_raw: null, wo: r.wo, entry: r.id, by: r.created_by, renewal: woOf(r.wo)?.renewal ?? null })); // a renewal: the planner's Low priority
     }
     db.run(`INSERT INTO kpi_sources (source, file, modified, imported_at, rows, skipped, first_day, last_day) VALUES ('otd', ?, NULL, ?, ?, 0, ?, ?)
       ON CONFLICT(source) DO UPDATE SET file = excluded.file, modified = NULL, imported_at = excluded.imported_at, rows = excluded.rows, skipped = 0,
@@ -172,7 +172,7 @@ function page(week, { names = new Map(), splitWeekends = false, today = new Date
   const months = new Map(weeks.map((w) => [w.week, w.month]));
   const entries = db.all('SELECT * FROM otd_entries WHERE week = ? ORDER BY created_at DESC, id DESC', [wk]).map((e) => {
     const w = woOf(e.wo, today);
-    return { ...e, name: names.get(e.customer) || null, shipper: w?.shipper || null, cutoff: w ? w.cutoff : null, pickup: w?.pickup || null, pickup_kind: w?.pickup_kind || null, open: w?.open ?? null };
+    return { ...e, name: names.get(e.customer) || null, renewal: w ? w.renewal : null, prio: w?.prio || null, shipper: w?.shipper || null, cutoff: w ? w.cutoff : null, pickup: w?.pickup || null, pickup_kind: w?.pickup_kind || null, open: w?.open ?? null };
   });
   const sum = (t) => entries.filter((e) => e.type === t).reduce((s, e) => s + e.qty, 0);
   // cards shipped that week (the shipped export, as the Weekly SC Report counts OTD against)
