@@ -36,6 +36,7 @@ const TABLES = {
     owner         INTEGER NOT NULL DEFAULT 0,
     training      INTEGER NOT NULL DEFAULT 0, -- 🎓 works in the training copy only (db.asTraining)
     training_view TEXT,                       -- the department view it's showing: modules (null: all)
+    training_as   INTEGER,                    -- whose account it acts as in the copy (the host who made it): their name, entries, rights
     last_login    TEXT,
     created_at    TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at    TEXT    NOT NULL DEFAULT (${NOW})`,

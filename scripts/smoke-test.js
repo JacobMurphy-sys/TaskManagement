@@ -3124,6 +3124,9 @@ async function waitForServer() {
         await trc('POST', '/auth/password', { current: 'trainer-pass-1', next: 'trainer-pass-2' });
         let me = (await trc('GET', '/auth/me')).data;
         assert.deepEqual([me.account.training, me.account.training_view, me.account.modules.includes('despatch')], [true, null, true], 'signed in to training: everything, until a view is picked');
+        const host = (await admin('GET', '/auth/me')).data.account;
+        assert.deepEqual([me.account.person, me.account.username, me.account.owner, me.account.rights.length === host.rights.length], [host.person, 'trainer', false, true], 'in the copy it acts as the host who made it: their name and rights');
+        await admin('POST', '/tasks', { title: 'Host\'s own task', owner: host.person });
         const info = (await trc('GET', '/training')).data;
         assert.ok(info.exists && info.copied_at && info.views.some((v) => v.key === 'despatch'), 'a copy of live, made when first needed, and the department views');
         assert.notEqual((await anon('GET', '/training')).status, 200, 'not without signing in');
@@ -3133,6 +3136,9 @@ async function waitForServer() {
         assert.ok(!titles(await admin('GET', '/tasks')).includes('Practised in training'), 'not in the real SITHUB');
         await admin('POST', '/tasks', { title: 'Real work after the copy' });
         assert.ok(!titles(await trc('GET', '/tasks')).includes('Real work after the copy'), 'nor the other way round');
+        await trc('POST', '/training/reset', {});
+        const work = await trc('GET', '/me/work');
+        assert.deepEqual([work.status, JSON.stringify(work.data).includes('Host\'s own task')], [200, true], '📥 My work: the host\'s own tasks');
         // the department view: Despatch sees OTD, not the Weekly SC Report
         const v = (await trc('PUT', '/training/view', { modules: ['despatch'] })).data;
         assert.deepEqual(v.modules, ['basic', 'despatch']);

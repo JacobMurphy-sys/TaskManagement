@@ -48,7 +48,7 @@ window.TIMELINE = {
       points: ['Each backup checked by unzipping it again before the original is removed', 'Kept by age: every backup for 30 days on the server, or every one for two days and then one a day', 'Download any backup as a plain file; restore takes compressed and plain alike', 'Made in the background, so a large backup never holds the site up', 'The Backups page shows the space used and what is free'] },
     { id: 'training', date: '2026-11-11', area: 'platform', title: 'A training copy',
       text: 'A practice copy of SITHUB for leading training: a training account works in a copy of the real data, shown as any department sees it, and changes nothing real.',
-      points: ['One click makes a fresh copy from the real data before each session', 'Viewing as: switch between departments to show exactly what each team sees', 'Anything that would change something real, such as backups or files on the share, isn\'t done in training'] },
+      points: ['One click makes a fresh copy from the real data before each session', 'In the copy it acts as your own account: your tasks, messages and rights', 'Viewing as: switch between departments to show exactly what each team sees', 'Anything that would change something real, such as backups or files on the share, isn\'t done in training'] },
     { id: 'otd-kind', date: '2026-11-11', area: 'reporting', title: 'Late deliveries: daily or renewal',
       text: 'Each late delivery logged on OTD now says whether its work order was a daily or a renewal, and the OTD table on Operations splits each customer\'s delays the same way.' },
     { id: 'site-kpis', date: '2026-11-11', area: 'reporting', title: 'Operations as the site overview',

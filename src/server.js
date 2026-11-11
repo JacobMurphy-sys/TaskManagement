@@ -84,7 +84,13 @@ app.use('/api', accounts.gate);
 app.use('/api', accounts.router);
 // 🎓 a training account works in the training copy (db.js): everything after this runs against it. What would
 // change something outside the database (files on the share, the server, the Library) isn't done in training.
-app.use('/api', (req, res, next) => (req.account?.training ? db.asTraining(next) : next()));
+app.use('/api', (req, res, next) => {
+  if (!req.account?.training) return next();
+  // in the copy it's the account it acts as (the host who made it): their name, tasks, messages and rights, in the view picked
+  const self = accounts.trainingSelf(req.account);
+  req.account = self.training_as ? { ...self, id: self.training_as } : self;
+  return db.asTraining(next);
+});
 const NOT_IN_TRAINING = [
   [/^\/backups(\/|$)/, 'Backups'], [/^\/server(\/|$)/, 'The server controls'], [/^\/library\/(import|folder|excluded)/, 'Changing the Library'],
   [/^\/plan\/upload/, 'Uploading planning exports'], [/^\/plan\/auto\/[^/]+\/run$/, 'Running an automatic plan (it saves a file)'],
