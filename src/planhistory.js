@@ -263,4 +263,4 @@ function summary({ days = 14, half = 'perso' } = {}) {
 }
 
 const ingestDisp = (jobs, modifiedIso, file) => ingestOtto(jobs, modifiedIso, file, { reads: 'plan_disp_reads', table: 'plan_disp_jobs', via: (j) => j.group });
-module.exports = { ingest, ingestOtto, ingestDisp, summary, withFinish, donePerDay, persoPace, runKey, GAP_HOURS };
+module.exports = { ingest, ingestOtto, ingestDisp, summary, withFinish, donePerDay, persoPace, runKey, persoRuns, jobsOfRuns, GAP_HOURS };

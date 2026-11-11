@@ -430,10 +430,11 @@ The Perso tab turns the open perso work orders export (`OpenPersoWorkorders_PerA
   - **The technology** comes from the card database (⚙ Setup). A card that isn't in it, or no card database at all, is only matched on its Card AX.
 - **📆 D+ due out** (🧠 Insights) shows how much notice work orders come with, for **Perso**, **Matching** or **Both**:
   - **How it's counted:**
-    - A work order *comes in* on the day it first appears in its export. Perso uses the open work orders, recorded in the plan history. Matching uses its jobs, grouped by work order; the Matching export is now recorded the same way, from when this was added.
+    - **Perso** uses the production report (the ⏱ timing report, or 📊 DailyPersoData when linked): a work order *comes in* on its **Import Date** and is due out on its **Due Date**, so it no longer matters whether SITHUB was open on the day. It's done on its last run, and late when that's after its Due Date. Work orders not run yet aren't in the report, so they come from the open work orders export, from the day they first appeared in it. With no production report linked, Perso uses the export alone, as before.
+    - **Matching** and **Dispatch** have no import date: a work order *comes in* on the day it first appears in their export (their jobs, grouped by work order), recorded from when this was added.
     - Its notice is the working days from then to its due-out day (Matching: its plan date), using Planning's working days. **D+0** is due the same day, **D+1** the next working day (Friday → Monday is D+1), up to **D+5 or more**. **Past due** means it was already late when it came in.
     - Work orders are counted with all their jobs together.
-    - What was already in an export when recording began is left out, because when it came in isn't known.
+    - What was already in an export when recording began is left out, because when it came in isn't known (Perso from the report: anything imported before the report's first day).
   - **Time frame:** From / To, or a quick pick (last 4 weeks, 7 or 90 days, this month, last month, all history).
   - **By notice:** for each bucket, the work orders and their share, the **average a working day** in the frame and over **all history**, and the cards or items (share, a day, average a work order). Tiles show the totals, the short-notice share (D+0 and D+1) and D+0 a day.
   - **Click a row** (or *All*) for:

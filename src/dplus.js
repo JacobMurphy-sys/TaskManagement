@@ -38,11 +38,51 @@ const SOURCES = {
   otto: { reads: 'plan_otto_reads', jobs: "SELECT coalesce(wo, key) AS wo, customer, machine AS via, prio, qty, due, first_seen, done_at, late_minutes FROM plan_otto_jobs" },
   disp: { reads: 'plan_disp_reads', jobs: "SELECT coalesce(wo, key) AS wo, customer, machine AS via, prio, qty, due, first_seen, done_at, late_minutes FROM plan_disp_jobs" },
 };
+// ⏱ Perso from the production report (the timing report, or 📊 DailyPersoData when linked): each job's Import Date
+// is when it came in and its Due Date when it's due out, whether or not SITHUB was open that day. A work order
+// that hasn't run yet isn't in the report: it comes from the plan history (first seen in the export), as before.
+// Its shipper and priority come from the plan history where it's there. null: no report read.
+function persoFromReport(workDays) {
+  let runs = [];
+  try { runs = require('./planhistory').persoRuns('2000-01-01'); } catch { return null; }
+  if (!runs.length) return null;
+  const since = runs.reduce((m, r) => (r.end_at < m ? r.end_at : m), runs[0].end_at).slice(0, 10); // the report's first day
+  const jobs = [...require('./planhistory').jobsOfRuns(runs).values()].filter((j) => j.imported && j.due && dayOf(j.imported) >= since);
+  const hist = new Map();
+  try { for (const h of db.all('SELECT wo, shipper, prio, first_seen, due, qty, done_at, late_minutes, customer FROM plan_history_jobs')) { const k = String(h.wo).toUpperCase(); (hist.get(k) || hist.set(k, []).get(k)).push(h); } } catch { /* none */ }
+  const byWo = new Map();
+  for (const j of jobs) {
+    const k = String(j.wo).toUpperCase(); const h = hist.get(k)?.[0];
+    const qty = Math.max(j.job_qty || 0, j.cards || 0);
+    const doneAt = j.complete ? j.last : null; const lateDays = doneAt ? workingDaysBetween(j.due, dayOf(doneAt), new Set([0, 1, 2, 3, 4, 5, 6])) : null;
+    const w = byWo.get(k);
+    if (!w) { byWo.set(k, { source: 'perso', wo: j.wo, customer: j.customer || h?.customer || '—', via: h?.shipper || '—', prio: h?.prio || '—', at: j.imported, due: j.due, qty, jobs: 1, done: doneAt ? [doneAt] : [], open: doneAt ? 0 : 1, late: lateDays > 0 ? [lateDays * 1440] : [], from: 'report' }); continue; }
+    w.qty += qty; w.jobs++; if (j.imported < w.at) w.at = j.imported; if (j.due < w.due) w.due = j.due;
+    if (doneAt) w.done.push(doneAt); else w.open++;
+    if (lateDays > 0) w.late.push(lateDays * 1440);
+  }
+  // not run yet (not in the report): from the plan history, arrived after its first read
+  const first = db.get('SELECT MIN(file_modified) AS f FROM plan_history_reads').f;
+  if (first) for (const [k, hs] of hist) {
+    if (byWo.has(k)) continue;
+    const l = hs.filter((h) => h.first_seen > first && h.due && !h.done_at); if (!l.length) continue;
+    byWo.set(k, { source: 'perso', wo: l[0].wo, customer: l[0].customer || '—', via: l[0].shipper || '—', prio: l[0].prio || '—', at: l.reduce((m, h) => (h.first_seen < m ? h.first_seen : m), l[0].first_seen),
+      due: l.reduce((m, h) => (h.due < m ? h.due : m), l[0].due), qty: l.reduce((t, h) => t + (h.qty || 0), 0), jobs: l.length, done: [], open: l.length, late: [], from: 'export' });
+  }
+  const list = [...byWo.values()].map((w) => {
+    const arrived = dayOf(w.at); const n = workingDaysBetween(arrived, w.due, workDays);
+    const doneAt = !w.open && w.done.length ? w.done.sort().pop() : null;
+    return { ...w, arrived, n, bucket: bucketOf(n), done_at: doneAt, late_minutes: w.late.length ? Math.max(...w.late) : doneAt ? 0 : null };
+  }).sort((x, y) => (x.at < y.at ? -1 : 1));
+  return { list, since, basis: 'report' };
+}
+
 function workorders(workDays, source = 'perso') {
+  if (source === 'perso') { const r = persoFromReport(workDays); if (r) return r; }
   if (source === 'both') {
     const parts = ['perso', 'otto', 'disp'].map((k) => workorders(workDays, k));
     const since = parts.map((x) => x.since).filter(Boolean).sort()[0] || null;
-    return { list: parts.flatMap((x) => x.list).sort((x, y) => (x.at < y.at ? -1 : 1)), since };
+    return { list: parts.flatMap((x) => x.list).sort((x, y) => (x.at < y.at ? -1 : 1)), since, basis: parts[0].basis === 'report' ? 'mixed' : 'export' };
   }
   const S = SOURCES[source] || SOURCES.perso;
   const first = db.get(`SELECT MIN(file_modified) AS f FROM ${S.reads}`).f;
@@ -61,7 +101,7 @@ function workorders(workDays, source = 'perso') {
     const doneAt = !w.open && w.done.length ? w.done.sort().pop() : null;
     return { ...w, arrived, n, bucket: bucketOf(n), done_at: doneAt, late_minutes: w.late.length ? Math.max(...w.late) : doneAt ? 0 : null };
   });
-  return { list, since: dayOf(first) };
+  return { list, since: dayOf(first), basis: 'export' };
 }
 
 // a list of work orders summed: { wos, cards, jobs, avg_cards }
@@ -79,7 +119,7 @@ function breakdown(l, keyOf, order) {
  */
 function profile({ from, to, bucket = null, source = 'perso', workDays = new Set([1, 2, 3, 4, 5]), custNames = new Map() } = {}) {
   source = ['perso', 'otto', 'disp', 'both'].includes(source) ? source : 'perso';
-  const { list: everything, since } = workorders(workDays, source);
+  const { list: everything, since, basis } = workorders(workDays, source);
   const okDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
   const today = ymd(new Date());
   const toDay = okDay(to) ? to : today;
@@ -120,7 +160,7 @@ function profile({ from, to, bucket = null, source = 'perso', workDays = new Set
         median_hours: r1(median(hours)) },
       largest: [...l].sort((a, b) => b.qty - a.qty).slice(0, 10).map((w) => ({ source: w.source, wo: w.wo, customer: w.customer, qty: w.qty, jobs: w.jobs, arrived: w.at, due: w.due, done_at: w.done_at, late_minutes: w.late_minutes })) };
   }
-  return { source, from: fromDay, to: toDay, since, working_days: workingDays, all_working_days: allDays, total: { ...total, per_day: workingDays ? r1(total.wos / workingDays) : null, all_per_day: allDays ? r1(everything.length / allDays) : null },
+  return { source, basis: basis || 'export', from: fromDay, to: toDay, since, working_days: workingDays, all_working_days: allDays, total: { ...total, per_day: workingDays ? r1(total.wos / workingDays) : null, all_per_day: allDays ? r1(everything.length / allDays) : null },
     buckets, daily, detail };
 }
 

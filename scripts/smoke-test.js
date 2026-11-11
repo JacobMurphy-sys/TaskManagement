@@ -2680,6 +2680,19 @@ async function waitForServer() {
       const DP = require('../src/dplus'); const W5 = new Set([1, 2, 3, 4, 5]);
       assert.deepEqual([DP.workingDaysBetween('2026-10-16', '2026-10-16', W5), DP.workingDaysBetween('2026-10-16', '2026-10-19', W5), DP.workingDaysBetween('2026-10-14', '2026-10-16', W5), DP.workingDaysBetween('2026-10-16', '2026-10-15', W5)],
         [0, 1, 2, -1], 'same day, Friday → Monday is D+1, two days, already past');
+      // perso from the production report: its Import Date against its Due Date, whether or not SITHUB was open then
+      {
+        const sqd = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
+        const ins = sqd.prepare("INSERT INTO prod_runs (source, job, machine, start_at, end_at, qty, job_qty, remake, trigram, due, imported, read_at) VALUES ('perso', ?, 'M1', ?, ?, ?, ?, 0, 'ZDP', ?, ?, '2026-09-20')");
+        ins.run('ZDPWO00000001/1', '2026-09-24T08:00', '2026-09-24T09:00', 500, 500, '2026-09-23', '2026-09-21T09:30'); // Mon in, due Wed: D+2, done a day late
+        ins.run('ZDPWO00000009/1', '2026-09-01T08:00', '2026-09-01T09:00', 100, 100, null, null); // the report starts on 1 September
+        ins.run('ZDPWO00000002/1', '2026-09-22T13:00', '2026-09-22T14:00', 300, 300, '2026-09-22', '2026-09-22T08:00'); // in and due Tuesday: D+0, on time
+        const dp = await call('GET', '/plan/dplus?source=perso&from=2026-09-21&to=2026-09-25&bucket=all');
+        const zdp = dp.detail.customers.find((c) => c.label === 'ZDP');
+        assert.deepEqual([dp.basis, zdp?.wos, dp.buckets.find((b) => b.key === 'd2')?.wos >= 1, dp.buckets.find((b) => b.key === 'd0')?.wos >= 1, dp.detail.largest.find((w) => w.wo === 'ZDPWO00000001')?.late_minutes],
+          ['report', 2, true, true, 1440], '📆 D+ from the report\'s Import and Due Dates');
+        sqd.prepare("DELETE FROM prod_runs WHERE trigram = 'ZDP'").run(); sqd.close();
+      }
       for (const src of ['perso', 'otto', 'both']) {
         const dp = await call('GET', `/plan/dplus?source=${src}&from=2026-09-01&to=2026-10-20&bucket=all`);
         assert.ok(dp.source === src && Array.isArray(dp.buckets) && dp.total && dp.detail && Array.isArray(dp.detail.customers) && Array.isArray(dp.detail.via), `the D+ profile (${src})`);
