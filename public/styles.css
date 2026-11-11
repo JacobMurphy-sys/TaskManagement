@@ -2552,3 +2552,28 @@ body.in-training #topbar { border-bottom-color: #f3a712; }
 .opt-t tr.opt-g:hover td { background: var(--panel-2); }
 .opt-t tr.opt-lines > td { background: var(--panel-2); padding-top: 4px; padding-bottom: 8px; }
 .opt-merges { display: flex; flex-direction: column; gap: 3px; margin: 2px 0 8px; font-size: 13px; }
+/* 🔎 a merge suggestion opened: now (a bar a work order) ➜ after merging (each merged work order filling up to the maximum) */
+.opt-viz { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.25fr); gap: 14px; align-items: start; margin: 4px 0 10px; }
+.opt-col { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.opt-col-h { font-size: 12.5px; color: var(--muted); }
+.opt-col-h b { color: var(--text); }
+.opt-arrow { align-self: center; font-size: 26px; color: var(--accent); opacity: .7; }
+.opt-wo { display: grid; grid-template-columns: minmax(0, 190px) minmax(0, 1fr) 54px; gap: 8px; align-items: center; font-size: 12.5px; }
+.opt-wo.stay { opacity: .6; }
+.opt-n { text-align: right; font-variant-numeric: tabular-nums; }
+.opt-bar { display: flex; height: 12px; border-radius: 6px; background: var(--panel); border: 1px solid var(--border); overflow: hidden; }
+.opt-bar i { display: block; height: 100%; }
+.opt-bar i + i { border-left: 2px solid var(--panel); }
+.opt-cap { height: 18px; }
+.opt-new { border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; background: var(--panel); display: flex; flex-direction: column; gap: 5px; }
+.opt-new.stay { opacity: .65; border-style: dashed; }
+.opt-new-h { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 10px; font-size: 12.5px; }
+.opt-new-h > span { color: var(--muted); }
+.opt-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; }
+.opt-tag { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.opt-sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.opt-plus { color: var(--muted); margin: 0 2px; }
+.opt-save { margin-left: 6px; padding: 1px 7px; border-radius: 10px; background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); font-weight: 600; }
+.opt-scale { display: flex; justify-content: space-between; margin-left: calc(min(190px, 40%) + 8px); margin-right: 62px; font-size: 11px; color: var(--muted); }
+.opt-detail summary { cursor: pointer; font-size: 12.5px; color: var(--accent); margin-bottom: 6px; }
+@media (max-width: 800px) { .opt-viz { grid-template-columns: 1fr; } .opt-arrow { transform: rotate(90deg); justify-self: center; } }

@@ -32,10 +32,10 @@ async function renderPlanOptimise() {
       <td class="small nowrap">${esc(fmtShortDate(g.from))}${g.to !== g.from ? ` – ${esc(fmtShortDate(g.to))}` : ''}${g.renewal === null ? '' : `<div><span class="chip${g.renewal ? ' ops-renewal' : ''}">${g.renewal ? 'Renewal' : 'Daily'}</span></div>`}</td>
       <td class="num nowrap"><b>${n(g.wos)} → ${n(g.could_be)}</b><div class="small muted">work orders</div></td><td class="num">${n(g.cards)}</td></tr>
     <tr class="opt-lines" id="opt-l-${i}" hidden><td></td><td colspan="7">
-      <div class="opt-merges">${g.merges.map((b, k) => `<div><b>Merged work order ${k + 1}</b>: ${b.wos.map((w) => esc(w)).join(' + ')} <span class="muted">· ${n(b.cards)} cards</span></div>`).join('')}
-        ${g.unchanged.length ? `<div class="muted">Stay as they are (no room to add them without going over ${n(d.options.max)} cards): ${g.unchanged.map((w) => esc(w)).join(', ')}</div>` : ''}</div>
+      ${optViz(g, d.options.max, n)}
+      <details class="opt-detail"><summary>Show the work orders' details</summary>
       <table class="log small"><thead><tr><th>Work order</th><th>PER</th><th>Card</th><th class="num">Cards</th><th>Due out</th><th>Shipping</th><th>Priority</th></tr></thead><tbody>
-      ${g.lines.map((l) => `<tr><td><b>${esc(l.wo)}</b>${l.done ? ' <span class="muted small">done</span>' : ''}</td><td>${esc(l.per)}</td><td>${esc(l.article)}</td><td class="num">${n(l.qty)}</td><td class="nowrap">${esc(fmtShortDate(l.due))}</td><td class="small">${esc(l.shipper || '—')} ${l.time ? esc(l.time) : ''}</td><td class="small">${esc(l.prio || '')}</td></tr>`).join('')}</tbody></table></td></tr>`).join('');
+      ${g.lines.map((l) => `<tr><td><b>${esc(l.wo)}</b>${l.done ? ' <span class="muted small">done</span>' : ''}</td><td>${esc(l.per)}</td><td>${esc(l.article)}</td><td class="num">${n(l.qty)}</td><td class="nowrap">${esc(fmtShortDate(l.due))}</td><td class="small">${esc(l.shipper || '—')} ${l.time ? esc(l.time) : ''}</td><td class="small">${esc(l.prio || '')}</td></tr>`).join('')}</tbody></table></details></td></tr>`).join('');
   $('.pll-view').innerHTML = `
     <div class="card opt-card">
       <div class="row" style="gap:8px 14px;flex-wrap:wrap;align-items:center">
@@ -78,4 +78,28 @@ async function renderPlanOptimise() {
     const t = e.target.closest('[data-opt-tick]'); if (!t) return;
     const s = optState(); s[t.dataset.optTick] = t.checked; store.set('optState', s); renderPlanOptimise();
   };
+}
+
+// a merge suggestion as a picture: the work orders now (a bar each, as long as its cards), and after merging, each
+// merged work order as a bar filling up to the maximum cards, coloured by the work orders it's made of
+const OPT_COL = ['#7382e6', '#e3a32b', '#3fa34d', '#e0672f', '#9b5de5', '#00a6a6', '#f15bb5', '#2e86ab', '#8d6a9f', '#5c8001'];
+function optViz(g, max, n) {
+  const cards = new Map(); for (const l of g.lines) cards.set(l.wo, (cards.get(l.wo) || 0) + l.qty);
+  const order = [...g.merges.flatMap((b) => b.wos), ...g.unchanged];
+  const col = (w) => OPT_COL[order.indexOf(w) % OPT_COL.length];
+  const pc = (c) => `${Math.max(1.5, Math.min(100, (c / max) * 100))}%`;
+  const seg = (w) => `<i style="width:${pc(cards.get(w))};background:${col(w)}" title="${esc(`${w}: ${n(cards.get(w))} cards`)}"></i>`;
+  const tag = (w) => `<span class="opt-tag"><span class="opt-sw" style="background:${col(w)}"></span>${esc(w)}</span>`;
+  const now = order.map((w) => `<div class="opt-wo${g.unchanged.includes(w) ? ' stay' : ''}">${tag(w)}<span class="opt-bar">${seg(w)}</span><span class="opt-n">${n(cards.get(w))}</span></div>`).join('');
+  const after = [
+    ...g.merges.map((b, k) => `<div class="opt-new"><div class="opt-new-h"><b>Merged work order ${k + 1}</b><span>${b.wos.length} work orders in one · <b>${n(b.cards)}</b> of ${n(max)} cards</span></div>
+      <div class="opt-bar opt-cap">${b.wos.map(seg).join('')}</div><div class="opt-tags">${b.wos.map(tag).join('<span class="opt-plus">+</span>')}</div></div>`),
+    ...g.unchanged.map((w) => `<div class="opt-new stay"><div class="opt-new-h">${tag(w)}<span>stays as it is · ${n(cards.get(w))} cards: no room to add it to</span></div>
+      <div class="opt-bar opt-cap">${seg(w)}</div></div>`),
+  ].join('');
+  return `<div class="opt-viz">
+    <div class="opt-col"><div class="opt-col-h">Now: <b>${n(g.wos)}</b> work orders</div>${now}<div class="opt-scale"><span>0</span><span>${n(max)} cards</span></div></div>
+    <div class="opt-arrow" aria-hidden="true">➜</div>
+    <div class="opt-col"><div class="opt-col-h">After merging: <b>${n(g.could_be)}</b> work order${g.could_be === 1 ? '' : 's'} <span class="opt-save">${n(g.saving)} fewer</span></div>${after}</div>
+  </div>`;
 }
