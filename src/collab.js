@@ -117,6 +117,8 @@ function changes(req, res, next) {
   const conflict = conflictOf(req, client);
   if (conflict) return res.status(409).json({ error: `${conflict.by} changed this while you were editing it`, conflict });
   if (req.body && typeof req.body === 'object' && '_base' in req.body) delete req.body._base;
+  // 🎓 training: changes in the copy aren't announced to anyone working on the real SITHUB
+  if (db.inTraining()) return db.asActor({ who: who || null, client }, next);
   const startId = db.get('SELECT coalesce(max(id), 0) AS m FROM audit_log').m;
   res.on('finish', () => { if (res.statusCode < 400) { try { record(startId, who, client, req.path); } catch { /* the feed is a nicety */ } } });
   db.asActor({ who: who || (config.shared && !isLocal(req) ? req.ip : null), client }, next);
@@ -128,12 +130,13 @@ function here(body, req) {
   const id = String(body?.id || '').slice(0, 60);
   const now = Date.now();
   for (const [k, v] of presence) if (now - v.at > 60000) presence.delete(k);
+  const training = db.inTraining(); // 🎓 training and live don't see each other here
   if (id) presence.set(id, { name: String(body.name || '').slice(0, 60) || 'Someone', view: String(body.view || '').slice(0, 60), topic: String(body.topic || '').slice(0, 60) || null,
-    at: now, since: presence.get(id)?.since || now, ip: req.ip });
+    at: now, since: presence.get(id)?.since || now, ip: req.ip, training });
   const n = Number(body?.seq);
   return {
-    others: [...presence.entries()].filter(([k]) => k !== id).map(([, v]) => ({ name: v.name, view: v.view, topic: v.topic, since: new Date(v.since).toISOString() })),
-    seq, changes: Number.isFinite(n) && n >= 0 ? since(n, id) : [],
+    others: [...presence.entries()].filter(([k, v]) => k !== id && !!v.training === training).map(([, v]) => ({ name: v.name, view: v.view, topic: v.topic, since: new Date(v.since).toISOString() })),
+    seq, changes: Number.isFinite(n) && n >= 0 && !training ? since(n, id) : [],
   };
 }
 

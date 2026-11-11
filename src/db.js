@@ -57,7 +57,13 @@ function migrateLegacyData() {
 }
 migrateLegacyData();
 
-const conn = open(config.dbFile);
+const live = open(config.dbFile);
+// 🎓 Training: a copy of the live database that a training account works in (accounts.js). A request
+// runs against one connection or the other (db.inTraining); everything here uses the current one.
+const connStore = new AsyncLocalStorage();
+const cur = () => connStore.getStore() || live;
+const TRAINING_FILE = path.join(path.dirname(config.dbFile), `${path.basename(config.dbFile, '.db')}-training.db`);
+let trainingConn = null;
 
 // node:sqlite accepts only null/number/bigint/string/buffer parameters.
 const param = (v) => {
@@ -67,10 +73,11 @@ const param = (v) => {
   return v;
 };
 
-const cache = new Map();
+const caches = new WeakMap(); // prepared statements, per connection
 function stmt(sql) {
+  const c = cur(); let cache = caches.get(c); if (!cache) { cache = new Map(); caches.set(c, cache); }
   let s = cache.get(sql);
-  if (!s) { s = conn.prepare(sql); cache.set(sql, s); }
+  if (!s) { s = c.prepare(sql); cache.set(sql, s); }
   return s;
 }
 
@@ -93,6 +100,7 @@ const run = (sql, params = []) => stamped(sql, () => stmt(sql).run(...params.map
 
 // Runs fn() inside a transaction.
 function tx(fn) {
+  const conn = cur();
   conn.exec('BEGIN IMMEDIATE');
   try {
     const result = fn();
@@ -110,6 +118,7 @@ const DATA_MIGRATIONS = {
   // ⏱ Production runs were kept one per job, machine and start: report rows sharing those were folded into
   // one (losing their cards). The table is rebuilt without that, and every report read again in full.
   prod_runs_every_row() {
+    const conn = cur();
     const cols = all('PRAGMA table_info(prod_runs)').map((c) => c.name).filter((c) => c !== 'id');
     conn.exec(createTableSql('prod_runs', 'prod_runs__new'));
     conn.exec(`INSERT INTO prod_runs__new (${cols.join(', ')}) SELECT ${cols.join(', ')} FROM prod_runs`);
@@ -144,6 +153,7 @@ const DATA_MIGRATIONS = {
 // foreign keys off, copy into a new table, swap, then verify every reference.
 // A copy of the database is saved first.
 function rebuildTables() {
+  const conn = cur();
   const info = Object.fromEntries(TABLE_NAMES.map((t) => [t, all(`PRAGMA table_info(${t})`)]));
   const tables = tablesToRebuild(info);
   if (!tables.length) return;
@@ -179,6 +189,7 @@ function rebuildTables() {
 }
 
 function migrate() {
+  const conn = cur();
   tx(() => conn.exec(tablesSql()));
   rebuildTables();
   tx(() => {
@@ -200,4 +211,37 @@ function migrate() {
   });
 }
 
-module.exports = { conn, all, get, run, tx, migrate, open, asActor, actor };
+// ---- 🎓 the training copy ----------------------------------------------------------------------
+// Made from live (VACUUM INTO) the first time it's needed and whenever it's reset; brought up to date
+// with the code like the live database. Sign-ins aren't copied: they're only ever checked against live.
+function freshTraining() {
+  if (trainingConn) { try { trainingConn.close(); } catch { /* closed */ } trainingConn = null; }
+  const tmp = `${TRAINING_FILE}.new`;
+  for (const f of [tmp, `${tmp}-wal`, `${tmp}-shm`]) fs.rmSync(f, { force: true });
+  live.prepare('VACUUM INTO ?').run(tmp);
+  for (const f of [TRAINING_FILE, `${TRAINING_FILE}-wal`, `${TRAINING_FILE}-shm`]) fs.rmSync(f, { force: true });
+  fs.renameSync(tmp, TRAINING_FILE);
+  trainingConn = open(TRAINING_FILE);
+  connStore.run(trainingConn, () => { migrate(); trainingConn.exec('DELETE FROM sessions'); });
+  setTrainingMeta();
+  log.info('Training copy made from live');
+  return trainingConn;
+}
+const metaOf = (c) => { try { return c.prepare("SELECT value FROM settings WHERE key = 'training_copied_at'").get()?.value || null; } catch { return null; } };
+function setTrainingMeta() { trainingConn.prepare("INSERT INTO settings (key, value) VALUES ('training_copied_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(new Date().toISOString()); }
+function training() {
+  if (trainingConn) return trainingConn;
+  if (!fs.existsSync(TRAINING_FILE)) return freshTraining();
+  trainingConn = open(TRAINING_FILE);
+  connStore.run(trainingConn, () => migrate());
+  return trainingConn;
+}
+const asTraining = (fn) => connStore.run(training(), fn);
+const asLive = (fn) => connStore.run(live, fn);
+const inTraining = () => !!trainingConn && connStore.getStore() === trainingConn;
+const trainingInfo = () => { if (!trainingConn && !fs.existsSync(TRAINING_FILE)) return { exists: false, copied_at: null }; return { exists: true, copied_at: metaOf(training()) }; };
+
+module.exports = {
+  get conn() { return cur(); }, // the current connection: live, or the training copy for a training account's request
+  all, get, run, tx, migrate, open, asActor, actor, asTraining, asLive, inTraining, resetTraining: freshTraining, ensureTraining: () => { training(); }, trainingInfo, TRAINING_FILE,
+};

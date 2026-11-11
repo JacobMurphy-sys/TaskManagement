@@ -2534,3 +2534,11 @@ details.msel .msel-pop input.msel-q { flex: none; width: 100%; min-width: 0; max
 .q-chart .ops-ax-r { fill: var(--muted); }
 /* 🚚 a renewal (the planner's Low priority) told apart from a daily */
 .chip.ops-renewal { background: color-mix(in srgb, var(--q-c2) 22%, var(--panel)); color: var(--text); }
+/* 🎓 training: an unmistakable bar under the top bar on every page of the training copy */
+.training-bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 6px 18px; font-size: 13px;
+  background: repeating-linear-gradient(135deg, #f3a712, #f3a712 14px, #f6b73c 14px, #f6b73c 28px); color: #2b1d00; border-bottom: 1px solid #c98400; }
+.training-bar .tb-what { flex: 1 1 260px; }
+.training-bar select { padding: 2px 6px; font-size: 13px; }
+.training-bar button { background: #fff8e6; border-color: #c98400; color: #2b1d00; }
+body.in-training #topbar { border-bottom-color: #f3a712; }
+.acct-training { display: block; margin-top: 4px; white-space: nowrap; }

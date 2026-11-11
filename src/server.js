@@ -72,7 +72,7 @@ app.use('/api', (req, res, next) => {
   res.on('finish', () => {
     log.info(`${req.method} ${req.originalUrl} -> ${res.statusCode}${who ? ` (${who})` : ''}`);
     // the last change to the planning setup, so others looking at it can be told
-    if (res.statusCode < 400 && /^\/(plan|settings)(\/|$)/.test(req.path) && !/^\/plan\/upload/.test(req.path)) {
+    if (res.statusCode < 400 && !req.account?.training && /^\/(plan|settings)(\/|$)/.test(req.path) && !/^\/plan\/upload/.test(req.path)) {
       lastChange = { at: new Date().toISOString(), by: who || req.ip, client: String(req.get('X-Client-Id') || '').slice(0, 60), what: `${req.method} ${req.path}` };
     }
   });
@@ -82,6 +82,23 @@ app.use('/api', (req, res, next) => {
 const accounts = require('./accounts');
 app.use('/api', accounts.gate);
 app.use('/api', accounts.router);
+// 🎓 a training account works in the training copy (db.js): everything after this runs against it. What would
+// change something outside the database (files on the share, the server, the Library) isn't done in training.
+app.use('/api', (req, res, next) => (req.account?.training ? db.asTraining(next) : next()));
+const NOT_IN_TRAINING = [
+  [/^\/backups(\/|$)/, 'Backups'], [/^\/server(\/|$)/, 'The server controls'], [/^\/library\/(import|folder|excluded)/, 'Changing the Library'],
+  [/^\/plan\/upload/, 'Uploading planning exports'], [/^\/plan\/auto\/[^/]+\/run$/, 'Running an automatic plan (it saves a file)'],
+  [/^\/kpi\/(load|load-path|history)$/, 'Loading the workbook or importing weeks'], [/^\/charter-template/, 'Changing the charter template'],
+  [/^\/tickets\/\d+$/, 'Removing a ticket', 'DELETE'], [/^\/settings\/shared\/apply$/, 'Applying shared paths'],
+];
+app.use('/api', (req, res, next) => {
+  if (req.method === 'GET' || !db.inTraining()) return next();
+  const hit = NOT_IN_TRAINING.find(([re, , method]) => re.test(req.path) && (!method || method === req.method));
+  if (hit) return res.status(403).json({ error: `🎓 ${hit[1]} isn't done in training: it would change the real SITHUB` });
+  // the A3 saved to its folder on the share: downloading it is fine
+  if (/^\/kpi\/snapshots\/\d+\/export$/.test(req.path) && req.body?.save) return res.status(403).json({ error: '🎓 Saving the A3 to its folder isn\'t done in training: download it instead' });
+  next();
+});
 // 🧩 modules: an account without one can't use its part of the API
 app.use('/api', accounts.moduleGate);
 // 🔒 changing the setup is for admins

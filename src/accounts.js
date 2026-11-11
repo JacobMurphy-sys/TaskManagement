@@ -62,6 +62,8 @@ const MODULE_API = [
   [/^\/(plan|prod)(\/|$)/, ['planning']], [/^\/cpm(\/|$)/, ['cpm']], [/^\/report(\/|$)/, ['report']], [/^\/contacts(\/|$)/, ['contacts']],
 ];
 function modulesOf(a) {
+  // 🎓 a training account shows the department view picked for the session (none picked: everything)
+  if (a?.training) return a.training_view === null || a.training_view === undefined ? [...MODULE_KEYS] : MODULE_KEYS.filter((k) => keysOf(a.training_view).has(k) || MODULES.find((m) => m.key === k).always);
   if (!a || a.role === 'admin' || a.owner || a.modules === null || a.modules === undefined) return [...MODULE_KEYS];
   const set = keysOf(a.modules);
   return MODULE_KEYS.filter((k) => set.has(k) || MODULES.find((m) => m.key === k).always);
@@ -136,7 +138,7 @@ function setupGate(req, res, next) {
 // ---- accounts and sessions ---------------------------------------------------------------------
 const enabled = () => !!db.get('SELECT 1 FROM accounts WHERE active = 1 LIMIT 1');
 const publicAccount = (a) => (a ? { id: a.id, username: a.username, person: a.person, role: a.role, must_change: !!a.must_change, active: !!a.active, last_login: a.last_login, created_at: a.created_at,
-  modules: modulesOf(a), areas: areasOf(a), modules_set: a.modules !== null && a.modules !== undefined, theme: a.theme || null, nav_order: navOrderOf(a), rights: rightsOf(a), owner: !!a.owner } : null);
+  modules: modulesOf(a), areas: areasOf(a), modules_set: a.modules !== null && a.modules !== undefined, theme: a.theme || null, nav_order: navOrderOf(a), rights: rightsOf(a), owner: !!a.owner, training: !!a.training, training_view: a.training ? a.training_view ?? null : undefined } : null);
 // the order of the top bar's pages, chosen by the person: ['dashboard', 'tasks', …] or null (the standard order)
 function navOrderOf(a) { try { const o = JSON.parse(a.nav_order || 'null'); return Array.isArray(o) ? o : null; } catch { return null; } }
 const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
@@ -278,13 +280,20 @@ router.patch('/accounts/:id', h((req, res) => {
   if ('active' in req.body) f.active = req.body.active ? 1 : 0;
   if ('modules' in req.body) f.modules = cleanModules(req.body.modules);
   if ('rights' in req.body) f.rights = cleanRights(req.body.rights);
+  // 🎓 a training account (the host's call): works in the training copy only
+  if ('training' in req.body) {
+    if (!isOwner(req)) throw bad('Only the host account can make a training account', 403);
+    if (a.owner) throw bad('The host account can\'t be a training account');
+    f.training = req.body.training ? 1 : 0;
+  }
   if ('password' in req.body) { const p = passwordProblem(req.body.password); if (p) throw bad(p); f.password_hash = hashPassword(req.body.password); f.must_change = 1; }
   const after = { ...a, ...f };
+  if (after.training && after.role === 'admin') throw bad('A training account can\'t be an admin: give it the rights it should show instead');
   const admins = db.get("SELECT COUNT(*) AS n FROM accounts WHERE role = 'admin' AND active = 1 AND id <> ?", [a.id]).n;
   if ((after.role !== 'admin' || !after.active) && a.role === 'admin' && a.active && !admins) throw bad('There has to be at least one active admin');
   const keys = Object.keys(f);
   if (keys.length) db.run(`UPDATE accounts SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`, [...keys.map((k) => f[k]), nowIso(), a.id]);
-  if (f.password_hash || f.active === 0) db.run('DELETE FROM sessions WHERE account_id = ?', [a.id]);
+  if (f.password_hash || f.active === 0 || 'training' in f) db.run('DELETE FROM sessions WHERE account_id = ?', [a.id]); // signed out: in (or out of) training from the next sign-in
   log.info(`Account ${a.username} changed by ${req.account?.username || '?'}: ${keys.map((k) => (k === 'password_hash' ? 'new password' : k)).join(', ')}`);
   res.json(publicAccount(db.get('SELECT * FROM accounts WHERE id = ?', [a.id])));
 }));
@@ -298,6 +307,29 @@ router.delete('/accounts/:id', h((req, res) => {
   db.run('DELETE FROM accounts WHERE id = ?', [a.id]);
   log.info(`Account ${a.username} removed by ${req.account?.username || '?'}`);
   res.status(204).end();
+}));
+
+// ---- 🎓 training: a copy of live a training account works in, shown as a department sees it --------------
+// The view (which modules) is switched by the training account itself; the copy is made again from live by it
+// or by anyone with the Accounts right. These run on live (before db.asTraining), and write to it.
+const trainingNeed = (req) => { if (!req.account?.training && !hasRight(req, 'accounts')) throw bad('That\'s for the training account', 403); };
+router.get('/training', h((req, res) => {
+  trainingNeed(req);
+  if (req.account?.training) db.ensureTraining(); // the training account: its copy, made the first time
+  res.json({ ...db.trainingInfo(), accounts: db.all('SELECT id, username, person FROM accounts WHERE training = 1 AND active = 1 ORDER BY username'),
+    views: [{ key: '', label: 'Everything', modules: null }, ...MODULES.filter((m) => !m.always).map((m) => ({ key: m.key, label: `${m.icon} ${m.label}`, modules: [m.key] }))] });
+}));
+router.put('/training/view', h((req, res) => {
+  if (!req.account?.training) throw bad('Only a training account switches its view', 403);
+  const v = req.body?.modules === null || req.body?.modules === undefined ? null : cleanModules(req.body.modules);
+  db.asLive(() => db.run('UPDATE accounts SET training_view = ? WHERE id = ?', [v, req.account.id]));
+  res.json({ training_view: v, modules: modulesOf({ ...req.account, training_view: v }) });
+}));
+router.post('/training/reset', h((req, res) => {
+  trainingNeed(req);
+  db.asLive(() => db.resetTraining());
+  log.info(`Training copy made again from live by ${req.account?.username || '?'}`);
+  res.json(db.asLive(() => db.trainingInfo()));
 }));
 
 // ---- 🖥 the server, from any PC (the Server right) ------------------------------------------------

@@ -34,6 +34,8 @@ const TABLES = {
     nav_order     TEXT,
     rights        TEXT,
     owner         INTEGER NOT NULL DEFAULT 0,
+    training      INTEGER NOT NULL DEFAULT 0, -- 🎓 works in the training copy only (db.asTraining)
+    training_view TEXT,                       -- the department view it's showing: modules (null: all)
     last_login    TEXT,
     created_at    TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at    TEXT    NOT NULL DEFAULT (${NOW})`,

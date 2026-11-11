@@ -60,6 +60,7 @@ async function acctInit() {
     if (ACCT.account.theme) setTheme(ACCT.account.theme, { save: false }); // your appearance, from your account
     me.setName(ACCT.account.person); // who's here and who changed what: the account's person
     acctChrome(); modApply();
+    if (ACCT.account.training) trainingBanner(); // 🎓 the training copy
     if (ACCT.account.must_change) await acctPasswordDialog(true);
     acctPoll(); setInterval(acctPoll, 60000);
   }
@@ -198,7 +199,8 @@ async function acctSettingsHtml() {
     <p class="small muted">🔑 <b>Admin rights</b> are given by the host account${owner ? ' (you)' : ''}: an <b>Admin</b> has them all, or tick some for a user — ${ACCT.rights.map((r) => `<span title="${esc(r.what)}">${r.icon} ${esc(r.label)}</span>`).join(', ')} (hover for what each covers).</p>
     <p class="small muted">🧩 <b>Modules</b> choose what each account sees and can use; ${esc(basic?.label || 'the basic pack')} (${esc(basic?.what || '')}) is always there. Hover over a module for what it covers. A change applies the next time they open or refresh the page.</p>
     <table class="log acct-table"><thead><tr><th>Person</th><th>Username</th><th>Role and rights</th><th>Modules</th><th>Last signed in</th><th>Active</th><th></th></tr></thead><tbody>
-      ${list.map((a) => `<tr data-acct="${a.id}"><td><input type="text" name="person" list="acct-people" value="${esc(a.person)}" ${canEdit(a) || a.id === ACCT.account?.id ? '' : 'disabled'}></td><td><b>${esc(a.username)}</b>${a.must_change ? ' <span class="small muted">(to change password)</span>' : ''}</td>
+      ${list.map((a) => `<tr data-acct="${a.id}"><td><input type="text" name="person" list="acct-people" value="${esc(a.person)}" ${canEdit(a) || a.id === ACCT.account?.id ? '' : 'disabled'}></td><td><b>${esc(a.username)}</b>${a.must_change ? ' <span class="small muted">(to change password)</span>' : ''}
+          ${owner && !a.owner && a.role !== 'admin' ? `<label class="small acct-training" title="Works in a training copy of SITHUB only, never the real data: for leading training sessions"><input type="checkbox" data-acct-training ${a.training ? 'checked' : ''}> 🎓 Training account</label>` : a.training ? '<div><span class="chip">🎓 Training account</span></div>' : ''}</td>
         <td>${rightsCell(a)}</td><td>${ticks(a)}</td><td class="small">${a.last_login ? esc(fmtDateTime(a.last_login)) : '<span class="muted">never</span>'}</td>
         <td><input type="checkbox" name="active" ${a.active ? 'checked' : ''} ${canEdit(a) ? '' : 'disabled'}></td>
         <td class="nowrap">${canEdit(a) ? `<button class="small" data-acct-reset="${a.id}">Set a new password</button> <button class="icon" data-acct-del="${a.id}" title="Remove the account">✕</button>` : ''}</td></tr>`).join('')}
@@ -221,6 +223,11 @@ function acctSettingsWire(rerender) {
   $$('[data-mod-preset]').forEach((b) => b.addEventListener('click', () => {
     const keys = b.dataset.modPreset.split(',').filter(Boolean);
     $$('#acct-form [name=modules]').forEach((x) => { x.checked = keys.includes(x.value); });
+  }));
+  $$('[data-acct-training]').forEach((el) => el.addEventListener('change', async () => {
+    const row = el.closest('[data-acct]');
+    if (!confirm(el.checked ? 'Make this a 🎓 training account? From its next sign-in it works in a training copy of SITHUB only (copied from the real data), and never changes the real data.' : 'Make this an ordinary account again? From its next sign-in it works on the real data.')) { el.checked = !el.checked; return; }
+    try { await api.patch(`/accounts/${row.dataset.acct}`, { training: el.checked }); toast(el.checked ? 'Training account: it signs in to the training copy' : 'An ordinary account again'); rerender(); } catch (err) { toast(err.message, 'error'); rerender(); }
   }));
   $$('[data-acct] [data-right]').forEach((el) => el.addEventListener('change', async () => {
     const row = el.closest('[data-acct]');
@@ -312,3 +319,26 @@ document.addEventListener('change', (e) => {
 // the card is drawn with the Settings page: fill in the password part once it's there
 new MutationObserver(() => { const box = document.getElementById('srv-pw'); if (box && !box.dataset.loaded) { box.dataset.loaded = '1'; serverPwDraw(); } })
   .observe(document.documentElement, { childList: true, subtree: true });
+
+// ---- 🎓 training: a banner on every page of the training copy; which department's view it shows; a fresh copy --------
+async function trainingBanner() {
+  document.body.classList.add('in-training');
+  let t = null; try { t = await api.get('/training'); } catch { /* shown without the details */ }
+  const view = ACCT.account.training_view;
+  const views = t?.views || [];
+  const mine = view ? view.split(',').filter((k) => k && k !== 'basic').join(',') : null;
+  const cur = views.find((v) => (v.modules ? v.modules.join(',') : null) === (mine || null))?.key ?? 'custom';
+  const old = document.getElementById('training-bar'); if (old) old.outerHTML = '';
+  document.getElementById('topbar')?.insertAdjacentHTML('afterend', `<div id="training-bar" class="training-bar" role="status">
+    <b>🎓 Training</b><span class="tb-what">a practice copy of SITHUB${t?.copied_at ? `, copied from the real data ${esc(fmtDateTime(t.copied_at))}` : ''}. Nothing here changes the real SITHUB.</span>
+    <label class="tb-view">Viewing as <select id="training-view">${views.map((v) => `<option value="${esc(v.key)}" ${v.key === cur ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}${cur === 'custom' ? '<option value="custom" selected>Custom</option>' : ''}</select></label>
+    <button type="button" class="small" id="training-reset" title="Throw away what's been done in training and copy the real data again">↺ Fresh copy from live</button></div>`);
+  $('#training-view')?.addEventListener('change', async (e) => {
+    const v = views.find((x) => x.key === e.target.value); if (!v) return;
+    try { await api.put('/training/view', { modules: v.modules }); toast(`Viewing as ${v.label}`); setTimeout(() => location.reload(), 300); } catch (err) { toast(err.message, 'error'); }
+  });
+  $('#training-reset')?.addEventListener('click', async () => {
+    if (!confirm('Make a fresh training copy from the real data? Everything done in training so far is thrown away. The real SITHUB isn\'t touched.')) return;
+    try { await api.post('/training/reset', {}); toast('A fresh copy from live'); setTimeout(() => location.reload(), 400); } catch (err) { toast(err.message, 'error'); }
+  });
+}
