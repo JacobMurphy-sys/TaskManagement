@@ -1964,6 +1964,7 @@ function refreshSource(name, also = []) {
 }
 // 🏭 Operations (Prod Management): the month's OTD, production and scrap, and the planner's work orders on time
 const operationsPage = require('./operations');
+const optimise = require('./optimise');
 const siteKpis = require('./sitekpis');
 router.get('/kpi/operations', h((req, res) => {
   const read = refreshSource('perso', ['shipped', 'otd', 'remakes', 'consumption']);
@@ -3349,6 +3350,27 @@ router.put('/cpm/scenarios/:id', h((req, res) => {
 router.delete('/cpm/scenarios/:id', h((req, res) => { const sc = cpmScenario(req, Number(req.params.id)); if (!sc.mine) throw new HttpError(403, 'Only its owner can delete a scenario'); db.run('DELETE FROM cpm_scenarios WHERE id = ?', [sc.id]); res.status(204).end(); }));
 
 // 📆 D+ (due out): how much notice work orders come with, from the plan histories (dplus.js).
+// 🔎 Insights › Optimisation: a customer's separate work orders that could be one (src/optimise.js), in the open
+// work orders now or in the history of the past days
+router.get('/plan/optimise', h((req, res) => {
+  const set = getSettings();
+  const db_ = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+  const cards = db_.status === 'ok' ? db_.cards : null;
+  const history = req.query.source === 'history';
+  const days = Math.max(1, Math.min(366, Number(req.query.days) || 28));
+  let jobs = []; let info = {};
+  if (history) {
+    const to = new Date(); const from = new Date(to.getTime() - (days - 1) * 86400000);
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    jobs = optimise.historyLines(iso(from), iso(to)); info = { from: iso(from), to: iso(to), days };
+  } else {
+    const src = planning.readSource({ file: cleanPath(set.plan_src) || null, uploaded: PLAN_UPLOAD });
+    if (src.status === 'ok') { const maxAge = planMaxAge(set); jobs = planning.jobsOf(src.lines.filter((l) => !planning.tooOld(l.due, maxAge))); }
+    info = { status: src.status, file: src.file || null, modified: src.modified || null, error: src.error || null };
+  }
+  res.json({ source: history ? 'history' : 'open', ...info, cards_db: db_.status, ...optimise.seek(optimise.linesOfJobs(jobs, cards), req.query, { names: customerNames() }) });
+}));
+
 router.get('/plan/dplus', h((req, res) => {
   const set = getSettings();
   const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });

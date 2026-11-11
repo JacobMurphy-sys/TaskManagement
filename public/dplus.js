@@ -22,7 +22,7 @@ function dplRange(q, since) {
 // The Insights tab: Production's tabs, then Learned / D+ due out.
 const plInsightsHead = (sub, extra = '') => `
     <div class="kanban-tools"><h1 style="margin:0">🏭 Production</h1>${plHalvesHtml('insights')}</div>
-    <div class="row pl-views"><div class="seg">${[['learn', '🔬 Learned'], ['dplus', '📆 D+ due out'], ['timing', '⏱ Timing']].map(([k, l]) => `<button type="button" data-pl-insight="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>${extra}</div>`;
+    <div class="row pl-views"><div class="seg">${[['learn', '🔬 Learned'], ['dplus', '📆 D+ due out'], ['timing', '⏱ Timing'], ['optimise', '🔎 Optimisation']].map(([k, l]) => `<button type="button" data-pl-insight="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>${extra}</div>`;
 // a click on Production's tabs or Insights' own: true when handled
 function plInsightsClick(e) {
   const hf = e.target.closest('[data-pl-half]'); if (hf) { store.set('planHalf', hf.dataset.plHalf); renderPlanning(); return true; }
@@ -33,6 +33,7 @@ async function renderPlanInsights() {
   store.set('planHalf', 'insights');
   if (store.get('planInsight', 'learn') === 'dplus') return renderPlanDplus();
   if (store.get('planInsight', 'learn') === 'timing') return renderKpiProduction();
+  if (store.get('planInsight', 'learn') === 'optimise') return renderPlanOptimise(); // 🔎 work orders that could be fewer (optimise.js)
   const L = await api.get(`/plan/learn?days=${store.get('planLearnDays', 90)}`);
   main().innerHTML = `${plInsightsHead('learn')}<div class="pll-view">${planLearnHtml(L)}</div>`;
   main().onclick = async (e) => { if (plInsightsClick(e)) return; await planLearnClick(e, L, renderPlanInsights); };

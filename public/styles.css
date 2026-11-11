@@ -2545,3 +2545,9 @@ body.in-training #topbar { border-bottom-color: #f3a712; }
 /* the bar's own light controls, whatever the theme (dark mode's dark fields would hide its dark text) */
 .training-bar select, .training-bar select option { background: #fff8e6; color: #2b1d00; border: 1px solid #c98400; color-scheme: light; }
 .training-bar select:focus { outline: 2px solid #2b1d00; outline-offset: 1px; }
+/* 🔎 Insights › Optimisation: what has to match; a set opens out to its work orders */
+.opt-match { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.opt-tick { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; white-space: nowrap; }
+.opt-t tr.opt-g { cursor: pointer; }
+.opt-t tr.opt-g:hover td { background: var(--panel-2); }
+.opt-t tr.opt-lines > td { background: var(--panel-2); padding-top: 4px; padding-bottom: 8px; }

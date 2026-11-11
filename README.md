@@ -422,6 +422,11 @@ The Perso tab turns the open perso work orders export (`OpenPersoWorkorders_PerA
     - its runs by machine and by customer, and its latest runs.
     - **⤢ Explode its runs** opens them in the Explode window.
   - Work orders and cards are links between each other. **← Back** returns to the previous one, scrolled to where you were.
+- **🔎 Optimisation** (🧠 Insights) looks for work orders that could be fewer. For each customer, it finds separate work orders whose cards could run as one work order: fewer set-ups, change-overs, paperwork and despatches.
+  - **Where it looks:** the **open work orders now** (to act on), or the planner's history of the **last 4 weeks** or **90 days** (habits worth raising with the customer).
+  - **What has to match:** the same card (Card AX), or **the same kind of card** (type, so the personalisation method, plus material and print sides), the due-out day (**same day**, within 1, 2 or 5 days, or any), and, ticked by default, the same **shipper**, the same **shipping time**, and dailies and renewals kept apart.
+  - **What it shows:** tiles for work orders looked at, the sets found and how many fewer work orders there could be. A table per customer gives their work orders, how many are in a set, what they **could be** and how many fewer (work orders linked through shared sets become one, and each is counted once). Each set shows its card and method, shipping, due-out days, and *n → 1* work orders, and ▸ opens its work orders with their PER, cards, due out, shipping and priority.
+  - **The method** comes from the card database (⚙ Setup). Without it, cards are matched on their Card AX only.
 - **📆 D+ due out** (🧠 Insights) shows how much notice work orders come with, for **Perso**, **Matching** or **Both**:
   - **How it's counted:**
     - A work order *comes in* on the day it first appears in its export. Perso uses the open work orders, recorded in the plan history. Matching uses its jobs, grouped by work order; the Matching export is now recorded the same way, from when this was added.

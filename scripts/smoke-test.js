@@ -1949,6 +1949,28 @@ async function waitForServer() {
         assert.deepEqual(db_.all("SELECT key, new_date, reason FROM plan_disp_delay_jobs WHERE customer = 'QRS' ORDER BY key"), [{ key: 'CQRSS26100103DES0001', new_date: '2026-10-28', reason: null }, { key: 'CQRSS26100104DES0001', new_date: '2026-10-29', reason: null }]);
         sq.close();
         assert.equal((await fetch(`${BASE}/plan/disp/delays/import`, { method: 'POST', body: exp, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } })).status, 400, 'not a delays workbook');
+        // 🔎 Insights › Optimisation: a customer's separate work orders that could be one
+        {
+          const { seek, linesOfJobs } = require('../src/optimise');
+          const job = (wo, article, due, { shipper = 'bpost', cutoff = 960, prio = 'High', qty = 100, customer = 'ABC' } = {}) => ({ wo, per: '0001', customer, due, shipper, cutoff, prio, articles: [{ article, qty }] });
+          const cardsMap = new Map([['A1', { type: 'DOD', material: 'PVC', sides: '1', name: 'Gold' }], ['A2', { type: 'DOD', material: 'PVC', sides: '1', name: 'Silver' }]]);
+          const L = linesOfJobs([job('WO1', 'A1', '2026-04-14'), job('WO2', 'A1', '2026-04-14'), job('WO3', 'A1', '2026-04-15'), job('WO4', 'A1', '2026-04-14', { shipper: 'DHL' }),
+            job('WO5', 'A1', '2026-04-14', { prio: 'Low' }), job('WO6', 'A1', '2026-04-14', { customer: 'XYZ' }), job('WO7', 'A2', '2026-04-14'), job('WO8', 'A1', '2026-04-14', { cutoff: 600 })], cardsMap);
+          const f = (o) => { const r = seek(L, o); return [r.total.sets, r.total.saving, r.groups.map((g) => g.lines.map((l) => l.wo).join('+'))]; };
+          assert.deepEqual(f({}), [1, 1, ['WO1+WO2']], 'the same card, method, shipper, shipping time and day, dailies apart: WO1 and WO2 could be one');
+          assert.deepEqual(f({ due: 'w1' }), [1, 2, ['WO1+WO2+WO3']], 'due within a day');
+          assert.deepEqual(f({ shipper: 0 }), [1, 2, ['WO1+WO2+WO4']], 'any shipper');
+          assert.deepEqual(f({ prio: 0 }), [1, 2, ['WO1+WO2+WO5']], 'a renewal with dailies');
+          assert.deepEqual(f({ time: 0 })[2], ['WO1+WO2+WO8'], 'any shipping time');
+          assert.deepEqual(f({ card: 'kind' })[2], ['WO1+WO2+WO7'], 'the same kind of card (type, material, sides): another design on the same set-up');
+          const r = seek(L, {});
+          assert.deepEqual([r.customers[0].customer, r.customers[0].saving, r.groups[0].method, r.total.wos], ['ABC', 1, 'DOD', 8], 'per customer; the personalisation method from the card database');
+          // a work order with two cards, each shared with the same other work order: still one fewer, not two
+          const two = seek(linesOfJobs([{ wo: 'M1', per: '0001', customer: 'DEF', due: '2026-04-14', shipper: 'x', cutoff: 960, prio: 'High', articles: [{ article: 'A1', qty: 5 }, { article: 'A2', qty: 5 }] },
+            { wo: 'M2', per: '0001', customer: 'DEF', due: '2026-04-14', shipper: 'x', cutoff: 960, prio: 'High', articles: [{ article: 'A1', qty: 5 }, { article: 'A2', qty: 5 }] }], cardsMap), {});
+          assert.deepEqual([two.total.sets, two.total.saving, two.customers[0].could_be], [2, 1, 1], 'two sets, but the same two work orders: one fewer');
+          assert.equal((await call('GET', '/plan/optimise?source=history&days=30')).source, 'history', 'the route: the open work orders or the history');
+        }
         // 📐 CPM — capacity planning: the forecasts by SITHUB's rules, flex from earlier years, demand ÷ OEE, scenarios
         {
           const Y = 2031;
