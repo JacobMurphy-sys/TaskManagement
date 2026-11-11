@@ -2375,7 +2375,7 @@ dialog#modal .tm-title:focus { border-color: var(--accent); background: var(--pa
 .q-chart .ops-line { fill: none; stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
 .q-chart .ops-line.q-c1 { stroke: var(--q-c1); } .q-chart .ops-line.q-c2 { stroke: var(--q-c2); } .q-chart .ops-line.q-c3 { stroke: var(--q-c3); }
 .q-chart .ops-dot { stroke: var(--panel); stroke-width: 1.5; }
-.q-chart .ops-target { stroke: var(--muted); stroke-width: 1.25; stroke-dasharray: 5 4; }
+.q-chart .ops-target { stroke: var(--q-c1); stroke-width: 1.75; stroke-dasharray: 7 4; } /* a target: red dashes, seen even on the zero line */
 .q-chart .q-col.dim .q-ax { opacity: .55; }
 .q-chart .q-col.dim .q-hit { fill: var(--panel-2); opacity: .5; }
 .q-sw.line { height: 3px; border-radius: 2px; width: 14px; }
@@ -2384,7 +2384,7 @@ dialog#modal .tm-title:focus { border-color: var(--accent); background: var(--pa
 .ops-table td { vertical-align: top; }
 .ops-slot { height: 100%; }
 .q-bars.wide .q-bar-row { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 44px 44px; }
-.q-chart .ops-target-l { paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; }
+.q-chart .ops-target-l { fill: var(--q-c1); font-weight: 600; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; }
 /* 🏭 Operations: the charts and customers row gives room to the tables below it */
 .qd.ops .qd-top { flex: 1 1 0; }
 .qd.ops .qd-cases { flex: 1 1 0; }

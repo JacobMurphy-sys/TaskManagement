@@ -38,10 +38,14 @@ function opsSvg(spec, W, H) {
   const all = [...spec.bars.flatMap((b) => vals.map((v) => v[b.key] || 0)), ...(spec.lines || []).flatMap((l) => vals.map((v) => v[l.key] ?? 0)), spec.target || 0];
   // a little headroom, then the smallest round step that needs no more than 7 gridlines: the bars fill the chart
   let max = spec.max || Math.max(...all, 1e-9) * 1.04;
-  const range = max - (spec.min ?? 0); const p = 10 ** Math.floor(Math.log10(range / 6));
+  // a target is always on the chart: the scale stretches to it, even past a fixed top or bottom
+  const hasTarget = spec.target !== undefined && spec.target !== null && Number.isFinite(spec.target);
+  let lo = spec.min ?? 0;
+  if (hasTarget) { if (spec.target > max) max = spec.target * 1.04; if (spec.target < lo) lo = spec.target; } // on the very top (100%) it stays there
+  const range = max - lo; const p = 10 ** Math.floor(Math.log10(range / 6));
   const step = [1, 2, 2.5, 5, 10, 20].map((x) => x * p).find((s) => Math.ceil(range / s - 1e-9) <= 7);
   max = Math.ceil(max / step - 1e-9) * step;
-  const min = Math.floor((spec.min ?? 0) / step + 1e-9) * step;
+  const min = Math.floor(lo / step + 1e-9) * step;
   const y = (v) => T + (H - T - B) * (1 - (Math.max(min, Math.min(max, v)) - min) / (max - min || 1));
   const n = vals.length; const cw = (W - L - R) / n;
   const nb = spec.bars.length; const bw = Math.max(2, Math.min(18, (cw * 0.72) / Math.max(1, nb)));
