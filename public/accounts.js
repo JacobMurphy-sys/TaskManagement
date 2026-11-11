@@ -330,7 +330,7 @@ async function trainingBanner() {
   const cur = views.find((v) => (v.modules ? v.modules.join(',') : null) === (mine || null))?.key ?? 'custom';
   const old = document.getElementById('training-bar'); if (old) old.outerHTML = '';
   document.getElementById('topbar')?.insertAdjacentHTML('afterend', `<div id="training-bar" class="training-bar" role="status">
-    <b>🎓 Training</b><span class="tb-what">a practice copy of SITHUB${t?.copied_at ? `, copied from the real data ${esc(fmtDateTime(t.copied_at))}` : ''}, as <b>${esc(ACCT.account.person)}</b> (their tasks, messages and rights). Nothing here changes the real SITHUB.</span>
+    <b>🎓 Training</b><span class="tb-what">a practice copy of SITHUB${t?.copied_at ? `, copied from the real data ${esc(fmtDateTime(t.copied_at))}` : ''}: the site's planning and reporting data, with no one's tasks, projects or notes. Nothing here changes the real SITHUB.</span>
     <label class="tb-view">Viewing as <select id="training-view">${views.map((v) => `<option value="${esc(v.key)}" ${v.key === cur ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}${cur === 'custom' ? '<option value="custom" selected>Custom</option>' : ''}</select></label>
     <button type="button" class="small" id="training-reset" title="Throw away what's been done in training and copy the real data again">↺ Fresh copy from live</button></div>`);
   $('#training-view')?.addEventListener('change', async (e) => {

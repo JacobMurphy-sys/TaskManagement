@@ -212,8 +212,8 @@ function migrate() {
 }
 
 // ---- 🎓 the training copy ----------------------------------------------------------------------
-// Made from live (VACUUM INTO) the first time it's needed and whenever it's reset; brought up to date
-// with the code like the live database. Sign-ins aren't copied: they're only ever checked against live.
+// Made from live (VACUUM INTO) the first time it's needed and whenever it's reset, without anyone's own
+// work (clearPersonal); brought up to date with the code like the live database.
 function freshTraining() {
   if (trainingConn) { try { trainingConn.close(); } catch { /* closed */ } trainingConn = null; }
   const tmp = `${TRAINING_FILE}.new`;
@@ -222,10 +222,25 @@ function freshTraining() {
   for (const f of [TRAINING_FILE, `${TRAINING_FILE}-wal`, `${TRAINING_FILE}-shm`]) fs.rmSync(f, { force: true });
   fs.renameSync(tmp, TRAINING_FILE);
   trainingConn = open(TRAINING_FILE);
-  connStore.run(trainingConn, () => { migrate(); trainingConn.exec('DELETE FROM sessions'); });
+  connStore.run(trainingConn, () => { migrate(); clearPersonal(); });
   setTrainingMeta();
   log.info('Training copy made from live');
   return trainingConn;
+}
+// What the training copy leaves out: everyone's own work and messages, and the history of who changed what. It
+// keeps the site's data to practise on: planning and its history, the reports, OTD, quality and EHS, capacity,
+// contacts and lists, settings and the Library. (Sign-ins aren't kept either: they're only checked on live.)
+const TRAINING_EMPTY = ['task_links', 'reminders', 'reschedules', 'attachments', 'project_costs', 'project_team', 'project_kpis', 'project_phases', 'tasks', 'projects',
+  'notes', 'meetings', 'idea_notes', 'ideas', 'capex', 'tickets', 'messages', 'people_focus', 'cpm_scenarios', 'sessions', 'audit_log'];
+function clearPersonal() {
+  const c = cur();
+  c.exec('PRAGMA foreign_keys = OFF');
+  try {
+    c.exec(dropTriggersSql());
+    for (const t of TRAINING_EMPTY) { try { c.exec(`DELETE FROM ${t}`); } catch { /* not there */ } }
+    try { c.exec(`DELETE FROM sqlite_sequence WHERE name IN (${TRAINING_EMPTY.map((t) => `'${t}'`).join(',')})`); } catch { /* none */ }
+    c.exec(triggersSql());
+  } finally { c.exec('PRAGMA foreign_keys = ON'); }
 }
 const metaOf = (c) => { try { return c.prepare("SELECT value FROM settings WHERE key = 'training_copied_at'").get()?.value || null; } catch { return null; } };
 function setTrainingMeta() { trainingConn.prepare("INSERT INTO settings (key, value) VALUES ('training_copied_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(new Date().toISOString()); }

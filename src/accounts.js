@@ -184,14 +184,7 @@ const router = express.Router();
 const h = (fn) => (req, res) => { try { const out = fn(req, res); if (out && out.catch) out.catch((err) => res.status(err.status || 500).json({ error: err.message })); } catch (err) { res.status(err.status || 500).json({ error: err.message }); } };
 const bad = (msg, status = 400) => Object.assign(new Error(msg), { status });
 
-router.get('/auth/me', h((req, res) => res.json({ enabled: enabled(), account: publicAccount(trainingSelf(req.account)), modules: MODULES, areas: AREAS, rights: RIGHTS })));
-// 🎓 a training account, as it is in the copy: the account it acts as (name, rights), its own view and sign-in
-function trainingSelf(a) {
-  if (!a?.training) return a;
-  const main = db.asLive(() => (a.training_as ? db.get('SELECT * FROM accounts WHERE id = ? AND active = 1', [a.training_as]) : null)
-    || db.get('SELECT * FROM accounts WHERE owner = 1 AND active = 1 LIMIT 1')); // one made before the link: the host's
-  return main ? { ...main, id: a.id, username: a.username, owner: 0, training: 1, training_view: a.training_view, training_as: main.id, must_change: a.must_change, theme: a.theme ?? main.theme, nav_order: a.nav_order ?? main.nav_order } : a;
-}
+router.get('/auth/me', h((req, res) => res.json({ enabled: enabled(), account: publicAccount(req.account), modules: MODULES, areas: AREAS, rights: RIGHTS })));
 
 // a few wrong passwords in a row from one address wait a minute
 const attempts = new Map();
@@ -292,7 +285,6 @@ router.patch('/accounts/:id', h((req, res) => {
     if (!isOwner(req)) throw bad('Only the host account can make a training account', 403);
     if (a.owner) throw bad('The host account can\'t be a training account');
     f.training = req.body.training ? 1 : 0;
-    if (f.training) f.training_as = req.account.id; // in the copy it acts as the host who made it: their tasks, messages and rights
   }
   if ('password' in req.body) { const p = passwordProblem(req.body.password); if (p) throw bad(p); f.password_hash = hashPassword(req.body.password); f.must_change = 1; }
   const after = { ...a, ...f };
@@ -437,4 +429,4 @@ router.post('/server/password', h((req, res) => {
   res.json({ ...pwState(), people: serverPeople() });
 }));
 
-module.exports = { trainingSelf, gate, router, moduleGate, setupGate, hasRight, rightsOf, peopleWithRight, RIGHTS, canUse, modulesOf, MODULES, hashPassword, checkPassword, enabled, accountOf, publicAccount };
+module.exports = { gate, router, moduleGate, setupGate, hasRight, rightsOf, peopleWithRight, RIGHTS, canUse, modulesOf, MODULES, hashPassword, checkPassword, enabled, accountOf, publicAccount };

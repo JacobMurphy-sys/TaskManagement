@@ -3125,20 +3125,23 @@ async function waitForServer() {
         let me = (await trc('GET', '/auth/me')).data;
         assert.deepEqual([me.account.training, me.account.training_view, me.account.modules.includes('despatch')], [true, null, true], 'signed in to training: everything, until a view is picked');
         const host = (await admin('GET', '/auth/me')).data.account;
-        assert.deepEqual([me.account.person, me.account.username, me.account.owner, me.account.rights.length === host.rights.length], [host.person, 'trainer', false, true], 'in the copy it acts as the host who made it: their name and rights');
+        assert.deepEqual([me.account.person, me.account.owner], ['Trainer Person', false], 'its own person: no one else\'s account');
         await admin('POST', '/tasks', { title: 'Host\'s own task', owner: host.person });
+        await admin('PATCH', '/settings', { kpi_split_weekends: '1' });
         const info = (await trc('GET', '/training')).data;
         assert.ok(info.exists && info.copied_at && info.views.some((v) => v.key === 'despatch'), 'a copy of live, made when first needed, and the department views');
         assert.notEqual((await anon('GET', '/training')).status, 200, 'not without signing in');
+        // no one's own work in the copy: no tasks, projects, notes or messages; the site's data and settings are there
+        assert.deepEqual([(await trc('GET', '/tasks')).data.length ?? titles(await trc('GET', '/tasks')).length, (await trc('GET', '/projects')).data.length, (await trc('GET', '/settings')).data.kpi_split_weekends],
+          [0, 0, '1'], 'a copy of the site\'s data without anyone\'s tasks or projects');
+        const work0 = await trc('GET', '/me/work');
+        assert.deepEqual([work0.status, JSON.stringify(work0.data).includes('Host\'s own task')], [200, false], '📥 My work: nothing of anyone else\'s');
         // what's done in training stays there; what's done live after the copy isn't in it
         assert.equal((await trc('POST', '/tasks', { title: 'Practised in training' })).status, 201);
         assert.ok(titles(await trc('GET', '/tasks')).includes('Practised in training'), 'in training');
         assert.ok(!titles(await admin('GET', '/tasks')).includes('Practised in training'), 'not in the real SITHUB');
         await admin('POST', '/tasks', { title: 'Real work after the copy' });
         assert.ok(!titles(await trc('GET', '/tasks')).includes('Real work after the copy'), 'nor the other way round');
-        await trc('POST', '/training/reset', {});
-        const work = await trc('GET', '/me/work');
-        assert.deepEqual([work.status, JSON.stringify(work.data).includes('Host\'s own task')], [200, true], '📥 My work: the host\'s own tasks');
         // the department view: Despatch sees OTD, not the Weekly SC Report
         const v = (await trc('PUT', '/training/view', { modules: ['despatch'] })).data;
         assert.deepEqual(v.modules, ['basic', 'despatch']);
@@ -3152,7 +3155,8 @@ async function waitForServer() {
         const r = await trc('POST', '/training/reset', {});
         assert.equal(r.status, 200);
         const after = titles(await trc('GET', '/tasks'));
-        assert.deepEqual([after.includes('Practised in training'), after.includes('Real work after the copy')], [false, true], 'a fresh copy from live');
+        assert.deepEqual([after.includes('Practised in training'), after.includes('Real work after the copy')], [false, false], 'a fresh copy: training\'s own work gone, and still no one else\'s');
+        await admin('PATCH', '/settings', { kpi_split_weekends: '0' });
         assert.ok(fs.existsSync(path.join(tmp, 'test-training.db')), 'kept next to the database, as its own file');
         await admin('PATCH', `/accounts/${tr.id}`, { active: false });
       }
