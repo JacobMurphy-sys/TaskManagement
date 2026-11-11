@@ -2542,3 +2542,6 @@ details.msel .msel-pop input.msel-q { flex: none; width: 100%; min-width: 0; max
 .training-bar button { background: #fff8e6; border-color: #c98400; color: #2b1d00; }
 body.in-training #topbar { border-bottom-color: #f3a712; }
 .acct-training { display: block; margin-top: 4px; white-space: nowrap; }
+/* the bar's own light controls, whatever the theme (dark mode's dark fields would hide its dark text) */
+.training-bar select, .training-bar select option { background: #fff8e6; color: #2b1d00; border: 1px solid #c98400; color-scheme: light; }
+.training-bar select:focus { outline: 2px solid #2b1d00; outline-offset: 1px; }
