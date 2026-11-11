@@ -1420,6 +1420,13 @@ async function waitForServer() {
         assert.deepEqual([op.late.map((l) => l.wo), op.late[0].late_hours, op.on_time_customers[0].customer], [['OPS2'], 18, 'BKA'], 'the late work orders; per customer');
         assert.deepEqual(op.otd_customers.map((c) => [c.customer, c.internal, c.external]), [['BEL', 400, 0], ['ICA', 0, 100]], 'delays per customer from the OTD report');
         assert.equal((await call('GET', '/kpi/operations?month=nonsense')).month.length, 7, 'a month that isn\'t one: the last full month');
+        // a year to date: January up to today, every part of the page the year so far
+        const yt = await call('GET', '/kpi/operations?month=2026-ytd');
+        assert.ok(op.months.some((x) => x.month === '2026-ytd' && x.label === '2026 year to date'), 'each year\'s "year to date" in the picker');
+        assert.deepEqual([yt.period.ytd, yt.period.from, yt.label, yt.tiles.persoed, yt.tiles.persoed_prev, yt.by_day[0].day], [true, '2026-01', '2026 year to date', yt.tiles.persoed_ytd, null, '2026-01-01'], 'January to now, nothing to compare with');
+        assert.ok(yt.tiles.persoed >= op.tiles.persoed + 1300 && yt.late.some((l) => l.wo === 'OPS2') && yt.tiles.on_time.daily.wos >= 2, 'April\'s cards and work orders are in the year so far');
+        assert.deepEqual([yt.site.values.volume.now, yt.site.values.otd.now, yt.site.values.otd.prev], [yt.tiles.persoed, yt.tiles.otd.ytd_sc, null], 'the KPIs: the year so far');
+        assert.equal(yt.tiles.otd.otd_sc, yt.tiles.otd.ytd_sc, 'OTD over the whole period');
         // 🏭 the site KPIs: the standard set, each with a target that can be set and switched off; OTD counted three ways
         const sk = op.site;
         assert.deepEqual(sk.config.map((k) => k.key), ['transfo', 'cpms', 'otd', 'wastage', 'productivity', 'mir', 'gci', 'inventory', 'capex', 'volume', 'ontime', 'openlate'], 'the KPIs, in order');

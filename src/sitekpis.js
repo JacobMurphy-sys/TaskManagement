@@ -106,6 +106,8 @@ function weeksByMonth(years) {
  */
 function siteKpis(ops) {
   const m = ops.month; const y = Number(m.slice(0, 4));
+  const per = ops.period || { ytd: false, from: m, to: m, months: [m] };
+  const inPer = (mm) => mm >= per.from && mm <= per.to;
   const months = ops.trend.map((t) => t.month);
   const cfg = config();
   const otdCfg = cfg.find((k) => k.key === 'otd');
@@ -137,11 +139,11 @@ function siteKpis(ops) {
   try {
     machines = db.all(`SELECT machine, SUM(qty) AS cards, SUM((julianday(end_at) - julianday(start_at)) * 24) AS hours, COUNT(*) AS runs FROM prod_runs
       WHERE source = 'perso' AND remake = 0 AND job NOT LIKE 'M%' AND start_at IS NOT NULL AND end_at IS NOT NULL AND end_at > start_at AND end_at >= ? AND end_at < ? AND machine <> ''
-      GROUP BY machine ORDER BY machine`, [`${m}-01`, `${addMonths(m, 1)}-01`])
+      GROUP BY machine ORDER BY machine`, [`${per.from}-01`, `${addMonths(m, 1)}-01`])
       .filter((r) => r.hours > 0.05 && r.cards > 0).map((r) => ({ machine: r.machine, cards: r.cards, hours: Math.round(r.hours * 10) / 10, runs: r.runs, per_hour: r.cards / r.hours }));
   } catch { machines = []; }
   const ph = machines.map((x) => x.per_hour);
-  detail.productivity = { weeks: (wk.get(m)?.weeks || []), machines, range: ph.length ? [Math.min(...ph), Math.max(...ph)] : null, hours_typed: !!wk.get(m)?.hours };
+  detail.productivity = { weeks: per.months.flatMap((mm) => wk.get(mm)?.weeks || []), machines, range: ph.length ? [Math.min(...ph), Math.max(...ph)] : null, hours_typed: per.months.some((mm) => wk.get(mm)?.hours) };
 
   // ---- CPMS: customer complaints per million cards shipped
   const sfRead = !!db.get("SELECT 1 FROM kpi_sources WHERE source = 'salesforce'");
@@ -152,7 +154,8 @@ function siteKpis(ops) {
       const pm = new Map(q.pack.months.map((r) => [r.month, r]));
       values.cpms = { ...pick(byMonth((mm) => pm.get(mm)?.cpms ?? null)), ytd: q.pack.ytd.cpms };
       detail.cpms = { from: 'salesforce', trend: months.map((mm) => ({ month: mm, cc: pm.get(mm)?.cc ?? 0, shipped: pm.get(mm)?.shipped ?? 0 })) };
-      cases = q.cases.filter((c) => /customer\s*complaint/i.test(String(c.kind || ''))).map((c) => ({ ref: c.ref, day: c.day, customer: c.customer, severity: c.severity, summary: c.summary, status: c.status }));
+      const all = per.ytd ? per.months.flatMap((mm) => (mm === m ? q : require('./quality').quality(mm)).cases) : q.cases;
+      cases = all.filter((c) => /customer\s*complaint/i.test(String(c.kind || ''))).map((c) => ({ ref: c.ref, day: c.day, customer: c.customer, severity: c.severity, summary: c.summary, status: c.status }));
     } catch { /* below */ }
   }
   if (!values.cpms) {
@@ -163,7 +166,7 @@ function siteKpis(ops) {
     values.cpms.ytd = s ? (ytdM.reduce((a, mm) => a + ccOf(mm), 0) / s) * 1e6 : null;
     detail.cpms = { from: 'typed', trend: months.map((mm) => ({ month: mm, cc: ccOf(mm), shipped: ship(mm) })) };
   }
-  detail.cpms.cases = cases;
+  detail.cpms.cases = cases.sort((a, b) => String(b.day).localeCompare(String(a.day))); // newest first
 
   // ---- CAPEX: the year's investments (by planned date): committed (approved and on) and in the pipeline
   let capex = [];
@@ -187,7 +190,7 @@ function siteKpis(ops) {
     const n = (mm) => acc.filter((a) => a.day.slice(0, 7) === mm).length;
     values.mir = { ...pick(byMonth(n)), ytd: acc.filter((a) => a.day.slice(0, 4) === String(y) && a.day.slice(0, 7) <= m).length };
     const before = acc.filter((a) => a.day.slice(0, 7) <= m).pop();
-    detail.mir = { accidents: acc.filter((a) => a.day.slice(0, 7) === m).reverse(), last: before?.day || null };
+    detail.mir = { accidents: acc.filter((a) => inPer(a.day.slice(0, 7))).reverse(), last: before?.day || null };
   }
 
   // ---- typed in each month
@@ -195,6 +198,12 @@ function siteKpis(ops) {
   for (const k of cfg.filter((x) => x.typed)) {
     const v = typed[k.key] || {};
     values[k.key] = { ...pick(byMonth((mm) => (Number.isFinite(v[mm]) ? (k.pct ? v[mm] / 100 : v[mm]) : null))), ytd: null, typed: true }; // a % typed as 73: kept as 0.73, as the others
+  }
+  // a year to date: each KPI's figure is the year so far (a typed one: the average of the months typed in), nothing to compare
+  if (per.ytd) for (const [key, v] of Object.entries(values)) {
+    if (['ontime', 'openlate', 'capex'].includes(key)) continue; // already the period's, now, and the year's
+    if (v.typed) { const xs = (v.trend || []).filter((t) => inPer(t.month) && t.value !== null).map((t) => t.value); v.ytd = xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; }
+    v.now = v.ytd ?? null; v.prev = null;
   }
   return { config: cfg, values, detail };
 }

@@ -25,7 +25,7 @@ async function renderQualityTab(kind) {
     : !src && read.status === 'not set up' ? `<div class="kpi-action notice"><span>⚠ Where ${srcName} is saved isn't set yet.</span>${sourcesLink}</div>` : '';
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
-      <select id="q-month" class="kpi-pick" title="The month to show">${d.months.map((m) => `<option value="${m.month}" ${m.month === d.month ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select>
+      <select id="q-month" class="kpi-pick" title="The month to show">${d.months.map((m) => `<option value="${m.month}" ${m.month === (d.period?.key || d.month) ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select>
       ${kpiTabsHtml(kind)}
       <div class="spacer"></div>
       <span class="small muted q-src" title="${esc(kind === 'operations' ? Object.entries(d.sources || {}).filter(([, s]) => s).map(([k, s]) => `${k}: ${s.file || ''}`).join('\n') : src?.file || '')}">${kind === 'operations' ? opsSourcesLine(d) : src ? `${kind === 'quality' ? '🧪 Salesforce' : '⛑ Safety concern forms'} · read ${esc(fmtDateTime(src.imported_at))}${src.modified ? ` · file saved ${esc(fmtDateTime(src.modified))}` : ''}` : ''}</span>

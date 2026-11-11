@@ -28,7 +28,11 @@ const parseExtra = (s) => { try { return JSON.parse(s || '{}') || {}; } catch { 
 function monthsOf() {
   kpiData.ensure();
   const have = db.all("SELECT DISTINCT substr(day, 1, 7) AS m FROM kpi_rows WHERE source IN ('perso', 'shipped') AND day <> ''").map((r) => r.m).filter(validMonth);
-  return [...new Set([thisMonth(), addMonths(thisMonth(), -1), ...have])].sort().reverse().map((m) => ({ month: m, label: monthLabel(m) }));
+  const list = [...new Set([thisMonth(), addMonths(thisMonth(), -1), ...have])].sort().reverse();
+  // each year's "year to date" first, then its months, newest first
+  const out = []; let yr = null;
+  for (const m of list) { if (m.slice(0, 4) !== yr) { yr = m.slice(0, 4); out.push({ month: `${yr}-ytd`, label: `${yr} year to date`, ytd: true }); } out.push({ month: m, label: monthLabel(m) }); }
+  return out;
 }
 // counts by a key for the month and the year to date: [{ name, month, ytd }], biggest this month first, the tail as "Other"
 function breakdown(rows, keyOf, valOf, inMonth, inYtd, top = 10) {
@@ -49,10 +53,15 @@ function breakdown(rows, keyOf, valOf, inMonth, inYtd, top = 10) {
 function operations(month, { names = new Map(), today = new Date() } = {}) {
   kpiData.ensure();
   const months = monthsOf();
-  const m = validMonth(month) || addMonths(thisMonth(), -1); // the last full month, the one being reported on
+  // a month (YYYY-MM), or a year to date (YYYY-ytd: January up to today, or to December for a past year)
+  const ytdY = /^(\d{4})-ytd$/i.exec(String(month || ''))?.[1];
+  const m = ytdY ? (ytdY < thisMonth().slice(0, 4) ? `${ytdY}-12` : ytdY > thisMonth().slice(0, 4) ? `${ytdY}-01` : thisMonth()) : validMonth(month) || addMonths(thisMonth(), -1); // else the last full month
   const y = m.slice(0, 4); const prevM = addMonths(m, -1);
+  const pFrom = ytdY ? `${y}-01` : m; // the period shown: the month, or January to it
+  const inPeriodM = (mm) => mm >= pFrom && mm <= m;
+  const periodMonths = Array.from({ length: Number(m.slice(5, 7)) - Number(pFrom.slice(5, 7)) + 1 }, (_, i) => addMonths(pFrom, i));
   const from12 = addMonths(m, -11);
-  const inMonth = (r) => r.day.slice(0, 7) === m;
+  const inMonth = (r) => inPeriodM(r.day.slice(0, 7));
   const inYtd = (r) => r.day.slice(0, 4) === y && r.day.slice(0, 7) <= m;
   const sumBy = (rows, f) => rows.reduce((t, r) => t + (f(r) || 0), 0);
   const range = [`${from12 < `${y}-01` ? from12 : `${y}-01`}-01`, `${addMonths(m, 1)}-01`];
@@ -61,8 +70,9 @@ function operations(month, { names = new Map(), today = new Date() } = {}) {
   const perso = db.all("SELECT day, customer, type, qty FROM kpi_rows WHERE source = 'perso' AND day >= ? AND day < ?", range);
   const shipped = db.all("SELECT day, customer, type, qty FROM kpi_rows WHERE source = 'shipped' AND day >= ? AND day < ?", range);
   const vol = (rows, mm, pred = isCard) => sumBy(rows.filter((r) => r.day.slice(0, 7) === mm && pred(r.type)), (r) => r.qty);
-  const daysIn = new Date(Date.UTC(Number(y), Number(m.slice(5, 7)), 0)).getUTCDate();
-  const byDay = Array.from({ length: daysIn }, (_, i) => `${m}-${pad(i + 1)}`).map((day) => {
+  const lastDay = ytdY && m === thisMonth() ? new Date().toISOString().slice(0, 10) : `${m}-${pad(new Date(Date.UTC(Number(y), Number(m.slice(5, 7)), 0)).getUTCDate())}`;
+  const days = []; for (let dd = new Date(`${pFrom}-01T12:00:00Z`); dd.toISOString().slice(0, 10) <= lastDay; dd.setUTCDate(dd.getUTCDate() + 1)) days.push(dd.toISOString().slice(0, 10));
+  const byDay = days.map((day) => {
     const dow = new Date(`${day}T12:00:00Z`).getUTCDay();
     return { day, weekend: dow === 0 || dow === 6, persoed: sumBy(perso.filter((r) => r.day === day && isCard(r.type)), (r) => r.qty), shipped: sumBy(shipped.filter((r) => r.day === day && isCard(r.type)), (r) => r.qty), scrap: 0 };
   });
@@ -87,15 +97,18 @@ function operations(month, { names = new Map(), today = new Date() } = {}) {
     .filter((r) => r.month);
   const delaysOf = (mm) => ({ internal: sumBy(delays.filter((r) => r.month === mm && r.internal), (r) => r.qty), external: sumBy(delays.filter((r) => r.month === mm && r.external), (r) => r.qty) });
   const otdOf = (mm) => { const s = vol(shipped, mm); const d = delaysOf(mm); return { shipped: s, ...d, otd_sc: s ? 1 - d.internal / s : null, otd_c: s ? 1 - d.external / s : null }; };
-  const otdM = otdOf(m); const otdP = otdOf(prevM);
+  // the period's OTD: its months' delays against its cards shipped (a month: that month)
+  const otdPeriod = (mms) => { const sh = mms.reduce((t, mm) => t + vol(shipped, mm), 0); const dl = mms.reduce((t, mm) => { const x = delaysOf(mm); return { internal: t.internal + x.internal, external: t.external + x.external }; }, { internal: 0, external: 0 });
+    return { shipped: sh, ...dl, otd_sc: sh ? 1 - dl.internal / sh : null, otd_c: sh ? 1 - dl.external / sh : null }; };
+  const otdM = otdPeriod(periodMonths); const otdP = ytdY ? { otd_sc: null, otd_c: null } : otdOf(prevM);
   const ytdMonths = Array.from({ length: Number(m.slice(5, 7)) }, (_, i) => `${y}-${pad(i + 1)}`);
   const ytdShip = sumBy(ytdMonths, (mm) => vol(shipped, mm));
   const ytdDel = ytdMonths.reduce((t, mm) => { const d = delaysOf(mm); return { internal: t.internal + d.internal, external: t.external + d.external }; }, { internal: 0, external: 0 });
   // per customer: the month's delays, against what the customer was shipped (matched by name)
   const shipByCust = new Map();
-  for (const r of shipped) if (r.day.slice(0, 7) === m && isCard(r.type)) shipByCust.set(norm(r.customer), (shipByCust.get(norm(r.customer)) || 0) + (r.qty || 0));
+  for (const r of shipped) if (inPeriodM(r.day.slice(0, 7)) && isCard(r.type)) shipByCust.set(norm(r.customer), (shipByCust.get(norm(r.customer)) || 0) + (r.qty || 0));
   const delayCust = new Map();
-  for (const r of delays.filter((x) => x.month === m)) {
+  for (const r of delays.filter((x) => inPeriodM(x.month))) {
     const k = norm(r.customer); const e = delayCust.get(k) || { customer: r.customer, internal: 0, external: 0, reasons: new Map() };
     if (r.internal) e.internal += r.qty; if (r.external) e.external += r.qty;
     if (r.reason) e.reasons.set(r.reason, (e.reasons.get(r.reason) || 0) + r.qty);
@@ -111,7 +124,7 @@ function operations(month, { names = new Map(), today = new Date() } = {}) {
   const now = today.toISOString();
   let jobs = [];
   try {
-    jobs = db.all('SELECT wo, per, customer, qty, due, deadline, prio, done_at, late_minutes, last_seen FROM plan_history_jobs WHERE deadline >= ? AND deadline < ?', [`${m}-01`, `${addMonths(m, 1)}-01`]);
+    jobs = db.all('SELECT wo, per, customer, qty, due, deadline, prio, done_at, late_minutes, last_seen FROM plan_history_jobs WHERE deadline >= ? AND deadline < ?', [`${pFrom}-01`, `${addMonths(m, 1)}-01`]);
   } catch { /* no planner history yet */ }
   // unfinished and not on the planner for 3 days: gone without a finish time, so neither late nor open (as the tile)
   const seenSince = new Date(today - 3 * 86400000).toISOString().slice(0, 10);
@@ -139,20 +152,22 @@ function operations(month, { names = new Map(), today = new Date() } = {}) {
     return { month: mm, label: monthLabel(mm), persoed: p, shipped: s, scrap: sc, scrap_rate: rate(sc, p), otd_sc: o.otd_sc, otd_c: o.otd_c, otd_internal: o.internal, otd_external: o.external };
   });
 
-  const persoM = vol(perso, m); const persoP = vol(perso, prevM);
-  const shipM = vol(shipped, m); const shipP = vol(shipped, prevM);
-  const scrapM = scrapOf(m); const scrapP = scrapOf(prevM);
+  const sumP = (f) => periodMonths.reduce((t, mm) => t + f(mm), 0); // the period's (a month: that month's)
+  const persoM = sumP((mm) => vol(perso, mm)); const persoP = ytdY ? null : vol(perso, prevM);
+  const shipM = sumP((mm) => vol(shipped, mm)); const shipP = ytdY ? null : vol(shipped, prevM);
+  const scrapM = sumP(scrapOf); const scrapP = ytdY ? null : scrapOf(prevM);
   const cardsRows = (rows) => rows.filter((r) => isCard(r.type));
   const src = (s) => db.get('SELECT file, modified, imported_at, rows FROM kpi_sources WHERE source = ?', [s]) || null;
   return {
-    month: m, label: monthLabel(m), months, year: Number(y), scrap_from: scrapFrom,
+    month: m, label: ytdY ? `${y} year to date` : monthLabel(m), months, year: Number(y), scrap_from: scrapFrom,
+    period: { ytd: !!ytdY, from: pFrom, to: m, key: ytdY ? `${y}-ytd` : m, months: periodMonths },
     sources: { perso: src('perso'), shipped: src('shipped'), otd: src('otd'), scrap: src(scrapFrom) },
     tiles: {
       otd: { ...otdM, prev_sc: otdP.otd_sc, prev_c: otdP.otd_c, ytd_sc: ytdShip ? 1 - ytdDel.internal / ytdShip : null, ytd_c: ytdShip ? 1 - ytdDel.external / ytdShip : null, ytd_all: ytdShip ? 1 - (ytdDel.internal + ytdDel.external) / ytdShip : null },
       on_time: tot,
-      persoed: persoM, persoed_prev: persoP, persoed_pin: vol(perso, m, isPin), persoed_ytd: sumBy(ytdMonths, (mm) => vol(perso, mm)),
-      shipped: shipM, shipped_prev: shipP, shipped_pin: vol(shipped, m, isPin), shipped_ytd: ytdShip,
-      scrap: scrapM, scrap_rate: rate(scrapM, persoM), scrap_prev: scrapP, scrap_rate_prev: rate(scrapP, persoP),
+      persoed: persoM, persoed_prev: persoP, persoed_pin: sumP((mm) => vol(perso, mm, isPin)), persoed_ytd: sumBy(ytdMonths, (mm) => vol(perso, mm)),
+      shipped: shipM, shipped_prev: shipP, shipped_pin: sumP((mm) => vol(shipped, mm, isPin)), shipped_ytd: ytdShip,
+      scrap: scrapM, scrap_rate: rate(scrapM, persoM), scrap_prev: scrapP, scrap_rate_prev: scrapP === null ? null : rate(scrapP, persoP),
       open_late: openLate,
     },
     by_day: byDay, trend,
