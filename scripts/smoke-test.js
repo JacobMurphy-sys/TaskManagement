@@ -1971,6 +1971,13 @@ async function waitForServer() {
           const two = seek(linesOfJobs([{ wo: 'M1', per: '0001', customer: 'DEF', due: '2026-04-14', shipper: 'x', cutoff: 960, prio: 'High', articles: [{ article: 'A1', qty: 5 }, { article: 'A2', qty: 5 }] },
             { wo: 'M2', per: '0001', customer: 'DEF', due: '2026-04-14', shipper: 'x', cutoff: 960, prio: 'High', articles: [{ article: 'A1', qty: 5 }, { article: 'A2', qty: 5 }] }], cardsMap), { card: 'ax' });
           assert.deepEqual([two.total.sets, two.total.saving, two.customers[0].could_be], [2, 1, 1], 'two sets, but the same two work orders: one fewer');
+          // at most 2,500 cards a perso work order: whole work orders packed up to it, so five may become three, not one
+          const big = (wo, qty) => ({ wo, per: '0001', customer: 'GHI', due: '2026-04-14', shipper: 'x', cutoff: 960, prio: 'High', articles: [{ article: 'A1', qty }] });
+          const cap = seek(linesOfJobs([big('W1', 1500), big('W2', 1200), big('W3', 900), big('W4', 800), big('W5', 3000)], cardsMap), {});
+          assert.deepEqual([cap.groups[0].wos, cap.groups[0].could_be, cap.groups[0].merges.map((b) => [b.wos.join('+'), b.cards]), cap.groups[0].unchanged, cap.total.saving],
+            [5, 3, [['W1+W3', 2400], ['W2+W4', 2000]], ['W5'], 2], 'packed up to 2,500 cards a work order: 5 → 3, the one over it left as it is');
+          assert.equal(seek(linesOfJobs([big('W6', 2000), big('W7', 1900)], cardsMap), {}).total.sets, 0, 'two that can\'t fit together under 2,500: no suggestion');
+          assert.equal(seek(linesOfJobs([big('W6', 2000), big('W7', 1900)], cardsMap), { max: 5000 }).total.saving, 1, 'the maximum can be changed');
           assert.equal((await call('GET', '/plan/optimise?source=history&days=30')).source, 'history', 'the route: the open work orders or the history');
         }
         // 📐 CPM — capacity planning: the forecasts by SITHUB's rules, flex from earlier years, demand ÷ OEE, scenarios

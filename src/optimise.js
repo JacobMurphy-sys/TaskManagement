@@ -19,11 +19,13 @@ const dayDiff = (a, b) => Math.round((new Date(`${b}T12:00:00Z`) - new Date(`${a
 //  card: 'tech' the same production technology (DOD, Emboss, Laser: the card database's type), the default |
 //        'kind' the same kind of card (type, material, print sides) | 'ax' the same card (Card AX)
 //  shipper, time: the same shipper / shipping time; due: 'day' the same due-out day | 'w1'…'w5' within that many
-//  days of each other | 'any'; prio: dailies and renewals kept apart
+//  days of each other | 'any'; prio: dailies and renewals kept apart; max: the most cards a work order may have
+//  (2,500): work orders are only put together up to it, so five may become two rather than one
 function options(q = {}) {
   const on = (v, d) => (v === undefined || v === null || v === '' ? d : !['0', 'false', 'no', 'off'].includes(String(v).toLowerCase()));
   const due = /^(day|any|w[1-5])$/.test(String(q.due || '')) ? String(q.due) : 'day';
-  return { card: ['ax', 'kind'].includes(q.card) ? q.card : 'tech', shipper: on(q.shipper, true), time: on(q.time, true), due, prio: on(q.prio, true) };
+  const max = Math.round(Number(q.max)); // the most cards a perso work order may have (2,500 unless said)
+  return { card: ['ax', 'kind'].includes(q.card) ? q.card : 'tech', shipper: on(q.shipper, true), time: on(q.time, true), due, prio: on(q.prio, true), max: max >= 50 && max <= 1e6 ? max : 2500 };
 }
 
 // one line a card: { wo, per, customer, article, qty, card: { type, material, sides, name }, due, time, shipper, renewal }
@@ -64,7 +66,18 @@ function seek(lines, opts, { names = new Map() } = {}) {
     for (const l of list) { if (cur.length && dayDiff(cur[cur.length - 1].due, l.due) > win) close(); cur.push(l); }
     if (cur.length) close();
   }
-  const out = groups.map((g) => {
+  // how they'd be merged: each work order whole (its cards here), the largest first into the first new work order with
+  // room up to the maximum; a merge is a new work order made of two or more of them
+  const packOf = (g) => {
+    const per = new Map(); for (const l of g) per.set(l.wo, (per.get(l.wo) || 0) + l.qty);
+    const bins = [];
+    for (const [wo, cards] of [...per.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) {
+      const bin = cards <= o.max ? bins.find((b) => b.cards + cards <= o.max) : null;
+      if (bin) { bin.wos.push(wo); bin.cards += cards; } else bins.push({ wos: [wo], cards });
+    }
+    return bins;
+  };
+  const out = groups.map((g) => ({ g, bins: packOf(g) })).filter(({ bins }) => bins.some((b) => b.wos.length > 1)).map(({ g, bins }) => {
     const f = g[0]; const wos = [...new Set(g.map((l) => l.wo))];
     const dues = g.map((l) => l.due).sort();
     return {
@@ -73,7 +86,8 @@ function seek(lines, opts, { names = new Map() } = {}) {
       method: f.card?.tech || f.card?.type || null, cards_n: new Set(g.map((l) => l.article)).size, shipper: o.shipper ? f.shipper : [...new Set(g.map((l) => l.shipper).filter(Boolean))].join(', ') || null,
       time: o.time ? f.time : [...new Set(g.map((l) => l.time).filter(Boolean))].join(', ') || null,
       renewal: o.prio ? f.renewal : null, from: dues[0], to: dues[dues.length - 1],
-      wos: wos.length, could_be: 1, saving: wos.length - 1, cards: g.reduce((t, l) => t + l.qty, 0),
+      wos: wos.length, could_be: bins.length, saving: wos.length - bins.length, cards: g.reduce((t, l) => t + l.qty, 0),
+      merges: bins.filter((b) => b.wos.length > 1), unchanged: bins.filter((b) => b.wos.length === 1).map((b) => b.wos[0]),
       lines: g.map((l) => ({ wo: l.wo, per: l.per, article: l.article, qty: l.qty, due: l.due, time: l.time, shipper: l.shipper, prio: l.prio, done: l.done })),
     };
   }).sort((a, b) => b.saving - a.saving || b.cards - a.cards || a.customer.localeCompare(b.customer));
@@ -86,14 +100,18 @@ function seek(lines, opts, { names = new Map() } = {}) {
   for (const g of out) {
     const c = custs.get(g.customer); c.sets++;
     const wos = [...new Set(g.lines.map((l) => l.wo))];
-    for (const w of wos) { c.in_sets.add(w); if (!parent.has(w)) parent.set(w, w); }
-    for (const w of wos.slice(1)) parent.set(find(w), find(wos[0]));
+    const merged = [...new Set(g.merges.flatMap((b) => b.wos))]; // only the work orders a merge takes in
+    for (const w of merged) { c.in_sets.add(w); if (!parent.has(w)) parent.set(w, w); }
+    for (const b of g.merges) for (const w of b.wos.slice(1)) parent.set(find(w), find(b.wos[0]));
   }
   const customers = [...custs.values()].map((c) => {
-    const roots = new Set([...c.in_sets].map(find)); const saving = c.in_sets.size - roots.size;
+    const roots = new Set([...c.in_sets].map(find));
+    // each suggestion's own saving, never more than the work orders linked through them could give (a work order with
+    // cards of two technologies is in two suggestions, but it's one work order)
+    const saving = Math.min(out.filter((g) => g.customer === c.customer).reduce((t, g) => t + g.saving, 0), c.in_sets.size - roots.size);
     return { customer: c.customer, name: c.name, wos: c.wos.size, in_sets: c.in_sets.size, sets: c.sets, saving, could_be: c.wos.size - saving, cards: c.cards, share: c.wos.size ? saving / c.wos.size : 0 };
   }).sort((a, b) => b.saving - a.saving || b.wos - a.wos);
-  const allWos = new Set(lines.map((l) => l.wo)); const inSets = new Set(out.flatMap((g) => g.lines.map((l) => l.wo)));
+  const allWos = new Set(lines.map((l) => l.wo)); const inSets = new Set(out.flatMap((g) => g.merges.flatMap((b) => b.wos)));
   const saving = customers.reduce((t, c) => t + c.saving, 0);
   return { options: o, total: { wos: allWos.size, lines: lines.length, customers: custs.size, sets: out.length, in_sets: inSets.size, saving, share: allWos.size ? saving / allWos.size : 0,
     no_card: lines.filter((l) => !l.card).length }, customers, groups: out.slice(0, 400) };
