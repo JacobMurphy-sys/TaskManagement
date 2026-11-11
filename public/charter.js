@@ -116,6 +116,7 @@ function renderCharterTab(root, p) {
       ${c.missing.length ? `<span class="small muted">To do: ${esc(c.missing.join(', '))}</span>` : '<span class="small muted">✓ Every section is filled in</span>'}
       <div class="spacer"></div>
       <a class="button" href="/api/projects/${p.id}/charter.xlsx" title="Your standard template filled in (set it up under Settings)">⬇ Charter (Excel)</a>
+      <a class="button" href="/api/projects/${p.id}/charter.pdf" download title="The charter on one page, to send or print">📄 Summary (PDF)</a>
       <button data-action="print-charter">🖨 Print</button>
     </div>
     <div class="charter card" id="charter-form">

@@ -214,4 +214,4 @@ async function overview(items, { currency = '£', stamp = '', title = 'CAPEX pla
   foot(doc, stamp); doc.end(); return done;
 }
 
-module.exports = { CATEGORIES, STATUS, OPEN, PRIORITY, REQUIRED, FIELDS, workbook, onePager, overview, quarter, payback };
+module.exports = { CATEGORIES, STATUS, OPEN, PRIORITY, REQUIRED, FIELDS, workbook, onePager, overview, quarter, payback, pdf: { pdfDoc, band, clean, fmtMoney, fmtDate, BRAND, BRAND2, INK, MUTED, LINE } };

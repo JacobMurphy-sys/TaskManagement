@@ -947,6 +947,11 @@ async function waitForServer() {
     const prep = await call('GET', `/report?project_id=${pp.id}`);
     assert.equal(prep.projects[0].phases.length, 3, 'report includes phases');
     assert.ok(prep.projects[0].due_changes.some((m) => /Phase "Pilot"/.test(m.what)), 'phase date change reported');
+    // 📄 the charter on one page
+    {
+      const r = await fetch(`${BASE}/projects/${pp.id}/charter.pdf`); const b = Buffer.from(await r.arrayBuffer());
+      assert.deepEqual([r.status, r.headers.get('content-type'), b.subarray(0, 5).toString(), (b.toString('latin1').match(/\/Type \/Page\b/g) || []).length], [200, 'application/pdf', '%PDF-', 1], 'the charter summary: a one-page PDF');
+    }
     // charter: phases become the sub projects, tasks the actions
     const pwb = readZip(Buffer.from(await (await fetch(`${BASE}/projects/${pp.id}/charter.xlsx`)).arrayBuffer()));
     assert.match(pwb['xl/worksheets/sheet2.xml'].toString(), /Pilot[\s\S]*Handover[\s\S]*Roll-out/, 'phases as sub projects');

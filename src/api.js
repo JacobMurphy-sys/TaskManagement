@@ -3997,6 +3997,18 @@ router.get('/projects/:id/charter.xlsx', h((req, res) => {
   res.send(buf);
 }));
 
+// 📄 the charter on one page (PDF)
+router.get('/projects/:id/charter.pdf', h(async (req, res) => {
+  const p = db.get('SELECT * FROM projects WHERE id = ?', [req.params.id]);
+  if (!p) throw notFound('Project');
+  const spent = db.get('SELECT SUM(CASE WHEN currency IS NULL THEN amount ELSE coalesce(amount_project, 0) END) AS s FROM project_costs WHERE project_id = ?', [p.id]).s || 0;
+  const buf = await require('./charterpdf').onePager(p, charterExtras(p.id), { currency: getSettings().currency, spent, stamp: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) });
+  const file = `Charter - ${(p.project_code ? `${p.project_code} ` : '') + p.name}`.replace(/[^\w -]+/g, '').trim().slice(0, 80);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${file}.pdf"; filename*=UTF-8''${encodeURIComponent(`${file}.pdf`)}`);
+  res.send(buf);
+}));
+
 // ------------------------------------------------------------------ project costs
 
 // exchange rates set in Settings: { '€': 0.86, '$': 0.74 } — what one of each is in the app's currency
