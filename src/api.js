@@ -1964,10 +1964,16 @@ function refreshSource(name, also = []) {
 }
 // 🏭 Operations (Prod Management): the month's OTD, production and scrap, and the planner's work orders on time
 const operationsPage = require('./operations');
+const siteKpis = require('./sitekpis');
 router.get('/kpi/operations', h((req, res) => {
   const read = refreshSource('perso', ['shipped', 'otd', 'remakes', 'consumption']);
-  res.json({ ...operationsPage.operations(req.query.month, { names: customerNames() }), read });
+  const ops = operationsPage.operations(req.query.month, { names: customerNames() });
+  res.json({ ...ops, site: siteKpis.siteKpis(ops), read });
 }));
+// the site KPIs: which are shown, their targets, how OTD is counted (the setup right), and the figures typed in each month
+const siteErr = (fn) => { try { return fn(); } catch (err) { throw err.status ? new HttpError(err.status, err.message) : err; } };
+router.put('/kpi/operations/config', h((req, res) => res.json(siteErr(() => siteKpis.setConfig(req.body)))));
+router.put('/kpi/operations/value', h((req, res) => res.json(siteErr(() => siteKpis.setValue(String(req.body?.kpi || ''), String(req.body?.month || ''), req.body?.value)))));
 
 // 🚚 OTD (the Despatch module): late deliveries logged against a work order the planner knows; the rest
 // (customer, cards, due out, week) comes from the planner. Counted as the OTD source once Sources says so.

@@ -1420,6 +1420,24 @@ async function waitForServer() {
         assert.deepEqual([op.late.map((l) => l.wo), op.late[0].late_hours, op.on_time_customers[0].customer], [['OPS2'], 18, 'BKA'], 'the late work orders; per customer');
         assert.deepEqual(op.otd_customers.map((c) => [c.customer, c.internal, c.external]), [['BEL', 400, 0], ['ICA', 0, 100]], 'delays per customer from the OTD report');
         assert.equal((await call('GET', '/kpi/operations?month=nonsense')).month.length, 7, 'a month that isn\'t one: the last full month');
+        // 🏭 the site KPIs: the standard set, each with a target that can be set and switched off; OTD counted three ways
+        const sk = op.site;
+        assert.deepEqual(sk.config.map((k) => k.key), ['transfo', 'cpms', 'otd', 'wastage', 'productivity', 'mir', 'gci', 'inventory', 'capex', 'volume', 'ontime', 'openlate'], 'the KPIs, in order');
+        assert.deepEqual(['transfo', 'gci', 'inventory', 'otd'].map((k) => sk.config.find((x) => x.key === k).on), [false, false, false, true], 'those with no source yet are off until switched on');
+        assert.deepEqual([sk.values.otd.now, sk.values.wastage.now, sk.values.volume.now, sk.config.find((x) => x.key === 'otd').target], [0.5, op.trend[11].scrap_rate, 550, null], 'OTD SC, the scrap rate, cards persoed; no target until one is set');
+        let cf = await call('PUT', '/kpi/operations/config', { kpis: { otd: { target: '99,6', measure: 'all' }, transfo: { on: true, target: 0.6 }, volume: { on: false } } });
+        assert.deepEqual([cf.find((x) => x.key === 'otd').target, cf.find((x) => x.key === 'otd').measure, cf.find((x) => x.key === 'transfo').on, cf.find((x) => x.key === 'volume').on], [99.6, 'all', true, false]);
+        await assert.rejects(call('PUT', '/kpi/operations/config', { kpis: { otd: { measure: 'nope' } } }), /sc, c or all/);
+        await assert.rejects(call('PUT', '/kpi/operations/config', { kpis: { cpms: { target: 'lots' } } }), /must be a number/);
+        await call('PUT', '/kpi/operations/value', { kpi: 'transfo', month: '2026-04', value: '0,58' });
+        await call('PUT', '/kpi/operations/value', { kpi: 'gci', month: '2026-03', value: 73 });
+        await assert.rejects(call('PUT', '/kpi/operations/value', { kpi: 'otd', month: '2026-04', value: 1 }), /isn't typed in/);
+        await assert.rejects(call('PUT', '/kpi/operations/value', { kpi: 'mir', month: '2026-13', value: 1 }), /Not a month/);
+        const op2 = (await call('GET', '/kpi/operations?month=2026-04')).site;
+        assert.deepEqual([op2.values.otd.now, op2.values.transfo.now, op2.values.gci.prev], [1 - 500 / 800, 0.58, 0.73], 'OTD with all delays; typed in figures (a % typed as 73)');
+        await call('PUT', '/kpi/operations/value', { kpi: 'transfo', month: '2026-04', value: null });
+        assert.equal((await call('GET', '/kpi/operations?month=2026-04')).site.values.transfo.now, null, 'a typed figure taken out');
+        await call('PUT', '/kpi/operations/config', { kpis: { otd: { target: null, measure: 'sc' }, transfo: { on: false, target: null }, volume: { on: true } } });
         const sqd = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); sqd.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'OPS%'").run(); sqd.close();
       }
       // 🚚 OTD (Despatch): a late delivery logged against a work order the planner knows; the rest comes from the planner
@@ -2960,6 +2978,8 @@ async function waitForServer() {
       assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'production'], ['planning', 'cpm', 'kpi']], 'the basic pack always, unknown ones dropped; Prod Management includes 📐 Capacity planning and the Weekly SC Report');
       assert.equal((await sam('GET', '/kpi/snapshots')).status, 200, 'the Weekly SC Report is Prod Management\'s');
       assert.equal((await sam('GET', '/kpi/operations')).status, 200, '🏭 Operations too');
+      assert.deepEqual([(await sam('PUT', '/kpi/operations/config', { kpis: { otd: { target: 99 } } })).status, (await sam('PUT', '/kpi/operations/value', { kpi: 'mir', month: '2026-01', value: 0 })).status],
+        [403, 200], 'the KPIs\' targets take the setup right; a figure typed in, Prod Management');
       assert.equal((await sam('GET', '/kpi/otd')).status, 403, '🚚 OTD is Despatch\'s');
       await admin('PATCH', `/accounts/${samId}`, { modules: ['despatch'] });
       assert.deepEqual([(await sam('GET', '/kpi/otd')).status, (await sam('GET', '/kpi/otd/wo?q=ab')).status, (await sam('GET', '/kpi/snapshots')).status, (await sam('PUT', '/kpi/otd-from', { from: 'entered' })).status],

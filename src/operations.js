@@ -136,7 +136,7 @@ function operations(month, { names = new Map(), today = new Date() } = {}) {
   // ---- the 12 months up to the chosen one
   const trend = Array.from({ length: 12 }, (_, i) => addMonths(m, i - 11)).map((mm) => {
     const p = vol(perso, mm); const s = vol(shipped, mm); const sc = scrapOf(mm); const o = otdOf(mm);
-    return { month: mm, label: monthLabel(mm), persoed: p, shipped: s, scrap: sc, scrap_rate: rate(sc, p), otd_sc: o.otd_sc, otd_c: o.otd_c };
+    return { month: mm, label: monthLabel(mm), persoed: p, shipped: s, scrap: sc, scrap_rate: rate(sc, p), otd_sc: o.otd_sc, otd_c: o.otd_c, otd_internal: o.internal, otd_external: o.external };
   });
 
   const persoM = vol(perso, m); const persoP = vol(perso, prevM);
@@ -148,7 +148,7 @@ function operations(month, { names = new Map(), today = new Date() } = {}) {
     month: m, label: monthLabel(m), months, year: Number(y), scrap_from: scrapFrom,
     sources: { perso: src('perso'), shipped: src('shipped'), otd: src('otd'), scrap: src(scrapFrom) },
     tiles: {
-      otd: { ...otdM, prev_sc: otdP.otd_sc, prev_c: otdP.otd_c, ytd_sc: ytdShip ? 1 - ytdDel.internal / ytdShip : null, ytd_c: ytdShip ? 1 - ytdDel.external / ytdShip : null },
+      otd: { ...otdM, prev_sc: otdP.otd_sc, prev_c: otdP.otd_c, ytd_sc: ytdShip ? 1 - ytdDel.internal / ytdShip : null, ytd_c: ytdShip ? 1 - ytdDel.external / ytdShip : null, ytd_all: ytdShip ? 1 - (ytdDel.internal + ytdDel.external) / ytdShip : null },
       on_time: tot,
       persoed: persoM, persoed_prev: persoP, persoed_pin: vol(perso, m, isPin), persoed_ytd: sumBy(ytdMonths, (mm) => vol(perso, mm)),
       shipped: shipM, shipped_prev: shipP, shipped_pin: vol(shipped, m, isPin), shipped_ytd: ytdShip,
