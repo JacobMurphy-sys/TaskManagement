@@ -276,6 +276,7 @@ A one-screen dashboard of the chosen **month**, like Quality and EHS (the same m
   - on a single bar, just above it;
   - on bars side by side, upright inside each bar;
   - on a line, above or below each point, never on top of another line's label.
+  - on bars under a line, at the top of the bar, or at its foot where the line's point or label (or the target) is in the way.
 
   Where the columns are too narrow to read (the days of a year), they're left out, except on the column picked out. **🏷**, next to ⚙, turns them off and on, remembered.
 - **The overview** (no tile clicked): the charts, customers and tables below, as follows.

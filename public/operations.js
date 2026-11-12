@@ -66,6 +66,7 @@ function opsSvg(spec, W, H) {
   const barFmt = (v) => (spec.fmt ? spec.fmt(v) : OK(v));
   const lineFmt = (l, v) => (spec.fmt && l.lineFmt !== false ? spec.fmt(v) : l.fmt ? l.fmt(v) : OK(v));
   const showAt = (i) => labels && (roomy || spec.cats[i]?.on);
+  const barLabels = []; // with a line over the bars: placed after the line's points and labels, clear of them
   if (spec.right) for (let i = 0; i <= nG; i++) out.push(`<text x="${W - R + 6}" y="${T + (H - T - B) * (1 - i / nG) + 4}" class="q-ax ops-ax-r" text-anchor="start">${spec.right.fmt ? spec.right.fmt(rStep * i) : OK(rStep * i)}</text>`);
   for (let v = min; v <= max + 1e-9; v += step) out.push(`<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="q-grid${v === min ? ' base' : ''}"/><text x="${L - 6}" y="${y(v) + 4}" class="q-ax" text-anchor="end">${spec.fmt ? spec.fmt(v) : OK(v)}</text>`);
   const every = Math.max(1, Math.ceil(n / Math.floor((W - L) / 34)));
@@ -74,7 +75,7 @@ function opsSvg(spec, W, H) {
     const tip = `${c.title || c.label}: ${[...spec.bars, ...(spec.right ? [{ ...spec.right, fmt: spec.right.tipFmt || ON }] : []), ...(spec.lines || [])].map((s) => `${s.label} ${spec.fmt && s.lineFmt !== false && (spec.lines || []).includes(s) ? spec.fmt(v[s.key] ?? 0) : s.fmt ? s.fmt(v[s.key]) : ON(v[s.key])}`).join(' · ')}`;
     out.push(`<g class="q-col${c.on ? ' on' : ''}${c.dim ? ' dim' : ''}"><title>${esc(tip)}</title><rect x="${x0}" y="${T}" width="${cw}" height="${H - T - B}" class="q-hit"/>`);
     if (spec.right) { const rv = v[spec.right.key] || 0; const rw = Math.max(3, Math.min(30, cw * 0.55)); if (rv > 0) out.push(`<rect x="${x0 + (cw - rw) / 2}" y="${yR(rv)}" width="${rw}" height="${Math.max(0, yR(0) - yR(rv))}" rx="2" class="${spec.right.cls} ops-bar-r"/>`);
-      if (rv > 0 && showAt(i) && yR(0) - yR(rv) > 14) out.push(dl(x0 + cw / 2, yR(rv) + 11, spec.right.fmt ? spec.right.fmt(rv) : OK(rv), 'in')); } // inside its top
+      if (rv > 0 && showAt(i) && yR(0) - yR(rv) > 14) barLabels.push({ i, x: x0 + cw / 2, top: yR(rv) + 11, base: yR(0) - 5, text: spec.right.fmt ? spec.right.fmt(rv) : OK(rv) }); } // placed once the line's are (below)
     spec.bars.forEach((b, j) => { const val = v[b.key] || 0; if (val > 0) out.push(`<rect x="${gx + j * bw + 0.5}" y="${y(val)}" width="${Math.max(1, bw - 1)}" height="${Math.max(0, y(min) - y(val))}" rx="2" class="${b.cls}"/>`);
       if (val > 0 && showAt(i) && nb > 1 && bw >= 9) { // side by side: upright inside each bar, so neighbours never run into each other
         const t = barFmt(val); const h = y(min) - y(val); const cx = gx + j * bw + bw / 2; const y0 = y(val) + 4;
@@ -82,23 +83,32 @@ function opsSvg(spec, W, H) {
       } else if (val > 0 && showAt(i) && nb === 1) {
         const h = y(min) - y(val); const cx = gx + j * bw + bw / 2;
         // with a line over the bars: inside the bar's top (the line's labels go above its points); else just above it
-        if (spec.lines?.length || spec.right) { if (h > 14) out.push(dl(cx, y(val) + 11, barFmt(val), 'in')); } else out.push(dl(cx, Math.max(T + 8, y(val) - 4), barFmt(val)));
+        if (spec.lines?.length || spec.right) { if (h > 14) barLabels.push({ i, x: cx, top: y(val) + 11, base: y(min) - 5, text: barFmt(val) }); } else out.push(dl(cx, Math.max(T + 8, y(val) - 4), barFmt(val)));
       } });
     if (i % every === 0 || c.on) out.push(`<text x="${x0 + cw / 2}" y="${H - 6}" class="q-ax${c.on ? ' on' : ''}" text-anchor="middle">${esc(c.label)}</text>`);
     out.push('</g>');
   });
   const placed = []; // the line labels already in each column (their y), so two don't sit on each other
+  const dots = []; // the lines' points in each column (their y)
   for (const l of spec.lines || []) {
     let d = ''; let pen = false;
     vals.forEach((v, i) => { const val = v[l.key]; if (val === null || val === undefined) { pen = false; return; } d += `${pen ? 'L' : 'M'}${(L + cw * (i + 0.5)).toFixed(1)},${y(val).toFixed(1)} `; pen = true; });
     if (d) out.push(`<path d="${d}" class="ops-line ${l.cls}"/>`);
-    vals.forEach((v, i) => { const val = v[l.key]; if (val !== null && val !== undefined) out.push(`<circle cx="${L + cw * (i + 0.5)}" cy="${y(val)}" r="3" class="ops-dot ${l.cls}"/>`); });
+    vals.forEach((v, i) => { const val = v[l.key]; if (val !== null && val !== undefined) { out.push(`<circle cx="${L + cw * (i + 0.5)}" cy="${y(val)}" r="3" class="ops-dot ${l.cls}"/>`); (dots[i] || (dots[i] = [])).push(y(val)); } });
     // its values: above each point (a second line's below, so the two don't sit on each other)
     vals.forEach((v, i) => { const val = v[l.key]; if (val === null || val === undefined || !showAt(i)) return;
       const above = y(val) - 7; const below = y(val) + 14; const taken = placed[i] || (placed[i] = []);
       const free = (yy) => yy >= T + 8 && yy <= H - B - 2 && taken.every((t) => Math.abs(t - yy) > 11);
       const at = [above, below].find(free); if (at === undefined) return; // no room clear of the others: left out
       taken.push(at); out.push(dl(L + cw * (i + 0.5), at, lineFmt(l, val), 'ln')); });
+  }
+  // the bars' values: at the top of the bar, else near its foot, wherever that's clear of the lines' points and labels
+  // (and the line passing through); with no clear spot, left out (its tooltip still has it)
+  for (const b of barLabels) {
+    const near = [...(placed[b.i] || []).map((yy) => [yy, 12]), ...(dots[b.i] || []).map((yy) => [yy + 4, 11]), ...(hasTarget ? [[y(spec.target) + 4, 8]] : [])];
+    const clear = (yy) => near.every(([o, d]) => Math.abs(o - yy) > d);
+    const at = [b.top, b.base].find((yy, k) => clear(yy) && (k === 0 || b.base - b.top > 12));
+    if (at !== undefined) out.push(dl(b.x, at, b.text, 'in'));
   }
   if (spec.target !== undefined && spec.target !== null) out.push(`<line x1="${L}" x2="${W - R}" y1="${y(spec.target)}" y2="${y(spec.target)}" class="ops-target"/><text x="${W - R}" y="${y(spec.target) - 4}" class="q-ax ops-target-l" text-anchor="end">${esc(spec.targetLabel || 'target')}</text>`);
   return `<svg class="q-chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(spec.aria || 'Chart')}">${out.join('')}</svg>`;
