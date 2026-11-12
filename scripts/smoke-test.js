@@ -29,6 +29,7 @@ async function waitForServer() {
 
 (async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'taskmgr-test-'));
+  process.env.LOG_DIR = path.join(tmp, 'logs-test'); // the app's modules loaded here log into the test folder, not your own logs
   const server = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], {
     env: {
       ...process.env, PORT: String(PORT), BACKUP_INTERVAL_HOURS: '0',

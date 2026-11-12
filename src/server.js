@@ -222,4 +222,17 @@ process.on('uncaughtException', (err) => {
   log.error('Stopping after an error nobody caught', err && (err.stack || err.message));
   process.exit(1);
 });
+// A sign of life every 15 minutes, and a note when the computer's network changes (a VPN connecting or dropping),
+// so the log shows whether the app was still running when it seemed to stop, and what changed around then.
+{
+  const os = require('os');
+  const nets = () => Object.entries(os.networkInterfaces()).filter(([, a]) => a.some((x) => !x.internal)).map(([n, a]) => `${n} ${a.filter((x) => !x.internal && x.family === 'IPv4').map((x) => x.address).join('/')}`.trim()).sort();
+  let was = nets(); log.info(`Network: ${was.join('; ') || 'none'}`);
+  setInterval(() => {
+    const now = nets(); const gone = was.filter((n) => !now.includes(n)); const came = now.filter((n) => !was.includes(n));
+    if (gone.length || came.length) log.info(`Network changed:${came.length ? ` up ${came.join('; ')}` : ''}${gone.length ? ` down ${gone.join('; ')}` : ''}`);
+    was = now;
+  }, 30 * 1000).unref();
+  setInterval(() => log.info(`Still running (up ${Math.round(process.uptime() / 60)} min, ${Math.round(process.memoryUsage().rss / 1048576)} MB)`), 15 * 60 * 1000).unref();
+}
 process.on('exit', (code) => { try { log.info(`SITHUB stopped (exit code ${code})`); } catch { /* the log can't be written */ } });

@@ -62,7 +62,7 @@ If Not IsRunning() Then
   End If
 
   ' 0 = hidden window, False = don't wait for it to finish.
-  sh.Run "node src\server.js", 0, False
+  StartApp
 
   For i = 1 To 30
     WScript.Sleep 500
@@ -71,7 +71,7 @@ If Not IsRunning() Then
   ' didn't come up: a frozen copy still holding the port? Offer to end it, then start again.
   If Not IsRunning() Then
     If EndFrozen(ReadPort()) Then
-      sh.Run "node src\server.js", 0, False
+      StartApp
       For i = 1 To 30
         WScript.Sleep 500
         If IsRunning() Then Exit For
@@ -87,6 +87,44 @@ If Not IsRunning() Then
 End If
 
 sh.Run url
+
+' Starts the app hidden, with what it prints (a crash before its log is ready too) kept in console.log in its
+' logs folder, so it never stops without a trace. Over 5 MB, the file is kept once as console.old.log.
+Sub StartApp()
+  Dim logDir, f
+  logDir = ReadEnv("LOG_DIR")
+  If logDir = "" And ReadEnv("DATA_DIR") <> "" Then logDir = ReadEnv("DATA_DIR") & "\logs"
+  If logDir = "" Then logDir = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\CIManager\logs"
+  On Error Resume Next
+  If Not fso.FolderExists(logDir) Then sh.Run "cmd /c mkdir """ & logDir & """", 0, True
+  f = logDir & "\console.log"
+  If fso.FileExists(f) Then
+    If fso.GetFile(f).Size > 5242880 Then
+      fso.CopyFile f, logDir & "\console.old.log", True
+      fso.DeleteFile f
+    End If
+  End If
+  On Error GoTo 0
+  If fso.FolderExists(logDir) Then
+    sh.Run "cmd /c node src\server.js >> """ & f & """ 2>&1", 0, False
+  Else
+    sh.Run "node src\server.js", 0, False
+  End If
+End Sub
+
+' A setting from .env, or "".
+Function ReadEnv(key)
+  Dim f, line
+  ReadEnv = ""
+  If fso.FileExists(dir & "\.env") Then
+    Set f = fso.OpenTextFile(dir & "\.env", 1)
+    Do Until f.AtEndOfStream
+      line = Trim(f.ReadLine)
+      If UCase(Left(line, Len(key) + 1)) = UCase(key) & "=" Then ReadEnv = Trim(Mid(line, Len(key) + 2))
+    Loop
+    f.Close
+  End If
+End Function
 
 ' True on the shared server's PC: HOST in .env is set to answer the network (server-install).
 Function IsServer()

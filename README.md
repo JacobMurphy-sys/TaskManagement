@@ -95,6 +95,13 @@ The steps below do the same by hand.
    - **`start.bat`** does the same but keeps a console window open that shows the log. Use it if something isn't working. Closing that window stops the app.
    - **Frozen?** If the app stops answering, it still holds its port. Starting it again then says *port already in use*, and `stop-server.vbs` says *nothing answered*. Both scripts now spot this and offer to end the frozen copy (or use Task Manager › Details › `node.exe` › End task). The app also watches itself from a separate thread. After 30 s stuck, it writes to the log what it was busy with. After 5 minutes stuck, it ends itself so the port is free (`WATCHDOG_STUCK_S` / `WATCHDOG_KILL_S` in `.env`; `WATCHDOG_KILL_S=0` only logs). The log is in `%LOCALAPPDATA%\CIManager\logs`, not the app folder.
    - **Slow network or VPN:** the files the app reads from network shares (the planning exports, card database, production reports, team pack, shared paths) are read in the background, and only after the share has answered. A share that doesn't answer within a few seconds is skipped (the page says *Can't reach \\server\share right now*) and tried again a minute later, so a slow VPN no longer freezes the app until the watchdog ends it. An unexpected error is always written to the log, and an error from the network or a file no longer stops the app. Every stop is logged too (*SITHUB stopped (exit code …)*), so if the app ever stops on its own, the day's file in `logs` says why.
+   - **Stopped and no log?** Double-click **`diagnose.bat`** in the app folder the moment it seems to have stopped. It checks, and writes to a text file it opens:
+     - whether a copy of the app is still running and answering (on `127.0.0.1` and on `localhost`);
+     - where its data and logs really are;
+     - whether a proxy or VPN setting is in the way;
+     - the last lines of the logs.
+
+     Nothing is changed. Started the usual way (the SITHUB shortcut), whatever the app prints, including a crash before its log is ready, is kept in `console.log` in the logs folder. The log also notes the network changing (a VPN connecting or dropping) and a *Still running* line every 15 minutes, so it shows whether the app was alive when it seemed to stop.
    - Or, from a terminal in the folder (in VS Code: *Terminal → New Terminal*):
    ```
    npm install
