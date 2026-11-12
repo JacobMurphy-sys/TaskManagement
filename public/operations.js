@@ -58,6 +58,14 @@ function opsSvg(spec, W, H) {
     yR = (v) => T + (H - T - B) * (1 - Math.max(0, v) / (rStep * nG));
   }
   const out = [];
+  // 🏷 data labels: the value on each bar and point, where there's room (a column at least 22 px wide; on a crowded
+  // chart only the column picked out); 🏷 on the page turns them off
+  const labels = opsLabelsOn() && spec.labels !== false;
+  const roomy = cw >= 22;
+  const dl = (x, yy, text, cls = '') => `<text x="${x.toFixed(1)}" y="${yy.toFixed(1)}" class="ops-dl${cls ? ` ${cls}` : ''}" text-anchor="middle">${esc(String(text))}</text>`;
+  const barFmt = (v) => (spec.fmt ? spec.fmt(v) : OK(v));
+  const lineFmt = (l, v) => (spec.fmt && l.lineFmt !== false ? spec.fmt(v) : l.fmt ? l.fmt(v) : OK(v));
+  const showAt = (i) => labels && (roomy || spec.cats[i]?.on);
   if (spec.right) for (let i = 0; i <= nG; i++) out.push(`<text x="${W - R + 6}" y="${T + (H - T - B) * (1 - i / nG) + 4}" class="q-ax ops-ax-r" text-anchor="start">${spec.right.fmt ? spec.right.fmt(rStep * i) : OK(rStep * i)}</text>`);
   for (let v = min; v <= max + 1e-9; v += step) out.push(`<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="q-grid${v === min ? ' base' : ''}"/><text x="${L - 6}" y="${y(v) + 4}" class="q-ax" text-anchor="end">${spec.fmt ? spec.fmt(v) : OK(v)}</text>`);
   const every = Math.max(1, Math.ceil(n / Math.floor((W - L) / 34)));
@@ -65,16 +73,32 @@ function opsSvg(spec, W, H) {
     const c = spec.cats[i]; const x0 = L + i * cw; const gx = x0 + (cw - bw * nb) / 2;
     const tip = `${c.title || c.label}: ${[...spec.bars, ...(spec.right ? [{ ...spec.right, fmt: spec.right.tipFmt || ON }] : []), ...(spec.lines || [])].map((s) => `${s.label} ${spec.fmt && s.lineFmt !== false && (spec.lines || []).includes(s) ? spec.fmt(v[s.key] ?? 0) : s.fmt ? s.fmt(v[s.key]) : ON(v[s.key])}`).join(' · ')}`;
     out.push(`<g class="q-col${c.on ? ' on' : ''}${c.dim ? ' dim' : ''}"><title>${esc(tip)}</title><rect x="${x0}" y="${T}" width="${cw}" height="${H - T - B}" class="q-hit"/>`);
-    if (spec.right) { const rv = v[spec.right.key] || 0; const rw = Math.max(3, Math.min(30, cw * 0.55)); if (rv > 0) out.push(`<rect x="${x0 + (cw - rw) / 2}" y="${yR(rv)}" width="${rw}" height="${Math.max(0, yR(0) - yR(rv))}" rx="2" class="${spec.right.cls} ops-bar-r"/>`); }
-    spec.bars.forEach((b, j) => { const val = v[b.key] || 0; if (val > 0) out.push(`<rect x="${gx + j * bw + 0.5}" y="${y(val)}" width="${Math.max(1, bw - 1)}" height="${Math.max(0, y(min) - y(val))}" rx="2" class="${b.cls}"/>`); });
+    if (spec.right) { const rv = v[spec.right.key] || 0; const rw = Math.max(3, Math.min(30, cw * 0.55)); if (rv > 0) out.push(`<rect x="${x0 + (cw - rw) / 2}" y="${yR(rv)}" width="${rw}" height="${Math.max(0, yR(0) - yR(rv))}" rx="2" class="${spec.right.cls} ops-bar-r"/>`);
+      if (rv > 0 && showAt(i) && yR(0) - yR(rv) > 14) out.push(dl(x0 + cw / 2, yR(rv) + 11, spec.right.fmt ? spec.right.fmt(rv) : OK(rv), 'in')); } // inside its top
+    spec.bars.forEach((b, j) => { const val = v[b.key] || 0; if (val > 0) out.push(`<rect x="${gx + j * bw + 0.5}" y="${y(val)}" width="${Math.max(1, bw - 1)}" height="${Math.max(0, y(min) - y(val))}" rx="2" class="${b.cls}"/>`);
+      if (val > 0 && showAt(i) && nb > 1 && bw >= 9) { // side by side: upright inside each bar, so neighbours never run into each other
+        const t = barFmt(val); const h = y(min) - y(val); const cx = gx + j * bw + bw / 2; const y0 = y(val) + 4;
+        if (h > t.length * 5.6 + 8) out.push(`<text transform="rotate(-90 ${cx.toFixed(1)} ${y0.toFixed(1)})" x="${cx.toFixed(1)}" y="${y0.toFixed(1)}" dy="0.35em" class="ops-dl in" text-anchor="end">${esc(t)}</text>`);
+      } else if (val > 0 && showAt(i) && nb === 1) {
+        const h = y(min) - y(val); const cx = gx + j * bw + bw / 2;
+        // with a line over the bars: inside the bar's top (the line's labels go above its points); else just above it
+        if (spec.lines?.length || spec.right) { if (h > 14) out.push(dl(cx, y(val) + 11, barFmt(val), 'in')); } else out.push(dl(cx, Math.max(T + 8, y(val) - 4), barFmt(val)));
+      } });
     if (i % every === 0 || c.on) out.push(`<text x="${x0 + cw / 2}" y="${H - 6}" class="q-ax${c.on ? ' on' : ''}" text-anchor="middle">${esc(c.label)}</text>`);
     out.push('</g>');
   });
+  const placed = []; // the line labels already in each column (their y), so two don't sit on each other
   for (const l of spec.lines || []) {
     let d = ''; let pen = false;
     vals.forEach((v, i) => { const val = v[l.key]; if (val === null || val === undefined) { pen = false; return; } d += `${pen ? 'L' : 'M'}${(L + cw * (i + 0.5)).toFixed(1)},${y(val).toFixed(1)} `; pen = true; });
     if (d) out.push(`<path d="${d}" class="ops-line ${l.cls}"/>`);
     vals.forEach((v, i) => { const val = v[l.key]; if (val !== null && val !== undefined) out.push(`<circle cx="${L + cw * (i + 0.5)}" cy="${y(val)}" r="3" class="ops-dot ${l.cls}"/>`); });
+    // its values: above each point (a second line's below, so the two don't sit on each other)
+    vals.forEach((v, i) => { const val = v[l.key]; if (val === null || val === undefined || !showAt(i)) return;
+      const above = y(val) - 7; const below = y(val) + 14; const taken = placed[i] || (placed[i] = []);
+      const free = (yy) => yy >= T + 8 && yy <= H - B - 2 && taken.every((t) => Math.abs(t - yy) > 11);
+      const at = [above, below].find(free); if (at === undefined) return; // no room clear of the others: left out
+      taken.push(at); out.push(dl(L + cw * (i + 0.5), at, lineFmt(l, val), 'ln')); });
   }
   if (spec.target !== undefined && spec.target !== null) out.push(`<line x1="${L}" x2="${W - R}" y1="${y(spec.target)}" y2="${y(spec.target)}" class="ops-target"/><text x="${W - R}" y="${y(spec.target) - 4}" class="q-ax ops-target-l" text-anchor="end">${esc(spec.targetLabel || 'target')}</text>`);
   return `<svg class="q-chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(spec.aria || 'Chart')}">${out.join('')}</svg>`;
@@ -165,6 +189,7 @@ function opsKpiSettings(d) {
 
 // ---- the dashboard ---------------------------------------------------------------------------------------
 let OPS_D = null;
+const opsLabelsOn = () => store.get('opsLabels', true) !== false; // 🏷 data labels on the charts
 const opsHidden = () => { const h = store.get('opsHidden', []); return Array.isArray(h) ? h : []; };
 const OPS_EYE = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
 const opsFocus = () => { const f = store.get('opsFocus', ''); return OPS_D?.site.config.some((k) => k.key === f && k.on) ? f : ''; };
@@ -175,6 +200,11 @@ document.addEventListener('click', (e) => {
     return;
   }
   if (e.target.closest('[data-ops-kset]') && OPS_D) opsKpiSettings(OPS_D);
+  if (e.target.closest('[data-ops-labels]') && OPS_D) {
+    try { store.set('opsLabels', !opsLabelsOn()); } catch { /* not kept */ }
+    const el = document.querySelector('.qd.ops'); if (el) { el.outerHTML = opsHtml(OPS_D); opsDraw(); }
+    return;
+  }
   const hb = e.target.closest('[data-ops-hide], [data-ops-unhide]');
   if (hb && OPS_D) {
     const h = opsHidden();
@@ -356,6 +386,7 @@ function opsHtml(d) {
     <div class="ops-kpi-row">
       <div class="q-tiles qd-tiles ops-kpis" style="--ops-n:${Math.max(1, kpis.length)}">${kpis.map((k) => opsKpiTile(d, k, focus)).join('')}</div>
       ${(() => { const n = hidden.filter((k) => k.startsWith(`${view}:`)).length; return n ? `<button type="button" class="ops-unhide" data-ops-unhide="${esc(view)}" title="Show the hidden panels again">${OPS_EYE} ${n} hidden</button>` : ''; })()}
+      <button type="button" class="icon ops-labels${opsLabelsOn() ? ' on' : ''}" data-ops-labels title="${opsLabelsOn() ? 'Hide' : 'Show'} the values on the charts">🏷</button>
       ${acctAdmin() ? '<button type="button" class="icon ops-kset" data-ops-kset title="⚙ Site KPIs: which are shown and their targets">⚙</button>' : ''}
     </div>
     ${body}

@@ -2588,3 +2588,7 @@ body.in-training #topbar { border-bottom-color: #f3a712; }
 .tlist-none { background: color-mix(in srgb, var(--accent) 5%, var(--panel-2)); }
 .tlist-pool { display: flex; gap: 10px; padding: 6px 4px 2px; color: var(--muted); }
 .kanban-tools .tlist-newin { width: 220px; flex: 0 1 220px; min-width: 140px; margin: 0; }
+/* 🏷 data labels on the Operations charts */
+.q-chart .ops-dl { font-size: 9.5px; font-weight: 600; fill: var(--text); paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
+.q-chart .ops-dl.in { font-size: 9px; }
+.ops-labels { opacity: .45; } .ops-labels.on { opacity: .9; }
