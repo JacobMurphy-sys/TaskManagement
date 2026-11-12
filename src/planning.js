@@ -40,6 +40,10 @@ const iso = (day) => `${day.y}-${String(day.m + 1).padStart(2, '0')}-${String(da
 const hhmm = (min) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 
 // The rows of the export (the sheet's first; headings found wherever they are).
+// the cells of one row (looking for a heading row went through every cell of the sheet for each row tried: seconds
+// on a big export)
+const colLetters = (n) => { let t = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) t = String.fromCharCode(65 + ((n - 1) % 26)) + t; return t; };
+function rowCells(sh, r) { const out = []; for (let c = 1; c <= sh.maxCol; c++) { const cell = sh.cells.get(`${colLetters(c)}${r}`); if (cell) out.push({ ...cell, row: r, col: c }); } return out; }
 function parse(buf) {
   const book = readBook(buf);
   const info = book.sheets[0];
@@ -49,7 +53,7 @@ function parse(buf) {
   let headRow = 0; const col = {};
   for (let r = 1; r <= Math.min(sh.maxRow, 30) && !headRow; r++) {
     const found = {};
-    for (const c of sh.cells.values()) if (c.row === r) for (const [k, h] of Object.entries(COLUMNS)) if (!found[k] && text(c) === h.toLowerCase()) found[k] = c.col;
+    for (const c of rowCells(sh, r)) for (const [k, h] of Object.entries(COLUMNS)) if (!found[k] && text(c) === h.toLowerCase()) found[k] = c.col;
     if (found.wo && found.due && found.qty) { headRow = r; Object.assign(col, found); }
   }
   if (!headRow) throw new Error(`Can't find the column headings (${Object.values(COLUMNS).join(', ')}) in ${info.name}`);
@@ -92,7 +96,7 @@ function parseOtto(buf) {
   let headRow = 0; const col = {};
   for (let r = 1; r <= Math.min(sh.maxRow, 30) && !headRow; r++) {
     const found = {};
-    for (const c of sh.cells.values()) if (c.row === r) for (const [k, h] of Object.entries(OTTO_COLUMNS)) if (!found[k] && text(c) === h.toLowerCase()) found[k] = c.col;
+    for (const c of rowCells(sh, r)) for (const [k, h] of Object.entries(OTTO_COLUMNS)) if (!found[k] && text(c) === h.toLowerCase()) found[k] = c.col;
     if (found.name && found.qty && found.due) { headRow = r; Object.assign(col, found); }
   }
   if (!headRow) throw new Error(`Can't find the Matching column headings (Name, Items, Plan Date) in ${info.name}`);
@@ -728,7 +732,7 @@ function readCards({ file, table = 'Cards', columns = {} }) {
         const book = readBook(nf.readFileSync(file));
         const info = book.sheets.find((x) => x.name.toLowerCase() === String(table).toLowerCase()) || book.sheets[0];
         const sh = book.sheet(info.name);
-        const head = new Map(); for (const c of sh.cells.values()) if (c.row === 1 && c.v !== null && c.v !== '') head.set(c.col, String(c.v).trim());
+        const head = new Map(); for (const c of rowCells(sh, 1)) if (c.v !== null && c.v !== '') head.set(c.col, String(c.v).trim());
         name = info.name; cols = [...head.values()];
         rowsOf = () => { const out = []; for (let r = 2; r <= sh.maxRow; r++) { const o = {}; for (const [c, h] of head) { const L = (n) => { let x = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) x = String.fromCharCode(65 + ((n - 1) % 26)) + x; return x; }; o[h] = sh.cells.get(`${L(c)}${r}`)?.v ?? null; } out.push(o); } return out; };
       } else {

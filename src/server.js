@@ -233,6 +233,8 @@ process.on('uncaughtException', (err) => {
     if (gone.length || came.length) log.info(`Network changed:${came.length ? ` up ${came.join('; ')}` : ''}${gone.length ? ` down ${gone.join('; ')}` : ''}`);
     was = now;
   }, 30 * 1000).unref();
-  setInterval(() => log.info(`Still running (up ${Math.round(process.uptime() / 60)} min, ${Math.round(process.memoryUsage().rss / 1048576)} MB)`), 15 * 60 * 1000).unref();
+  const mb = (b) => Math.round(b / 1048576);
+  setInterval(() => { const m = process.memoryUsage(); const lim = require('v8').getHeapStatistics().heap_size_limit;
+    log.info(`Still running (up ${Math.round(process.uptime() / 60)} min, ${mb(m.rss)} MB in all, the app's own ${mb(m.heapUsed)} of at most ${mb(lim)} MB)`); }, 15 * 60 * 1000).unref();
 }
 process.on('exit', (code) => { try { log.info(`SITHUB stopped (exit code ${code})`); } catch { /* the log can't be written */ } });
