@@ -947,6 +947,19 @@ async function waitForServer() {
     const prep = await call('GET', `/report?project_id=${pp.id}`);
     assert.equal(prep.projects[0].phases.length, 3, 'report includes phases');
     assert.ok(prep.projects[0].due_changes.some((m) => /Phase "Pilot"/.test(m.what)), 'phase date change reported');
+    // 🌐 network files: a share that doesn't answer is skipped at once, never waited on; a file read ahead is handed over
+    {
+      const nf = require('../src/netfile');
+      assert.deepEqual([nf.rootOf('\\\\srv\\share\\a\\b.xlsx'), nf.rootOf('x:\\data\\b.xlsx'), nf.rootOf('/home/a.txt')], ['\\\\srv\\share', 'X:\\', null]);
+      const gone = '//no-such-host-sithub/share/plan.csv';
+      assert.equal(await nf.prefetch(gone), false);
+      assert.equal(nf.down(gone), true);
+      assert.throws(() => nf.readFileSync(gone), (e) => e.code === 'EUNREACH' && /Can't reach/.test(e.message));
+      assert.equal(require('../src/planning').readSource({ file: gone }).status, 'error', 'a reader says the share isn\'t answering, at once');
+      const lf = path.join(tmp, 'netfile-test.txt'); fs.writeFileSync(lf, 'hello');
+      assert.equal(await nf.prefetch(lf), true);
+      assert.equal(nf.readFileSync(lf).toString(), 'hello', 'what was read ahead');
+    }
     // 📄 the charter on one page
     {
       const r = await fetch(`${BASE}/projects/${pp.id}/charter.pdf`); const b = Buffer.from(await r.arrayBuffer());

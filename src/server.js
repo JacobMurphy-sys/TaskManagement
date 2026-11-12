@@ -152,6 +152,12 @@ const server = app.listen(config.port, config.host, () => {
   log.info(`${config.mode === 'planner' ? 'SITHUB Planner' : 'SITHUB'} running at http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);
   log.info(`Database file: ${config.dbFile}`);
   dog.doing('starting up: reading the shared files (team pack, planning setup, shared paths)');
+  sharedAtStart().catch((err) => log.warn('Reading the shared files', err.message)).finally(() => dog.doing('waiting for requests'));
+});
+// the shared folder's files, once it answers (over a VPN it may not: then they're read the next time)
+async function sharedAtStart() {
+  const nf = require('./netfile');
+  if (!(await nf.reach(config.sharedDir)) || (config.defaultsFile && !(await nf.reach(config.defaultsFile)))) return;
   if (config.mode !== 'planner') {
     const team = api.applySharedTeam();
     if (team?.error) log.warn(`Team pack: ${team.error}`);
@@ -168,8 +174,7 @@ const server = app.listen(config.port, config.host, () => {
     log.warn('Your database or backups are inside the app folder, where replacing or re-cloning the code could '
       + 'remove them. Remove DB_FILE / BACKUP_DIR / LOG_DIR from .env to use the default data folder.');
   }
-  dog.doing('waiting for requests');
-});
+}
 server.on('error', (err) => {
   if (err.code !== 'EADDRINUSE') { log.error(err.message); process.exit(1); }
   // which it is: the app already running (fine), a copy that's frozen, or another program
@@ -209,3 +214,12 @@ if (process.env.CIM_SERVER === '1') {
 }
 
 process.on('unhandledRejection', (err) => log.error('Unhandled error', err && (err.stack || err.message)));
+// Never stop without a word: an error nobody caught is written to the log. One from the computer or network (a file
+// share gone, a connection dropped: a system error) is survivable, so the app carries on; anything else stops it,
+// as it may be left in a bad state, and the log says why.
+process.on('uncaughtException', (err) => {
+  if (err && (err.syscall || typeof err.errno === 'number') && !/^ERR_/.test(String(err.code || ''))) { log.error(`An error from the network or a file (${err.code}), carrying on`, err.stack || err.message); return; }
+  log.error('Stopping after an error nobody caught', err && (err.stack || err.message));
+  process.exit(1);
+});
+process.on('exit', (code) => { try { log.info(`SITHUB stopped (exit code ${code})`); } catch { /* the log can't be written */ } });

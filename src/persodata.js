@@ -5,6 +5,7 @@
 // SITHUB shows what Power BI shows. (The ⏱ timing report, with each run's start and end, still drives
 // the Gantt, speeds and anomalies.) Each read replaces the rows for the days the report covers.
 const fs = require('fs');
+const nf = require('./netfile'); // network files without freezing the app
 const path = require('path');
 const db = require('./db');
 const { readBook } = require('./xlsxread');
@@ -63,11 +64,11 @@ function store(rows, file) {
 const SEEN = 'pdata_seen';
 function readLinked(file, { force = false } = {}) {
   if (!file) return { status: 'none' };
-  let stat; try { stat = fs.statSync(file); } catch { return { status: 'missing', file }; }
+  let stat; try { stat = nf.statSync(file); } catch (err) { return err.code === 'EUNREACH' ? { status: 'error', file, error: err.message } : { status: 'missing', file }; }
   const sig = `${file}|${stat.mtimeMs}|${stat.size}`;
   if (!force && db.get('SELECT value FROM settings WHERE key = ?', [SEEN])?.value === sig) return { status: 'unchanged', file };
   try {
-    const p = parse(fs.readFileSync(file));
+    const p = parse(nf.readFileSync(file));
     const r = store(p.rows, path.basename(file));
     db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [SEEN, sig]);
     return { status: 'read', file, rows: p.rows.length, skipped: p.skipped, ...r };

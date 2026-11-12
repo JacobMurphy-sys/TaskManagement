@@ -13,6 +13,7 @@ const { parseQuick, nextOccurrence, shiftKey, dateKey } = require('./dates');
 const { buildXlsx } = require('./xlsx');
 const { RECURRENCES } = require('./schema');
 const charter = require('./charter');
+const netfile = require('./netfile');
 const { focus: focusOf } = require('./focus');
 const prod = require('./prodactual');
 const planLearn = require('./planlearn');
@@ -2457,9 +2458,12 @@ function recordOtto(o) {
 // the background (at start-up and whenever one is saved again), so opening the tab finds them
 // ready instead of reading them from the network then. Checking is cheap: a file is only read
 // again when it has changed.
-function checkPlanExport() {
+// first, in the background: the shares answer, and changed files read (netfile.js), so a slow network can't freeze the app
+const prefetchAll = (files) => Promise.all(files.filter(Boolean).map((f) => netfile.prefetch(f).catch(() => false)));
+async function checkPlanExport() {
   const set = getSettings();
   const file = cleanPath(set.plan_src);
+  await prefetchAll([file, cleanPath(set.plan_db), cleanPath(set.plan_otto_src), cleanPath(set.plan_disp_src)]);
   try {
     if (file) recordPlan(planning.readSource({ file }));
     if (cleanPath(set.plan_db)) planning.readCards({ file: cleanPath(set.plan_db), table: set.plan_db_table || 'Cards' });
@@ -2467,8 +2471,9 @@ function checkPlanExport() {
     if (cleanPath(set.plan_disp_src)) recordDisp(planning.readSource({ file: cleanPath(set.plan_disp_src), parser: planning.parseDisp }));
   } catch (err) { log.warn('Planning: reading ahead', err.message); }
 }
-setTimeout(checkPlanExport, 3000).unref();
-setInterval(checkPlanExport, 2 * 60 * 1000).unref();
+const checkPlanExportSafe = () => checkPlanExport().catch((err) => log.warn('Planning: reading ahead', err.message));
+setTimeout(checkPlanExportSafe, 3000).unref();
+setInterval(checkPlanExportSafe, 2 * 60 * 1000).unref();
 const planTime = (s, fallback) => { const m = String(s || '').match(/^(\d{1,2}):(\d{2})$/); return m ? Number(m[1]) * 60 + Number(m[2]) : fallback; };
 // The open work orders, as jobs in order (mode fifo | bau), with the capacity projection.
 function planData(modeQ) {
@@ -2889,10 +2894,10 @@ router.get('/team-pack/status', h((req, res) => {
   res.json({ dir: config.sharedDir, applied: info });
 }));
 const applySharedTeamSafe = () => { try { return applySharedTeam(); } catch (err) { return { error: err.message }; } };
-setInterval(() => { const r = applySharedTeamSafe(); if (r?.file) log.info(`Team pack ${r.file} applied`, r.added); }, 30 * 60 * 1000).unref();
+setInterval(async () => { if (!(await netfile.reach(config.sharedDir))) return; const r = applySharedTeamSafe(); if (r?.file) log.info(`Team pack ${r.file} applied`, r.added); }, 30 * 60 * 1000).unref();
 
 const applySharedSetupSafe = () => { try { return applySharedSetup(); } catch (err) { return { error: err.message }; } };
-setInterval(() => { const r = applySharedSetupSafe(); if (r?.file) log.info(`Planning: shared setup ${r.file} applied`, r); }, 30 * 60 * 1000).unref();
+setInterval(async () => { if (!(await netfile.reach(config.sharedDir))) return; const r = applySharedSetupSafe(); if (r?.file) log.info(`Planning: shared setup ${r.file} applied`, r); }, 30 * 60 * 1000).unref();
 router.get('/plan/setup/shared', h((req, res) => {
   let info = null; try { info = JSON.parse(metaGet('shared_setup_info') || 'null'); } catch { /* none */ }
   res.json({ dir: config.sharedDir, file: sharedSetupFile()?.file || null, applied: info });
@@ -3228,7 +3233,8 @@ const prodFile = (source) => cleanPath(getSettings()[`kpi_time_${source}`]) || n
 const prodSource = (v) => (v === 'otto' ? 'otto' : 'perso');
 // Read every 10 minutes (and at start-up) so no day is missed even with the page closed.
 const pdataFile = () => cleanPath(getSettings().kpi_perso_data) || null;
-function readProdReports() {
+async function readProdReports() {
+  await prefetchAll([pdataFile(), ...Object.keys(prod.SOURCES).map(prodFile)]);
   const pd = require('./persodata').readLinked(pdataFile());
   if (pd.status === 'read') log.info(`DailyPersoData: read ${pd.rows} rows`); else if (pd.status === 'error') log.warn(`DailyPersoData: ${pd.error}`);
   for (const source of Object.keys(prod.SOURCES)) {
@@ -3237,8 +3243,9 @@ function readProdReports() {
     else if (r.status === 'error') log.warn(`Production ${source}: ${r.error}`);
   }
 }
-setTimeout(() => { try { prod.purgeUncounted(); } catch (err) { log.warn('Production: tidying', err.message); } readProdReports(); }, 4000).unref();
-setInterval(readProdReports, 10 * 60 * 1000).unref();
+const readProdReportsSafe = () => readProdReports().catch((err) => log.warn('Production: reading the reports', err.message));
+setTimeout(() => { try { prod.purgeUncounted(); } catch (err) { log.warn('Production: tidying', err.message); } readProdReportsSafe(); }, 4000).unref();
+setInterval(readProdReportsSafe, 10 * 60 * 1000).unref();
 
 // The runs from a day (from=YYYY-MM-DD, days=1..31): Gantt, load, totals and anomalies.
 // 📐 CPM — capacity planning (Prod Management): forecasts against actuals, flex, capacity and scenarios (cpm.js).

@@ -4,6 +4,7 @@
 // reports roll over, so the history builds up. Runs that can't be right (far too quick, far too
 // long) are picked out, so they don't skew the Gantt, the load or the speeds.
 const fs = require('fs');
+const nf = require('./netfile'); // network files without freezing the app
 const path = require('path');
 const db = require('./db');
 const { readBook } = require('./xlsxread');
@@ -157,11 +158,11 @@ function coverage(rows) {
 function readLinked(source, file, { force = false } = {}) {
   if (!file) return { source, status: 'none' };
   let stat;
-  try { stat = fs.statSync(file); } catch { return { source, status: 'missing', file }; }
+  try { stat = nf.statSync(file); } catch (err) { return err.code === 'EUNREACH' ? { source, status: 'error', file, error: err.message } : { source, status: 'missing', file }; }
   const sig = `${file}|${stat.mtimeMs}|${stat.size}`;
   if (!force && db.get('SELECT value FROM settings WHERE key = ?', [seenKey(source)])?.value === sig) return { source, status: 'unchanged', file };
   try {
-    const parsed = parse(fs.readFileSync(file));
+    const parsed = parse(nf.readFileSync(file));
     const r = store(source, parsed.rows, path.basename(file));
     db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [seenKey(source), sig]);
     db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [`prod_read_${source}`, JSON.stringify({ at: new Date().toISOString(), file, modified: stat.mtime.toISOString(), rows: parsed.rows.length, ...coverage(parsed.rows), ...r })]);

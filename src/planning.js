@@ -7,6 +7,7 @@
 // (cards per hour per line × lines, working hours and days) each job's finish is projected.
 
 const fs = require('fs');
+const nf = require('./netfile'); // network files without freezing the app
 const path = require('path');
 const { readBook } = require('./xlsxread');
 
@@ -718,13 +719,13 @@ let cardCache = null;
 function readCards({ file, table = 'Cards', columns = {} }) {
   if (!file) return { status: 'none' };
   let stat;
-  try { stat = fs.statSync(file); } catch { return { status: 'missing', file }; }
+  try { stat = nf.statSync(file); } catch (err) { return err.code === 'EUNREACH' ? { status: 'error', file, error: err.message } : { status: 'missing', file }; }
   const key = `${file}|${table}|${JSON.stringify(columns)}|${stat.mtimeMs}|${stat.size}`;
   if (!cardCache || cardCache.key !== key) {
     try {
       let name; let cols; let rowsOf;
       if (/\.xls[xm]$/i.test(file)) { // an Excel export of the table (sheet of that name, or the first)
-        const book = readBook(fs.readFileSync(file));
+        const book = readBook(nf.readFileSync(file));
         const info = book.sheets.find((x) => x.name.toLowerCase() === String(table).toLowerCase()) || book.sheets[0];
         const sh = book.sheet(info.name);
         const head = new Map(); for (const c of sh.cells.values()) if (c.row === 1 && c.v !== null && c.v !== '') head.set(c.col, String(c.v).trim());
@@ -732,7 +733,7 @@ function readCards({ file, table = 'Cards', columns = {} }) {
         rowsOf = () => { const out = []; for (let r = 2; r <= sh.maxRow; r++) { const o = {}; for (const [c, h] of head) { const L = (n) => { let x = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) x = String.fromCharCode(65 + ((n - 1) % 26)) + x; return x; }; o[h] = sh.cells.get(`${L(c)}${r}`)?.v ?? null; } out.push(o); } return out; };
       } else {
         const MDBReader = require('mdb-reader').default || require('mdb-reader');
-        const reader = new MDBReader(fs.readFileSync(file));
+        const reader = new MDBReader(nf.readFileSync(file));
         const names = reader.getTableNames();
         name = names.find((n) => n.toLowerCase() === String(table).toLowerCase());
         if (!name) throw new Error(`There's no table called "${table}" (it has ${names.join(', ')})`);
@@ -822,11 +823,11 @@ function readSource({ file, uploaded, parser = parse }) {
   const target = file || (uploaded && fs.existsSync(uploaded) ? uploaded : null);
   if (!target) return { status: 'none' };
   let stat;
-  try { stat = fs.statSync(target); } catch { return { status: 'missing', file: target }; }
+  try { stat = nf.statSync(target); } catch (err) { return err.code === 'EUNREACH' ? { status: 'error', file: target, error: err.message } : { status: 'missing', file: target }; }
   const key = `${target}|${stat.mtimeMs}|${stat.size}`;
   let cache = caches.get(parser);
   if (!cache || cache.key !== key) {
-    try { cache = { key, parsed: parser(fs.readFileSync(target)), read_at: new Date().toISOString() }; caches.set(parser, cache); } catch (err) {
+    try { cache = { key, parsed: parser(nf.readFileSync(target)), read_at: new Date().toISOString() }; caches.set(parser, cache); } catch (err) {
       return { status: 'error', file: target, error: err.code === 'EBUSY' ? 'the file is open and locked — try again in a moment' : err.message };
     }
   }
