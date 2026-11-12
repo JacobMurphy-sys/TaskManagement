@@ -456,6 +456,7 @@ function weeklyVolumes(year) {
     const m = manual.get(w.week) || {};
     // hours from the Protime counts when typed (worked out again, so a change of rule applies to every week)
     w.hours = m.protime ? hoursFromProtime(JSON.parse(m.protime)) ?? m.hours ?? null : m.hours ?? null; w.contract = m.contract ?? null; w.temps = m.temps ?? null;
+    w.ind_contract = m.ind_contract ?? null; w.ind_temps = m.ind_temps ?? null; // 👥 indirect headcount
     w.cc_critical = m.cc_critical ?? null; w.cc_major = m.cc_major ?? null; w.cc_minor = m.cc_minor ?? null;
     w.protime = m.protime ? JSON.parse(m.protime) : null;
     derive(w);
@@ -608,7 +609,7 @@ function figureDetail(week, col) {
     .filter((c) => !sev || String(c.severity || '').trim().toLowerCase() === sev) : null;
   const sfSource = db.get("SELECT imported_at, file FROM kpi_sources WHERE source = 'salesforce'") || null;
   return { kind: 'manual', week, col, cases, salesforce: sfSource, typed: m ? { hours: m.hours, protime: m.protime ? JSON.parse(m.protime) : null, hours_from_protime: m.protime ? hoursFromProtime(JSON.parse(m.protime)) : null,
-    contract: m.contract, temps: m.temps, cc_critical: m.cc_critical, cc_major: m.cc_major, cc_minor: m.cc_minor, created_at: m.created_at, updated_at: m.updated_at } : null };
+    contract: m.contract, temps: m.temps, ind_contract: m.ind_contract, ind_temps: m.ind_temps, cc_critical: m.cc_critical, cc_major: m.cc_major, cc_minor: m.cc_minor, created_at: m.created_at, updated_at: m.updated_at } : null };
 }
 
 // ♻ A week's remakes from the consumption export: by customer (with the share of all their cards used),
@@ -658,7 +659,7 @@ const DATABASE_COLUMNS = {
   otd_sc: 'V', otd_global: 'W', cpms: 'X', scrap_rate: 'Y', productivity: 'Z', hc: 'AA',
 };
 // What's typed in each week (the rest is worked out).
-const MANUAL_FIELDS = ['hours', 'contract', 'temps', 'cc_critical', 'cc_major', 'cc_minor'];
+const MANUAL_FIELDS = ['hours', 'contract', 'temps', 'ind_contract', 'ind_temps', 'cc_critical', 'cc_major', 'cc_minor'];
 // Working hours from Protime: days = the "present" counts for [Sunday night, Monday, …, Friday].
 // Each person present works a 7.5 h shift, plus 7.5 h for the full-time support staff on each
 // weekday (Mon–Fri) with a count above 0 — not a flat 37.5 h, so a short week isn't overstated.

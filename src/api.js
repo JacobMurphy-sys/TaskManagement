@@ -2121,6 +2121,8 @@ router.put('/kpi/manual/:week', h((req, res) => {
   if ('hours' in req.body && !f.protime) f.hours = num(req.body.hours, 'Working hours');
   if ('contract' in req.body) f.contract = num(req.body.contract, 'Contract');
   if ('temps' in req.body) f.temps = num(req.body.temps, 'Temps');
+  if ('ind_contract' in req.body) f.ind_contract = num(req.body.ind_contract, 'Indirect contract');
+  if ('ind_temps' in req.body) f.ind_temps = num(req.body.ind_temps, 'Indirect temps');
   for (const k of ['cc_critical', 'cc_major', 'cc_minor']) if (k in req.body) f[k] = num(req.body[k], 'Complaints', true);
   const old = db.get('SELECT * FROM kpi_manual WHERE week = ?', [week]);
   const row = old ? fresh('kpi_manual', updateRow('kpi_manual', old.id, f)) : insertRow('kpi_manual', { week, ...f });

@@ -93,7 +93,9 @@ function weeksByMonth(years) {
       if (w.hours > 0) { e.hours += w.hours; e.cards_with_hours += cards; }
       const cc = [w.cc_critical, w.cc_major, w.cc_minor];
       if (cc.some((x) => x !== null && x !== undefined)) { e.cc_typed = true; e.cc += cc.reduce((a, b) => a + (Number(b) || 0), 0); }
-      e.weeks.push({ week: w.week, cards, hours: w.hours ?? null, productivity: w.hours > 0 ? cards / w.hours : null });
+      // 👥 headcount, as typed for the week: direct (on the lines) and indirect (support), each contract + temps
+      const hc = { dc: w.contract ?? null, dt: w.temps ?? null, ic: w.ind_contract ?? null, it: w.ind_temps ?? null };
+      e.weeks.push({ week: w.week, cards, hours: w.hours ?? null, productivity: w.hours > 0 ? cards / w.hours : null, hc: Object.values(hc).some((x) => x !== null) ? hc : null });
       out.set(mm, e);
     }
   }
@@ -143,7 +145,15 @@ function siteKpis(ops) {
       .filter((r) => r.hours > 0.05 && r.cards > 0).map((r) => ({ machine: r.machine, cards: r.cards, hours: Math.round(r.hours * 10) / 10, runs: r.runs, per_hour: r.cards / r.hours }));
   } catch { machines = []; }
   const ph = machines.map((x) => x.per_hour);
-  detail.productivity = { weeks: per.months.flatMap((mm) => wk.get(mm)?.weeks || []), machines, range: ph.length ? [Math.min(...ph), Math.max(...ph)] : null, hours_typed: per.months.some((mm) => wk.get(mm)?.hours) };
+  // 👥 headcount: a month is the average of its weeks typed in (a level, not a sum); one month: its weeks
+  const hcAvg = (list) => { const typed = list.filter((x) => x.hc); if (!typed.length) return null;
+    const av = (k) => { const v = typed.map((x) => x.hc[k]).filter((x) => x !== null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+    return { dc: av('dc'), dt: av('dt'), ic: av('ic'), it: av('it'), weeks: typed.length }; };
+  const hcRows = per.multi || per.ytd
+    ? per.months.map((mm) => ({ label: mm, month: true, ...(hcAvg(wk.get(mm)?.weeks || []) || {}) }))
+    : (wk.get(m)?.weeks || []).map((w) => ({ label: w.week, ...(w.hc || {}) }));
+  const hcAll = hcAvg(per.months.flatMap((mm) => wk.get(mm)?.weeks || []));
+  detail.productivity = { headcount: { rows: hcRows, period: hcAll, by: per.multi || per.ytd ? 'month' : 'week' }, weeks: per.months.flatMap((mm) => wk.get(mm)?.weeks || []), machines, range: ph.length ? [Math.min(...ph), Math.max(...ph)] : null, hours_typed: per.months.some((mm) => wk.get(mm)?.hours) };
 
   // ---- CPMS: customer complaints per million cards shipped
   const sfRead = !!db.get("SELECT 1 FROM kpi_sources WHERE source = 'salesforce'");

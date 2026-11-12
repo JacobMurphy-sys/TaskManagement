@@ -903,6 +903,10 @@ function kpiWeekForm(w) {
         <div class="row"><label class="f">Contract<input type="number" step="1" min="0" name="contract" value="${esc(v(w.contract))}"></label>
           <label class="f">Temps<input type="number" step="1" min="0" name="temps" value="${esc(v(w.temps))}"></label></div>
       </fieldset>
+      <fieldset class="kw-set"><legend>Headcount (indirect employees) <span class="muted small">— support staff, not on the lines</span></legend>
+        <div class="row"><label class="f">Contract<input type="number" step="1" min="0" name="ind_contract" value="${esc(v(w.ind_contract))}"></label>
+          <label class="f">Temps<input type="number" step="1" min="0" name="ind_temps" value="${esc(v(w.ind_temps))}"></label></div>
+      </fieldset>
       <fieldset class="kw-set"><legend>Customer complaints opened this week <span class="muted small">— left blank counts as 0</span></legend>
         <div class="row"><label class="f">Critical<input type="number" step="1" min="0" name="cc_critical" value="${esc(v(w.cc_critical))}"></label>
           <label class="f">Major<input type="number" step="1" min="0" name="cc_major" value="${esc(v(w.cc_major))}"></label>
@@ -922,7 +926,7 @@ function kpiWeekForm(w) {
   calcHours();
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const body = { protime: days.map((_, i) => form[`pt${i}`].value), contract: form.contract.value, temps: form.temps.value,
+    const body = { protime: days.map((_, i) => form[`pt${i}`].value), contract: form.contract.value, temps: form.temps.value, ind_contract: form.ind_contract.value, ind_temps: form.ind_temps.value,
       cc_critical: form.cc_critical.value, cc_major: form.cc_major.value, cc_minor: form.cc_minor.value };
     if (!body.protime.some((x) => x !== '')) body.hours = form.hours.value;
     try {

@@ -2592,3 +2592,12 @@ body.in-training #topbar { border-bottom-color: #f3a712; }
 .q-chart .ops-dl { font-size: 9.5px; font-weight: 600; fill: var(--text); paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
 .q-chart .ops-dl.in { font-size: 9px; }
 .ops-labels { opacity: .45; } .ops-labels.on { opacity: .9; }
+/* 👥 headcount on Operations › Productivity: direct and indirect kept clearly apart */
+.ops-hc th.hc-group { text-align: center; text-transform: uppercase; letter-spacing: .04em; font-size: 11px; }
+.ops-hc th.hc-d.hc-group { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.ops-hc th.hc-i.hc-group { background: color-mix(in srgb, var(--q-c2) 16%, transparent); color: var(--q-c2); }
+.ops-hc td.hc-d { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.ops-hc td.hc-i { background: color-mix(in srgb, var(--q-c2) 5%, transparent); }
+.ops-hc .hc-split { border-left: 2px solid var(--border); }
+.ops-hc .hc-all { border-left: 2px solid var(--border); }
+.ops-hc tr.hc-avg td { border-top: 2px solid var(--border); }
