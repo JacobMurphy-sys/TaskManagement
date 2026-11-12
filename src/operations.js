@@ -72,12 +72,24 @@ function operations(month, { names = new Map(), today = new Date() } = {}) {
   // ---- production: persoed and shipped
   const perso = db.all("SELECT day, customer, type, qty FROM kpi_rows WHERE source = 'perso' AND day >= ? AND day < ?", range);
   const shipped = db.all("SELECT day, customer, type, qty FROM kpi_rows WHERE source = 'shipped' AND day >= ? AND day < ?", range);
-  const vol = (rows, mm, pred = isCard) => sumBy(rows.filter((r) => r.day.slice(0, 7) === mm && pred(r.type)), (r) => r.qty);
+  // totals by day and by month, added up once (the year's rows went through again for every day and month: seconds on a big site)
+  const totals = new WeakMap(); // rows → pred → { day: Map, month: Map }
+  const totalsOf = (rows, pred, qtyOf = (r) => r.qty) => {
+    let per = totals.get(rows); if (!per) totals.set(rows, per = new Map());
+    let t = per.get(pred);
+    if (!t) {
+      t = { day: new Map(), month: new Map() };
+      for (const r of rows) { if (pred && !pred(r.type)) continue; const q = qtyOf(r) || 0; t.day.set(r.day, (t.day.get(r.day) || 0) + q); const mm = r.day.slice(0, 7); t.month.set(mm, (t.month.get(mm) || 0) + q); }
+      per.set(pred, t);
+    }
+    return t;
+  };
+  const vol = (rows, mm, pred = isCard) => totalsOf(rows, pred).month.get(mm) || 0;
   const lastDay = ytdY && m === thisMonth() ? new Date().toISOString().slice(0, 10) : `${m}-${pad(new Date(Date.UTC(Number(y), Number(m.slice(5, 7)), 0)).getUTCDate())}`;
   const days = []; for (let dd = new Date(`${pFrom}-01T12:00:00Z`); dd.toISOString().slice(0, 10) <= lastDay; dd.setUTCDate(dd.getUTCDate() + 1)) days.push(dd.toISOString().slice(0, 10));
   const byDay = days.map((day) => {
     const dow = new Date(`${day}T12:00:00Z`).getUTCDay();
-    return { day, weekend: dow === 0 || dow === 6, persoed: sumBy(perso.filter((r) => r.day === day && isCard(r.type)), (r) => r.qty), shipped: sumBy(shipped.filter((r) => r.day === day && isCard(r.type)), (r) => r.qty), scrap: 0 };
+    return { day, weekend: dow === 0 || dow === 6, persoed: totalsOf(perso, isCard).day.get(day) || 0, shipped: totalsOf(shipped, isCard).day.get(day) || 0, scrap: 0 };
   });
 
   // ---- scrap: from the source the A3 uses
@@ -88,8 +100,8 @@ function operations(month, { names = new Map(), today = new Date() } = {}) {
     : db.all("SELECT day, customer, qty, extra FROM kpi_rows WHERE source = 'remakes' AND day >= ? AND day < ?", range)
       .map((r) => { const x = parseExtra(r.extra); return { day: x.perso_day || r.day, customer: r.customer, qty: r.qty, cause: [x.machine, x.mode].filter(Boolean).join(' · ') || 'Not given', wo: x.wo, item: null }; })
       .filter((r) => r.day);
-  for (const d of byDay) d.scrap = sumBy(scrapRows.filter((r) => r.day === d.day), (r) => r.qty);
-  const scrapOf = (mm) => sumBy(scrapRows.filter((r) => r.day.slice(0, 7) === mm), (r) => r.qty);
+  for (const d of byDay) d.scrap = totalsOf(scrapRows, null).day.get(d.day) || 0;
+  const scrapOf = (mm) => totalsOf(scrapRows, null).month.get(mm) || 0;
   const rate = (scrap, cards) => (cards ? scrap / cards : null);
 
   // ---- OTD from the OTD report: delays in the month of the week typed against them

@@ -14,6 +14,7 @@ const { buildXlsx } = require('./xlsx');
 const { RECURRENCES } = require('./schema');
 const charter = require('./charter');
 const netfile = require('./netfile');
+const bg = require('./bgread'); // the big reads, beside the app
 const { focus: focusOf } = require('./focus');
 const prod = require('./prodactual');
 const planLearn = require('./planlearn');
@@ -1995,12 +1996,17 @@ function customerNames() {
 // 🧪 Quality and ⛑ EHS (the Quality module): a month (YYYY-MM) at a time. Each reads its own source file
 // first when it's changed (a quick look at the file's date otherwise), so the page is up to date when it opens.
 const qualityPages = require('./quality');
-function refreshSource(name, also = []) {
+// Reporting's sources, read again when they've changed: in the reading thread (bgread.js), so the app keeps answering
+// while a large workbook is read off the network. Waited for up to 15 s; longer, the page shows what's there and
+// the new rows are there the next time it's opened.
+const kpiPaths = (set) => ({ salesforce: set.kpi_src_salesforce, ehs: set.kpi_src_ehs, shipped: set.kpi_src_shipped, otd: set.kpi_src_otd,
+  perso: set.kpi_src_perso, remakes: set.kpi_src_remakes, consumption: set.kpi_src_consumption });
+async function refreshSource(name, also = []) {
   const set = getSettings();
   try {
-    const res = kpiData.importSources({ paths: { salesforce: set.kpi_src_salesforce, ehs: set.kpi_src_ehs, shipped: set.kpi_src_shipped, otd: set.kpi_src_otd,
-      perso: set.kpi_src_perso, remakes: set.kpi_src_remakes, consumption: set.kpi_src_consumption },
-      workbook: set.kpi_workbook_path || null, splitWeekends: splitWeekends(), only: [name, ...also] });
+    const res = await bg.within(bg.run('kpi', { paths: kpiPaths(set), workbook: set.kpi_workbook_path || null, splitWeekends: splitWeekends(), only: [name, ...also] }), 15000);
+    if (!res) return { source: name, status: 'reading', note: 'The newest file is still being read; it\'s shown the next time this is opened' };
+    if (!Array.isArray(res)) return { source: name, ...res };
     return res.find((r) => r.source === name) || null;
   } catch (err) { return { source: name, status: 'error', error: err.message }; }
 }
@@ -2008,8 +2014,8 @@ function refreshSource(name, also = []) {
 const operationsPage = require('./operations');
 const optimise = require('./optimise');
 const siteKpis = require('./sitekpis');
-router.get('/kpi/operations', h((req, res) => {
-  const read = refreshSource('perso', ['shipped', 'otd', 'remakes', 'consumption']);
+router.get('/kpi/operations', h(async (req, res) => {
+  const read = await refreshSource('perso', ['shipped', 'otd', 'remakes', 'consumption']);
   const ops = operationsPage.operations(req.query.month, { names: customerNames() });
   res.json({ ...ops, site: siteKpis.siteKpis(ops), read });
 }));
@@ -2021,8 +2027,8 @@ router.put('/kpi/operations/value', h((req, res) => res.json(siteErr(() => siteK
 // 🚚 OTD (the Despatch module): late deliveries logged against a work order the planner knows; the rest
 // (customer, cards, due out, week) comes from the planner. Counted as the OTD source once Sources says so.
 const who = (req) => req.account?.person || req.account?.username || null;
-router.get('/kpi/otd', h((req, res) => {
-  refreshSource('shipped');
+router.get('/kpi/otd', h(async (req, res) => {
+  await refreshSource('shipped');
   res.json({ ...otdEntry.page(req.query.week, { names: customerNames() }), from: otdFrom() });
 }));
 router.get('/kpi/otd/wo', h((req, res) => res.json(otdEntry.search(req.query.q, { names: customerNames() }))));
@@ -2039,18 +2045,18 @@ router.delete('/kpi/otd/:id', h((req, res) => {
   res.json({ ok: true, removed: old });
 }));
 // where OTD is counted from (Sources): switching to the entries writes them in; back to the report reads it again
-router.put('/kpi/otd-from', h((req, res) => {
+router.put('/kpi/otd-from', h(async (req, res) => {
   const from = req.body?.from === 'entered' ? 'entered' : 'report';
   db.run("INSERT INTO settings (key, value) VALUES ('kpi_otd_from', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [from]);
   if (from === 'entered') otdEntry.sync();
   else {
     const set = getSettings();
-    kpiData.importSources({ paths: { otd: set.kpi_src_otd }, workbook: set.kpi_workbook_path || null, splitWeekends: splitWeekends(), only: ['otd'], force: true });
+    await bg.run('kpi', { paths: { otd: set.kpi_src_otd }, workbook: set.kpi_workbook_path || null, splitWeekends: splitWeekends(), only: ['otd'], force: true });
   }
   res.json({ from });
 }));
-router.get('/kpi/quality', h((req, res) => {
-  const read = refreshSource('salesforce', ['shipped', 'otd']); // the pack's OTD and CPMS need the cards shipped and the delays
+router.get('/kpi/quality', h(async (req, res) => {
+  const read = await refreshSource('salesforce', ['shipped', 'otd']); // the pack's OTD and CPMS need the cards shipped and the delays
   res.json({ ...qualityPages.quality(req.query.month), read, path_set: !!String(getSettings().kpi_src_salesforce || '').trim() });
 }));
 // the quality pack's targets: { otd: 0.98 (or 98), cpms, contain, communicate } — the Quality team's own, so their module sets them
@@ -2072,8 +2078,8 @@ router.put('/kpi/quality/targets', h((req, res) => {
   const pk = qualityPages.quality(String(b.month || '')).pack;
   res.json({ targets: pk.targets, titles: pk.titles });
 }));
-router.get('/kpi/ehs', h((req, res) => {
-  const read = refreshSource('ehs');
+router.get('/kpi/ehs', h(async (req, res) => {
+  const read = await refreshSource('ehs');
   res.json({ ...qualityPages.ehs(req.query.month), read, path_set: !!String(getSettings().kpi_src_ehs || '').trim() });
 }));
 
@@ -2086,9 +2092,9 @@ router.get('/kpi/calc', h((req, res) => {
 
 // Reads the source files that changed (all of them with force). Sources without a file of
 // their own come from the CI workbook's import sheets.
-router.post('/kpi/calc/import', h((req, res) => {
+router.post('/kpi/calc/import', h(async (req, res) => {
   const set = getSettings();
-  const results = kpiData.importSources({
+  const results = await bg.run('kpi', {
     paths: { perso: set.kpi_src_perso, shipped: set.kpi_src_shipped, remakes: set.kpi_src_remakes, consumption: set.kpi_src_consumption, otd: set.kpi_src_otd, salesforce: set.kpi_src_salesforce, ehs: set.kpi_src_ehs },
     workbook: set.kpi_workbook_path || null, force: !!req.body.force, splitWeekends: splitWeekends(),
   });
@@ -3233,14 +3239,13 @@ const prodFile = (source) => cleanPath(getSettings()[`kpi_time_${source}`]) || n
 const prodSource = (v) => (v === 'otto' ? 'otto' : 'perso');
 // Read every 10 minutes (and at start-up) so no day is missed even with the page closed.
 const pdataFile = () => cleanPath(getSettings().kpi_perso_data) || null;
+// in the reading thread (bgread.js): hundreds of thousands of rows, which used to hold the app up for a minute or more
 async function readProdReports() {
-  await prefetchAll([pdataFile(), ...Object.keys(prod.SOURCES).map(prodFile)]);
-  const pd = require('./persodata').readLinked(pdataFile());
-  if (pd.status === 'read') log.info(`DailyPersoData: read ${pd.rows} rows`); else if (pd.status === 'error') log.warn(`DailyPersoData: ${pd.error}`);
-  for (const source of Object.keys(prod.SOURCES)) {
-    const r = prod.readLinked(source, prodFile(source));
-    if (r.status === 'read') log.info(`Production ${source}: read ${r.rows} runs (${r.added} new)`);
-    else if (r.status === 'error') log.warn(`Production ${source}: ${r.error}`);
+  const results = await bg.run('prod', { pdata: pdataFile(), ...Object.fromEntries(Object.keys(prod.SOURCES).map((s) => [s, prodFile(s)])) });
+  for (const r of results) {
+    const what = r.source === 'pdata' ? 'DailyPersoData' : `Production ${r.source}`;
+    if (r.status === 'read') log.info(r.source === 'pdata' ? `${what}: read ${r.rows} rows` : `${what}: read ${r.rows} runs (${r.added} new)`);
+    else if (r.status === 'error') log.warn(`${what}: ${r.error}`);
   }
 }
 const readProdReportsSafe = () => readProdReports().catch((err) => log.warn('Production: reading the reports', err.message));
@@ -3427,9 +3432,9 @@ router.get('/plan/dplus', h((req, res) => {
   const workDays = new Set(String(set.plan_days || '1,2,3,4,5').split(',').map(Number).filter((d) => d >= 0 && d <= 6));
   res.json(require('./dplus').profile({ from: req.query.from, to: req.query.to, bucket: req.query.bucket || null, source: req.query.source, workDays, custNames }));
 }));
-router.get('/prod', h((req, res) => {
+router.get('/prod', h(async (req, res) => {
   const source = prodSource(req.query.source);
-  prod.readLinked(source, prodFile(source));
+  await bg.within(bg.run('prodOne', { source, file: prodFile(source) }), 15000); // a big report: read beside the app
   // no day asked for: the latest day with runs (else today)
   const latest = db.get(`SELECT max(start_at) AS d FROM prod_runs WHERE source = ? AND ${prod.KEEP}`, [source])?.d;
   const m = String(req.query.from || '').match(/^(\d{4})-(\d{2})-(\d{2})$/) || String(latest || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -3716,14 +3721,14 @@ router.get('/prod/anomalies.xlsx', h((req, res) => {
   res.send(buildXlsx(sheets));
 }));
 // Read the linked report now (even if it looks unchanged).
-router.post('/prod/read', h((req, res) => {
+router.post('/prod/read', h(async (req, res) => {
   if (req.body?.source === 'pdata') {
-    const r = require('./persodata').readLinked(pdataFile(), { force: true });
+    const r = await bg.run('pdata', { file: pdataFile(), force: true });
     if (r.status === 'none') throw new HttpError(400, 'Set where the DailyPersoData report is saved first');
     return res.json(r);
   }
   const source = prodSource(req.body?.source);
-  const r = prod.readLinked(source, prodFile(source), { force: true });
+  const r = await bg.run('prodOne', { source, file: prodFile(source), force: true });
   if (r.status === 'none') throw new HttpError(400, `Set where the ${prod.SOURCES[source]} timing report is saved first`);
   res.json(r);
 }));
