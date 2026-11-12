@@ -272,6 +272,12 @@ A one-screen dashboard of the chosen **month**, like Quality and EHS (the same m
 - **A tile turns green** when it meets its target and **amber** when it doesn't; with no target set it shows the figure only. A target always shows on its charts as a red dashed line: the scale stretches to take it in, even when it's above or below all the figures or on the zero line. **⚙** at the end of the row (with the setup right) sets which KPIs are shown, each one's target and how OTD is counted. Percentages are typed as they read (99.6 for 99.6%).
 - **Click a tile** to see its topic in the panels below. OTD shows its line by month against the target, delays by customer, the OTD report, on time by customer and late work orders. Wastage shows the scrap rate, scrap by cause, customer or day, and the scrap table. Productivity shows its line by month, cards an hour per machine and the month's weeks with their hours. CPMS shows its line by month, the months' complaints and cards shipped, and the complaints opened. CAPEX shows committed and pipeline by month and the year's investments. MIR shows the accidents. A typed KPI shows its line and the month boxes. Click the same tile again (or ✕ Back to the overview) to return to the overview below.
 - **👁 Hiding a panel** (for presenting): every chart, list and table has a faint eye in its corner. Click it to hide that panel; the others take its room. **👁 n hidden**, next to ⚙, shows them again. What's hidden is kept in this browser, separately for the overview and for each KPI's own view.
+- **🏷 Data labels:** the charts show their values, on each bar and point:
+  - on a single bar, just above it;
+  - on bars side by side, upright inside each bar;
+  - on a line, above or below each point, never on top of another line's label.
+
+  Where the columns are too narrow to read (the days of a year), they're left out, except on the column picked out. **🏷**, next to ⚙, turns them off and on, remembered.
 - **The overview** (no tile clicked): the charts, customers and tables below, as follows.
 - **Charts** (mini-tabs): persoed and shipped **by day** (weekends dimmed), **by month** over the 12 months up to it, **OTD** SC and C by month (against the OTD target, when one is set), and the **scrap rate** by month.
 - **Customers** (mini-tabs): cards persoed, shipped and scrapped per customer, and scrap by **cause** (reason code), each the month and the year to date.
