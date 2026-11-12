@@ -369,8 +369,6 @@ const TABLES = {
     protime     TEXT,
     contract    REAL,
     temps       REAL,
-    ind_contract REAL,  -- 👥 indirect headcount (support staff, not on the lines): contract, temps
-    ind_temps    REAL,
     cc_critical INTEGER,
     cc_major    INTEGER,
     cc_minor    INTEGER,

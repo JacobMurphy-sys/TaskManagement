@@ -1610,16 +1610,15 @@ async function waitForServer() {
       await call('PUT', '/kpi/manual/W2614_1', { hours: 100, contract: 41 });
       calc = await call('GET', '/kpi/calc?year=2026');
       assert.deepEqual([wkOf('W2614_1').hours, wkOf('W2614_1').contract, wkOf('W2614_1').productivity], [100, 41, 10]);
-      // 👥 headcount, direct and indirect, on Operations › Productivity: a month the average of its weeks typed in
-      await call('PUT', '/kpi/manual/W2614_1', { ind_contract: '6', ind_temps: '1' });
-      await call('PUT', '/kpi/manual/W2614_2', { ind_contract: '8' });
+      // 👥 headcount on Operations › Productivity: direct (contract) and temps, a column a month (the average of its weeks)
       {
+        await call('PUT', '/kpi/manual/W2614_1', { temps: '3' });
         const hc = (await call('GET', '/kpi/operations?month=2026-ytd')).site.detail.productivity.headcount;
-        const at = (mm) => hc.rows.find((r) => r.label === mm);
-        assert.deepEqual([hc.by, at('2026-03')?.dc, at('2026-03')?.ic, at('2026-03')?.it, at('2026-04')?.dc, at('2026-04')?.dt, at('2026-04')?.ic, at('2026-04')?.it ?? null],
-          ['month', 41, 6, 1, 40, 2, 8, null], 'direct and indirect, each month from its weeks');
-        const wkHc = (await call('GET', '/kpi/operations?month=2026-04')).site.detail.productivity.headcount;
-        assert.deepEqual([wkHc.by, wkHc.rows.find((r) => r.label === 'W2614_2')?.ic], ['week', 8], 'one month: by its weeks');
+        const at = (mm) => hc.cols.find((c) => c.key === mm);
+        assert.deepEqual([hc.by, at('2026-03')?.direct, at('2026-03')?.temps, at('2026-04')?.direct, at('2026-04')?.temps, hc.average && typeof hc.average.direct],
+          ['month', 41, 3, 40, 2, 'number'], 'direct and temps, each month from its weeks, and the period\'s average');
+        const one = (await call('GET', '/kpi/operations?month=2026-04')).site.detail.productivity.headcount;
+        assert.deepEqual([one.by, one.cols.find((c) => c.key === 'W2614_2')?.direct, one.average], ['week', 40, null], 'one month: a column a week');
       }
       assert.equal(calc.excel, undefined, 'no comparison with Excel any more');
       assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'kpi_manual'), 'typed-in figures are audited (and backed up)');

@@ -122,22 +122,18 @@ function opsSourcesLine(d) {
   return names.length ? `🏭 ${esc(names.join(' · '))}${read ? ` · read ${esc(fmtDateTime(read))}` : ''}` : '';
 }
 
-// 👥 headcount by month (or by week, for one month): direct and indirect side by side, each contract + temps + total
+// 👥 headcount: Direct, Temps and their total as rows, a column a month (or a week, for one month), the period's average last
 function opsHeadcount(hc) {
-  const rows = (hc?.rows || []); const typed = rows.some((r) => [r.dc, r.dt, r.ic, r.it].some((x) => x !== null && x !== undefined));
-  if (!typed) return '<div class="empty small">No headcount typed in for this period yet: ✎ on a week of the Weekly SC Report (Headcount, direct and indirect).</div>';
+  const cols = hc?.cols || [];
+  if (!cols.some((c) => c.direct !== null || c.temps !== null)) return '<div class="empty small">No headcount typed in for this period yet: ✎ on a week of the Weekly SC Report (Headcount: Contract and Temps).</div>';
+  const all = hc.average ? [...cols, { key: 'Average', avg: true, ...hc.average }] : cols;
   const f = (v) => (v === null || v === undefined ? '<span class="muted">—</span>' : (Math.round(v * 10) / 10).toLocaleString('en-GB'));
-  const sum = (a, b) => (a === null && b === null) || (a === undefined && b === undefined) ? null : (a || 0) + (b || 0);
-  const name = (r) => (r.month ? new Date(`${r.label}-15T12:00:00`).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }) : r.label);
-  const line = (r, cls = '') => { const dT = sum(r.dc ?? null, r.dt ?? null); const iT = sum(r.ic ?? null, r.it ?? null); const all = dT === null && iT === null ? null : (dT || 0) + (iT || 0);
-    return `<tr class="${cls}"><td>${cls ? '<b>' : ''}${esc(r.label === '__all' ? 'Average' : name(r))}${cls ? '</b>' : ''}</td>
-      <td class="num hc-d">${f(r.dc)}</td><td class="num hc-d">${f(r.dt)}</td><td class="num hc-d hc-tot"><b>${f(dT)}</b></td>
-      <td class="num hc-i hc-split">${f(r.ic)}</td><td class="num hc-i">${f(r.it)}</td><td class="num hc-i hc-tot"><b>${f(iT)}</b></td>
-      <td class="num hc-all"><b>${f(all)}</b></td></tr>`; };
+  const total = (c) => (c.direct === null && c.temps === null ? null : (c.direct || 0) + (c.temps || 0));
+  const name = (c) => (c.avg ? 'Average' : c.month ? new Date(`${c.key}-15T12:00:00`).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' }) : c.key);
+  const row = (label, cls, val) => `<tr class="${cls}"><th scope="row">${label}</th>${all.map((c) => `<td class="num${c.avg ? ' hc-avg' : ''}">${val(c)}</td>`).join('')}</tr>`;
   return `<div class="kdb-scroll"><table class="log q-cases ops-table ops-hc">
-    <thead><tr><th rowspan="2">${hc.by === 'month' ? 'Month' : 'Week'}</th><th colspan="3" class="hc-d hc-group">Direct</th><th colspan="3" class="hc-i hc-group hc-split">Indirect</th><th rowspan="2" class="num hc-all">All</th></tr>
-      <tr><th class="num hc-d">Contract</th><th class="num hc-d">Temps</th><th class="num hc-d">Total</th><th class="num hc-i hc-split">Contract</th><th class="num hc-i">Temps</th><th class="num hc-i">Total</th></tr></thead>
-    <tbody>${rows.map((r) => line(r)).join('')}${hc.by === 'month' && hc.period ? line({ ...hc.period, label: '__all' }, 'hc-avg') : ''}</tbody></table></div>`;
+    <thead><tr><th></th>${all.map((c) => `<th class="num${c.avg ? ' hc-avg' : ''}">${esc(name(c))}</th>`).join('')}</tr></thead>
+    <tbody>${row('<i class="q-sw hc-sw-d"></i>Direct', 'hc-direct', (c) => f(c.direct))}${row('<i class="q-sw hc-sw-t"></i>Temps', 'hc-temps', (c) => f(c.temps))}${row('Total', 'hc-total', (c) => `<b>${f(total(c))}</b>`)}</tbody></table></div>`;
 }
 // a customer's delays as dailies and renewals (known for delays logged against a work order on 🚚 OTD)
 function opsKindCell(c) {
@@ -351,7 +347,7 @@ function opsHtml(d) {
         : `<div class="empty small">No reporting weeks in ${esc(d.label)}.</div>`;
       return `<div class="qd-top">${panel('qd-charts', head('⚙ Productivity, month by month', 'cards persoed ÷ working hours (Protime, typed in each week)'), kpiChart('productivity', { right: { label: 'Cards persoed (right-hand scale)', values: d.trend.map((t) => t.persoed) } }))}
         ${panel('qd-where', head('Machines', `cards an hour of run time${p.range ? ` · ${opsKpiFmt(k, p.range[0])} – ${opsKpiFmt(k, p.range[1])}` : ''}`), mach)}</div>
-        ${panel('qd-cases ops-hc-panel', head('👥 Headcount', `direct (on the lines) and indirect (support), contract + temps${p.headcount?.by === 'month' ? ' · each month the average of its weeks' : ''}`), opsHeadcount(p.headcount))}
+        ${panel('qd-cases ops-hc-panel', head('👥 Headcount', `direct and temps, as typed in each week${p.headcount?.by === 'month' ? ' · each month the average of its weeks' : ''}`), opsHeadcount(p.headcount))}
         ${panel('qd-cases', `${head(`Weeks in ${esc(perShort)}`, p.hours_typed ? '' : 'no working hours typed in yet: ✎ on the Weekly SC Report\'s weeks')}${back}`, weeks)}`;
     },
     cpms: () => {
