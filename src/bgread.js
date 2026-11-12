@@ -27,6 +27,7 @@ const TASKS = {
   prodOne: ({ source, file, force }) => require('./prodactual').readLinked(source, file || null, { force: !!force }),
   pdata: ({ file, force }) => require('./persodata').readLinked(file || null, { force: !!force }),
   kpi: (opts) => require('./kpidata').importSources(opts),
+  cards: (opts) => require('./planning').readCardsNow(opts), // a big card database (planning.js)
 };
 
 if (!isMainThread && workerData?.bgread) {

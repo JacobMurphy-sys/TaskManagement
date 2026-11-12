@@ -720,7 +720,39 @@ const CARD_COLUMNS = { key: 'AX Ref', type: 'Type', material: 'Material', sides:
 // "0002358794", 2358794 and "2358794 " are the same AX Ref.
 const axKey = (v) => { const t = String(v ?? '').trim(); return /^\d+$/.test(t) ? String(Number(t)) : t.toUpperCase(); };
 let cardCache = null;
-function readCards({ file, table = 'Cards', columns = {} }) {
+// 🗂 The card database. A small one is read here as it always was. A big one (an Access database of every card,
+// often changing while people work in it) took the app a minute or more each time it changed, holding everything
+// up, over a VPN for minutes: it's read in the reading thread (bgread.js) instead, checked at most every 30 s, and
+// the copy read last is used meanwhile, so pages never wait for it (the very first time: "still being read").
+const BIG_CARDS = 5 * 1024 * 1024;
+let bigCards = null; // { id, sig, result, checked, job }
+const { isMainThread } = require('worker_threads');
+function readCards(opts) {
+  const { file, table = 'Cards', columns = {} } = opts || {};
+  if (!file || !isMainThread || process.env.BGREAD === '0') return readCardsNow(opts || {});
+  const id = `${file}|${table}|${JSON.stringify(columns)}`;
+  const big = bigCards && bigCards.id === id ? bigCards : null;
+  if (!big) {
+    let st; try { st = nf.statSync(file); } catch { return readCardsNow(opts); } // not there (or not answering): as before
+    if (st.size < BIG_CARDS) return readCardsNow(opts);
+    bigCards = { id, sig: null, result: null, checked: 0, job: null };
+  }
+  const b = bigCards;
+  if (!b.job && Date.now() - b.checked > 30 * 1000) {
+    b.checked = Date.now();
+    b.job = (async () => {
+      const st = await fs.promises.stat(file);
+      const sig = `${st.mtimeMs}|${st.size}`;
+      if (b.sig === sig && b.result) return;
+      if (st.size < BIG_CARDS) { bigCards = null; return; } // it's small now: read here again
+      const r = await require('./bgread').run('cards', { file, table, columns });
+      b.sig = sig; b.result = r;
+    })().catch((err) => { if (!b.result) b.result = { status: 'error', file, error: err.message }; }).finally(() => { b.job = null; });
+  }
+  return b.result || { status: 'loading', file, error: 'The card database is still being read (a minute or so); refresh in a moment' };
+}
+
+function readCardsNow({ file, table = 'Cards', columns = {} }) {
   if (!file) return { status: 'none' };
   let stat;
   try { stat = nf.statSync(file); } catch (err) { return err.code === 'EUNREACH' ? { status: 'error', file, error: err.message } : { status: 'missing', file }; }
@@ -839,4 +871,4 @@ function readSource({ file, uploaded, parser = parse }) {
 }
 
 module.exports = {
-  shipFromPerso, lineStepper, machineStepper, workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, mitigate, parseDisp, linkDisp, DISP_COLUMNS, workingDaysAhead, scoreJobs, deadlineScore, shiftAt, SHIFTS, DEADLINE_DEFAULTS, woOfName, OTTO_COLUMNS };
+  shipFromPerso, lineStepper, machineStepper, workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, readCardsNow, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, mitigate, parseDisp, linkDisp, DISP_COLUMNS, workingDaysAhead, scoreJobs, deadlineScore, shiftAt, SHIFTS, DEADLINE_DEFAULTS, woOfName, OTTO_COLUMNS };
