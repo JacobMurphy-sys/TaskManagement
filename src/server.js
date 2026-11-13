@@ -85,6 +85,15 @@ app.use('/api', accounts.router);
 // 🎓 a training account works in the training copy (db.js): everything after this runs against it. What would
 // change something outside the database (files on the share, the server, the Library) isn't done in training.
 app.use('/api', (req, res, next) => (req.account?.training ? db.asTraining(next) : next()));
+// 🔒 each request as its account: its own work and what it's invited to (db.js, visibility.js); an admin with "All
+// work" on sees everything. No account (accounts off) and the server's own housekeeping (backups, restores, the
+// server controls, shared setup): everything, as before.
+const SYSTEM_PATHS = /^\/(backups|server|shutdown|settings\/shared|team-pack|plan\/setup)(\/|$)/;
+app.use('/api', (req, res, next) => {
+  const a = req.account;
+  if (!a || SYSTEM_PATHS.test(req.path)) return db.asSystem(next);
+  return db.asViewer({ id: a.id, person: a.person, all: a.role === 'admin' && !!a.see_all }, next);
+});
 const NOT_IN_TRAINING = [
   [/^\/backups(\/|$)/, 'Backups'], [/^\/server(\/|$)/, 'The server controls'], [/^\/library\/(import|folder|excluded)/, 'Changing the Library'],
   [/^\/plan\/upload/, 'Uploading planning exports'], [/^\/plan\/auto\/[^/]+\/run$/, 'Running an automatic plan (it saves a file)'],

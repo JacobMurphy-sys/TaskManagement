@@ -1127,6 +1127,7 @@ async function renderProject(id, tab) {
         ${p.due_at ? dueChip({ ...p, status: p.status === 'completed' ? 'done' : '' }) : ''}
         ${p.due_at ? `<span class="resched-slot" data-resched="project:${p.id}"></span>` : ''}
         <button data-action="edit-project">✎ Edit</button>
+        ${ACCT.enabled ? '<button data-action="project-access" title="Who sees this project: who made it, its leader, sponsor and team, and who\'s invited — and invite someone">🔒 Who sees it</button>' : ''}
         ${ddMenu('⋯', `
           <button data-action="history" data-kind="projects" data-id="${p.id}" data-title="${esc(p.name)}">🕘 History of changes</button>
           <button data-action="remind-project">🔔 Set a reminder</button>
@@ -2197,7 +2198,7 @@ async function taskModal(id) {
     <div class="tm" id="task-form" data-id="${t.id}" tabindex="-1">
     <div class="modal-head tm-head">
       <div class="tm-crumb small">${t.project_id ? `<a href="#/project/${t.project_id}" data-action="modal-open-project" data-id="${t.project_id}" title="Open the project">🗂 ${esc(t.project_name)}</a>` : '<span class="muted">✅ Tasks (no project)</span>'}
-        ${t.parent_id ? `<span class="tm-sep">›</span><a href="javascript:void 0" class="tm-parent-link" data-action="open-task" data-id="${t.parent_id}" title="Open the task this is part of">↳ ${esc(t.parent_title || 'its task')}</a>` : ''}
+        ${t.parent_id ? (t.parent_title ? `<span class="tm-sep">›</span><a href="javascript:void 0" class="tm-parent-link" data-action="open-task" data-id="${t.parent_id}" title="Open the task this is part of">↳ ${esc(t.parent_title)}</a>` : '<span class="tm-sep">›</span><span class="muted" title="Its task isn\'t shared with you: you see this subtask because it\'s yours">↳ 🔒 part of a task not shared with you</span>') : ''}
         ${t.meeting ? `<span class="tm-sep">·</span><a href="#" data-action="open-meeting" data-id="${t.meeting.id}" data-return-task="${t.id}" title="Agreed at this meeting">🗓 from ${esc(t.meeting.title)}, ${esc(fmtDate(t.meeting.held_at))}</a>` : ''}
         ${baselineText}</div>
       <div class="row"><span class="saved-flag" id="saved-flag">✓ Saved</span><button class="icon" data-action="history" data-kind="tasks" data-id="${t.id}" data-title="${esc(t.title)}" title="History: every change, with who made it">🕘</button><button class="icon" data-action="close-modal">✕</button></div>
@@ -2242,6 +2243,7 @@ async function taskModal(id) {
         ${panel('tm-people', '👥', 'People', '', `
           <div class="tm-field"><span class="tm-label">Owners</span><div id="owner-pick"></div></div>
           <div class="tm-field"><span class="tm-label">Waiting on${t.waiting_on && t.waiting_since ? ` <span class="tm-wait">⏳ since ${esc(fmtShortDate(t.waiting_since))} · ${daysSince(t.waiting_since)}d</span>` : ''}</span><div id="waiting-pick"></div></div>`)}
+        ${ACCT.enabled ? panel('tm-access', '🔒', 'Who sees it', '', `<div data-access="task:${t.id}"><span class="small muted">…</span></div>`) : ''}
         ${t.project_id ? panel('tm-deps', '🔗', 'Depends on', t.depends_on.length || '', `
           <ul class="mini">${t.depends_on.map((d) => `<li>
             <span class="t" data-action="open-task" data-id="${d.id}">${d.status === 'done' ? '✅' : '⏳'} ${esc(d.title)}</span> ${dueChip(d)}
@@ -2272,6 +2274,7 @@ async function taskModal(id) {
       <button class="primary" data-action="close-modal">Done</button>
     </div>
     </div>`, { wide: true, cls: 'task-modal' });
+  if (ACCT.enabled) accessPanel($('#modal [data-access]'), 'task', t.id);
   if (!modal().contains(document.activeElement) || document.activeElement === modal() || document.activeElement.closest('.tm-crumb')) $('#modal .tm').focus({ preventScroll: true });
   $('#poke-btn')?.addEventListener('click', () => pokeDialog(t, $('#modal .tm-tags')));
 
@@ -2545,6 +2548,8 @@ const actions = {
   'toggle-menu': () => toggleMenu(),
   'new-project': () => projectForm(),
   'edit-project': () => projectForm(state.project),
+  'project-access': () => { const p = state.project; openModal(`<div class="modal-head"><h2 style="margin:0">🔒 Who sees “${esc(p.name)}”</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <p class="small muted">Everyone on the project sees all of it: whoever made it, its leader and sponsor, its team, and anyone invited.</p><div data-access="project:${p.id}"></div>`); accessPanel($('#modal [data-access]'), 'project', p.id); },
   'add-phase': () => phaseDialog(state.project, null),
   'library-import': () => libraryImportDialog(),
   'library-print': () => {
@@ -2752,6 +2757,7 @@ const actions = {
   'set-name': () => Promise.resolve(collabAskName(true)).then(() => mailPoll()),
   'change-password': () => acctPasswordDialog(false),
   'sign-out': async () => { await api.post('/auth/logout', {}); location.reload(); },
+  'see-all': () => toggleSeeAll(),
   'stop-server': async () => {
     if (!confirm('Stop SITHUB? Reminders won\'t pop up until you start it again.')) return;
     await api.post('/shutdown');

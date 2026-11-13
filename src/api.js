@@ -464,6 +464,65 @@ router.put('/task-lists/task/:taskId', h((req, res) => {
   res.json({ task_id: task.id, list: target ? target.id : null });
 }));
 
+// ---- 🔒 who sees a task or project (visibility.js): who made it, who sees it by being on it, who's invited ----------
+const sameP = (a, b) => require('./visibility').norm(a) === require('./visibility').norm(b);
+const accountsList = () => { try { return db.all("SELECT id, person, role FROM accounts WHERE active = 1 AND training = 0 ORDER BY person COLLATE NOCASE"); } catch { return []; } };
+// the item as the requester sees it (404 when they can't), and whether in full (a subtask they own: not)
+function accessItem(req, kind, id) {
+  if (!['task', 'project'].includes(kind)) throw new HttpError(400, 'A task or a project');
+  const row = db.get(`SELECT * FROM ${kind === 'task' ? 'tasks' : 'projects'} WHERE id = ?`, [Number(id)]);
+  if (!row) throw notFound(kind === 'task' ? 'Task' : 'Project');
+  const vis = db.visibleNow();
+  return { row, full: !vis || (kind === 'task' ? vis.full.has(row.id) : vis.projects.has(row.id)) };
+}
+router.get('/access/people', h((req, res) => res.json(accountsList().map((a) => ({ id: a.id, person: a.person })))));
+router.get('/access/:kind/:id', h((req, res) => {
+  const { kind } = req.params; const { row, full } = accessItem(req, kind, req.params.id);
+  const accts = accountsList(); const byId = new Map(accts.map((a) => [a.id, a]));
+  const firstAdmin = accts.filter((a) => a.role === 'admin').map((a) => a.id).sort((x, y) => x - y)[0] ?? null;
+  const creatorId = row.created_by ?? firstAdmin;
+  const auto = [];
+  if (kind === 'project') {
+    if (row.leader) auto.push({ person: row.leader, why: 'leader' });
+    if (row.sponsor) auto.push({ person: row.sponsor, why: 'sponsor' });
+    for (const m of db.all('SELECT name FROM project_team WHERE project_id = ? ORDER BY sort_order, id', [row.id])) if (!auto.some((x) => sameP(x.person, m.name))) auto.push({ person: m.name, why: 'team' });
+  } else {
+    for (const n of String(row.owner || '').split(/\s*[,;/&]\s*/).filter(Boolean)) auto.push({ person: n, why: row.parent_id ? 'owner of this subtask' : 'owner' });
+    if (row.project_id) { const p = db.get('SELECT id, name FROM projects WHERE id = ?', [row.project_id]); auto.push({ project: p ? p.name : 'its project', why: 'everyone on the project' }); }
+    if (row.parent_id) { const up = db.get('SELECT id, title FROM tasks WHERE id = ?', [row.parent_id]); if (up) auto.push({ task: up.title, why: 'everyone invited to the task above' }); }
+  }
+  const invited = db.all('SELECT account_id, by_account, created_at FROM shares WHERE kind = ? AND record_id = ? ORDER BY created_at', [kind, row.id])
+    .map((s) => ({ account_id: s.account_id, person: byId.get(s.account_id)?.person || '(an account no longer here)', by: byId.get(s.by_account)?.person || null, at: s.created_at }));
+  res.json({ kind, id: row.id, title: row.title || row.name, full, can_invite: full,
+    creator: creatorId ? { id: creatorId, person: byId.get(creatorId)?.person || null } : null, auto, invited,
+    note: kind === 'task' && !full ? 'You see this subtask because it\'s yours; the task it\'s part of isn\'t shared with you.' : null });
+}));
+router.post('/access/:kind/:id', h((req, res) => {
+  const { kind } = req.params; const { row, full } = accessItem(req, kind, req.params.id);
+  if (!full) throw new HttpError(403, 'Only someone who sees the whole task can invite others to it');
+  const to = accountsList().find((a) => a.id === Number(req.body?.account_id));
+  if (!to) throw new HttpError(400, 'Choose who to invite');
+  db.run('INSERT OR IGNORE INTO shares (kind, record_id, account_id, by_account) VALUES (?, ?, ?, ?)', [kind, row.id, to.id, req.account?.id ?? null]);
+  log.info(`🔒 ${req.account?.person || 'Someone'} invited ${to.person} to ${kind} ${row.id}`);
+  res.status(201).json({ ok: true });
+}));
+router.delete('/access/:kind/:id/:account', h((req, res) => {
+  const { kind } = req.params; const { row, full } = accessItem(req, kind, req.params.id);
+  const who = Number(req.params.account);
+  if (!full && who !== req.account?.id) throw new HttpError(403, 'Only someone who sees the whole task can change who it\'s shared with');
+  db.run('DELETE FROM shares WHERE kind = ? AND record_id = ? AND account_id = ?', [kind, row.id, who]);
+  res.status(204).end();
+}));
+// 👁 an admin's "All work": every task and project, while it's on (written to the activity log, for everyone to see)
+router.put('/me/see-all', h((req, res) => {
+  if (!req.account || req.account.role !== 'admin') throw new HttpError(403, 'Only an admin can see all work');
+  const on = !!req.body?.on;
+  db.run('UPDATE accounts SET see_all = ? WHERE id = ?', [on ? 1 : 0, req.account.id]);
+  db.run("INSERT INTO audit_log (table_name, record_id, action, new_data, changed_by) VALUES ('accounts', ?, 'UPDATE', ?, ?)", [req.account.id, JSON.stringify({ see_all: on ? 1 : 0, what: on ? 'All work turned on: sees every task and project' : 'All work turned off' }), req.account.person]);
+  log.info(`👁 ${req.account.person}: All work ${on ? 'on' : 'off'}`);
+  res.json({ see_all: on });
+}));
+
 router.get('/tasks', h((req, res) => {
   const where = ["(p.id IS NULL OR p.status <> 'archived')"];
   const params = [];

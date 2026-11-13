@@ -3154,7 +3154,10 @@ async function waitForServer() {
       assert.equal((await sam('PATCH', '/auth/prefs', { nav_order: null })).data.nav_order, null, 'back to the standard order');
       // 👉 poking needs the right (or leading the task's project); the message goes to the person it's given to
       { const pt = (await admin('POST', '/tasks', { title: 'Check the ink stock', owner: 'Robin Diaz' })).data;
-        assert.equal((await sam('POST', `/tasks/${pt.id}/poke`, {})).status, 403, 'not without the right');
+        assert.equal((await sam('POST', `/tasks/${pt.id}/poke`, {})).status, 404, '🔒 someone else\'s task: not even seen');
+        const samId = (await sam('GET', '/auth/me')).data.account.id;
+        await admin('POST', `/access/task/${pt.id}`, { account_id: samId });
+        assert.equal((await sam('POST', `/tasks/${pt.id}/poke`, {})).status, 403, 'invited, but not without the right');
         assert.equal((await admin('POST', `/tasks/${pt.id}/poke`, { note: 'Today please' })).status, 201, 'admins have it');
         await admin('DELETE', `/tasks/${pt.id}`); }
       // 🔑 admin rights: the host (the first account) gives some of them to other accounts
@@ -3206,6 +3209,68 @@ async function waitForServer() {
         assert.equal((await tkBox(sam)).length, 0, 'not whoever sent it');
         assert.equal((await tkBox(as('mgr'))).length, 0, 'nor someone who doesn\'t handle tickets');
         await admin('DELETE', `/tickets/${tk.id}`);
+      }
+      // 🔒 who sees what: your own work, what you're on, and what you're invited to
+      {
+        const samId = (await sam('GET', '/auth/me')).data.account.id;
+        const ids = async (who) => (await who('GET', '/tasks')).data.map((t) => t.id);
+        const own = (await admin('POST', '/tasks', { title: 'Boss private plan' })).data;
+        assert.deepEqual([(await ids(sam)).includes(own.id), (await sam('GET', `/tasks/${own.id}`)).status, (await sam('PATCH', `/tasks/${own.id}`, { title: 'Hacked' })).status, (await sam('DELETE', `/tasks/${own.id}`)).status],
+          [false, 404, 404, 404], 'someone else\'s task: not listed, not opened, not changed, not removed');
+        assert.equal((await admin('GET', `/tasks/${own.id}`)).data.title, 'Boss private plan', 'untouched');
+        // a task given to Sam: it and its subtasks
+        const given = (await admin('POST', '/tasks', { title: 'Sam runs this', owner: 'Sam Smoke' })).data;
+        const givenSub = (await admin('POST', '/tasks', { title: 'Its first step', parent_id: given.id })).data;
+        // a subtask given to Sam: only that subtask, not the task above or the other steps
+        const parent = (await admin('POST', '/tasks', { title: 'Boss big task' })).data;
+        const samStep = (await admin('POST', '/tasks', { title: 'Sam\'s step', parent_id: parent.id, owner: 'Sam Smoke' })).data;
+        const otherStep = (await admin('POST', '/tasks', { title: 'Someone else\'s step', parent_id: parent.id })).data;
+        // the feed of changes ("Pat changed …") only tells people about what they can see
+        {
+          const viaClient = async (who, client, method, url, body) => (await fetch(BASE + url, { method, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager', 'X-Client-Id': client, Cookie: jar[who] }, body: body ? JSON.stringify(body) : undefined })).json();
+          const seq0 = (await viaClient('sam', 'c-sam-feed', 'POST', '/presence', { id: 'c-sam-feed', name: 'Sam', seq: -1 })).seq;
+          await viaClient('admin', 'c-boss-feed', 'PATCH', `/tasks/${own.id}`, { title: 'Boss private plan, renamed' });
+          await viaClient('admin', 'c-boss-feed', 'PATCH', `/tasks/${given.id}`, { description: 'over to you' });
+          const texts = (await viaClient('sam', 'c-sam-feed', 'POST', '/presence', { id: 'c-sam-feed', name: 'Sam', seq: seq0 })).changes.map((c) => c.text).join(' | ');
+          assert.ok(/Sam runs this/.test(texts) && !/Boss private/.test(texts), `the feed: only what Sam can see (${texts})`);
+          await admin('PATCH', `/tasks/${own.id}`, { title: 'Boss private plan' });
+        }
+        let seen = await ids(sam);
+        assert.deepEqual([given.id, givenSub.id, samStep.id, parent.id, otherStep.id].map((i) => seen.includes(i)), [true, true, true, false, false], 'a task given to you comes with its subtasks; a subtask given to you comes on its own');
+        let acc = (await sam('GET', `/access/task/${samStep.id}`)).data;
+        assert.deepEqual([acc.full, acc.can_invite, !!acc.note], [false, false, true], 'and says so');
+        assert.equal((await sam('POST', `/access/task/${samStep.id}`, { account_id: samId })).status, 403, 'only someone seeing the whole task invites');
+        // invited to the task above: all of it
+        assert.equal((await admin('POST', `/access/task/${parent.id}`, { account_id: samId })).status, 201);
+        seen = await ids(sam);
+        assert.deepEqual([parent.id, otherStep.id].map((i) => seen.includes(i)), [true, true], 'invited: the task and all its subtasks');
+        acc = (await admin('GET', `/access/task/${parent.id}`)).data;
+        assert.deepEqual([acc.creator?.person, acc.invited.map((x) => x.person)], [(await admin('GET', '/auth/me')).data.account.person, ['Sam Smoke']], 'who made it and who\'s invited');
+        await admin('DELETE', `/access/task/${parent.id}/${samId}`);
+        assert.equal((await ids(sam)).includes(otherStep.id), false, 'uninvited: gone again');
+        // a project: being put on its team lets you in
+        const pr = (await admin('POST', '/projects', { name: 'Boss secret project', problem: 'p', goals: 'g', sponsor: 'Someone Else', leader: 'Another Person' })).data;
+        const prTask = (await admin('POST', '/tasks', { title: 'Project step', project_id: pr.id })).data;
+        assert.deepEqual([(await sam('GET', `/projects/${pr.id}`)).status, (await sam('GET', '/projects')).data.some((x) => x.id === pr.id), (await ids(sam)).includes(prTask.id)], [404, false, false], 'not on it: not seen');
+        await admin('POST', `/projects/${pr.id}/team`, { name: 'Sam Smoke', role: 'Analyst' });
+        assert.deepEqual([(await sam('GET', `/projects/${pr.id}`)).status, (await ids(sam)).includes(prTask.id)], [200, true], 'on the team: the project and its tasks');
+        // quick notes and reminders: each person's own
+        const qn = (await admin('POST', '/notes', { body: 'Boss jotting', inbox: true })).data;
+        const rm = (await admin('POST', '/reminders', { remind_at: new Date(Date.now() - 60000).toISOString(), message: 'Boss reminder' })).data;
+        const dash = (await sam('GET', '/dashboard')).data; const alerts = (await sam('GET', '/alerts')).data;
+        assert.deepEqual([dash.quick_notes.some((n) => n.id === qn.id), alerts.reminders.some((x) => x.id === rm.id), (await sam('DELETE', `/notes/${qn.id}`)).status, (await sam('DELETE', `/reminders/${rm.id}`)).status],
+          [false, false, 404, 404], 'someone else\'s quick notes and reminders: not seen, not removed');
+        assert.equal((await admin('GET', '/dashboard')).data.quick_notes.some((n) => n.id === qn.id), true, 'their own');
+        // Sam's own work isn't the admin's either, unless the admin turns All work on (and it's logged)
+        const samOwn = (await sam('POST', '/tasks', { title: 'Sam private' })).data;
+        assert.equal((await ids(admin)).includes(samOwn.id), false, 'an admin sees their own too');
+        assert.equal((await sam('PUT', '/me/see-all', { on: true })).status, 403, 'only an admin sees all');
+        await admin('PUT', '/me/see-all', { on: true });
+        assert.deepEqual([(await ids(admin)).includes(samOwn.id), (await admin('GET', '/auth/me')).data.account.see_all], [true, true], 'All work: everything');
+        await admin('PUT', '/me/see-all', { on: false });
+        assert.equal((await ids(admin)).includes(samOwn.id), false, 'and off again');
+        for (const t of [own, given, parent]) await admin('DELETE', `/tasks/${t.id}`);
+        await sam('DELETE', `/tasks/${samOwn.id}`); await admin('DELETE', `/projects/${pr.id}`); await admin('DELETE', `/notes/${qn.id}`); await admin('DELETE', `/reminders/${rm.id}`);
       }
       // 🗂 My lists are each person's own
       {

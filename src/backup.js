@@ -165,7 +165,7 @@ function runBackup(reason = 'manual') {
   // copy). The JSON export is then written from that copy in a worker thread, so it matches the .db backup and
   // a large one doesn't hold the app up; then both are compressed (and checked) in the background.
   const dbFile = path.join(DB_DIR, `${name}.db`);
-  db.conn.prepare('VACUUM INTO ?').run(dbFile);
+  db.vacuumInto(dbFile);
   const jsonFile = path.join(JSON_DIR, `${name}.json`);
   compressing.add(dbFile); compressing.add(jsonFile); // not pruned or swept while they're being worked on
   const pruned = prune(DB_DIR) + prune(JSON_DIR);

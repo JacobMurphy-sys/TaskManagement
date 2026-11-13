@@ -598,6 +598,15 @@ On the server PC, the **SITHUB** shortcut starts the server the same way (throug
   - **Presets** when adding an account: *Basic pack only*, *Production: Basic + Prod Management*, *Quality: Basic + Quality* and *Manager: everything*.
   - **What's hidden:** a module an account doesn't have drops out of the top bar, the dashboard and search. Its pages send them to the dashboard, and the server refuses its data to that account.
   - **Who has everything:** admins always have every module. Accounts made before modules existed have them all until an admin changes them.
+- **🔒 Who sees what** (with accounts on): each person sees **their own work**, plus what they're on and what they're invited to. Modules decide which parts of the app an account can open; within them, this decides which tasks and projects it sees.
+  - **Projects:** one you made, one you lead, sponsor or are on the team of (**putting someone on the team invites them**), or one you're invited to. Seeing a project means seeing all of it: its tasks, notes, costs, phases and history.
+  - **Tasks:** one you made or are invited to, and every task of a project you see. A task given to you (you're among its owners) comes with its subtasks. A **subtask given to you comes on its own**: you don't see the task it's part of, or that task's other subtasks, unless you're invited to the task. The window then says *🔒 part of a task not shared with you*.
+  - **🔒 Who sees it** (in a task's window, and on a project's page): who made it, who sees it by being on it (owners; leader, sponsor and team), and who's invited. **＋ Invite someone** shares it with another account; ✕ stops sharing. Anyone who sees the whole task or project can invite.
+  - **Quick notes and 🔔 reminders are your own:** nobody else sees your unsorted quick notes, and a reminder only pops up for whoever set it. Notes on a task or project are seen by everyone who sees that task or project.
+  - **Everything else is shared:** the change feed (*who changed what*) and the activity log only mention what you can see. Ideas, meetings, CAPEX, Reporting, Production and the rest are shared as before.
+  - **👁 All work (admins):** an admin sees their own and invited work like everyone else. In the ⋯ menu, **👁 All work** shows every task and project, e.g. to sort out someone's work after they've left. While it's on, a striped bar says so on every page, and turning it on or off is written in the activity log.
+  - **Work from before accounts** is credited to whoever the history says added it, if they have an account; otherwise it's the first admin's (the host's). Owners, leaders and team members still see what they're on.
+  - With accounts off (one person's own copy), nothing changes: everything is seen.
   - **When it applies:** a change takes effect the next time that person opens or refreshes the page.
 - **🔑 The host and admin rights:**
   - **The host:** the first account made, or on an existing install the longest-standing admin. It has everything and can't be turned off, removed or changed by anyone else.

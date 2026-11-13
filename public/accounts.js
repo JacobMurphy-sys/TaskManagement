@@ -117,11 +117,55 @@ function acctChrome() {
   const menu = $('#top-menu');
   if (menu && !$('[data-action="sign-out"]', menu)) {
     menu.insertAdjacentHTML('afterbegin', `<div class="small muted" style="padding:4px 10px">Signed in as <b>${esc(ACCT.account.person)}</b> (${esc(ACCT.account.username)}${ACCT.account.owner ? ', host' : ACCT.account.role === 'admin' ? ', admin' : ''})</div>
+      ${ACCT.account.role === 'admin' ? `<button data-action="see-all" title="An admin's view of every task and project, not just their own and what they're invited to (it's noted in the activity log)">👁 All work: ${ACCT.account.see_all ? 'on' : 'off'}</button>` : ''}
       <button data-action="change-password">🔑 Change password</button><button data-action="sign-out">↪ Sign out</button><hr>`);
   }
+  seeAllBar();
   // with an account, the name comes from it
   $$('[data-action="set-name"]').forEach((b) => { b.nextElementSibling?.tagName === 'HR' && b.nextElementSibling.remove(); b.remove(); });
 }
+// 👁 an admin with All work on: a bar on every page, so it's never on by mistake
+function seeAllBar() {
+  document.getElementById('see-all-bar')?.remove();
+  if (!ACCT.account?.see_all) return;
+  document.getElementById('topbar')?.insertAdjacentHTML('afterend', `<div id="see-all-bar" class="see-all-bar" role="status">👁 <b>All work is on:</b> you see every task and project, not just your own and what you're invited to.
+    <button type="button" class="small" data-action="see-all">Turn it off</button></div>`);
+}
+async function toggleSeeAll() {
+  try {
+    const r = await api.put('/me/see-all', { on: !ACCT.account.see_all });
+    ACCT.account.see_all = r.see_all;
+    const b = $('#top-menu [data-action="see-all"]'); if (b) b.textContent = `👁 All work: ${r.see_all ? 'on' : 'off'}`;
+    seeAllBar(); toast(r.see_all ? '👁 All work on: every task and project' : 'All work off: your own and what you\'re invited to'); route();
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+// ---- 🔒 who sees a task or project: who made it, who's on it, who's invited, and inviting someone ----------------
+async function accessPanel(el, kind, id) {
+  if (!el) return;
+  let d; let people;
+  try { [d, people] = await Promise.all([api.get(`/access/${kind}/${id}`), api.get('/access/people')]); } catch (err) { el.innerHTML = `<span class="small muted">${esc(err.message)}</span>`; return; }
+  const why = { leader: 'leads it', sponsor: 'sponsors it', team: 'on the team', owner: 'owns it', 'owner of this subtask': 'owns this subtask' };
+  const invited = new Set(d.invited.map((i) => i.account_id));
+  const choices = people.filter((p) => p.id !== d.creator?.id && !invited.has(p.id));
+  const autoChip = (a) => (a.person ? `<span class="chip acc-chip">${esc(a.person)} <span class="muted">· ${esc(why[a.why] || a.why)}</span></span>`
+    : `<span class="chip acc-chip">${esc(a.why)}${a.project ? ` “${esc(a.project)}”` : a.task ? ` “${esc(a.task)}”` : ''}</span>`);
+  el.innerHTML = `<div class="acc">
+    <div class="acc-line small"><span class="muted">Made by</span> <b>${esc(d.creator?.person || '—')}</b></div>
+    ${d.auto.length ? `<div class="acc-line small"><span class="muted">Also sees it, by being on it:</span> ${d.auto.map(autoChip).join(' ')}</div>` : ''}
+    <div class="acc-line small"><span class="muted">Invited:</span> ${d.invited.length ? d.invited.map((i) => `<span class="chip acc-chip">${esc(i.person)}${d.can_invite ? ` <button type="button" class="icon acc-x" data-acc-remove="${i.account_id}" title="Stop sharing it with ${esc(i.person)}">✕</button>` : ''}</span>`).join(' ') : '<span class="muted">nobody yet</span>'}</div>
+    ${d.can_invite ? `<select class="tm-quiet-select" data-acc-pick><option value="">＋ Invite someone…</option>${choices.map((p) => `<option value="${p.id}">${esc(p.person)}</option>`).join('')}</select>
+      <div class="small muted">${kind === 'task' ? 'Anyone invited sees this task, its subtasks and notes.' : 'Anyone invited sees the whole project: its tasks, notes and costs. Putting someone on the team does the same.'}</div>` : ''}
+    ${d.note ? `<div class="small muted">🔒 ${esc(d.note)}</div>` : ''}</div>`;
+  el.querySelector('[data-acc-pick]')?.addEventListener('change', async (e) => {
+    const v = e.target.value; if (!v) return;
+    try { await api.post(`/access/${kind}/${id}`, { account_id: Number(v) }); toast(`Shared with ${people.find((p) => p.id === Number(v))?.person || 'them'}`); accessPanel(el, kind, id); } catch (err) { toast(err.message, 'error'); }
+  });
+  el.querySelectorAll('[data-acc-remove]').forEach((b) => b.addEventListener('click', async () => {
+    try { await api.del(`/access/${kind}/${id}/${b.dataset.accRemove}`); accessPanel(el, kind, id); } catch (err) { toast(err.message, 'error'); }
+  }));
+}
+
 async function acctPoll() {
   if (!ACCT.account) return;
   try {

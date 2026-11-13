@@ -58,14 +58,31 @@ function describe(rows) {
 const FEED_MAX = 500;
 const feed = [];
 let seq = 0;
-function record(startId, who, client, path) {
-  const rows = db.all('SELECT table_name, record_id, project_id, action, old_data, new_data FROM audit_log WHERE id > ? AND client_id IS ? ORDER BY id', [startId, client]);
+function record(startId, who, client, path, account = null) {
+  const rows = db.all('SELECT table_name, record_id, project_id, action, old_data, new_data FROM main.audit_log WHERE id > ? AND client_id IS ? ORDER BY id', [startId, client]);
   if (!rows.length) return;
   const d = describe(rows);
-  feed.push({ seq: ++seq, at: new Date().toISOString(), by: who || 'Someone', client, path, topics: d.topics, text: d.text });
+  // 🔒 what it's about, so it's only shown to people who can see that (a quick note or reminder: its author only)
+  const tasks = new Set(); const projects = new Set(); let personal = false;
+  const PROJECT_PARTS = ['project_costs', 'project_team', 'project_kpis', 'project_phases', 'task_links', 'attachments'];
+  for (const r of rows) {
+    let x = {}; try { x = JSON.parse(r.new_data || r.old_data || '{}') || {}; } catch { /* none */ }
+    if (r.table_name === 'tasks') tasks.add(r.record_id);
+    else if (r.table_name === 'projects') projects.add(r.record_id);
+    else if (r.table_name === 'notes') { if (x.task_id) tasks.add(x.task_id); else if (x.project_id) projects.add(x.project_id); else personal = true; }
+    else if (r.table_name === 'reminders') personal = true;
+    else if (PROJECT_PARTS.includes(r.table_name)) { if (x.task_id) tasks.add(x.task_id); if (r.project_id || x.project_id) projects.add(r.project_id || x.project_id); }
+  }
+  feed.push({ seq: ++seq, at: new Date().toISOString(), by: who || 'Someone', client, path, topics: d.topics, text: d.text,
+    about: { tasks: [...tasks], projects: [...projects], personal, account } });
   if (feed.length > FEED_MAX) feed.splice(0, feed.length - FEED_MAX);
 }
-const since = (n, client) => feed.filter((c) => c.seq > n && c.client !== client);
+// the changes since n by others, of what this request's account can see (db.visibleNow; null: everything)
+function since(n, client) {
+  const vis = db.visibleNow(); const me = db.viewer()?.id ?? null;
+  const ok = (a) => !vis || !a || (a.tasks.every((id) => vis.tasks.has(id)) && a.projects.every((id) => vis.projects.has(id)) && (!a.personal || a.account === me));
+  return feed.filter((c) => c.seq > n && c.client !== client && ok(c.about)).map(({ about, ...c }) => c);
+}
 
 // ---- no silent overwrites ------------------------------------------------------------------------
 // The record a save goes to, and its current row (null: not checked).
@@ -119,8 +136,9 @@ function changes(req, res, next) {
   if (req.body && typeof req.body === 'object' && '_base' in req.body) delete req.body._base;
   // 🎓 training: changes in the copy aren't announced to anyone working on the real SITHUB
   if (db.inTraining()) return db.asActor({ who: who || null, client }, next);
-  const startId = db.get('SELECT coalesce(max(id), 0) AS m FROM audit_log').m;
-  res.on('finish', () => { if (res.statusCode < 400) { try { record(startId, who, client, req.path); } catch { /* the feed is a nicety */ } } });
+  const startId = db.get('SELECT coalesce(max(id), 0) AS m FROM main.audit_log').m;
+  const account = db.viewer()?.id ?? null; // 🔒 (the response's finish may run outside the request)
+  res.on('finish', () => { if (res.statusCode < 400) { try { db.asSystem(() => record(startId, who, client, req.path, account)); } catch { /* the feed is a nicety */ } } });
   db.asActor({ who: who || (config.shared && !isLocal(req) ? req.ip : null), client }, next);
 }
 

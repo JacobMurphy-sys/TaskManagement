@@ -2600,3 +2600,12 @@ body.in-training #topbar { border-bottom-color: #f3a712; }
 .ops-hc .hc-avg { border-left: 2px solid var(--border); font-weight: 600; }
 .ops-hc .hc-sw-d { background: var(--accent); } .ops-hc .hc-sw-t { background: var(--q-c2); }
 .ops-hc .q-sw { display: inline-block; margin-right: 6px; vertical-align: middle; }
+/* 🔒 who sees a task or project */
+.acc { display: flex; flex-direction: column; gap: 6px; }
+.acc-line { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.acc-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); }
+.acc-chip .muted { font-size: 11px; }
+.acc-x { padding: 0 2px; min-width: 0; height: 18px; font-size: 11px; }
+/* 👁 an admin's All work */
+.see-all-bar { background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--danger) 14%, var(--panel)) 0 12px, color-mix(in srgb, var(--danger) 8%, var(--panel)) 12px 24px);
+  border-bottom: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border)); padding: 6px 16px; font-size: 13px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }

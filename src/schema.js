@@ -36,6 +36,7 @@ const TABLES = {
     owner         INTEGER NOT NULL DEFAULT 0,
     training      INTEGER NOT NULL DEFAULT 0, -- 🎓 works in the training copy only (db.asTraining)
     training_view TEXT,                       -- the department view it's showing: modules (null: all)
+    see_all       INTEGER NOT NULL DEFAULT 0, -- 🔒 an admin's "All work" switch: every task and project, not just their own and invited
     last_login    TEXT,
     created_at    TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at    TEXT    NOT NULL DEFAULT (${NOW})`,
@@ -78,7 +79,8 @@ const TABLES = {
     in_scope          TEXT,
     out_scope         TEXT,
     benefits_quantified TEXT,
-    benefits_other    TEXT`,
+    benefits_other    TEXT,
+    created_by        INTEGER  -- 🔒 the account that made it`,
 
   // Project charter: team members (with capacity) and improvement KPIs.
   project_team: `
@@ -154,7 +156,8 @@ const TABLES = {
     next_task_id INTEGER,
     owner        TEXT,
     phase_id     INTEGER REFERENCES project_phases(id) ON DELETE SET NULL,
-    meeting_id   INTEGER REFERENCES meetings(id) ON DELETE SET NULL`,
+    meeting_id   INTEGER REFERENCES meetings(id) ON DELETE SET NULL,
+    created_by   INTEGER  -- 🔒 the account that made it (who sees it: visibility.js); none: from before accounts`,
 
   // Gantt dependencies: task_id can't start until depends_on_id is finished.
   task_links: `
@@ -166,6 +169,17 @@ const TABLES = {
     updated_at    TEXT    NOT NULL DEFAULT (${NOW}),
     UNIQUE (task_id, depends_on_id),
     CHECK (task_id <> depends_on_id)`,
+
+  // 🔒 Invitations: an account let into a task (it and its subtasks) or a project (all of it), beyond what it made
+  // itself or is on (visibility.js)
+  shares: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind        TEXT    NOT NULL CHECK (kind IN ('task', 'project')),
+    record_id   INTEGER NOT NULL,
+    account_id  INTEGER NOT NULL,
+    by_account  INTEGER,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    UNIQUE (kind, record_id, account_id)`,
 
   // 🗂 Personal task lists (the Tasks page's "My lists"): each person's own kanban columns, e.g. "This week" or
   // "Waiting on suppliers", that any task can be filed in, apart from its status. owner: the account (or 'local'
@@ -238,6 +252,7 @@ const TABLES = {
     task_id    INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
     title      TEXT,  -- quick notes: 'Quick Note dd/mm/yy hh:mm' (or their own); neither project nor task = still to sort, on Home
     body       TEXT    NOT NULL,
+    created_by INTEGER,  -- 🔒 the account that wrote it: a quick note is only theirs
     created_at TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at TEXT    NOT NULL DEFAULT (${NOW})`,
 
@@ -279,6 +294,7 @@ const TABLES = {
     message      TEXT,
     status       TEXT    NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'dismissed')),
     snooze_count INTEGER NOT NULL DEFAULT 0,
+    created_by   INTEGER,  -- 🔒 the account that set it: a reminder pops up for them only
     created_at   TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at   TEXT    NOT NULL DEFAULT (${NOW}),
     dismissed_at TEXT`,
