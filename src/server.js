@@ -28,7 +28,7 @@ try {
 }
 
 const app = express();
-app.use((req, res, next) => { dog.doing(`${req.method} ${req.originalUrl}`); next(); });
+app.use((req, res, next) => { dog.doing(`${req.method} ${req.originalUrl.replace(/(\/fc-submit\/|\/forecast-submit\/)[^/?]+/, '$1…')}`); next(); }); // (the forecast link's key stays out of the log)
 // Vault imports send attachments in batches, and an A3 export sends chart pictures, so they get a larger limit.
 const jsonSmall = express.json({ limit: '1mb' });
 const jsonLarge = express.json({ limit: '80mb' });
@@ -70,7 +70,7 @@ app.use('/api', (req, res, next) => {
   try { who = decodeURIComponent(who); } catch { /* as sent */ }
   who = who.slice(0, 60);
   res.on('finish', () => {
-    log.info(`${req.method} ${req.originalUrl} -> ${res.statusCode}${who ? ` (${who})` : ''}`);
+    log.info(`${req.method} ${req.originalUrl.replace(/(\/fc-submit\/)[^/?]+/, '$1…')} -> ${res.statusCode}${who ? ` (${who})` : ''}`);
     // the last change to the planning setup, so others looking at it can be told
     if (res.statusCode < 400 && !req.account?.training && /^\/(plan|settings)(\/|$)/.test(req.path) && !/^\/plan\/upload/.test(req.path)) {
       lastChange = { at: new Date().toISOString(), by: who || req.ip, client: String(req.get('X-Client-Id') || '').slice(0, 60), what: `${req.method} ${req.path}` };
@@ -78,6 +78,15 @@ app.use('/api', (req, res, next) => {
   });
   next();
 });
+// 📈 the forecast upload link: no account, no sign-in; its token is the key, and it can only send a forecast and
+// see what this browser sent before (forecasts.js). Before the sign-in gate, and always on the live data.
+if (config.mode !== 'planner') {
+  app.use('/api/fc-submit', require('./forecasts').publicRouter);
+  app.get('/forecast-submit/:token', (req, res) => {
+    res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex', 'X-Frame-Options': 'DENY' });
+    res.sendFile(path.join(config.ROOT, 'public', 'forecast-submit.html'));
+  });
+}
 // 👤 accounts (off until the first is made): who's signed in, and the sign-in gate (accounts.js)
 const accounts = require('./accounts');
 app.use('/api', accounts.gate);

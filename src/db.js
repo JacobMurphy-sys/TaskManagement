@@ -242,6 +242,10 @@ function tx(fn) {
 // One-off data changes, each recorded in settings so it runs only once. Triggers are
 // dropped while they run so they don't bump updated_at or flood the audit log.
 const DATA_MIGRATIONS = {
+  // 📈 the new Forecast module: Management (the managers who look at forecasts) has it to start with
+  forecast_module_for_management() {
+    run("UPDATE accounts SET modules = modules || ',forecast' WHERE modules IS NOT NULL AND ((',' || modules || ',') LIKE '%,management,%' OR (',' || modules || ',') LIKE '%,projects,%') AND (',' || modules || ',') NOT LIKE '%,forecast,%'");
+  },
   // 🌳 the 👔 Manager ticks become the management tree: each ticked manager at the top, their department's people under them
   org_from_manager_ticks() {
     let ticked = []; try { ticked = all("SELECT DISTINCT name, department FROM name_list_items WHERE manager = 1 AND department IS NOT NULL"); } catch { return; }

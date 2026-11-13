@@ -453,6 +453,7 @@ async function route() {
     else if (view === 'kpi') await renderKpi(rest[0], rest[1]);
     else if (view === 'planning') await renderPlanning();
     else if (view === 'cpm') await renderCpm(rest[0]);
+    else if (view === 'forecast') await renderForecast();
     else if (view === 'log') await renderLog();
     else if (view === 'backups') await renderBackups();
     else if (view === 'contacts') await renderContacts();

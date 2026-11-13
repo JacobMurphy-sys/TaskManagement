@@ -2658,3 +2658,7 @@ body.in-training #topbar { border-bottom-color: #f3a712; }
 #topnav a { position: relative; }
 #topnav a .count { top: -5px; right: -6px; }
 @media (max-width: 700px) { #topnav a .count { top: 0; right: 0; } } /* the phone's scrolling bar would cut it off */
+
+/* 📈 Forecast */
+a.button:not(.primary) { display: inline-block; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 5px 11px; white-space: nowrap; color: var(--text); text-decoration: none; }
+.fc-tile { min-width: 260px; flex: 1; }

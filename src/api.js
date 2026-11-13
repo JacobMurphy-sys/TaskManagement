@@ -3371,9 +3371,18 @@ function cpmRefresh(force = false) {
   const files = Object.keys(kpiData.FORECASTS).map((key) => { const file = cleanPath(set[`kpi_fc_${key}`]); if (!file) return { key };
     try { const st = fs.statSync(file); return { key, file, modified: st.mtime.toISOString(), buf: fs.readFileSync(file) }; } catch (err) {
       return { key, file, error: err.code === 'ENOENT' ? `can't find ${file}` : err.code === 'EBUSY' ? 'the file is locked (open in Excel?) — try again in a moment' : err.message }; } });
+  // 📈 a forecast sent in (the Forecast tab or its link) newer than the linked file is read in its place
+  files.forEach((f, i) => {
+    let up = null; try { up = forecasts.latest(f.key); } catch { /* none */ }
+    if (up && (!f.buf || !f.modified || up.created_at > f.modified)) files[i] = { key: f.key, file: `📈 ${up.file_name} (sent in by ${up.submitter})`, modified: up.created_at, buf: up.data, sent_in: up.id };
+  });
   let read = null; try { read = cpm.refreshForecasts(files, force); } catch (err) { log.warn('CPM forecasts', err.message); }
   return { files: files.map(({ buf, ...f }) => f), read };
 }
+// 📈 Forecast: forecasts sent in (forecasts.js); each new one is read into Capacity planning straight away
+const forecasts = require('./forecasts');
+forecasts.useRefresh(() => cpmRefresh());
+router.use(forecasts.router);
 const cpmOwner = (req) => (req.account ? String(req.account.id) : 'local');
 const cpmScenario = (req, id) => {
   if (!id) return null;

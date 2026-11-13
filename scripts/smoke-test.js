@@ -3276,6 +3276,52 @@ async function waitForServer() {
         assert.deepEqual(await cal(admin), ['Boss one-to-one', 'Boss with Sam', 'Project review'], 'the admin\'s: not Sam\'s own');
         assert.deepEqual([(await sam('GET', `/meetings/${bossM.id}`)).status, (await sam('PATCH', `/meetings/${bossM.id}`, { title: 'x' })).status, (await sam('DELETE', `/meetings/${bossM.id}`)).status,
           (await sam('GET', `/meetings/${withSam.id}`)).status], [404, 404, 404, 200], 'someone else\'s meeting: not opened, changed or removed');
+        // 📈 Forecast: its own module, and an upload link that needs no account
+        {
+          const { buildXlsx } = require('../src/xlsx');
+          const Y = 2032;
+          const bnl = buildXlsx([{ name: 'LIVE_EU_PAY_CARDS', columns: ['Line_Year', 'Line_Month', 'Man_SubArea_Nm', 'Item_Nm', 'Cust_Nm', 'Line_Qty'].map((header, i) => ({ header, type: [0, 1, 5].includes(i) ? 'number' : undefined })),
+            rows: [[Y, 1, 'Benelux', 'Basic card', 'KBC Bank NV', 1200], [Y, 2, 'Benelux', 'Basic card', 'KBC Bank NV', 800]] }]);
+          const junk = buildXlsx([{ name: 'Notes', columns: [{ header: 'Hello' }], rows: [['world']] }]);
+          let fcCookie = '';
+          const send = async (token, buf, name, who = 'Fiona Forecaster') => {
+            const r = await fetch(`${BASE}/fc-submit/${token}`, { method: 'POST', body: buf, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(name), 'X-Submitter': encodeURIComponent(who), ...(fcCookie ? { Cookie: fcCookie } : {}) } });
+            const set = r.headers.get('set-cookie'); if (set && !fcCookie) fcCookie = set.split(';')[0];
+            return { status: r.status, data: await r.json().catch(() => null) };
+          };
+          const look = async (token, cookie = fcCookie) => { const r = await fetch(`${BASE}/fc-submit/${token}`, { headers: cookie ? { Cookie: cookie } : {} }); return { status: r.status, data: await r.json().catch(() => null) }; };
+          assert.equal((await sam('GET', '/forecasts')).status, 403, 'Forecast is a module of its own');
+          let fc = (await admin('GET', '/forecasts')).data;
+          assert.deepEqual([fc.link.on, fc.link.path, fc.link.can_edit], [false, null, true], 'the link starts off');
+          assert.equal((await look('anything')).status, 404, 'off: no link works');
+          assert.equal((await sam('PUT', '/forecasts/link', { on: true })).status, 403, 'only the setup right switches it on (and Sam has no Forecast)');
+          const on = (await admin('PUT', '/forecasts/link', { on: true })).data;
+          const token = on.path.split('/').pop();
+          assert.ok(on.on && token.length >= 20, 'on: a long random link');
+          assert.equal((await look(token.slice(0, -1) + (token.endsWith('A') ? 'B' : 'A'))).status, 404, 'a wrong token: nothing');
+          assert.deepEqual((await look(token)).data.mine, [], 'nothing sent from this browser yet');
+          assert.match((await send(token, bnl, 'Benelux.xlsx', '')).data.error, /your name/, 'a name is needed');
+          assert.match((await send(token, junk, 'notes.xlsx')).data.error, /doesn't look like/, 'not a forecast: refused');
+          assert.match((await send(token, Buffer.from('hello'), 'x.txt')).data.error, /\.xlsx/, 'only workbooks');
+          const sent = await send(token, bnl, 'Benelux Forecast.xlsx');
+          assert.deepEqual([sent.status, sent.data.kind, sent.data.rows, sent.data.summary[`${Y}-01`], sent.data.via], [201, 'benelux', 2, 1200, 'link'], 'a BeNeLux forecast sent in, no account');
+          const mine = (await look(token)).data.mine;
+          assert.deepEqual([mine.length, mine[0].submitter, 'data' in mine[0], 'account_id' in mine[0]], [1, 'Fiona Forecaster', false, false], 'this browser sees what it sent (not the file)');
+          assert.deepEqual((await look(token, 'fc_sender=someone-elses-browser-0000000')).data.mine, [], 'another browser: not');
+          assert.equal((await fetch(`${BASE.replace(/\/api$/, '')}/forecast-submit/${token}`)).status, 200, 'the page itself');
+          fc = (await admin('GET', '/forecasts')).data;
+          assert.deepEqual([fc.uploads.length, fc.uploads[0].submitter, fc.newest.benelux], [1, 'Fiona Forecaster', sent.data.id], 'on the Forecast tab');
+          assert.match(fc.capacity.benelux?.file || '', /Benelux Forecast\.xlsx.*Fiona Forecaster/, 'and read into Capacity planning');
+          const file = await fetch(`${BASE}/forecasts/${sent.data.id}/file`, { headers: { Cookie: jar.admin } });
+          assert.deepEqual([file.status, (await file.arrayBuffer()).byteLength], [200, bnl.length], 'downloaded as sent');
+          // a new link: the old one stops working
+          const renewed = (await admin('POST', '/forecasts/link/renew')).data;
+          assert.ok(renewed.path !== on.path);
+          assert.deepEqual([(await look(token)).status, (await send(token, bnl, 'again.xlsx')).status], [404, 404], 'the old link: gone');
+          await admin('PUT', '/forecasts/link', { on: false });
+          assert.equal((await look(renewed.path.split('/').pop())).status, 404, 'off again');
+          assert.equal((await admin('DELETE', `/forecasts/${sent.data.id}`)).status, 204);
+        }
         // Sam's own work isn't the admin's either, unless the admin turns All work on (and it's logged)
         const samOwn = (await sam('POST', '/tasks', { title: 'Sam private' })).data;
         assert.equal((await ids(admin)).includes(samOwn.id), false, 'an admin sees their own too');

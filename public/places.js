@@ -43,6 +43,7 @@ const PLACES = [
   { label: 'Capacity planning: a day hour by hour (CPM daily)', where: 'Production › 📐 Capacity › Day by hour', keys: 'daily hourly hour day renewals rnw window gantt cpm daily split shipping', area: 'cpm', hash: '#/cpm/day' },
   { label: 'Flex: forecast against actual, history uploads', where: 'Production › 📐 Capacity › Forecast vs actual', keys: 'flex forecast actual history previous years upload', area: 'cpm', hash: '#/cpm/flex' },
   { label: 'Capacity scenarios', where: 'Production › 📐 Capacity › Scenarios', keys: 'scenario what if add remove machine speed shifts oee', area: 'cpm', hash: '#/cpm/scenarios' },
+  { label: 'Forecasts sent in, and the upload link', where: '📈 Forecast', keys: 'forecast upload link send submit benelux amex customer forecast sent in', area: 'forecast', hash: '#/forecast' },
   { label: 'Customer split and OEE for capacity planning', where: 'Production › 📐 Capacity › Customers', keys: 'split laser emboss dod oee trigram customer forecast names', area: 'cpm', hash: '#/cpm/customers' },
   { label: 'Priority modifiers', where: 'Production › ⚖ Modifiers', keys: 'modifiers priority score customers tags shifts', area: 'planning', right: 'setup', hash: '#/planning', prep: () => { store.set('planHalf', 'perso'); store.set('planModsOpen', true); }, find: '⚖ Priority modifiers' },
   // 📊 Reporting

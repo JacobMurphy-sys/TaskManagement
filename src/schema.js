@@ -589,6 +589,22 @@ const TABLES = {
     tech        TEXT,
     qty         REAL    NOT NULL DEFAULT 0,
     read_at     TEXT    NOT NULL`,
+  // 📈 Forecasts sent in (the Forecast tab, or its upload link with no sign-in): the workbook itself, who sent it and
+  // what it held. The newest of a kind (benelux / amex) newer than the linked file is what 📐 Capacity reads.
+  forecast_uploads: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind        TEXT    NOT NULL,
+    file_name   TEXT    NOT NULL,
+    size        INTEGER NOT NULL,
+    data        BLOB    NOT NULL,
+    submitter   TEXT    NOT NULL,
+    note        TEXT,
+    via         TEXT    NOT NULL DEFAULT 'link',
+    sender      TEXT,
+    account_id  INTEGER,
+    rows        INTEGER,
+    summary     TEXT,
+    created_at  TEXT    NOT NULL`,
   // Previous years, uploaded: forecast and actual per customer and month (tech when the file has it).
   cpm_history: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -922,6 +938,8 @@ const INDEXES = `
   CREATE INDEX IF NOT EXISTS prod_runs_job_idx ON prod_runs(source, job);
   CREATE INDEX IF NOT EXISTS perso_output_day_idx ON perso_output(day);
   CREATE INDEX IF NOT EXISTS cpm_forecast_idx ON cpm_forecast(as_of, year, month);
+  CREATE INDEX IF NOT EXISTS forecast_uploads_idx ON forecast_uploads(kind, created_at);
+  CREATE INDEX IF NOT EXISTS forecast_uploads_sender_idx ON forecast_uploads(sender);
   CREATE INDEX IF NOT EXISTS cpm_history_idx ON cpm_history(year, month);
   CREATE INDEX IF NOT EXISTS perso_output_job_idx ON perso_output(job);
 

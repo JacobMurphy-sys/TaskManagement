@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Send a forecast · SITHUB</title>
+<link rel="icon" href="/favicon.svg">
+<!-- 📈 The forecast upload link: no account. It sends a forecast workbook (BeNeLux or Amex) and lists what this browser
+     sent before; nothing else of SITHUB (src/forecasts.js). -->
+<style>
+  :root { --brand: #430099; --brand-2: #7382e6; --bg: #f5f4fa; --panel: #fff; --text: #1d1a2b; --muted: #6b6880; --border: #dcd8ea; --ok: #238446; --bad: #c93636; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #15131f; --panel: #1f1c2c; --text: #ece9f7; --muted: #a29fb8; --border: #36314a; --ok: #4fc27a; --bad: #ef7070; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { background: var(--brand); color: #fff; padding: 14px 16px; }
+  header b { font-size: 1.1rem; } header span { opacity: .8; font-size: .9rem; margin-left: 8px; }
+  main { max-width: 720px; margin: 0 auto; padding: 20px 16px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  h1 { font-size: 1.3rem; margin: 0 0 4px; } h2 { font-size: 1.05rem; margin: 0 0 10px; }
+  .muted { color: var(--muted); } .small { font-size: .88rem; }
+  label { display: block; font-weight: 600; margin: 12px 0 4px; }
+  input[type=text], textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
+  .drop { border: 2px dashed var(--border); border-radius: 10px; padding: 22px 12px; text-align: center; cursor: pointer; margin-top: 4px; }
+  .drop.over, .drop:hover { border-color: var(--brand-2); }
+  .drop b { color: var(--brand-2); }
+  button { margin-top: 14px; background: var(--brand); color: #fff; border: 0; border-radius: 6px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .55; cursor: default; }
+  .msg { margin-top: 12px; padding: 10px 12px; border-radius: 6px; }
+  .msg.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+  .msg.bad { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<header><b>📈 SITHUB</b><span>Send a forecast</span></header>
+<main>
+  <div id="gone" class="card" hidden><h1>This link isn't active</h1><p class="muted" id="gone-why"></p></div>
+  <div id="app" hidden>
+    <div class="card">
+      <h1>Send a forecast</h1>
+      <p class="muted small">Upload the <b>BeNeLux forecast</b> (the workbook with the LIVE_EU_PAY_CARDS sheet) or the <b>Amex forecast</b> (the Sittard sheet), as .xlsx or .xlsm. SITHUB checks it can read it and tells you straight away.</p>
+      <form id="f">
+        <label for="who">Your name</label>
+        <input type="text" id="who" maxlength="80" autocomplete="name" required>
+        <label>Forecast workbook</label>
+        <div class="drop" id="drop" tabindex="0" role="button"><span id="drop-t"><b>Choose a file</b> or drop it here</span></div>
+        <input type="file" id="file" accept=".xlsx,.xlsm" hidden>
+        <label for="note">Note <span class="muted small">(optional)</span></label>
+        <textarea id="note" rows="2" maxlength="500" placeholder="e.g. updated after the customer call"></textarea>
+        <button type="submit" id="send">Send forecast</button>
+        <div id="msg" class="msg" hidden></div>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Sent from this browser</h2>
+      <div id="mine"></div>
+    </div>
+  </div>
+</main>
+<script>
+(() => {
+  const token = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || '');
+  const api = `/api/fc-submit/${encodeURIComponent(token)}`;
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const when = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const mon = (k) => { const [y, m] = k.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }); };
+  const months = (s) => { const ks = Object.keys(s || {}).sort(); return ks.length ? `${mon(ks[0])} – ${mon(ks[ks.length - 1])}` : ''; };
+  let file = null;
+  try { $('#who').value = localStorage.getItem('fcName') || ''; } catch { /* not kept */ }
+  const show = (text, ok) => { const m = $('#msg'); m.hidden = false; m.className = `msg ${ok ? 'ok' : 'bad'}`; m.textContent = text; };
+  function list(mine) {
+    $('#mine').innerHTML = mine.length ? `<div class="scroll"><table><thead><tr><th>When</th><th>Forecast</th><th>File</th><th>Months</th><th>Note</th></tr></thead><tbody>${mine.map((u) =>
+      `<tr><td>${esc(when(u.created_at))}</td><td>${esc(u.kind_label)}</td><td>${esc(u.file_name)}</td><td>${esc(months(u.summary))}</td><td>${esc(u.note || '')}</td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="muted small">Nothing yet. Forecasts you send from this browser show here.</p>';
+  }
+  async function load() {
+    const r = await fetch(api, { credentials: 'same-origin' }).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) : {};
+    if (!r || !r.ok) { $('#gone').hidden = false; $('#gone-why').textContent = j.error || 'SITHUB can\'t be reached right now. Try again in a moment.'; $('#app').hidden = true; return; }
+    $('#app').hidden = false; list(j.mine || []);
+  }
+  const pick = (f) => { if (!f) return; file = f; $('#drop-t').innerHTML = `📄 <b>${esc(f.name)}</b> <span class="muted small">${Math.max(1, Math.round(f.size / 1024))} KB · click to change</span>`; $('#msg').hidden = true; };
+  $('#drop').addEventListener('click', () => $('#file').click());
+  $('#drop').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#file').click(); } });
+  $('#file').addEventListener('change', (e) => pick(e.target.files[0]));
+  $('#drop').addEventListener('dragover', (e) => { e.preventDefault(); $('#drop').classList.add('over'); });
+  $('#drop').addEventListener('dragleave', () => $('#drop').classList.remove('over'));
+  $('#drop').addEventListener('drop', (e) => { e.preventDefault(); $('#drop').classList.remove('over'); pick(e.dataTransfer.files[0]); });
+  $('#f').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const who = $('#who').value.trim();
+    if (!who) return show('Please give your name.', false);
+    if (!file) return show('Choose the forecast workbook first.', false);
+    if (!/\.(xlsx|xlsm)$/i.test(file.name)) return show('Send it as an Excel workbook (.xlsx or .xlsm).', false);
+    try { localStorage.setItem('fcName', who); } catch { /* not kept */ }
+    $('#send').disabled = true; $('#send').textContent = 'Sending…';
+    try {
+      const r = await fetch(api, { method: 'POST', body: file, credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager',
+        'X-File-Name': encodeURIComponent(file.name), 'X-Submitter': encodeURIComponent(who), 'X-Note': encodeURIComponent($('#note').value.trim()) } });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `${r.status} ${r.statusText}`);
+      show(`Thank you — your ${j.kind_label} was received (${months(j.summary)}).`, true);
+      file = null; $('#file').value = ''; $('#note').value = ''; $('#drop-t').innerHTML = '<b>Choose a file</b> or drop it here';
+      load();
+    } catch (err) { show(`Not sent: ${err.message}`, false); }
+    $('#send').disabled = false; $('#send').textContent = 'Send forecast';
+  });
+  load();
+})();
+</script>
+</body>
+</html>

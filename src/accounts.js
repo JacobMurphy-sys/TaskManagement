@@ -42,6 +42,7 @@ const MODULES = [
   { key: 'production', label: 'Prod Management', icon: '🏭', what: 'Production: perso, Matching, Insights (🔬 Learned, 📆 D+ due out, ⏱ Timing) and 🔍 search; 📐 Capacity planning (forecasts, flex, scenarios); 📊 Reporting\'s Weekly SC Report (the A3), its Database, 🏭 Operations and ▶ Prepare this week', areas: ['planning', 'cpm', 'kpi'] },
   { key: 'quality', label: 'Quality', icon: '🛡', what: '📊 Reporting\'s 🧪 Quality (customer complaints, from the Salesforce export) and ⛑ EHS (safety concern forms), month by month', areas: ['quality'] },
   { key: 'despatch', label: 'Despatch', icon: '🚚', what: '📊 Reporting\'s 🚚 OTD: logging late deliveries against the planner\'s work orders (internal or external, and why)', areas: ['otd'] },
+  { key: 'forecast', label: 'Forecast', icon: '📈', what: '📈 Forecast: the customer forecasts sent in (who sent which, when), uploading one, and the upload link for the people who send them without an account; what\'s sent in goes into 📐 Capacity planning', areas: ['forecast'] },
   { key: 'archive', label: 'Archive', icon: '🗄', what: 'the archived status report', areas: ['report'] },
   { key: 'admin', label: 'Admin', icon: '📇', what: 'Contacts, to edit the lists (names can still be picked as owners without it), and 📊 Reporting\'s Sources: where every source file is (changing them takes the setup right)', areas: ['contacts', 'kpi_sources'] },
 ];
@@ -59,7 +60,7 @@ const MODULE_API = [
   [/^\/kpi\/calc(\/import|\/weekends)?$/, ['kpi', 'kpi_sources']], // the source files: Database and Sources both show them
   [/^\/kpi(\/|$)/, ['kpi']], // the Weekly SC Report, its Database, Operations and Prepare
   [/^\/people\/(overview|focus)(\/|$)/, ['team']], [/^\/capex(\/|$)/, ['capex']], [/^\/(ideas|idea-notes)(\/|$)/, ['ideas']],
-  [/^\/(plan|prod)(\/|$)/, ['planning']], [/^\/cpm(\/|$)/, ['cpm']], [/^\/report(\/|$)/, ['report']], [/^\/contacts(\/|$)/, ['contacts']],
+  [/^\/(plan|prod)(\/|$)/, ['planning']], [/^\/cpm(\/|$)/, ['cpm']], [/^\/forecasts(\/|$)/, ['forecast']], [/^\/report(\/|$)/, ['report']], [/^\/contacts(\/|$)/, ['contacts']],
 ];
 function modulesOf(a) {
   // 🎓 a training account shows the department view picked for the session (none picked: everything)

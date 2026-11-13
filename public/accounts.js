@@ -27,7 +27,7 @@ new MutationObserver((list) => { // only what was just added is looked at
 document.addEventListener('DOMContentLoaded', () => pwEyes());
 
 // 🧩 Modules: the parts of the app an account can see (admins and no-accounts: all of them).
-const MOD_OF_VIEW = { team: 'team', capex: 'capex', kanban: 'projects', project: 'projects', ideas: 'ideas', idea: 'ideas', planning: 'planning', cpm: 'cpm', report: 'report', contacts: 'contacts' };
+const MOD_OF_VIEW = { team: 'team', capex: 'capex', kanban: 'projects', project: 'projects', ideas: 'ideas', idea: 'ideas', planning: 'planning', cpm: 'cpm', forecast: 'forecast', report: 'report', contacts: 'contacts' };
 // areas (projects, kpi, ideas, planning, report, contacts), each part of a module (Management: projects and kpi)
 const modOk = (area) => !ACCT.account || (ACCT.account.areas || []).includes(area);
 // 📊 Reporting's tabs, each with the area (module) it needs: the Weekly SC Report, Database and Operations (Prod

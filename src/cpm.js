@@ -100,6 +100,20 @@ function parseAmex(buf) {
   }
   return out;
 }
+// 📈 A forecast sent in: which of the two it is (BeNeLux or Amex) and its rows, by its sheets, else by which reads
+function detectForecast(buf) {
+  let book; try { book = readBook(buf); } catch { throw new Error('This isn\'t an Excel workbook SITHUB can open (save it as .xlsx or .xlsm)'); }
+  const names = book.sheets.map((x) => x.name);
+  let tables = []; try { tables = book.tables().map((t) => t.name || t.displayName || ''); } catch { /* none */ }
+  const amexLike = names.some((n) => /sittard|amex/i.test(n)) || tables.some((t) => /sittard/i.test(t));
+  const bnlLike = names.some((n) => /^live_eu_pay_cards$/i.test(n));
+  const tries = [() => { const info = {}; return { kind: 'benelux', rows: parseBenelux(buf, info), info }; }, () => ({ kind: 'amex', rows: parseAmex(buf), info: {} })];
+  if (amexLike && !bnlLike) tries.reverse();
+  for (const t of tries) { try { const r = t(); if (r.rows.length) return r; } catch { /* the other */ } }
+  throw new Error(bnlLike ? 'The LIVE_EU_PAY_CARDS sheet has no Benelux basic-card lines with a quantity'
+    : amexLike ? 'Can\'t find the TOTAL BAU / LASER / EMBOSS + CRAT / DOD Total rows with months in the Amex forecast'
+      : 'This doesn\'t look like the BeNeLux forecast (a LIVE_EU_PAY_CARDS sheet) or the Amex forecast (a Sittard sheet)');
+}
 function dateOf(x) {
   if (typeof x === 'number' && x > 30000 && x < 80000) { const d = new Date(Math.round((x - 25569) * 86400000)); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 }; }
   const m = String(x ?? '').match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/); return m ? { y: +m[3], m: +m[2] } : null;
@@ -621,4 +635,4 @@ function siteCapacity(year, cards = null) {
     months, techs: TECHS, speed_from: Object.fromEntries(Object.entries(sp).map(([t, x]) => [t, x])), machines, total: sum((m) => m.counted), by_tech: byTech, counted_by_tech: countedBy, cards: !!cards, warnings: [...new Set(warnings)] };
 }
 
-module.exports = { TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity, machineMix };
+module.exports = { detectForecast, TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity, machineMix };
