@@ -39,7 +39,7 @@ async function renderCapex(openId) {
       <button class="primary" id="cx-new">＋ New investment</button>
       ${ddMenu('⋯', `<a href="/api/capex/export.xlsx?${qs}" download>⬇ Excel — the register to edit and examine</a><a href="/api/capex/overview.pdf?${qs}" download>📄 The plan on a page (PDF)</a>`, { title: 'Excel export, PDF one-pager' })}
     </div>
-    ${typeof ACCT !== 'undefined' && ACCT.enabled ? `<div class="small muted" style="margin:-4px 0 8px">🔒 ${ACCT.account?.manages?.length ? 'As a manager you see every investment.' : 'You see the investments you raised, requested or sponsor.'} Each is seen by whoever raised it, its requester and sponsor, and every manager.</div>` : ''}
+    ${typeof ACCT !== 'undefined' && ACCT.enabled ? `<div class="small muted" style="margin:-4px 0 8px">🔒 ${ACCT.account?.manages?.length ? 'As a manager (someone reports to you) you see every investment.' : 'You see the investments you raised, requested or sponsor.'} Each is seen by whoever raised it, its requester and sponsor, and every manager (anyone with someone below them in the 🌳 management tree).</div>` : ''}
     <div class="kdb-tiles pl-tiles">
       ${tile('Pending decision', mineCur.filter((x) => ['draft', 'submitted', 'on_hold'].includes(x.status)), '#7382e6', 'draft, submitted or on hold')}
       ${tile('Approved, not ordered', mineCur.filter((x) => x.status === 'approved'), '#238446')}

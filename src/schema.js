@@ -181,6 +181,16 @@ const TABLES = {
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
     UNIQUE (kind, record_id, account_id)`,
 
+  // 🌳 The management tree (📇 Contacts › Management tree): who each person reports to. A manager sees the open tasks
+  // of everyone below them, directly or through others (visibility.js). person: a contact's name; manager: null at the top.
+  org_links: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    person      TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    manager     TEXT    COLLATE NOCASE,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
   // 🗂 Personal task lists (the Tasks page's "My lists"): each person's own kanban columns, e.g. "This week" or
   // "Waiting on suppliers", that any task can be filed in, apart from its status. owner: the account (or 'local'
   // with accounts off). A task is in at most one of a person's lists.

@@ -3272,51 +3272,51 @@ async function waitForServer() {
         for (const t of [own, given, parent]) await admin('DELETE', `/tasks/${t.id}`);
         await sam('DELETE', `/tasks/${samOwn.id}`); await admin('DELETE', `/projects/${pr.id}`); await admin('DELETE', `/notes/${qn.id}`); await admin('DELETE', `/reminders/${rm.id}`);
       }
-      // 👔 a department's manager (ticked in the contacts) sees the open tasks of the people in it
+      // 🌳 the management tree: a manager sees the open tasks of everyone below them, directly or through others
       {
-        let lists = (await admin('GET', '/name-lists')).data;
-        let dl = lists.find((l) => l.departments);
-        if (!dl) { await admin('POST', '/name-lists', { name: 'Departments' }); lists = (await admin('GET', '/name-lists')).data; dl = lists.find((l) => l.departments); }
-        await admin('POST', `/name-lists/${dl.id}/items`, { name: 'Smoke Dept' });
-        await admin('POST', '/name-lists', { name: 'Smoke people' });
-        lists = (await admin('GET', '/name-lists')).data; const pl = lists.find((l) => l.name === 'Smoke people');
-        await admin('POST', `/name-lists/${pl.id}/items`, { name: 'Sam Smoke', department: 'Smoke Dept' });
-        await admin('POST', `/name-lists/${pl.id}/items`, { name: 'Wendy Worker', department: 'Smoke Dept' });
-        await admin('POST', `/name-lists/${pl.id}/items`, { name: 'Oscar Outsider' });
-        const samItem = (await admin('GET', '/name-lists')).data.find((l) => l.id === pl.id).items.find((i) => i.name === 'Sam Smoke');
-        const wTask = (await admin('POST', '/tasks', { title: 'Wendy\'s open job', owner: 'Wendy Worker' })).data;
-        const wDone = (await admin('POST', '/tasks', { title: 'Wendy\'s finished job', owner: 'Wendy Worker', status: 'done' })).data;
-        const oTask = (await admin('POST', '/tasks', { title: 'Oscar\'s job', owner: 'Oscar Outsider' })).data;
-        const ids = async () => (await sam('GET', '/tasks')).data.map((t) => t.id);
-        assert.equal((await ids()).includes(wTask.id), false, 'not a manager: not seen');
-        assert.equal((await sam('PATCH', `/name-list-items/${samItem.id}`, { manager: true })).status, 403, 'only an admin makes someone a manager');
-        await admin('PATCH', `/name-list-items/${samItem.id}`, { manager: true });
-        const seen = await ids();
-        assert.deepEqual([seen.includes(wTask.id), seen.includes(wDone.id), seen.includes(oTask.id)], [true, false, false], 'a manager: the open tasks of their department\'s people, not done ones or anyone else\'s');
-        const me = (await sam('GET', '/auth/me')).data.account;
         const samAcct = (await admin('GET', '/accounts')).data.find?.((x) => x.username === 'sam') || (await admin('GET', '/accounts')).data.accounts?.find((x) => x.username === 'sam');
         const samMods = samAcct.modules;
         if (!samMods.includes('projects')) await admin('PATCH', `/accounts/${samAcct.id}`, { modules: [...samMods, 'projects'] });
+        const wTask = (await admin('POST', '/tasks', { title: 'Wendy\'s open job', owner: 'Wendy Worker' })).data;
+        const wDone = (await admin('POST', '/tasks', { title: 'Wendy\'s finished job', owner: 'Wendy Worker', status: 'done' })).data;
+        const tTask = (await admin('POST', '/tasks', { title: 'Tim\'s job', owner: 'Tim Lead' })).data;
+        const oTask = (await admin('POST', '/tasks', { title: 'Oscar\'s job', owner: 'Oscar Outsider' })).data;
+        const ids = async () => (await sam('GET', '/tasks')).data.map((t) => t.id);
+        assert.equal((await ids()).includes(wTask.id), false, 'no one below Sam: not seen');
+        assert.equal((await sam('PUT', `/org/${encodeURIComponent('Tim Lead')}`, { manager: 'Sam Smoke' })).status, 403, 'only an admin changes the tree');
+        // Sam › Tim › Wendy (Sam comes in at the top by being someone's manager)
+        await admin('PUT', `/org/${encodeURIComponent('Tim Lead')}`, { manager: 'Sam Smoke' });
+        await admin('PUT', `/org/${encodeURIComponent('Wendy Worker')}`, { manager: 'Tim Lead' });
+        const org = (await admin('GET', '/org')).data;
+        assert.deepEqual(['Sam Smoke', 'Tim Lead', 'Wendy Worker'].map((n) => org.links.find((l) => l.person === n)?.manager ?? '(top)'), ['(top)', 'Sam Smoke', 'Tim Lead'], 'the tree');
+        assert.equal((await admin('PUT', `/org/${encodeURIComponent('Sam Smoke')}`, { manager: 'Wendy Worker' })).status, 400, 'no loops: Sam can\'t report to someone below him');
+        let seen = await ids();
+        assert.deepEqual([seen.includes(tTask.id), seen.includes(wTask.id), seen.includes(wDone.id), seen.includes(oTask.id)], [true, true, false, false], 'everyone below, however deep: their open tasks; not done ones, nor anyone else\'s');
+        const me = (await sam('GET', '/auth/me')).data.account;
         const pp = (await sam('GET', '/people/overview')).data.find((p) => p.name === 'Wendy Worker');
-        assert.deepEqual([me.manages, pp?.department, pp?.tasks.some((t) => t.id === wTask.id)], [['Smoke Dept'], 'Smoke Dept', true], 'in 👥 People too');
-        assert.ok((await admin('GET', `/access/task/${wTask.id}`)).data.auto.some((a) => a.person === 'Sam Smoke' && /manages/.test(a.why)), 'and who sees it says so');
-        await admin('PATCH', `/tasks/${wTask.id}`, { status: 'done' });
-        assert.equal((await ids()).includes(wTask.id), false, 'done: off their list');
-        for (const t of [wTask, wDone, oTask]) await admin('DELETE', `/tasks/${t.id}`);
-        // 💶 CAPEX: seen by whoever raised, requested or sponsors it, and by every manager
+        assert.deepEqual([me.manages, pp?.tasks.some((t) => t.id === wTask.id)], [['Tim Lead', 'Wendy Worker'], true], 'in 👥 People too');
+        assert.deepEqual((await admin('GET', `/access/task/${wTask.id}`)).data.auto.filter((a) => /manager of/.test(a.why)).map((a) => a.person), ['Tim Lead', 'Sam Smoke'], 'and who sees it says so, up the tree');
+        // 💶 CAPEX: someone below you makes you a manager: all of it
         const cx = (await admin('POST', '/capex', { title: 'Boss forklift', category: 'Capacity / growth', owner: 'Oscar Outsider', amount: 50000, planned_date: '2027-02-01', justification: 'Old one worn out' })).data;
         const cxMine = (await admin('POST', '/capex', { title: 'Sam scanner', category: 'Capacity / growth', owner: 'Sam Smoke', amount: 9000, planned_date: '2027-02-01', justification: 'Faster checks' })).data;
         const cxSeen = async () => (await sam('GET', '/capex')).data.items.map((x) => x.id);
         let cs = await cxSeen();
         assert.deepEqual([cs.includes(cx.id), cs.includes(cxMine.id)], [true, true], 'a manager: every investment');
-        await admin('PATCH', `/name-list-items/${samItem.id}`, { manager: false });
+        // Tim out of the tree: Wendy moves up to Sam
+        assert.equal((await admin('DELETE', `/org/${encodeURIComponent('Tim Lead')}`)).status, 204);
+        assert.equal((await admin('GET', '/org')).data.links.find((l) => l.person === 'Wendy Worker')?.manager, 'Sam Smoke', 'their people move up');
+        seen = await ids();
+        assert.deepEqual([seen.includes(tTask.id), seen.includes(wTask.id)], [false, true]);
+        await admin('PATCH', `/tasks/${wTask.id}`, { status: 'done' });
+        assert.equal((await ids()).includes(wTask.id), false, 'done: off their list');
+        await admin('DELETE', `/org/${encodeURIComponent('Wendy Worker')}`); await admin('DELETE', `/org/${encodeURIComponent('Sam Smoke')}`);
         cs = await cxSeen();
-        assert.deepEqual([cs.includes(cx.id), cs.includes(cxMine.id), (await sam('PATCH', `/capex/${cx.id}`, { title: 'Mine now' })).status], [false, true, 404], 'not a manager: only the ones they requested');
+        assert.deepEqual([cs.includes(cx.id), cs.includes(cxMine.id), (await sam('PATCH', `/capex/${cx.id}`, { title: 'Mine now' })).status], [false, true, 404], 'no one below: only the investments they requested');
         const site = (await admin('GET', '/kpi/operations?month=2027-02')).data.site;
         assert.ok(site.detail.capex.items.some((x) => x.id === cx.id), 'the dashboard lists what you can see');
         await admin('DELETE', `/capex/${cx.id}`); await admin('DELETE', `/capex/${cxMine.id}`);
+        for (const t of [wTask, wDone, tTask, oTask]) await admin('DELETE', `/tasks/${t.id}`);
         if (!samMods.includes('projects')) await admin('PATCH', `/accounts/${samAcct.id}`, { modules: samMods });
-        await admin('DELETE', `/name-lists/${pl.id}`);
       }
       // 🗂 My lists are each person's own
       {

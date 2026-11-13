@@ -102,7 +102,7 @@ const touchesShadow = (sql) => { let t = touchCache.get(sql); if (t === undefine
 const WRITE_TARGET = new RegExp(`(\\b(?:INSERT(?:\\s+OR\\s+\\w+)?\\s+INTO|REPLACE\\s+INTO|UPDATE(?:\\s+OR\\s+\\w+)?|DELETE\\s+FROM)\\s+)(${SHADOWED.join('|')})\\b`, 'gi');
 const mainWrites = (sql) => sql.replace(WRITE_TARGET, '$1main.$2');
 const STAMPED = /^\s*INSERT(?:\s+OR\s+\w+)?\s+INTO\s+(?:main\.)?(tasks|projects|notes|reminders|capex)\b/i; // made by the request's account
-const WATCH = /\b(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+(?:main\.)?(tasks|projects|project_team|shares|name_list_items|capex)\b/i; // changes who sees what
+const WATCH = /\b(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+(?:main\.)?(tasks|projects|project_team|shares|name_list_items|capex|org_links)\b/i; // changes who sees what
 const ANY_WRITE = /\b(?:INSERT|REPLACE|UPDATE|DELETE)\b/i;
 let dataVersion = 0; // goes up with every change to what decides visibility
 const visCache = new Map(); // `${key}|${version}` → sets (the last few)
@@ -236,6 +236,14 @@ function tx(fn) {
 // One-off data changes, each recorded in settings so it runs only once. Triggers are
 // dropped while they run so they don't bump updated_at or flood the audit log.
 const DATA_MIGRATIONS = {
+  // 🌳 the 👔 Manager ticks become the management tree: each ticked manager at the top, their department's people under them
+  org_from_manager_ticks() {
+    let ticked = []; try { ticked = all("SELECT DISTINCT name, department FROM name_list_items WHERE manager = 1 AND department IS NOT NULL"); } catch { return; }
+    const placed = new Set(all('SELECT person FROM org_links').map((r) => r.person.toLowerCase()));
+    const put = (person, manager) => { if (placed.has(person.toLowerCase()) || (manager && person.toLowerCase() === manager.toLowerCase())) return; run('INSERT INTO org_links (person, manager) VALUES (?, ?)', [person, manager]); placed.add(person.toLowerCase()); };
+    for (const m of ticked) put(m.name, null);
+    for (const m of ticked) for (const p of all('SELECT DISTINCT name FROM name_list_items WHERE department = ? AND manager = 0', [m.department])) put(p.name, m.name);
+  },
   // ⏱ Production runs were kept one per job, machine and start: report rows sharing those were folded into
   // one (losing their cards). The table is rebuilt without that, and every report read again in full.
   prod_runs_every_row() {

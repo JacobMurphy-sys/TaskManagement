@@ -488,12 +488,12 @@ router.get('/access/:kind/:id', h((req, res) => {
     for (const m of db.all('SELECT name FROM project_team WHERE project_id = ? ORDER BY sort_order, id', [row.id])) if (!auto.some((x) => sameP(x.person, m.name))) auto.push({ person: m.name, why: 'team' });
   } else {
     for (const n of String(row.owner || '').split(/\s*[,;/&]\s*/).filter(Boolean)) auto.push({ person: n, why: row.parent_id ? 'owner of this subtask' : 'owner' });
-    // 👔 the managers of its owners' departments, while it's open
+    // 🌳 everyone above its owners in the management tree, while it's open
     if (row.status !== 'done') {
-      const deptOf = departmentOf(); const depts = new Set();
-      for (const n of String(row.owner || '').split(/\s*[,;/&]\s*/).filter(Boolean)) { const d = deptOf(n); if (d) depts.add(d.toLowerCase()); if (departmentsList() && db.get('SELECT 1 FROM name_list_items WHERE list_id = ? AND name = ?', [departmentsList().id, n])) depts.add(n.toLowerCase()); }
-      for (const m of db.all('SELECT DISTINCT name, department FROM name_list_items WHERE manager = 1 AND department IS NOT NULL')) {
-        if (depts.has(m.department.toLowerCase()) && !auto.some((x) => x.person && sameP(x.person, m.name))) auto.push({ person: m.name, why: `manages ${m.department}` });
+      const up = new Map(db.all('SELECT person, manager FROM org_links').map((l) => [l.person.toLowerCase(), l.manager]));
+      for (const n of String(row.owner || '').split(/\s*[,;/&]\s*/).filter(Boolean)) {
+        const seen = new Set(); let m = up.get(n.toLowerCase());
+        while (m && !seen.has(m.toLowerCase())) { seen.add(m.toLowerCase()); if (!auto.some((x) => x.person && sameP(x.person, m))) auto.push({ person: m, why: `manager of ${n}` }); m = up.get(m.toLowerCase()); }
       }
     }
     if (row.project_id) { const p = db.get('SELECT id, name FROM projects WHERE id = ?', [row.project_id]); auto.push({ project: p ? p.name : 'its project', why: 'everyone on the project' }); }
@@ -521,6 +521,40 @@ router.delete('/access/:kind/:id/:account', h((req, res) => {
   db.run('DELETE FROM shares WHERE kind = ? AND record_id = ? AND account_id = ?', [kind, row.id, who]);
   res.status(204).end();
 }));
+// ---- 🌳 the management tree: who reports to whom (a manager sees the open tasks of everyone below them) ------------
+const orgCanEdit = (req) => !req.account || req.account.role === 'admin';
+router.get('/org', h((req, res) => {
+  const links = db.all('SELECT person, manager, sort_order FROM org_links ORDER BY sort_order, person COLLATE NOCASE');
+  // everyone who could be placed: the people in the contacts (not the Departments list), and anyone already in it
+  const depts = departmentsList(); const deptOf = departmentOf();
+  const people = dedupeNames([...db.all('SELECT name FROM name_list_items WHERE active = 1 AND list_id IS NOT ? ORDER BY name COLLATE NOCASE', [depts?.id ?? -1]).map((r) => r.name), ...links.map((l) => l.person)]);
+  res.json({ links, people: people.map((n) => ({ name: n, department: deptOf(n) })), can_edit: orgCanEdit(req) });
+}));
+// place a person under a manager (or at the top: manager null)
+router.put('/org/:person', h((req, res) => {
+  if (!orgCanEdit(req)) throw new HttpError(403, 'Only an admin changes the management tree');
+  const person = String(req.params.person || '').trim(); const manager = req.body?.manager ? String(req.body.manager).trim() : null;
+  if (!person) throw new HttpError(400, 'Who?');
+  if (manager && manager.toLowerCase() === person.toLowerCase()) throw new HttpError(400, 'Someone can\'t report to themselves');
+  // no loops: the new manager can't be below this person already
+  if (manager && require('./visibility').reportsOf(db.all('SELECT person, manager FROM org_links'), person).has(require('./visibility').norm(manager))) throw new HttpError(400, `${manager} reports to ${person} already (directly or through others)`);
+  db.tx(() => {
+    if (manager && !db.get('SELECT 1 FROM org_links WHERE person = ?', [manager])) db.run('INSERT INTO org_links (person, manager) VALUES (?, NULL)', [manager]); // a manager not in it yet: at the top
+    const order = Number.isFinite(Number(req.body?.sort_order)) ? Number(req.body.sort_order) : (db.get('SELECT coalesce(max(sort_order), -1) + 1 AS n FROM org_links WHERE manager IS ?', [manager])?.n ?? 0);
+    db.run('INSERT INTO org_links (person, manager, sort_order) VALUES (?, ?, ?) ON CONFLICT(person) DO UPDATE SET manager = excluded.manager, sort_order = excluded.sort_order, updated_at = ' + "strftime('%Y-%m-%dT%H:%M:%fZ','now')", [person, manager, order]);
+  });
+  log.info(`🌳 ${req.account?.person || 'Someone'}: ${person} ${manager ? `reports to ${manager}` : 'at the top of the tree'}`);
+  res.json({ ok: true });
+}));
+// out of the tree; whoever reported to them now reports to their manager
+router.delete('/org/:person', h((req, res) => {
+  if (!orgCanEdit(req)) throw new HttpError(403, 'Only an admin changes the management tree');
+  const l = db.get('SELECT * FROM org_links WHERE person = ?', [String(req.params.person || '').trim()]); if (!l) throw notFound('Person in the tree');
+  db.tx(() => { db.run('UPDATE org_links SET manager = ? WHERE manager = ?', [l.manager, l.person]); db.run('DELETE FROM org_links WHERE id = ?', [l.id]); });
+  log.info(`🌳 ${req.account?.person || 'Someone'}: ${l.person} taken out of the tree`);
+  res.status(204).end();
+}));
+
 // 👁 an admin's "All work": every task and project, while it's on (written to the activity log, for everyone to see)
 router.put('/me/see-all', h((req, res) => {
   if (!req.account || req.account.role !== 'admin') throw new HttpError(403, 'Only an admin can see all work');
@@ -868,6 +902,7 @@ function renameEverywhere(from, to) {
     if (ownsTask(m.attendees, from)) db.run('UPDATE meetings SET attendees = ? WHERE id = ?', [swap(m.attendees), m.id]);
   }
   for (const m of db.all('SELECT id, name FROM project_team')) if (same(m.name)) db.run('UPDATE project_team SET name = ? WHERE id = ?', [to, m.id]);
+  for (const l of db.all('SELECT id, person, manager FROM org_links')) { if (same(l.person)) db.run('UPDATE org_links SET person = ? WHERE id = ?', [to, l.id]); if (same(l.manager)) db.run('UPDATE org_links SET manager = ? WHERE id = ?', [to, l.id]); } // 🌳
   for (const p of db.all('SELECT id, leader, sponsor FROM projects')) {
     if (same(p.leader)) db.run('UPDATE projects SET leader = ? WHERE id = ?', [to, p.id]);
     if (same(p.sponsor)) db.run('UPDATE projects SET sponsor = ? WHERE id = ?', [to, p.id]);
