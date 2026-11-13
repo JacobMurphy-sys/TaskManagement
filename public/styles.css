@@ -2646,3 +2646,11 @@ body.in-training #topbar { border-bottom-color: #f3a712; }
 .org-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; max-height: 150px; overflow: auto; }
 .org-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); cursor: grab; font-size: 13px; }
 .org-pool .row { gap: 8px; align-items: center; flex-wrap: wrap; } .org-pool .org-dept { width: auto; max-width: 220px; } .org-pool .org-find { width: auto; }
+/* 📇 the contact lists fold away */
+.pl-fold > summary { cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: 10px; }
+.pl-fold > summary::-webkit-details-marker { display: none; }
+.pl-fold > summary::before { content: '▸'; color: var(--muted); font-size: 13px; transition: transform .15s; display: inline-block; }
+.pl-fold[open] > summary::before { transform: rotate(90deg); }
+.pl-fold[open] > summary { margin-bottom: 8px; }
+/* 🌳 the line reaches a team box */
+.org .org-team-wrap > li { padding-top: 0; }

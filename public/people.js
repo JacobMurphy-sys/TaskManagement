@@ -240,8 +240,11 @@ async function renderPeopleSettings(root) {
           ${l.departments ? `<td class="num" title="${esc((i.members || []).join(', '))}">${i.members?.length || ''}</td>
           <td class="num" title="${i.open_tasks} owned by the department itself">${i.dept_open_tasks || ''}</td>` : `<td class="num">${i.open_tasks || ''}</td>`}
           <td><button class="icon" data-pl-remove="${i.id}" title="Remove from the list">✕</button></td></tr>`;
-  root.innerHTML = `<div class="card people-card">
-    <h2>Lists</h2>
+  // a section that folds away (remembered), so the management tree and teams below are a click away
+  const open = store.get('contactsListsOpen', false);
+  const nNames = lists.reduce((a, l) => a + l.items.length, 0);
+  root.innerHTML = `<details class="card people-card pl-fold" ${open ? 'open' : ''}>
+    <summary><h2 style="display:inline">📇 Lists</h2> <span class="small muted">${lists.length} list${lists.length === 1 ? '' : 's'} · ${nNames} name${nNames === 1 ? '' : 's'} — click to ${open ? 'fold' : 'open'}</span></summary>
     <p class="small muted">Names offered in the 📇 contacts book when you choose a task's <b>owners</b>, a meeting's <b>attendees</b> or a project's team, after the project's own team.
       Make as many lists as you like (e.g. <i>People</i>, <i>Departments</i>, <i>Suppliers</i>). Untick <b>Active</b> to stop offering a name
       without touching tasks that already use it. Tasks can still have names that aren't in any list.
@@ -262,7 +265,9 @@ async function renderPeopleSettings(root) {
     </div>`).join('')}</div>
     <div class="row" style="margin-top:12px"><input type="text" id="pl-new-list" placeholder="New list, e.g. Suppliers… (Enter)" autocomplete="off" style="max-width:320px">
       <button data-pl-new-list>Add list</button></div>
-  </div>`;
+  </details>`;
+  const fold = root.querySelector('.pl-fold');
+  fold.addEventListener('toggle', () => { try { store.set('contactsListsOpen', fold.open); } catch { /* not kept */ } const t = fold.querySelector('summary .small'); if (t) t.textContent = t.textContent.replace(/click to \w+$/, `click to ${fold.open ? 'fold' : 'open'}`); });
   root.dispatchEvent(new Event('contacts-redrawn'));
   const reload = () => renderPeopleSettings(root);
   const run = async (fn, msg) => { try { const r = await fn(); if (msg) toast(typeof msg === 'function' ? msg(r) : msg); } catch (err) { toast(err.message, 'error'); } await reload(); };
@@ -348,6 +353,7 @@ async function renderContacts() {
   const filter = () => {
     const q = $('#contacts-search').value.trim().toLowerCase();
     const d = sel.value.toLowerCase();
+    const fold = $('#contacts-lists .pl-fold'); if (fold && (q || d) && !fold.open) fold.open = true; // looking for someone: show the lists
     const deptOk = (tr) => !d || (d === '-' ? !tr.dataset.dept : tr.dataset.dept.toLowerCase() === d);
     $$('#contacts-lists tr[data-item]').forEach((tr) => {
       const isDept = tr.dataset.kind === 'dept';
