@@ -351,6 +351,7 @@ const TABLES = {
     name        TEXT    NOT NULL COLLATE NOCASE,
     detail      TEXT,
     department  TEXT    COLLATE NOCASE,
+    manager     INTEGER NOT NULL DEFAULT 0,  -- 👔 a manager of their department: sees its people's open tasks (visibility.js)
     active      INTEGER NOT NULL DEFAULT 1,
     sort_order  INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),

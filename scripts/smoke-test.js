@@ -3272,6 +3272,41 @@ async function waitForServer() {
         for (const t of [own, given, parent]) await admin('DELETE', `/tasks/${t.id}`);
         await sam('DELETE', `/tasks/${samOwn.id}`); await admin('DELETE', `/projects/${pr.id}`); await admin('DELETE', `/notes/${qn.id}`); await admin('DELETE', `/reminders/${rm.id}`);
       }
+      // 👔 a department's manager (ticked in the contacts) sees the open tasks of the people in it
+      {
+        let lists = (await admin('GET', '/name-lists')).data;
+        let dl = lists.find((l) => l.departments);
+        if (!dl) { await admin('POST', '/name-lists', { name: 'Departments' }); lists = (await admin('GET', '/name-lists')).data; dl = lists.find((l) => l.departments); }
+        await admin('POST', `/name-lists/${dl.id}/items`, { name: 'Smoke Dept' });
+        await admin('POST', '/name-lists', { name: 'Smoke people' });
+        lists = (await admin('GET', '/name-lists')).data; const pl = lists.find((l) => l.name === 'Smoke people');
+        await admin('POST', `/name-lists/${pl.id}/items`, { name: 'Sam Smoke', department: 'Smoke Dept' });
+        await admin('POST', `/name-lists/${pl.id}/items`, { name: 'Wendy Worker', department: 'Smoke Dept' });
+        await admin('POST', `/name-lists/${pl.id}/items`, { name: 'Oscar Outsider' });
+        const samItem = (await admin('GET', '/name-lists')).data.find((l) => l.id === pl.id).items.find((i) => i.name === 'Sam Smoke');
+        const wTask = (await admin('POST', '/tasks', { title: 'Wendy\'s open job', owner: 'Wendy Worker' })).data;
+        const wDone = (await admin('POST', '/tasks', { title: 'Wendy\'s finished job', owner: 'Wendy Worker', status: 'done' })).data;
+        const oTask = (await admin('POST', '/tasks', { title: 'Oscar\'s job', owner: 'Oscar Outsider' })).data;
+        const ids = async () => (await sam('GET', '/tasks')).data.map((t) => t.id);
+        assert.equal((await ids()).includes(wTask.id), false, 'not a manager: not seen');
+        assert.equal((await sam('PATCH', `/name-list-items/${samItem.id}`, { manager: true })).status, 403, 'only an admin makes someone a manager');
+        await admin('PATCH', `/name-list-items/${samItem.id}`, { manager: true });
+        const seen = await ids();
+        assert.deepEqual([seen.includes(wTask.id), seen.includes(wDone.id), seen.includes(oTask.id)], [true, false, false], 'a manager: the open tasks of their department\'s people, not done ones or anyone else\'s');
+        const me = (await sam('GET', '/auth/me')).data.account;
+        const samAcct = (await admin('GET', '/accounts')).data.find?.((x) => x.username === 'sam') || (await admin('GET', '/accounts')).data.accounts?.find((x) => x.username === 'sam');
+        const samMods = samAcct.modules;
+        if (!samMods.includes('projects')) await admin('PATCH', `/accounts/${samAcct.id}`, { modules: [...samMods, 'projects'] });
+        const pp = (await sam('GET', '/people/overview')).data.find((p) => p.name === 'Wendy Worker');
+        if (!samMods.includes('projects')) await admin('PATCH', `/accounts/${samAcct.id}`, { modules: samMods });
+        assert.deepEqual([me.manages, pp?.department, pp?.tasks.some((t) => t.id === wTask.id)], [['Smoke Dept'], 'Smoke Dept', true], 'in 👥 People too');
+        assert.ok((await admin('GET', `/access/task/${wTask.id}`)).data.auto.some((a) => a.person === 'Sam Smoke' && /manages/.test(a.why)), 'and who sees it says so');
+        await admin('PATCH', `/tasks/${wTask.id}`, { status: 'done' });
+        assert.equal((await ids()).includes(wTask.id), false, 'done: off their list');
+        for (const t of [wTask, wDone, oTask]) await admin('DELETE', `/tasks/${t.id}`);
+        await admin('PATCH', `/name-list-items/${samItem.id}`, { manager: false });
+        await admin('DELETE', `/name-lists/${pl.id}`);
+      }
       // 🗂 My lists are each person's own
       {
         const mine = (await admin('POST', '/task-lists', { name: 'Boss only' })).data;

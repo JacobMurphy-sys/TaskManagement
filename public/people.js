@@ -231,12 +231,13 @@ async function renderPeopleSettings(root) {
   };
   const head = (l) => (l.departments
     ? '<th>Department</th><th>Details</th><th>Active</th><th class="num" title="People with this department">People</th><th class="num" title="Open tasks the department owns, plus those its people own">Open tasks</th><th></th>'
-    : `<th>Name</th>${deptList ? '<th>Department</th>' : ''}<th>Details <span class="muted">(role, email, extension…)</span></th><th>Active</th><th class="num" title="Open tasks this name owns">Open tasks</th><th></th>`);
+    : `<th>Name</th>${deptList ? '<th>Department</th>' : ''}<th>Details <span class="muted">(role, email, extension…)</span></th><th>Active</th>${deptList ? '<th title="A manager of their department: they see the open tasks of everyone in it (in 👥 People and ✅ Tasks)">👔 Manager</th>' : ''}<th class="num" title="Open tasks this name owns">Open tasks</th><th></th>`);
   const row = (l, i) => `<tr data-item="${i.id}" data-name="${esc(i.name)}" data-open="${i.open_tasks}" data-dept="${esc(l.departments ? '' : i.department || '')}" data-members="${i.members?.length || 0}" data-kind="${l.departments ? 'dept' : 'person'}">
           <td><input type="text" name="name" value="${esc(i.name)}" title="Renaming changes the name everywhere it's used"></td>
           ${!l.departments && deptList ? `<td><select name="department" title="Department (from the ${esc(deptList.name)} list)">${deptOptions(i.department)}</select></td>` : ''}
           <td><input type="text" name="detail" value="${esc(i.detail || '')}"></td>
           <td><input type="checkbox" name="active" ${i.active ? 'checked' : ''}></td>
+          ${!l.departments && deptList ? `<td><input type="checkbox" name="manager" ${i.manager ? 'checked' : ''} ${!i.department ? 'disabled title="Give them a department first"' : typeof ACCT !== 'undefined' && ACCT.enabled && ACCT.account?.role !== 'admin' ? 'disabled title="Only an admin chooses who manages a department"' : `title="Manages ${esc(i.department)}: sees the open tasks of everyone in it"`}></td>` : ''}
           ${l.departments ? `<td class="num" title="${esc((i.members || []).join(', '))}">${i.members?.length || ''}</td>
           <td class="num" title="${i.open_tasks} owned by the department itself">${i.dept_open_tasks || ''}</td>` : `<td class="num">${i.open_tasks || ''}</td>`}
           <td><button class="icon" data-pl-remove="${i.id}" title="Remove from the list">✕</button></td></tr>`;

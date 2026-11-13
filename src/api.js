@@ -488,6 +488,14 @@ router.get('/access/:kind/:id', h((req, res) => {
     for (const m of db.all('SELECT name FROM project_team WHERE project_id = ? ORDER BY sort_order, id', [row.id])) if (!auto.some((x) => sameP(x.person, m.name))) auto.push({ person: m.name, why: 'team' });
   } else {
     for (const n of String(row.owner || '').split(/\s*[,;/&]\s*/).filter(Boolean)) auto.push({ person: n, why: row.parent_id ? 'owner of this subtask' : 'owner' });
+    // 👔 the managers of its owners' departments, while it's open
+    if (row.status !== 'done') {
+      const deptOf = departmentOf(); const depts = new Set();
+      for (const n of String(row.owner || '').split(/\s*[,;/&]\s*/).filter(Boolean)) { const d = deptOf(n); if (d) depts.add(d.toLowerCase()); if (departmentsList() && db.get('SELECT 1 FROM name_list_items WHERE list_id = ? AND name = ?', [departmentsList().id, n])) depts.add(n.toLowerCase()); }
+      for (const m of db.all('SELECT DISTINCT name, department FROM name_list_items WHERE manager = 1 AND department IS NOT NULL')) {
+        if (depts.has(m.department.toLowerCase()) && !auto.some((x) => x.person && sameP(x.person, m.name))) auto.push({ person: m.name, why: `manages ${m.department}` });
+      }
+    }
     if (row.project_id) { const p = db.get('SELECT id, name FROM projects WHERE id = ?', [row.project_id]); auto.push({ project: p ? p.name : 'its project', why: 'everyone on the project' }); }
     if (row.parent_id) { const up = db.get('SELECT id, title FROM tasks WHERE id = ?', [row.parent_id]); if (up) auto.push({ task: up.title, why: 'everyone invited to the task above' }); }
   }
@@ -745,9 +753,9 @@ router.get('/people/overview', h((req, res) => {
   const openByProj = new Map(); for (const t of open) if (t.project_id) (openByProj.get(t.project_id) || openByProj.set(t.project_id, []).get(t.project_id)).push(t);
   for (const p of projs) p.next_auto = autoNext(openByProj.get(p.id) || []);
   for (const x of people.values()) for (const pr of x.projects) pr.next_auto = projs.find((p) => p.id === pr.id)?.next_auto || null;
-  const cx = capexItems_();
+  const cx = capexItems_(); const deptOf = departmentOf();
   const out = [...people.values()].map((x) => { const f = focus.get(x.name.toLowerCase()) || {};
-    return { ...x, colour: f.colour || null, next_action: f.next_action || null, next_action_at: f.next_action ? f.updated_at : null,
+    return { ...x, department: deptOf(x.name), colour: f.colour || null, next_action: f.next_action || null, next_action_at: f.next_action ? f.updated_at : null,
       next_auto: autoNext([...x.tasks, ...cx.filter((c) => ownsTask(c.owner, x.name))]),
       counts: { open: x.tasks.length, overdue: x.tasks.filter((t) => t.due_at && t.due_at < now).length, week: x.tasks.filter((t) => t.due_at && t.due_at >= now && t.due_at < week).length,
         blocked: x.tasks.filter((t) => t.status === 'blocked').length, waiting: x.tasks.filter((t) => t.waiting_on).length, projects: new Set(x.projects.map((p) => p.id)).size } }; })
@@ -882,6 +890,11 @@ router.patch('/name-list-items/:id', h((req, res) => {
   if ('detail' in req.body) f.detail = String(req.body.detail || '').trim() || null;
   if ('active' in req.body) f.active = req.body.active ? 1 : 0;
   if ('department' in req.body) f.department = cleanDepartment(req.body.department);
+  // 👔 a manager sees the open tasks of everyone in their department: only an admin says who (with accounts on)
+  if ('manager' in req.body) {
+    if (req.account && req.account.role !== 'admin') throw new HttpError(403, 'Only an admin chooses who manages a department');
+    f.manager = req.body.manager ? 1 : 0;
+  }
   let renamed = 0;
   let moved = 0;
   db.tx(() => {

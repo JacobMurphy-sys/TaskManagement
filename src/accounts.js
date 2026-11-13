@@ -138,7 +138,9 @@ function setupGate(req, res, next) {
 // ---- accounts and sessions ---------------------------------------------------------------------
 const enabled = () => !!db.get('SELECT 1 FROM accounts WHERE active = 1 LIMIT 1');
 const publicAccount = (a) => (a ? { id: a.id, username: a.username, person: a.person, role: a.role, must_change: !!a.must_change, active: !!a.active, last_login: a.last_login, created_at: a.created_at,
-  modules: modulesOf(a), areas: areasOf(a), modules_set: a.modules !== null && a.modules !== undefined, theme: a.theme || null, nav_order: navOrderOf(a), rights: rightsOf(a), owner: !!a.owner, training: !!a.training, training_view: a.training ? a.training_view ?? null : undefined, see_all: a.role === 'admin' && !!a.see_all } : null);
+  modules: modulesOf(a), areas: areasOf(a), modules_set: a.modules !== null && a.modules !== undefined, theme: a.theme || null, nav_order: navOrderOf(a), rights: rightsOf(a), owner: !!a.owner, training: !!a.training, training_view: a.training ? a.training_view ?? null : undefined, see_all: a.role === 'admin' && !!a.see_all, manages: managesOf(a) } : null);
+// 👔 the departments this account's person manages (ticked in the contacts)
+function managesOf(a) { try { return [...new Set(db.all('SELECT department FROM name_list_items WHERE manager = 1 AND department IS NOT NULL AND lower(trim(name)) = lower(trim(?))', [a.person]).map((r) => r.department))]; } catch { return []; } }
 // the order of the top bar's pages, chosen by the person: ['dashboard', 'tasks', …] or null (the standard order)
 function navOrderOf(a) { try { const o = JSON.parse(a.nav_order || 'null'); return Array.isArray(o) ? o : null; } catch { return null; } }
 const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');

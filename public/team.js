@@ -5,9 +5,12 @@
 async function renderTeam() {
   const list = await api.get('/people/overview');
   const q = store.get('teamQuery', ''); const sort = store.get('teamSort', 'overdue'); const busyOnly = store.get('teamBusy', true);
+  // 👔 a manager: the departments they manage (their people's open tasks are theirs to see), and a filter to just those
+  const manages = (typeof ACCT !== 'undefined' && ACCT.account?.manages) || []; const myDept = manages.length && store.get('teamMyDept', false);
+  const inMine = (p) => manages.some((d) => String(p.department || '').toLowerCase() === d.toLowerCase());
   const SORTS = { overdue: ['Most overdue', (a, b) => b.counts.overdue - a.counts.overdue || b.counts.open - a.counts.open || a.name.localeCompare(b.name)],
     open: ['Most open', (a, b) => b.counts.open - a.counts.open || a.name.localeCompare(b.name)], name: ['Name', (a, b) => a.name.localeCompare(b.name)] };
-  const shown = list.filter((p) => (!busyOnly || p.counts.open || p.counts.projects || p.next_action) && (!q || p.name.toLowerCase().includes(q.toLowerCase()))).sort((SORTS[sort] || SORTS.overdue)[1]);
+  const shown = list.filter((p) => (!busyOnly || p.counts.open || p.counts.projects || p.next_action) && (!q || p.name.toLowerCase().includes(q.toLowerCase())) && (!myDept || inMine(p))).sort((SORTS[sort] || SORTS.overdue)[1]);
   const total = (k) => shown.reduce((a, p) => a + p.counts[k], 0);
   const TASKS_SHOWN = 6;
   const card = (p) => {
@@ -32,12 +35,15 @@ async function renderTeam() {
       <input type="search" id="team-q" placeholder="Find a person…" value="${esc(q)}" style="max-width:220px">
       <label class="person-pick" title="Order">↕<select id="team-sort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sort ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="small muted row"><input type="checkbox" id="team-busy" ${busyOnly ? 'checked' : ''}> only people with open work</label>
+      ${manages.length ? `<label class="small muted row" title="Only the people in the department${manages.length === 1 ? '' : 's'} you manage"><input type="checkbox" id="team-mydept" ${myDept ? 'checked' : ''}> 👔 my department</label>` : ''}
       <div class="spacer"></div><span class="small muted">${shown.length} people · ${total('open')} open tasks${total('overdue') ? ` · <b class="pl-late">${total('overdue')} overdue</b>` : ''}</span></div>
+    ${manages.length ? `<div class="small muted" style="margin:-4px 0 8px">👔 You manage <b>${manages.map(esc).join('</b>, <b>')}</b>: you see the open tasks of everyone in ${manages.length === 1 ? 'it' : 'them'}, here and in ✅ Tasks.</div>` : ''}
     <div class="person-grid">${shown.map(card).join('') || '<div class="card empty">No one here yet — people appear as task owners, project leaders, sponsors and team members.</div>'}</div>`;
   let qt = null;
   $('#team-q').oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => { store.set('teamQuery', e.target.value); renderTeam().then(() => { const i = $('#team-q'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }); }, 250); };
   $('#team-sort').onchange = (e) => { store.set('teamSort', e.target.value); renderTeam(); };
   $('#team-busy').onchange = (e) => { store.set('teamBusy', e.target.checked); renderTeam(); };
+  const md = $('#team-mydept'); if (md) md.onchange = (e) => { store.set('teamMyDept', e.target.checked); renderTeam(); };
   for (const el of $$('.person-card')) {
     const name = el.dataset.person;
     const save = async (body) => { try { await api.put('/people/focus', { name, ...body }); return true; } catch (err) { toast(err.message, 'error'); return false; } };

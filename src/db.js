@@ -102,7 +102,7 @@ const touchesShadow = (sql) => { let t = touchCache.get(sql); if (t === undefine
 const WRITE_TARGET = new RegExp(`(\\b(?:INSERT(?:\\s+OR\\s+\\w+)?\\s+INTO|REPLACE\\s+INTO|UPDATE(?:\\s+OR\\s+\\w+)?|DELETE\\s+FROM)\\s+)(${SHADOWED.join('|')})\\b`, 'gi');
 const mainWrites = (sql) => sql.replace(WRITE_TARGET, '$1main.$2');
 const STAMPED = /^\s*INSERT(?:\s+OR\s+\w+)?\s+INTO\s+(?:main\.)?(tasks|projects|notes|reminders)\b/i; // made by the request's account
-const WATCH = /\b(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+(?:main\.)?(tasks|projects|project_team|shares)\b/i; // changes who sees what
+const WATCH = /\b(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+(?:main\.)?(tasks|projects|project_team|shares|name_list_items)\b/i; // changes who sees what
 const ANY_WRITE = /\b(?:INSERT|REPLACE|UPDATE|DELETE)\b/i;
 let dataVersion = 0; // goes up with every change to what decides visibility
 const visCache = new Map(); // `${key}|${version}` → sets (the last few)
