@@ -3159,6 +3159,8 @@ async function waitForServer() {
         await admin('POST', `/access/task/${pt.id}`, { account_id: samId });
         assert.equal((await sam('POST', `/tasks/${pt.id}/poke`, {})).status, 403, 'invited, but not without the right');
         assert.equal((await admin('POST', `/tasks/${pt.id}/poke`, { note: 'Today please' })).status, 201, 'admins have it');
+        { const nt = (await admin('GET', `/tasks/${pt.id}`)).data.notes.map((n) => n.body).join(' | ');
+          assert.match(nt, /👉 .* poked Robin Diaz: “Today please”/, `the poke is kept in the task's notes (${nt})`); }
         await admin('DELETE', `/tasks/${pt.id}`); }
       // 🔑 admin rights: the host (the first account) gives some of them to other accounts
       assert.equal((await admin('GET', '/auth/me')).data.account.owner, true, 'the first account is the host');
@@ -3215,6 +3217,9 @@ async function waitForServer() {
         const samId = (await sam('GET', '/auth/me')).data.account.id;
         const ids = async (who) => (await who('GET', '/tasks')).data.map((t) => t.id);
         const own = (await admin('POST', '/tasks', { title: 'Boss private plan' })).data;
+        const bossPerson = (await admin('GET', '/auth/me')).data.account.person;
+        assert.equal(own.owner, bossPerson, '👤 a task made by someone signed in, given to no one: theirs');
+        assert.equal((await admin('POST', '/tasks', { title: 'For Sam', owner: 'Sam Smoke' })).data.owner, 'Sam Smoke', 'given to someone: as given');
         assert.deepEqual([(await ids(sam)).includes(own.id), (await sam('GET', `/tasks/${own.id}`)).status, (await sam('PATCH', `/tasks/${own.id}`, { title: 'Hacked' })).status, (await sam('DELETE', `/tasks/${own.id}`)).status],
           [false, 404, 404, 404], 'someone else\'s task: not listed, not opened, not changed, not removed');
         assert.equal((await admin('GET', `/tasks/${own.id}`)).data.title, 'Boss private plan', 'untouched');
@@ -3291,11 +3296,11 @@ async function waitForServer() {
         assert.deepEqual(['Sam Smoke', 'Tim Lead', 'Wendy Worker'].map((n) => org.links.find((l) => l.person === n)?.manager ?? '(top)'), ['(top)', 'Sam Smoke', 'Tim Lead'], 'the tree');
         assert.equal((await admin('PUT', `/org/${encodeURIComponent('Sam Smoke')}`, { manager: 'Wendy Worker' })).status, 400, 'no loops: Sam can\'t report to someone below him');
         let seen = await ids();
-        assert.deepEqual([seen.includes(tTask.id), seen.includes(wTask.id), seen.includes(wDone.id), seen.includes(oTask.id)], [true, true, false, false], 'everyone below, however deep: their open tasks; not done ones, nor anyone else\'s');
+        assert.deepEqual([seen.includes(tTask.id), seen.includes(wTask.id), seen.includes(wDone.id), seen.includes(oTask.id)], [true, false, false, false], 'the people reporting straight to them: their open tasks; not further down (Tim\'s, as Wendy\'s manager), nor done ones, nor anyone else\'s');
         const me = (await sam('GET', '/auth/me')).data.account;
         const pp = (await sam('GET', '/people/overview')).data.find((p) => p.name === 'Wendy Worker');
-        assert.deepEqual([me.manages, pp?.tasks.some((t) => t.id === wTask.id)], [['Tim Lead', 'Wendy Worker'], true], 'in 👥 People too');
-        assert.deepEqual((await admin('GET', `/access/task/${wTask.id}`)).data.auto.filter((a) => /manager of/.test(a.why)).map((a) => a.person), ['Tim Lead', 'Sam Smoke'], 'and who sees it says so, up the tree');
+        assert.deepEqual([me.manages, !!pp?.tasks.some((t) => t.id === wTask.id)], [['Tim Lead'], false], 'in 👥 People too: their direct reports');
+        assert.deepEqual((await admin('GET', `/access/task/${wTask.id}`)).data.auto.filter((a) => /manager of/.test(a.why)).map((a) => a.person), ['Tim Lead'], 'and who sees it says so: the direct manager');
         // 💶 CAPEX: someone below you makes you a manager: all of it
         const cx = (await admin('POST', '/capex', { title: 'Boss forklift', category: 'Capacity / growth', owner: 'Oscar Outsider', amount: 50000, planned_date: '2027-02-01', justification: 'Old one worn out' })).data;
         const cxMine = (await admin('POST', '/capex', { title: 'Sam scanner', category: 'Capacity / growth', owner: 'Sam Smoke', amount: 9000, planned_date: '2027-02-01', justification: 'Faster checks' })).data;

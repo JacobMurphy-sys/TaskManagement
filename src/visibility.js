@@ -6,8 +6,8 @@
 //  - a task: one it made or is invited to, a task of a project it sees, or a task its person owns that isn't a
 //    subtask: each with all its subtasks. A subtask its person owns, it sees on its own (not the task it's under,
 //    nor that task's other subtasks) unless invited to the task above.
-//  - 🌳 a manager in the management tree: also the open tasks owned by anyone below them (directly or through others),
-//    each on its own; done ones drop off.
+//  - 🌳 a manager in the management tree: also the open tasks owned by the people reporting straight to them (not
+//    further down), each on its own; done ones drop off.
 //  - quick notes and reminders: only its own (db.js's views, by created_by).
 //  - 💶 CAPEX: one it made, requested (its owner) or sponsors; every manager (anyone with someone below them) sees all.
 // Work made before there were accounts (no creator) counts as the first admin's.
@@ -33,8 +33,9 @@ function compute(c, viewer) {
   for (const p of q('SELECT id, leader, sponsor, created_by FROM main.projects')) {
     if (madeByMe(p.created_by) || shared.project.has(p.id) || mine(p.leader) || mine(p.sponsor) || (team.get(p.id) || []).some((n) => norm(n) === me)) projects.add(p.id);
   }
-  // 🌳 a manager in the management tree: the open tasks of everyone below them, directly or through others
-  const below = reportsOf(q('SELECT person, manager FROM main.org_links'), me);
+  // 🌳 a manager in the management tree: the open tasks of the people reporting to them directly (not further down:
+  // those are their own managers')
+  const below = directReportsOf(q('SELECT person, manager FROM main.org_links'), me);
   const inMyTeam = (owner) => below.size > 0 && namesIn(owner).some((n) => below.has(n));
   const rows = q('SELECT id, parent_id, project_id, owner, status, created_by FROM main.tasks');
   const kids = new Map(); for (const t of rows) if (t.parent_id) { if (!kids.has(t.parent_id)) kids.set(t.parent_id, []); kids.get(t.parent_id).push(t.id); }
@@ -49,7 +50,7 @@ function compute(c, viewer) {
   while (stack.length) { const id = stack.pop(); for (const k of kids.get(id) || []) if (!full.has(k)) { full.add(k); stack.push(k); } }
   for (const id of full) visible.add(id);
   // 💶 CAPEX: one it made, one its person requested or sponsors; a manager (of any department): all of them
-  const isManager = below.size > 0; // anyone with someone below them in the tree
+  const isManager = below.size > 0; // anyone with someone reporting to them
   const capex = new Set();
   for (const x of q('SELECT id, owner, sponsor, created_by FROM main.capex')) if (isManager || madeByMe(x.created_by) || mine(x.owner) || mine(x.sponsor)) capex.add(x.id);
   return { projects, tasks: visible, full, capex, manager: isManager };
@@ -74,7 +75,9 @@ function backfill(c, before = null) {
   return n;
 }
 
-// everyone below a person in the tree (normalised names), however deep; a loop (shouldn't happen) is cut
+// the people reporting straight to a person (normalised names)
+function directReportsOf(links, person) { return new Set(links.filter((l) => l.manager && norm(l.manager) === norm(person) && norm(l.person) !== norm(person)).map((l) => norm(l.person))); }
+// everyone below a person in the tree (normalised names), however deep (to refuse loops); a loop (shouldn't happen) is cut
 function reportsOf(links, person) {
   const kids = new Map(); for (const l of links) if (l.manager) { const m = norm(l.manager); if (!kids.has(m)) kids.set(m, []); kids.get(m).push(norm(l.person)); }
   const out = new Set(); const stack = [norm(person)];
@@ -82,4 +85,4 @@ function reportsOf(links, person) {
   return out;
 }
 
-module.exports = { compute, backfill, reportsOf, namesIn, norm };
+module.exports = { compute, backfill, reportsOf, directReportsOf, namesIn, norm };

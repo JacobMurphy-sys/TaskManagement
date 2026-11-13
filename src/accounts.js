@@ -140,10 +140,10 @@ const enabled = () => !!db.get('SELECT 1 FROM accounts WHERE active = 1 LIMIT 1'
 const publicAccount = (a) => (a ? { id: a.id, username: a.username, person: a.person, role: a.role, must_change: !!a.must_change, active: !!a.active, last_login: a.last_login, created_at: a.created_at,
   modules: modulesOf(a), areas: areasOf(a), modules_set: a.modules !== null && a.modules !== undefined, theme: a.theme || null, nav_order: navOrderOf(a), rights: rightsOf(a), owner: !!a.owner, training: !!a.training, training_view: a.training ? a.training_view ?? null : undefined, see_all: a.role === 'admin' && !!a.see_all, manages: managesOf(a) } : null);
 // 👔 the departments this account's person manages (ticked in the contacts)
-// 🌳 everyone below this account's person in the management tree (their names, as written there)
+// 🌳 the people reporting straight to this account's person in the management tree (their names, as written there)
 function managesOf(a) {
   try {
-    const links = db.all('SELECT person, manager FROM org_links'); const below = require('./visibility').reportsOf(links, a.person);
+    const links = db.all('SELECT person, manager FROM org_links'); const below = require('./visibility').directReportsOf(links, a.person);
     return links.filter((l) => below.has(require('./visibility').norm(l.person))).map((l) => l.person).sort((x, y) => x.localeCompare(y));
   } catch { return []; }
 }

@@ -124,6 +124,8 @@ function pick(body, keys) {
 }
 
 function insertRow(table, fields) {
+  // 👤 a task made by someone signed in, given to no one: theirs
+  if (table === 'tasks' && !String(fields.owner || '').trim() && db.viewer()?.person) fields = { ...fields, owner: db.viewer().person };
   const keys = Object.keys(fields).filter((k) => fields[k] !== undefined); // unset -> column default
   return db.get(
     `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')}) RETURNING *`,
@@ -488,12 +490,11 @@ router.get('/access/:kind/:id', h((req, res) => {
     for (const m of db.all('SELECT name FROM project_team WHERE project_id = ? ORDER BY sort_order, id', [row.id])) if (!auto.some((x) => sameP(x.person, m.name))) auto.push({ person: m.name, why: 'team' });
   } else {
     for (const n of String(row.owner || '').split(/\s*[,;/&]\s*/).filter(Boolean)) auto.push({ person: n, why: row.parent_id ? 'owner of this subtask' : 'owner' });
-    // 🌳 everyone above its owners in the management tree, while it's open
+    // 🌳 its owners' direct managers, while it's open
     if (row.status !== 'done') {
       const up = new Map(db.all('SELECT person, manager FROM org_links').map((l) => [l.person.toLowerCase(), l.manager]));
       for (const n of String(row.owner || '').split(/\s*[,;/&]\s*/).filter(Boolean)) {
-        const seen = new Set(); let m = up.get(n.toLowerCase());
-        while (m && !seen.has(m.toLowerCase())) { seen.add(m.toLowerCase()); if (!auto.some((x) => x.person && sameP(x.person, m))) auto.push({ person: m, why: `manager of ${n}` }); m = up.get(m.toLowerCase()); }
+        const m = up.get(n.toLowerCase()); if (m && !sameP(m, n) && !auto.some((x) => x.person && sameP(x.person, m))) auto.push({ person: m, why: `manager of ${n}` });
       }
     }
     if (row.project_id) { const p = db.get('SELECT id, name FROM projects WHERE id = ?', [row.project_id]); auto.push({ project: p ? p.name : 'its project', why: 'everyone on the project' }); }
@@ -1334,6 +1335,8 @@ router.post('/tasks/:id/poke', h((req, res) => {
   const note = String(req.body?.note || '').trim().slice(0, 2000) || null;
   const sent = to.filter((o) => !recent.includes(o));
   for (const o of sent) insertRow('messages', { to_person: o, kind: 'poke', title: `${me} poked you about “${t.title}”`, body: note, from_person: me, task_id: t.id });
+  // 👉 kept with the task too: a note in its notes (and so its history), so the nudge and its words aren't lost
+  insertRow('notes', { task_id: t.id, project_id: t.project_id || null, body: `👉 ${me} poked ${sent.join(', ')}${note ? `: “${note}”` : ''}` });
   log.info(`${me} poked ${sent.join(', ')} about task ${t.id}`);
   res.status(201).json({ sent, skipped: recent });
 }));

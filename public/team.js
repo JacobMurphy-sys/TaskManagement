@@ -37,7 +37,7 @@ async function renderTeam() {
       <label class="small muted row"><input type="checkbox" id="team-busy" ${busyOnly ? 'checked' : ''}> only people with open work</label>
       ${manages.length ? `<label class="small muted row" title="Only the people below you in the management tree"><input type="checkbox" id="team-mydept" ${myDept ? 'checked' : ''}> 👔 my team</label>` : ''}
       <div class="spacer"></div><span class="small muted">${shown.length} people · ${total('open')} open tasks${total('overdue') ? ` · <b class="pl-late">${total('overdue')} overdue</b>` : ''}</span></div>
-    ${manages.length ? `<div class="small muted" style="margin:-4px 0 8px">🌳 ${manages.length} ${manages.length === 1 ? 'person reports' : 'people report'} to you, directly or through others: you see their open tasks, here and in ✅ Tasks.</div>` : ''}
+    ${manages.length ? `<div class="small muted" style="margin:-4px 0 8px">🌳 ${manages.length} ${manages.length === 1 ? 'person reports' : 'people report'} to you directly: you see their open tasks, here and in ✅ Tasks.</div>` : ''}
     <div class="person-grid">${shown.map(card).join('') || '<div class="card empty">No one here yet — people appear as task owners, project leaders, sponsors and team members.</div>'}</div>`;
   let qt = null;
   $('#team-q').oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => { store.set('teamQuery', e.target.value); renderTeam().then(() => { const i = $('#team-q'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }); }, 250); };

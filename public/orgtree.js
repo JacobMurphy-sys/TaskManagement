@@ -1,7 +1,7 @@
 // 🌳 The management tree (📇 Contacts): who reports to whom, as a chart joined by lines. Drag a person onto someone
 // to put them under that person, onto the top line to put them at the top, or back to "Not in the tree" to take them
 // out (whoever reported to them moves up to their manager). A manager sees the open tasks of everyone below them
-// (directly or through others); anyone with someone below them sees all 💶 CAPEX. Only an admin changes it.
+// (only their direct reports'; further down is for those people's own managers); anyone with someone reporting to them sees all 💶 CAPEX. Only an admin changes it.
 
 async function renderOrgTree(root) {
   if (!root) return;
@@ -35,7 +35,7 @@ async function renderOrgTree(root) {
   root.innerHTML = `<div class="card org-card">
     <div class="row"><h2 style="margin:0">🌳 Management tree</h2><span class="small muted">${d.links.length} in it</span><div class="spacer"></div>
       ${edit ? '' : '<span class="small muted">Only an admin changes it</span>'}</div>
-    <p class="small muted">Who reports to whom. A manager sees the <b>open tasks of everyone below them</b>, directly or through others (in 👥 People and ✅ Tasks), and anyone with someone below them sees all 💶 CAPEX.
+    <p class="small muted">Who reports to whom. A manager sees the <b>open tasks of the people reporting straight to them</b> (in 👥 People and ✅ Tasks; further down is for those people's own managers), and anyone with someone reporting to them sees all 💶 CAPEX.
       ${edit ? 'Drag a person onto someone to put them (and everyone below them) under that person; onto the top line to put them at the top; back to <i>Not in the tree</i> to take them out.' : ''}</p>
     ${edit ? '<div class="org-top" data-org-drop="">⤒ Drop here to put someone at the top</div>' : ''}
     ${tops.length ? `<div class="row org-tools small"><span class="seg"><button type="button" data-org-zoom="-1" title="Smaller">−</button><button type="button" data-org-zoom="0" title="Back to full size">${Math.round(zoom * 100)}%</button><button type="button" data-org-zoom="1" title="Bigger">＋</button><button type="button" data-org-zoom="fit" title="Fit the whole tree to the width of the page">⤢ Fit</button></span>
