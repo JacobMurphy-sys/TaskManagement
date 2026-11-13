@@ -9,6 +9,7 @@
 //  - 👔 a department's manager (ticked in the contacts): also the open tasks owned by anyone in that department (or by
 //    the department itself), each on its own; done ones drop off.
 //  - quick notes and reminders: only its own (db.js's views, by created_by).
+//  - 💶 CAPEX: one it made, requested (its owner) or sponsors; every manager (of any department) sees all of it.
 // Work made before there were accounts (no creator) counts as the first admin's.
 // An admin with "All work" on (accounts.see_all) sees everything; so does a request with no account (accounts off,
 // background jobs). db.js puts these sets in temporary tables that its views read.
@@ -49,7 +50,11 @@ function compute(c, viewer) {
   const stack = [...full];
   while (stack.length) { const id = stack.pop(); for (const k of kids.get(id) || []) if (!full.has(k)) { full.add(k); stack.push(k); } }
   for (const id of full) visible.add(id);
-  return { projects, tasks: visible, full };
+  // 💶 CAPEX: one it made, one its person requested or sponsors; a manager (of any department): all of them
+  const isManager = q('SELECT name FROM main.name_list_items WHERE manager = 1 AND department IS NOT NULL').some((r) => norm(r.name) === me);
+  const capex = new Set();
+  for (const x of q('SELECT id, owner, sponsor, created_by FROM main.capex')) if (isManager || madeByMe(x.created_by) || mine(x.owner) || mine(x.sponsor)) capex.add(x.id);
+  return { projects, tasks: visible, full, capex, manager: isManager };
 }
 
 // Work from before accounts (no creator): credited to the account of the person the history says added it, where
@@ -59,7 +64,7 @@ function backfill(c, before = null) {
   if (!accts.length) return 0;
   const byName = new Map(accts.map((a) => [norm(a.person), a.id]));
   let n = 0;
-  for (const t of ['tasks', 'projects', 'notes', 'reminders']) {
+  for (const t of ['tasks', 'projects', 'notes', 'reminders', 'capex']) {
     const rows = c.prepare(`SELECT x.id, a.changed_by FROM main.${t} x JOIN main.audit_log a ON a.table_name = ? AND a.record_id = x.id AND a.action = 'INSERT'
       WHERE x.created_by IS NULL AND a.changed_by IS NOT NULL`).all(t);
     const todo = rows.map((r) => [byName.get(norm(r.changed_by)), r.id]).filter(([id]) => id);

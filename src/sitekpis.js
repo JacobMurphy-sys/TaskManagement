@@ -181,7 +181,10 @@ function siteKpis(ops) {
 
   // ---- CAPEX: the year's investments (by planned date): committed (approved and on) and in the pipeline
   let capex = [];
-  try { capex = db.all("SELECT id, ref, title, category, owner, amount, currency, planned_date, status FROM capex WHERE substr(planned_date, 1, 4) = ? ORDER BY planned_date", [String(y)]); } catch { capex = []; }
+  // the site's figures count every investment (main.capex); the list below shows only the ones this person can see
+  // (🔒 its maker, requester, sponsor and the managers)
+  let seen = null;
+  try { capex = db.all("SELECT id, ref, title, category, owner, amount, currency, planned_date, status FROM main.capex WHERE substr(planned_date, 1, 4) = ? ORDER BY planned_date", [String(y)]); seen = new Set(db.all('SELECT id FROM capex').map((r) => r.id)); } catch { capex = []; }
   const COMMITTED = ['approved', 'ordered', 'installed', 'closed']; const PIPE = ['submitted', 'on_hold'];
   const sumOf = (list) => list.reduce((a, c) => a + (Number(c.amount) || 0), 0);
   const committed = capex.filter((c) => COMMITTED.includes(c.status)); const pipeline = capex.filter((c) => PIPE.includes(c.status));
@@ -191,7 +194,8 @@ function siteKpis(ops) {
     year: y, committed: sumOf(committed), pipeline: sumOf(pipeline), draft: sumOf(capex.filter((c) => c.status === 'draft')),
     currencies: [...new Set(capex.map((c) => c.currency || '').filter(Boolean))],
     by_month: Array.from({ length: 12 }, (_, i) => `${y}-${pad(i + 1)}`).map((mm) => ({ month: mm, committed: sumOf(committed.filter((c) => c.planned_date.slice(0, 7) === mm)), pipeline: sumOf(pipeline.filter((c) => c.planned_date.slice(0, 7) === mm)) })),
-    items: capex.filter((c) => c.status !== 'rejected').map((c) => ({ ...c })),
+    items: capex.filter((c) => c.status !== 'rejected' && (!seen || seen.has(c.id))).map((c) => ({ ...c })),
+    hidden: seen ? capex.filter((c) => c.status !== 'rejected' && !seen.has(c.id)).length : 0, // in the figures, not shown
   };
 
   // ---- MIR: the accidents on the safety concern forms, by the month of the incident

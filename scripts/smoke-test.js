@@ -3298,13 +3298,24 @@ async function waitForServer() {
         const samMods = samAcct.modules;
         if (!samMods.includes('projects')) await admin('PATCH', `/accounts/${samAcct.id}`, { modules: [...samMods, 'projects'] });
         const pp = (await sam('GET', '/people/overview')).data.find((p) => p.name === 'Wendy Worker');
-        if (!samMods.includes('projects')) await admin('PATCH', `/accounts/${samAcct.id}`, { modules: samMods });
         assert.deepEqual([me.manages, pp?.department, pp?.tasks.some((t) => t.id === wTask.id)], [['Smoke Dept'], 'Smoke Dept', true], 'in 👥 People too');
         assert.ok((await admin('GET', `/access/task/${wTask.id}`)).data.auto.some((a) => a.person === 'Sam Smoke' && /manages/.test(a.why)), 'and who sees it says so');
         await admin('PATCH', `/tasks/${wTask.id}`, { status: 'done' });
         assert.equal((await ids()).includes(wTask.id), false, 'done: off their list');
         for (const t of [wTask, wDone, oTask]) await admin('DELETE', `/tasks/${t.id}`);
+        // 💶 CAPEX: seen by whoever raised, requested or sponsors it, and by every manager
+        const cx = (await admin('POST', '/capex', { title: 'Boss forklift', category: 'Capacity / growth', owner: 'Oscar Outsider', amount: 50000, planned_date: '2027-02-01', justification: 'Old one worn out' })).data;
+        const cxMine = (await admin('POST', '/capex', { title: 'Sam scanner', category: 'Capacity / growth', owner: 'Sam Smoke', amount: 9000, planned_date: '2027-02-01', justification: 'Faster checks' })).data;
+        const cxSeen = async () => (await sam('GET', '/capex')).data.items.map((x) => x.id);
+        let cs = await cxSeen();
+        assert.deepEqual([cs.includes(cx.id), cs.includes(cxMine.id)], [true, true], 'a manager: every investment');
         await admin('PATCH', `/name-list-items/${samItem.id}`, { manager: false });
+        cs = await cxSeen();
+        assert.deepEqual([cs.includes(cx.id), cs.includes(cxMine.id), (await sam('PATCH', `/capex/${cx.id}`, { title: 'Mine now' })).status], [false, true, 404], 'not a manager: only the ones they requested');
+        const site = (await admin('GET', '/kpi/operations?month=2027-02')).data.site;
+        assert.ok(site.detail.capex.items.some((x) => x.id === cx.id), 'the dashboard lists what you can see');
+        await admin('DELETE', `/capex/${cx.id}`); await admin('DELETE', `/capex/${cxMine.id}`);
+        if (!samMods.includes('projects')) await admin('PATCH', `/accounts/${samAcct.id}`, { modules: samMods });
         await admin('DELETE', `/name-lists/${pl.id}`);
       }
       // 🗂 My lists are each person's own

@@ -839,6 +839,7 @@ const TABLES = {
     project_id     INTEGER REFERENCES projects(id) ON DELETE SET NULL,
     next_action    TEXT,
     notes          TEXT,
+    created_by     INTEGER,  -- 🔒 the account that made it: seen by it, the requester, the sponsor and every manager
     created_at     TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at     TEXT    NOT NULL DEFAULT (${NOW})`,
 

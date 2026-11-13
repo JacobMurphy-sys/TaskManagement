@@ -367,12 +367,13 @@ function opsHtml(d) {
       const st = { draft: 'Draft', submitted: 'Submitted', approved: 'Approved', ordered: 'Ordered', installed: 'Installed', closed: 'Closed', on_hold: 'On hold' };
       const items = c.items.length ? `<div class="kdb-scroll"><table class="log q-cases ops-table"><thead><tr><th>Ref</th><th>Investment</th><th>Category</th><th>Owner</th><th>Planned</th><th>Status</th><th class="num">Amount</th></tr></thead><tbody>
         ${c.items.map((x) => `<tr><td>${esc(x.ref || '')}</td><td><b>${esc(x.title)}</b></td><td>${esc(x.category || '')}</td><td>${esc(x.owner || '')}</td><td>${esc(fmtShortDate(x.planned_date))}</td><td><span class="chip">${esc(st[x.status] || x.status)}</span></td><td class="num">${esc(x.currency || '')}${ON(x.amount)}</td></tr>`).join('')}</tbody></table></div>`
-        : `<div class="empty small">Nothing planned for ${c.year} in 💶 CAPEX.</div>`;
+        : `<div class="empty small">${c.hidden ? `None of ${c.year}'s investments are shared with you.` : `Nothing planned for ${c.year} in 💶 CAPEX.`}</div>`;
+      const hiddenNote = c.hidden ? `<div class="small muted" style="margin-top:6px">🔒 The figures count all ${c.year}'s investments; ${c.hidden} more aren't listed here: CAPEX entries are seen by whoever raised, requested or sponsors them, and by managers.</div>` : '';
       const sum = `<div class="ops-capex-sum"><div><span class="small muted">Committed</span><b>${OK(c.committed)}</b><span class="small muted">approved, ordered, installed, closed</span></div><div><span class="small muted">Pipeline</span><b>${OK(c.pipeline)}</b><span class="small muted">submitted, on hold</span></div><div><span class="small muted">Draft</span><b>${OK(c.draft)}</b></div>${t0 !== null ? `<div><span class="small muted">Budget (target)</span><b>${OK(t0 * 1000)}</b><span class="small muted">${t0 ? `${Math.round((c.committed / (t0 * 1000)) * 100)}% committed` : ''}</span></div>` : ''}</div>
         ${c.currencies.length > 1 ? `<p class="small muted">⚠ In more than one currency (${esc(c.currencies.join(', '))}): added up as they are.</p>` : ''}`;
       return `<div class="qd-top">${panel('qd-charts', head(`💶 CAPEX ${c.year}, by planned month`, 'k, committed and in the pipeline'), chartBox(opsLegend([['q-c3', 'Committed'], ['q-c2', 'Pipeline']]), opsChart({ aria: 'CAPEX by month', cats, values: vals, bars: [{ key: 'committed', cls: 'q-c3', label: 'Committed (k)' }, { key: 'pipeline', cls: 'q-c2', label: 'Pipeline (k)' }], fmt: (x) => `${Math.round(x)}k` })))}
         ${panel('qd-where', head(`The year ${c.year}`), sum)}</div>
-        ${panel('qd-cases', `${head(`Investments planned in ${c.year} <span class="tm-count">${c.items.length}</span>`)}${modOk('capex') ? '<a class="button small" href="#/capex">💶 CAPEX</a>' : ''}${back}`, items)}`;
+        ${panel('qd-cases', `${head(`Investments planned in ${c.year} <span class="tm-count">${c.items.length}</span>`)}${modOk('capex') ? '<a class="button small" href="#/capex">💶 CAPEX</a>' : ''}${back}`, items + hiddenNote)}`;
     },
     mir: () => {
       const a = d.site.detail.mir; const list = a?.accidents || [];
