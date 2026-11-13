@@ -2269,22 +2269,37 @@ router.delete('/kpi/overrides/:week/:col', h((req, res) => {
 
 // The customer forecast files, as set (they're read when an A3 is built).
 const cleanPath = (p) => String(p || '').trim().replace(/^"|"$/g, '');
+// 📈 Each customer forecast as it stands now: the file linked in Sources, or the newest sent in (📈 Forecast,
+// forecasts.js) when it came after that file was saved. Everything using the forecast reads it through here: the
+// A3 build (and so the A3 and the Database's report tables), Capacity planning, and the status on Sources and
+// Prepare. withData: the workbook itself (buf), else only where it comes from.
+function currentForecast(key, { withData = false, set = getSettings() } = {}) {
+  const p = cleanPath(set[`kpi_fc_${key}`]);
+  let linked = { path: p || null, found: false };
+  if (p) { try { linked = { ...linked, file: path.basename(p), found: true, modified: fs.statSync(p).mtime.toISOString() }; } catch (err) {
+    linked = { ...linked, file: path.basename(p), error: err.code === 'ENOENT' ? `can't find ${p}` : err.code === 'EBUSY' ? 'the file is locked (open in Excel?) — try again in a moment' : err.message }; } }
+  let up = null; try { up = require('./forecasts').latestInfo(key); } catch { /* none */ }
+  if (up && (!linked.found || up.created_at > linked.modified)) {
+    return { ...linked, from: 'sent_in', file: `${up.file_name} (sent in by ${up.submitter})`, modified: up.created_at, error: undefined,
+      sent_in: { id: up.id, file_name: up.file_name, submitter: up.submitter, created_at: up.created_at }, ...(withData ? { buf: require('./forecasts').dataOf(up.id) } : {}) };
+  }
+  let buf;
+  if (withData && linked.found) { try { buf = fs.readFileSync(p); } catch (err) { return { ...linked, from: 'file', found: false, error: err.code === 'EBUSY' ? 'the file is locked (open in Excel?) — try again in a moment' : err.message }; } }
+  return { ...linked, from: p ? 'file' : 'workbook', ...(buf ? { buf } : {}) };
+}
 function forecastStatus() {
   const set = getSettings();
   return Object.entries(kpiData.FORECASTS).map(([key, spec]) => {
-    const file = cleanPath(set[`kpi_fc_${key}`]);
-    let stat = null; try { stat = file ? fs.statSync(file) : null; } catch { /* not there */ }
-    return { key, label: spec.label, default_file: spec.file, sheet: spec.sheet, workbook_sheet: spec.workbook, path: file || null, found: !!stat, modified: stat ? stat.mtime.toISOString() : null };
+    const c = currentForecast(key, { set });
+    return { key, label: spec.label, default_file: spec.file, sheet: spec.sheet, workbook_sheet: spec.workbook, path: c.path, found: c.found || c.from === 'sent_in', modified: c.modified || null, from: c.from, sent_in: c.sent_in || null };
   });
 }
 function forecastFiles() {
   const set = getSettings();
   return Object.entries(kpiData.FORECASTS).map(([key, spec]) => {
-    const file = cleanPath(set[`kpi_fc_${key}`]);
-    if (!file) return { spec };
-    try { return { spec, file: path.basename(file), modified: fs.statSync(file).mtime.toISOString(), buf: fs.readFileSync(file) }; } catch (err) {
-      return { spec, file: path.basename(file), error: err.code === 'ENOENT' ? `can't find ${file}` : err.message };
-    }
+    const c = currentForecast(key, { withData: true, set });
+    if (c.from === 'workbook') return { spec };
+    return { spec, file: c.file, modified: c.modified, ...(c.buf ? { buf: c.buf } : { error: c.error || 'can\'t be opened' }) };
   });
 }
 
@@ -3368,13 +3383,11 @@ const cpm = require('./cpm');
 function cpmCards() { const set = getSettings(); const c = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' }); return c.status === 'ok' ? c.cards : null; }
 function cpmRefresh(force = false) {
   const set = getSettings();
-  const files = Object.keys(kpiData.FORECASTS).map((key) => { const file = cleanPath(set[`kpi_fc_${key}`]); if (!file) return { key };
-    try { const st = fs.statSync(file); return { key, file, modified: st.mtime.toISOString(), buf: fs.readFileSync(file) }; } catch (err) {
-      return { key, file, error: err.code === 'ENOENT' ? `can't find ${file}` : err.code === 'EBUSY' ? 'the file is locked (open in Excel?) — try again in a moment' : err.message }; } });
-  // 📈 a forecast sent in (the Forecast tab or its link) newer than the linked file is read in its place
-  files.forEach((f, i) => {
-    let up = null; try { up = forecasts.latest(f.key); } catch { /* none */ }
-    if (up && (!f.buf || !f.modified || up.created_at > f.modified)) files[i] = { key: f.key, file: `📈 ${up.file_name} (sent in by ${up.submitter})`, modified: up.created_at, buf: up.data, sent_in: up.id };
+  // 📈 the file linked in Sources, or the newest forecast sent in after it (currentForecast)
+  const files = Object.keys(kpiData.FORECASTS).map((key) => {
+    const c = currentForecast(key, { withData: true, set });
+    if (c.from === 'workbook') return { key };
+    return { key, file: c.from === 'sent_in' ? `📈 ${c.file}` : c.path, modified: c.modified, ...(c.buf ? { buf: c.buf } : { error: c.error }), ...(c.sent_in ? { sent_in: c.sent_in.id } : {}) };
   });
   let read = null; try { read = cpm.refreshForecasts(files, force); } catch (err) { log.warn('CPM forecasts', err.message); }
   return { files: files.map(({ buf, ...f }) => f), read };

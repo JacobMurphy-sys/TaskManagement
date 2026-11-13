@@ -36,6 +36,9 @@ function store(buf, { fileName, submitter, note = null, via, sender = null, acco
   if (!/\.(xlsx|xlsm)$/i.test(name)) throw bad('Send the forecast as an Excel workbook (.xlsx or .xlsm)');
   if (!String(submitter || '').trim()) throw bad('Say who you are (your name)');
   let got; try { got = cpm.detectForecast(buf); } catch (err) { throw bad(err.message); }
+  // verified for everything that reads it: the sheet the A3 reads it from (by name), as well as Capacity's rows
+  const need = require('./kpidata').FORECASTS[got.kind].sheet;
+  if (!got.sheets.some((n) => n.toLowerCase() === need.toLowerCase())) throw bad(`The ${KINDS[got.kind]} needs its "${need}" sheet (this file has: ${got.sheets.join(', ')}). Send the workbook as it comes, without renaming the sheet.`);
   // per month (YYYY-MM) the total
   const by = {}; for (const r of got.rows) { const k = `${r.year}-${String(r.month).padStart(2, '0')}`; by[k] = (by[k] || 0) + (Number(r.qty) || 0); }
   const now = new Date().toISOString();
@@ -46,11 +49,9 @@ function store(buf, { fileName, submitter, note = null, via, sender = null, acco
   try { refresh(); } catch (err) { log.warn('📈 Forecast: updating Capacity planning', err.message); }
   return row;
 }
-// the newest of a kind, with its workbook (for Capacity planning)
-function latest(kind) {
-  const r = db.get('SELECT id, kind, file_name, submitter, created_at, data FROM forecast_uploads WHERE kind = ? ORDER BY created_at DESC, id DESC LIMIT 1', [kind]);
-  return r ? { ...r, data: Buffer.from(r.data) } : null;
-}
+// the newest of a kind (api.js's currentForecast: what the A3, Capacity planning and the rest read), and its workbook
+const latestInfo = (kind) => db.get('SELECT id, kind, file_name, submitter, created_at FROM forecast_uploads WHERE kind = ? ORDER BY created_at DESC, id DESC LIMIT 1', [kind]) || null;
+const dataOf = (id) => { const r = db.get('SELECT data FROM forecast_uploads WHERE id = ?', [id]); return r ? Buffer.from(r.data) : null; };
 
 // ---- the link ----------------------------------------------------------------------------------------
 const linkToken = () => setting('fc_link_token');
@@ -145,4 +146,4 @@ router.post('/forecasts/link/renew', h((req, res) => {
   res.json(linkInfo(true));
 }));
 
-module.exports = { KINDS, store, latest, publicRouter, router, useRefresh, linkOk };
+module.exports = { KINDS, store, latestInfo, dataOf, publicRouter, router, useRefresh, linkOk };

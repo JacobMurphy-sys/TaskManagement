@@ -596,11 +596,12 @@ async function renderKpiSources() {
       <label class="row small"><input type="checkbox" id="kc-weekends" ${calc.split_weekends ? 'checked' : ''}>
         Count Saturdays and Sundays of a week split across two months in their own month's part (W…_1 / W…_2).</label>
       ${unlisted.length && !calc.split_weekends ? `<div class="kc-note notice">Weekend work in split weeks, not counted (tick the box above to count it): ${unlisted.map((u) => `<b>${esc(u.week)}</b> ${esc(u.source === 'remakes' ? `${u.qty} scrap` : `${(u.qty / 1000).toFixed(1)}K ${u.source === 'perso' ? 'persoed' : 'shipped'}`)}`).join(', ')}.</div>` : ''}
-      <h3 class="kc-sub">Customer forecasts <span class="muted small">— read each time an A3 is built (month and year forecast per customer, the forecast rows)</span></h3>
+      <h3 class="kc-sub">Customer forecasts <span class="muted small">— read each time an A3 is built (month and year forecast per customer, the forecast rows) and by 📐 Capacity planning</span></h3>
       <table class="log"><thead><tr><th>Forecast</th><th>File</th><th>File saved</th></tr></thead><tbody>
         ${(calc.forecasts || []).map((f) => `<tr><td><b>${esc(f.label)}</b><div class="small muted">${esc(f.default_file)} · sheet ${esc(f.sheet)}</div></td>
           <td><input type="text" name="kpi_fc_${esc(f.key)}" value="${esc(f.path || '')}" placeholder="Blank: the workbook's ${esc(f.workbook_sheet)} sheet, as Excel last refreshed it" title="Full path, e.g. S:\\public\\Forecast Central\\${esc(f.default_file)}"></td>
-          <td class="small">${f.path ? (f.found ? esc(fmtDateTime(f.modified)) : '<span style="color:var(--danger)">⚠ can\'t find this file</span>') : '<span class="muted">the workbook\'s copy</span>'}</td></tr>`).join('')}</tbody></table>
+          <td class="small">${f.from === 'sent_in' ? `<a href="#/forecast" title="Sent in on the 📈 Forecast tab after this file was saved: the A3, the Database and Capacity planning read it instead">📈 sent in by ${esc(f.sent_in.submitter)}</a><div class="muted">${esc(fmtDateTime(f.sent_in.created_at))} · ${esc(f.sent_in.file_name)}</div>` : f.path ? (f.found ? esc(fmtDateTime(f.modified)) : '<span style="color:var(--danger)">⚠ can\'t find this file</span>') : '<span class="muted">the workbook\'s copy</span>'}</td></tr>`).join('')}</tbody></table>
+      <p class="small muted">A forecast sent in on 📈 Forecast (or through its upload link) after the file here was saved is read in its place, by the A3 and everything else using the forecast.</p>
     </div>
     ${kpiSharedHtml(shared)}
     ${calc.otd_uncounted?.length || calc.otd_checks?.length ? `<div class="card" style="margin-top:12px"><h2 style="margin-top:0">OTD report checks <span class="muted small">— rows to fix in Production's OTD report</span></h2>${kpiOtdChecksHtml(calc)}</div>` : ''}

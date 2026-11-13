@@ -109,7 +109,7 @@ function detectForecast(buf) {
   const bnlLike = names.some((n) => /^live_eu_pay_cards$/i.test(n));
   const tries = [() => { const info = {}; return { kind: 'benelux', rows: parseBenelux(buf, info), info }; }, () => ({ kind: 'amex', rows: parseAmex(buf), info: {} })];
   if (amexLike && !bnlLike) tries.reverse();
-  for (const t of tries) { try { const r = t(); if (r.rows.length) return r; } catch { /* the other */ } }
+  for (const t of tries) { try { const r = t(); if (r.rows.length) return { ...r, sheets: names }; } catch { /* the other */ } }
   throw new Error(bnlLike ? 'The LIVE_EU_PAY_CARDS sheet has no Benelux basic-card lines with a quantity'
     : amexLike ? 'Can\'t find the TOTAL BAU / LASER / EMBOSS + CRAT / DOD Total rows with months in the Amex forecast'
       : 'This doesn\'t look like the BeNeLux forecast (a LIVE_EU_PAY_CARDS sheet) or the Amex forecast (a Sittard sheet)');

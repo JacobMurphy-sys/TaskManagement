@@ -3303,6 +3303,8 @@ async function waitForServer() {
           assert.match((await send(token, bnl, 'Benelux.xlsx', '')).data.error, /your name/, 'a name is needed');
           assert.match((await send(token, junk, 'notes.xlsx')).data.error, /doesn't look like/, 'not a forecast: refused');
           assert.match((await send(token, Buffer.from('hello'), 'x.txt')).data.error, /\.xlsx/, 'only workbooks');
+          const renamed = buildXlsx([{ name: 'Data', columns: ['Line_Year', 'Line_Month', 'Man_SubArea_Nm', 'Item_Nm', 'Cust_Nm', 'Line_Qty'].map((header, i) => ({ header, type: [0, 1, 5].includes(i) ? 'number' : undefined })), rows: [[Y, 1, 'Benelux', 'Basic card', 'KBC Bank NV', 5]] }]);
+          assert.match((await send(token, renamed, 'renamed.xlsx')).data.error, /needs its "LIVE_EU_PAY_CARDS" sheet/, 'verified for the A3 too: its sheet by name');
           const sent = await send(token, bnl, 'Benelux Forecast.xlsx');
           assert.deepEqual([sent.status, sent.data.kind, sent.data.rows, sent.data.summary[`${Y}-01`], sent.data.via], [201, 'benelux', 2, 1200, 'link'], 'a BeNeLux forecast sent in, no account');
           const mine = (await look(token)).data.mine;
@@ -3312,6 +3314,8 @@ async function waitForServer() {
           fc = (await admin('GET', '/forecasts')).data;
           assert.deepEqual([fc.uploads.length, fc.uploads[0].submitter, fc.newest.benelux], [1, 'Fiona Forecaster', sent.data.id], 'on the Forecast tab');
           assert.match(fc.capacity.benelux?.file || '', /Benelux Forecast\.xlsx.*Fiona Forecaster/, 'and read into Capacity planning');
+          const srcFc = (await admin('GET', '/kpi/calc')).data.forecasts.find((f) => f.key === 'benelux');
+          assert.deepEqual([srcFc.from, srcFc.found, srcFc.sent_in?.submitter], ['sent_in', true, 'Fiona Forecaster'], 'and what the A3 reads (Reporting › Sources says so)');
           const file = await fetch(`${BASE}/forecasts/${sent.data.id}/file`, { headers: { Cookie: jar.admin } });
           assert.deepEqual([file.status, (await file.arrayBuffer()).byteLength], [200, bnl.length], 'downloaded as sent');
           // a new link: the old one stops working
@@ -3321,6 +3325,7 @@ async function waitForServer() {
           await admin('PUT', '/forecasts/link', { on: false });
           assert.equal((await look(renewed.path.split('/').pop())).status, 404, 'off again');
           assert.equal((await admin('DELETE', `/forecasts/${sent.data.id}`)).status, 204);
+          assert.notEqual((await admin('GET', '/kpi/calc')).data.forecasts.find((f) => f.key === 'benelux').from, 'sent_in', 'removed: back to the linked file');
         }
         // Sam's own work isn't the admin's either, unless the admin turns All work on (and it's logged)
         const samOwn = (await sam('POST', '/tasks', { title: 'Sam private' })).data;

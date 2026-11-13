@@ -14,7 +14,7 @@ async function renderForecast() {
   const cap = (k) => {
     const st = d.capacity?.[k] || {}; const up = d.uploads.find((u) => u.id === d.newest[k]);
     const sent = String(st.file || '').startsWith('📈');
-    return `<div class="kdb-tile fc-tile"><div class="kdb-tile-l">${esc(d.kinds[k])}</div>
+    return `<div class="kdb-tile fc-tile"><div class="kdb-tile-l">${esc(d.kinds[k])} <span class="muted">· what the A3 and Capacity read now</span></div>
       <div class="small">${st.error ? `<span class="pl-late">⚠ ${esc(st.error)}</span>` : st.file ? `${sent ? '📈 sent in' : '🔗 the linked file'}: <b>${esc(String(st.file).replace(/^📈\s*/, ''))}</b>` : '<span class="muted">nothing yet</span>'}</div>
       <div class="small muted">${st.at ? `read ${esc(fmtDateTime(st.at))}${st.rows !== undefined ? ` · ${st.rows} rows` : ''}` : ''}${up && !sent ? ` · newest sent in: ${esc(fmtDateTime(up.created_at))} (the linked file is newer)` : ''}</div></div>`;
   };
@@ -33,7 +33,7 @@ async function renderForecast() {
       <div class="seg">${[['', 'All'], ...Object.entries(d.kinds)].map(([k, l]) => `<button type="button" data-fc-kind="${k}" class="${kind === k ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
       <div class="spacer"></div>
       <label class="button primary" title="Upload a BeNeLux or Amex forecast workbook">⬆ Upload a forecast<input type="file" id="fc-file" accept=".xlsx,.xlsm" hidden></label></div>
-    <p class="small muted">The customer forecasts sent in, newest first. The newest of each kind goes into 📐 Capacity planning straight away (unless the file linked in Reporting › Sources is newer).</p>
+    <p class="small muted">The customer forecasts sent in, newest first. Each is checked when it arrives; the newest of each kind then feeds <b>everything using the forecast</b>: the A3 built from then on (% of forecast, Missing), the Database's report tables and 📐 Capacity planning, in place of the file linked in Reporting › Sources (unless that file is newer).</p>
     <div class="kdb-tiles">${Object.keys(d.kinds).map(cap).join('')}</div>
     <div class="card">
       <div class="row"><h2 style="margin:0">🔗 Upload link</h2><span class="small ${d.link.on ? '' : 'muted'}">${d.link.on ? '● on' : '○ off'}</span><div class="spacer"></div>
@@ -51,7 +51,7 @@ async function renderForecast() {
     try {
       const r = await fetch('/api/forecasts/upload', { method: 'POST', body: f, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(f.name) } });
       const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.statusText);
-      toast(`${j.kind_label} received (${j.rows} rows) — Capacity planning has it`);
+      toast(`${j.kind_label} received (${j.rows} rows) — the A3 and Capacity planning read it from now on`);
     } catch (err) { toast(err.message, 'error'); }
     renderForecast();
   });
