@@ -2610,7 +2610,10 @@ body.in-training #topbar { border-bottom-color: #f3a712; }
 .see-all-bar { background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--danger) 14%, var(--panel)) 0 12px, color-mix(in srgb, var(--danger) 8%, var(--panel)) 12px 24px);
   border-bottom: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border)); padding: 6px 16px; font-size: 13px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 /* 🌳 the management tree (📇 Contacts): a chart joined by lines */
-.org-scroll { overflow-x: auto; padding: 6px 0 10px; }
+.org-scroll { overflow: auto; padding: 6px 0 10px; max-height: 70vh; }
+/* the tree at its own width, centred when it fits: wider, it scrolls both ways (no cut-off left side) */
+.org-scroll { display: flex; } .org-canvas { width: max-content; flex: none; margin: 0 auto; } /* auto margins: centred when it fits, never cut off when it doesn't */
+.org-tools { gap: 10px; align-items: center; margin: 2px 0 2px; } .org-tools .seg button { min-width: 34px; }
 .org, .org ul { display: flex; justify-content: center; margin: 0; padding: 18px 0 0; position: relative; list-style: none; }
 .org li { list-style: none; position: relative; padding: 18px 6px 0; display: flex; flex-direction: column; align-items: center; }
 .org li::before, .org li::after { content: ''; position: absolute; top: 0; right: 50%; width: 50%; height: 18px; border-top: 2px solid var(--border); }
@@ -2626,11 +2629,20 @@ body.in-training #topbar { border-bottom-color: #f3a712; }
   box-shadow: 0 1px 2px rgb(0 0 0 / .06); text-align: left; position: relative; }
 .org-node[draggable="true"] { cursor: grab; }
 .org-name { display: flex; flex-direction: column; min-width: 0; flex: 1; } .org-name b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
-.org-count { font-size: 11px; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 0 7px; font-weight: 600; }
+.org-count { font-size: 11px; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 0 7px; font-weight: 600; border: 0; cursor: pointer; min-width: 0; height: auto; line-height: 18px; white-space: nowrap; }
+.org-count.shut { background: var(--accent); color: #fff; }
+/* a team of people with no one under them: one compact box under their manager */
+.org .org-team-wrap > li { padding-top: 18px; } .org .org-team-wrap > li::before, .org .org-team-wrap > li::after { display: none; }
+.org-team { display: flex; flex-direction: column; gap: 2px; padding: 4px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; min-width: 170px; }
+.org-row { display: flex; align-items: center; gap: 7px; padding: 3px 8px; border-radius: 7px; text-align: left; position: relative; }
+.org-row[draggable="true"] { cursor: grab; } .org-row:hover { background: var(--panel); } .org-row:hover .org-x { opacity: .7; }
+.org-row .org-name b { font-size: 12.5px; } .org-row .org-name .small { font-size: 11px; }
+.org-row.drag-over { outline: 2px dashed var(--accent); background: var(--accent-soft); }
 .org-x { opacity: 0; padding: 0 3px; min-width: 0; height: 18px; font-size: 11px; } .org-node:hover .org-x { opacity: .7; }
 .org-node.drag-over, .org-top.drag-over, .org-pool.drag-over { outline: 2px dashed var(--accent); outline-offset: 2px; background: var(--accent-soft); }
 .org-node.dragging, .org-chip.dragging { opacity: .45; }
 .org-top { margin: 8px 0 4px; padding: 6px; text-align: center; border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); font-size: 12px; }
 .org-pool { margin-top: 10px; padding: 8px; border: 1px dashed var(--border); border-radius: 10px; }
-.org-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.org-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; max-height: 150px; overflow: auto; }
 .org-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); cursor: grab; font-size: 13px; }
+.org-pool .row { gap: 8px; align-items: center; flex-wrap: wrap; } .org-pool .org-dept { width: auto; max-width: 220px; } .org-pool .org-find { width: auto; }

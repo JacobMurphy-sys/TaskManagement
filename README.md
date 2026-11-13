@@ -607,7 +607,15 @@ On the server PC, the **SITHUB** shortcut starts the server the same way (throug
     - drag onto the top line to put someone at the top;
     - drag back to *Not in the tree*, or use ✕, to take someone out. Whoever reported to them moves up to their manager.
 
-    Loops are refused, and everyone else sees the tree read-only. A manager sees the **open tasks of everyone below them**, directly or through others, each task on its own (not the task above or the project); done tasks drop off. Those tasks show in **👥 People**, which says how many people report to you and offers a **👔 my team** filter, and in ✅ Tasks. A task's 🔒 Who sees it lists its owners' managers, up the tree. Each node shows how many report to that person directly and in all (e.g. 2·6). Renaming a contact renames them in the tree. The earlier 👔 Manager ticks were turned into the tree once: each ticked manager at the top, their department's people under them.
+    Loops are refused, and everyone else sees the tree read-only. A manager sees the **open tasks of everyone below them**, directly or through others, each task on its own (not the task above or the project); done tasks drop off. Those tasks show in **👥 People**, which says how many people report to you and offers a **👔 my team** filter, and in ✅ Tasks. A task's 🔒 Who sees it lists its owners' managers, up the tree. Each node shows how many report to that person directly and in all (e.g. ▾ 2·6).
+    - **For a big tree:**
+      - **Team boxes:** a manager's team of people with no one under them is drawn as one compact box of rows, not a wide row of cards. You can drag onto a row too.
+      - **Fold and unfold:** click a count (▾ / ▸) to fold that branch away (a folded one shows ▸ +N), or use **Fold all / Unfold all**.
+      - **Zoom:** **− / ＋**, the % to go back to full size, and **⤢ Fit** to fit the whole tree to the width of the page.
+      - **Scrolling:** the chart starts centred on the top of the tree and scrolls both ways.
+      - **The pool:** *Not in the tree* keeps to a few rows and scrolls, with a department filter next to Find.
+
+      Folds and zoom are kept in this browser. Renaming a contact renames them in the tree. The earlier 👔 Manager ticks were turned into the tree once: each ticked manager at the top, their department's people under them.
   - **💶 CAPEX:** an investment is seen by whoever raised it, its requester (*Requested by*) and sponsor, and **every manager** (anyone with someone below them in the 🌳 management tree). Others don't see it, open it or change it. On 🏭 Operations, the CAPEX KPI still counts every investment (it's the site's figure), but its list only shows the ones you can see, and says how many more there are.
   - **Quick notes and 🔔 reminders are your own:** nobody else sees your unsorted quick notes, and a reminder only pops up for whoever set it. Notes on a task or project are seen by everyone who sees that task or project.
   - **Everything else is shared:** the change feed (*who changed what*) and the activity log only mention what you can see. Ideas, meetings, CAPEX, Reporting, Production and the rest are shared as before.
