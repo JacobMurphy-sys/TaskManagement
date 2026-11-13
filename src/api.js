@@ -3396,6 +3396,31 @@ function cpmRefresh(force = false) {
 const forecasts = require('./forecasts');
 forecasts.useRefresh(() => cpmRefresh());
 router.use(forecasts.router);
+// 📈 the forecast to draw: each kind as it stands now (currentForecast: the linked file or the newest sent in), per
+// year, month and customer (its trigram's name when it's linked to one on 📐 Capacity › Customers); and, to compare,
+// an earlier forecast sent in (?compare=<id>) the same way
+router.get('/forecasts/view', h((req, res) => {
+  const set = getSettings();
+  const names = cpm.nameMap(); const custName = new Map(cpm.customers().map((c) => [c.trigram, c.name || c.trigram]));
+  const who = (kind, r) => { const tri = kind === 'amex' ? (names.get('amex') || 'AES') : names.get(String(r.name || '').trim().toLowerCase()); return tri ? (custName.get(tri) || (kind === 'amex' ? 'Amex' : tri)) : String(r.name || '').trim() || '(no name)'; };
+  const parse = (kind, buf) => (kind === 'amex' ? cpm.parseAmex(buf) : cpm.parseBenelux(buf));
+  const fold = (kind, rows) => { const m = new Map(); for (const r of rows) { const c = who(kind, r); const k = `${r.year}|${r.month}|${c}`; m.set(k, (m.get(k) || 0) + (Number(r.qty) || 0)); }
+    return [...m].map(([k, qty]) => { const [y, mo, cust] = k.split('|'); return { kind, year: +y, month: +mo, cust, qty }; }); };
+  const current = {}; let rows = [];
+  for (const kind of Object.keys(kpiData.FORECASTS)) {
+    const c = currentForecast(kind, { withData: true, set });
+    current[kind] = { from: c.from, file: c.file || null, modified: c.modified || null, sent_in: c.sent_in || null, error: c.error || null };
+    if (!c.buf) continue;
+    try { rows = rows.concat(fold(kind, parse(kind, c.buf))); } catch (err) { current[kind].error = err.message; }
+  }
+  let compare = null;
+  if (req.query.compare) {
+    const id = Number(req.query.compare); const info = db.get('SELECT id, kind, file_name, submitter, created_at FROM forecast_uploads WHERE id = ?', [id]);
+    if (info) { try { compare = { ...info, rows: fold(info.kind, parse(info.kind, forecasts.dataOf(id))) }; } catch (err) { compare = { ...info, rows: [], error: err.message }; } }
+  }
+  res.json({ kinds: Object.fromEntries(Object.entries(kpiData.FORECASTS).map(([k, x]) => [k, x.label])), current, rows, compare,
+    versions: db.all('SELECT id, kind, file_name, submitter, created_at FROM forecast_uploads ORDER BY created_at DESC, id DESC LIMIT 100') });
+}));
 const cpmOwner = (req) => (req.account ? String(req.account.id) : 'local');
 const cpmScenario = (req, id) => {
   if (!id) return null;

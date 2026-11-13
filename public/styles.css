@@ -2662,3 +2662,17 @@ body.in-training #topbar { border-bottom-color: #f3a712; }
 /* 📈 Forecast */
 a.button:not(.primary) { display: inline-block; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 5px 11px; white-space: nowrap; color: var(--text); text-decoration: none; }
 .fc-tile { min-width: 260px; flex: 1; }
+/* 📊 the forecast chart: customers in a fixed categorical order (validated for colour blindness, light and dark), Other grey */
+.fc-viz { --fs1: #2a78d6; --fs2: #eb6834; --fs3: #1baf7a; --fs4: #eda100; --fs5: #e87ba4; --fs6: #008300; --fs7: #6250d6; --fso: #a3a1ad; }
+:root[data-theme="dark"] .fc-viz { --fs1: #3987e5; --fs2: #d95926; --fs3: #199e70; --fs4: #c98500; --fs5: #d55181; --fs6: #008300; --fs7: #9085e9; --fso: #5f5c6e; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .fc-viz { --fs1: #3987e5; --fs2: #d95926; --fs3: #199e70; --fs4: #c98500; --fs5: #d55181; --fs6: #008300; --fs7: #9085e9; --fso: #5f5c6e; } }
+.fc-s1 { fill: var(--fs1); background: var(--fs1); } .fc-s2 { fill: var(--fs2); background: var(--fs2); } .fc-s3 { fill: var(--fs3); background: var(--fs3); }
+.fc-s4 { fill: var(--fs4); background: var(--fs4); } .fc-s5 { fill: var(--fs5); background: var(--fs5); } .fc-s6 { fill: var(--fs6); background: var(--fs6); }
+.fc-s7 { fill: var(--fs7); background: var(--fs7); } .fc-so { fill: var(--fso); background: var(--fso); }
+.fc-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0 6px; color: var(--text); }
+.fc-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.fc-sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.fc-sw.fc-cmp { height: 0; width: 16px; border-top: 2px dashed var(--text); border-radius: 0; }
+.fc-chart .fc-cmp-line { stroke: var(--text); stroke-width: 2; stroke-dasharray: 5 3; }
+.fc-table tr.fc-total td { border-top: 2px solid var(--border); }
+.fc-viz .kdb-tiles { margin-top: 4px; }

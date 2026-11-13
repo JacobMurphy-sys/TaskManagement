@@ -3316,6 +3316,17 @@ async function waitForServer() {
           assert.match(fc.capacity.benelux?.file || '', /Benelux Forecast\.xlsx.*Fiona Forecaster/, 'and read into Capacity planning');
           const srcFc = (await admin('GET', '/kpi/calc')).data.forecasts.find((f) => f.key === 'benelux');
           assert.deepEqual([srcFc.from, srcFc.found, srcFc.sent_in?.submitter], ['sent_in', true, 'Fiona Forecaster'], 'and what the A3 reads (Reporting › Sources says so)');
+          // 📊 the forecast drawn: what's in use now, per year, month and customer, and an earlier version to compare
+          const bnl2 = buildXlsx([{ name: 'LIVE_EU_PAY_CARDS', columns: ['Line_Year', 'Line_Month', 'Man_SubArea_Nm', 'Item_Nm', 'Cust_Nm', 'Line_Qty'].map((header, i) => ({ header, type: [0, 1, 5].includes(i) ? 'number' : undefined })),
+            rows: [[Y, 1, 'Benelux', 'Basic card', 'KBC Bank NV', 1500], [Y, 2, 'Benelux', 'Basic card', 'ING', 300]] }]);
+          const up2 = await fetch(`${BASE}/forecasts/upload`, { method: 'POST', body: bnl2, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': 'v2.xlsx', Cookie: jar.admin } });
+          const v2 = await up2.json();
+          assert.deepEqual([up2.status, v2.via, v2.submitter], [201, 'account', 'Pat Boss'], 'sent in from the tab, by the signed-in person');
+          const view = (await admin('GET', `/forecasts/view?compare=${sent.data.id}`)).data;
+          const q = (rs, m, c) => rs.filter((r) => r.kind === 'benelux' && r.year === Y && r.month === m && (!c || r.cust === c)).reduce((a, r) => a + r.qty, 0);
+          assert.deepEqual([view.current.benelux.from, view.current.benelux.sent_in.id, q(view.rows, 1, 'KBC Bank NV'), q(view.rows, 2, 'ING')], ['sent_in', v2.id, 1500, 300], 'the newest version, by customer and month');
+          assert.deepEqual([view.compare.id, q(view.compare.rows, 1), q(view.compare.rows, 2)], [sent.data.id, 1200, 800], 'and the one before, to compare');
+          await admin('DELETE', `/forecasts/${v2.id}`);
           const file = await fetch(`${BASE}/forecasts/${sent.data.id}/file`, { headers: { Cookie: jar.admin } });
           assert.deepEqual([file.status, (await file.arrayBuffer()).byteLength], [200, bnl.length], 'downloaded as sent');
           // a new link: the old one stops working
