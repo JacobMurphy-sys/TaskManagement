@@ -942,7 +942,7 @@ router.patch('/name-list-items/:id', h((req, res) => {
         moved++;
       }
     }
-    if (f.name && f.name !== item.name) renamed = renameEverywhere(item.name, f.name);
+    if (f.name && f.name !== item.name) renamed = db.asSystem(() => renameEverywhere(item.name, f.name)); // everywhere, not only what this account sees
   });
   res.json({ ...fresh('name_list_items', item), renamed_tasks: renamed, moved_people: moved });
 }));

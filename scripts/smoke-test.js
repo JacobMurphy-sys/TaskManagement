@@ -3266,6 +3266,16 @@ async function waitForServer() {
         assert.deepEqual([dash.quick_notes.some((n) => n.id === qn.id), alerts.reminders.some((x) => x.id === rm.id), (await sam('DELETE', `/notes/${qn.id}`)).status, (await sam('DELETE', `/reminders/${rm.id}`)).status],
           [false, false, 404, 404], 'someone else\'s quick notes and reminders: not seen, not removed');
         assert.equal((await admin('GET', '/dashboard')).data.quick_notes.some((n) => n.id === qn.id), true, 'their own');
+        // 📅 meetings (the calendar): your own, ones you attend, and ones on a task or project you see
+        const when = '2026-12-01T09:00:00Z'; const cal = async (who) => (await who('GET', '/meetings?from=2026-12-01T00:00:00Z&to=2026-12-02T00:00:00Z')).data.map((m) => m.title).sort();
+        const bossM = (await admin('POST', '/meetings', { title: 'Boss one-to-one', held_at: when })).data;
+        const withSam = (await admin('POST', '/meetings', { title: 'Boss with Sam', held_at: when, attendees: 'Sam Smoke, Someone Else' })).data;
+        await admin('POST', '/meetings', { title: 'Project review', held_at: when, project_id: pr.id });
+        await sam('POST', '/meetings', { title: 'Sam own', held_at: when });
+        assert.deepEqual(await cal(sam), ['Boss with Sam', 'Project review', 'Sam own'], 'Sam\'s calendar: own, attending, and their project\'s');
+        assert.deepEqual(await cal(admin), ['Boss one-to-one', 'Boss with Sam', 'Project review'], 'the admin\'s: not Sam\'s own');
+        assert.deepEqual([(await sam('GET', `/meetings/${bossM.id}`)).status, (await sam('PATCH', `/meetings/${bossM.id}`, { title: 'x' })).status, (await sam('DELETE', `/meetings/${bossM.id}`)).status,
+          (await sam('GET', `/meetings/${withSam.id}`)).status], [404, 404, 404, 200], 'someone else\'s meeting: not opened, changed or removed');
         // Sam's own work isn't the admin's either, unless the admin turns All work on (and it's logged)
         const samOwn = (await sam('POST', '/tasks', { title: 'Sam private' })).data;
         assert.equal((await ids(admin)).includes(samOwn.id), false, 'an admin sees their own too');

@@ -93,7 +93,7 @@ const viewerStore = new AsyncLocalStorage();
 const asViewer = (v, fn) => viewerStore.run(v || null, fn);
 const asSystem = (fn) => viewerStore.run(null, fn);
 const viewer = () => viewerStore.getStore() || null;
-const SHADOWED = ['tasks', 'projects', 'notes', 'reminders', 'capex', 'project_costs', 'project_team', 'project_kpis', 'project_phases', 'task_links', 'attachments', 'audit_log'];
+const SHADOWED = ['tasks', 'projects', 'notes', 'reminders', 'capex', 'meetings', 'project_costs', 'project_team', 'project_kpis', 'project_phases', 'task_links', 'attachments', 'audit_log'];
 const SHADOW_RE = new RegExp(`\\b(${SHADOWED.join('|')})\\b`, 'i');
 const touchCache = new Map();
 const touchesShadow = (sql) => { let t = touchCache.get(sql); if (t === undefined) { t = SHADOW_RE.test(sql); if (touchCache.size < 5000) touchCache.set(sql, t); } return t; };
@@ -101,8 +101,8 @@ const touchesShadow = (sql) => { let t = touchCache.get(sql); if (t === undefine
 // (anywhere in the statement: a write can start with a WITH … clause)
 const WRITE_TARGET = new RegExp(`(\\b(?:INSERT(?:\\s+OR\\s+\\w+)?\\s+INTO|REPLACE\\s+INTO|UPDATE(?:\\s+OR\\s+\\w+)?|DELETE\\s+FROM)\\s+)(${SHADOWED.join('|')})\\b`, 'gi');
 const mainWrites = (sql) => sql.replace(WRITE_TARGET, '$1main.$2');
-const STAMPED = /^\s*INSERT(?:\s+OR\s+\w+)?\s+INTO\s+(?:main\.)?(tasks|projects|notes|reminders|capex)\b/i; // made by the request's account
-const WATCH = /\b(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+(?:main\.)?(tasks|projects|project_team|shares|name_list_items|capex|org_links)\b/i; // changes who sees what
+const STAMPED = /^\s*INSERT(?:\s+OR\s+\w+)?\s+INTO\s+(?:main\.)?(tasks|projects|notes|reminders|capex|meetings)\b/i; // made by the request's account
+const WATCH = /\b(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+(?:main\.)?(tasks|projects|project_team|shares|name_list_items|capex|org_links|meetings)\b/i; // changes who sees what
 const ANY_WRITE = /\b(?:INSERT|REPLACE|UPDATE|DELETE)\b/i;
 let dataVersion = 0; // goes up with every change to what decides visibility
 const visCache = new Map(); // `${key}|${version}` → sets (the last few)
@@ -111,7 +111,7 @@ const shadowState = new WeakMap(); // connection → { key, version }
 const ALL_SQL = '(SELECT allv FROM temp.vis_who)';
 function ensureShadow(c) {
   if (shadowed.has(c)) return;
-  const inT = 'IN (SELECT id FROM temp.vis_t)'; const inP = 'IN (SELECT id FROM temp.vis_p)';
+  const inT = 'IN (SELECT id FROM temp.vis_t)'; const inP = 'IN (SELECT id FROM temp.vis_p)'; const inM = 'IN (SELECT id FROM temp.vis_m)';
   const acc = '(SELECT acc FROM temp.vis_who)'; const fa = '(SELECT fa FROM temp.vis_who)';
   const childOfP = (t) => `CREATE TEMP VIEW ${t} AS SELECT * FROM main.${t} WHERE ${ALL_SQL} OR project_id ${inP};`;
   const guardP = (t) => ['UPDATE', 'DELETE'].map((op) => `CREATE TEMP TRIGGER g_${t}_${op[0]} BEFORE ${op} ON main.${t} WHEN NOT ${ALL_SQL} AND OLD.project_id NOT ${inP} BEGIN SELECT RAISE(IGNORE); END;`).join('\n')
@@ -121,18 +121,23 @@ function ensureShadow(c) {
     CREATE TEMP TABLE IF NOT EXISTS vis_t (id INTEGER PRIMARY KEY);
     CREATE TEMP TABLE IF NOT EXISTS vis_p (id INTEGER PRIMARY KEY);
     CREATE TEMP TABLE IF NOT EXISTS vis_c (id INTEGER PRIMARY KEY);
+    CREATE TEMP TABLE IF NOT EXISTS vis_m (id INTEGER PRIMARY KEY);
     DELETE FROM temp.vis_who; INSERT INTO temp.vis_who VALUES (1, NULL, NULL);
     CREATE TEMP VIEW tasks AS SELECT * FROM main.tasks WHERE ${ALL_SQL} OR id ${inT};
     CREATE TEMP VIEW projects AS SELECT * FROM main.projects WHERE ${ALL_SQL} OR id ${inP};
     CREATE TEMP VIEW notes AS SELECT * FROM main.notes WHERE ${ALL_SQL} OR (CASE WHEN task_id IS NOT NULL THEN task_id ${inT} WHEN project_id IS NOT NULL THEN project_id ${inP} ELSE coalesce(created_by, ${fa}) = ${acc} END);
     CREATE TEMP VIEW capex AS SELECT * FROM main.capex WHERE ${ALL_SQL} OR id IN (SELECT id FROM temp.vis_c);
     ${['UPDATE', 'DELETE'].map((op) => `CREATE TEMP TRIGGER g_capex_${op[0]} BEFORE ${op} ON main.capex WHEN NOT ${ALL_SQL} AND OLD.id NOT IN (SELECT id FROM temp.vis_c) BEGIN SELECT RAISE(IGNORE); END;`).join('\n')}
+    CREATE TEMP VIEW meetings AS SELECT * FROM main.meetings WHERE ${ALL_SQL} OR id ${inM};
+    ${['UPDATE', 'DELETE'].map((op) => `CREATE TEMP TRIGGER g_meetings_${op[0]} BEFORE ${op} ON main.meetings WHEN NOT ${ALL_SQL} AND OLD.id NOT ${inM} BEGIN SELECT RAISE(IGNORE); END;`).join('\n')}
+    CREATE TEMP TRIGGER g_meetings_i BEFORE INSERT ON main.meetings WHEN NOT ${ALL_SQL} AND ((NEW.task_id IS NOT NULL AND NEW.task_id NOT ${inT}) OR (NEW.task_id IS NULL AND NEW.project_id IS NOT NULL AND NEW.project_id NOT ${inP})) BEGIN SELECT RAISE(ABORT, 'Not found'); END;
     CREATE TEMP VIEW reminders AS SELECT * FROM main.reminders WHERE ${ALL_SQL} OR coalesce(created_by, ${fa}) = ${acc};
     ${['project_costs', 'project_team', 'project_kpis', 'project_phases'].map(childOfP).join('\n')}
     CREATE TEMP VIEW task_links AS SELECT * FROM main.task_links WHERE ${ALL_SQL} OR (task_id ${inT} AND depends_on_id ${inT});
-    CREATE TEMP VIEW attachments AS SELECT * FROM main.attachments WHERE ${ALL_SQL} OR (CASE WHEN task_id IS NOT NULL THEN task_id ${inT} WHEN project_id IS NOT NULL THEN project_id ${inP} ELSE 1 END);
+    CREATE TEMP VIEW attachments AS SELECT * FROM main.attachments WHERE ${ALL_SQL} OR (CASE WHEN task_id IS NOT NULL THEN task_id ${inT} WHEN meeting_id IS NOT NULL THEN meeting_id ${inM} WHEN project_id IS NOT NULL THEN project_id ${inP} ELSE 1 END);
     CREATE TEMP VIEW audit_log AS SELECT * FROM main.audit_log WHERE ${ALL_SQL} OR (CASE table_name WHEN 'tasks' THEN record_id ${inT} WHEN 'projects' THEN record_id ${inP}
       WHEN 'notes' THEN record_id IN (SELECT id FROM temp.notes) WHEN 'reminders' THEN record_id IN (SELECT id FROM temp.reminders)
+      WHEN 'meetings' THEN record_id ${inM}
       WHEN 'task_links' THEN record_id IN (SELECT id FROM temp.task_links) WHEN 'attachments' THEN record_id IN (SELECT id FROM temp.attachments)
       ELSE project_id IS NULL OR project_id ${inP} END);
     ${['UPDATE', 'DELETE'].map((op) => `CREATE TEMP TRIGGER g_tasks_${op[0]} BEFORE ${op} ON main.tasks WHEN NOT ${ALL_SQL} AND OLD.id NOT ${inT} BEGIN SELECT RAISE(IGNORE); END;`).join('\n')}
@@ -174,6 +179,7 @@ function syncViewer(c) {
   c.prepare('DELETE FROM temp.vis_t').run(); c.prepare('DELETE FROM temp.vis_p').run();
   const it = c.prepare('INSERT INTO temp.vis_t (id) VALUES (?)'); for (const id of sets.tasks) it.run(id);
   const ip = c.prepare('INSERT INTO temp.vis_p (id) VALUES (?)'); for (const id of sets.projects) ip.run(id);
+  c.prepare('DELETE FROM temp.vis_m').run(); const im = c.prepare('INSERT INTO temp.vis_m (id) VALUES (?)'); for (const id of sets.meetings) im.run(id);
   c.prepare('DELETE FROM temp.vis_c').run(); const ic = c.prepare('INSERT INTO temp.vis_c (id) VALUES (?)'); for (const id of sets.capex) ic.run(id);
   c.prepare('UPDATE temp.vis_who SET allv = 0, acc = ?, fa = ?').run(Number(v.id), fa);
   st.key = key; st.version = dataVersion;

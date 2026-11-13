@@ -280,7 +280,8 @@ const TABLES = {
     notes       TEXT,
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
-    duration_min INTEGER NOT NULL DEFAULT 60 CHECK (duration_min BETWEEN 5 AND 1440)`,
+    duration_min INTEGER NOT NULL DEFAULT 60 CHECK (duration_min BETWEEN 5 AND 1440),
+    created_by  INTEGER  -- 🔒 the account that made it: seen by it, its attendees and whoever sees its task or project`,
 
   // Files attached to a task or a meeting. The file itself is DATA_DIR/attachments/<stored>
   // (mirrored into the backups folder); project_id follows the task or meeting.
