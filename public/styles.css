@@ -2654,3 +2654,7 @@ body.in-training #topbar { border-bottom-color: #f3a712; }
 .pl-fold[open] > summary { margin-bottom: 8px; }
 /* 🌳 the line reaches a team box */
 .org .org-team-wrap > li { padding-top: 0; }
+/* 📥 My work's count sits on its own tab (it had nothing to sit on, and went to the top bar's far corner) */
+#topnav a { position: relative; }
+#topnav a .count { top: -5px; right: -6px; }
+@media (max-width: 700px) { #topnav a .count { top: 0; right: 0; } } /* the phone's scrolling bar would cut it off */
