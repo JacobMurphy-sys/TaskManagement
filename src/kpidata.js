@@ -76,7 +76,11 @@ const SOURCES = {
 // (the file's sheet, first row as headers, into the Excel table of that name).
 const FORECASTS = {
   benelux: { label: 'BeNeLux forecast', file: 'Benelux Forecast.xlsx', sheet: 'LIVE_EU_PAY_CARDS', table: 'ForecastImport', workbook: 'BeNeLux Forecast' },
-  amex: { label: 'Amex forecast', file: 'Amex Forecast.xlsx', sheet: 'Sittard', table: 'Sittard', workbook: 'Amex Forecast' },
+  // Amex's rows that matter: the months (row 3, and the titles above), Laser (7), black and white DOD (32, 37), the total
+  // (42). Only these are copied into the workbook (kpi.js forecastSheet): the file has more rows with the same labels
+  // (filled for months already over), which the workbook's formulas would add up too, doubling the year to date.
+  amex: { label: 'Amex forecast', file: 'Amex Forecast.xlsx', sheet: 'Sittard', table: 'Sittard', workbook: 'Amex Forecast',
+    rows: { months: 3, total: 42, laser: 7, dod: [32, 37] }, keepRows: [1, 2, 3, 7, 32, 37, 42] },
 };
 const WEEK_RE = /^W\d{4}(_[12])?$/i;
 

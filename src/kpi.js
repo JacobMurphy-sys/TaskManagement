@@ -736,8 +736,12 @@ function forecastSheet(tpl, table, buf, spec) {
     const h = !filled(v) ? `Column${k + 1}` : typeof v === 'number' && v > 20000 && v < 80000 ? ddmmyyyy(v) : String(v);
     headers.push(h); put(T.top, T.left + k, h);
   }
+  // spec.keepRows (Amex): only those rows of the file come across; the rest are left empty where they were, so the
+  // layout the workbook's formulas expect stays, but rows with the same labels can't be added up a second time
+  const keep = spec.keepRows ? new Set(spec.keepRows) : null; const dropped = new Set();
   for (const c of src.cells.values()) {
     if (c.row <= top || c.col < left || !filled(c.v)) continue;
+    if (keep && !keep.has(c.row)) { dropped.add(c.row); continue; }
     put(T.top + c.row - top, T.left + c.col - left, c.v, c.t === 'e' ? { t: 'e' } : {});
   }
   const dataBottom = T.top + height - 1;
@@ -777,7 +781,7 @@ function forecastSheet(tpl, table, buf, spec) {
   }
   let maxRow = 0; let maxCol = 0;
   for (const c of cells.values()) { if (c.row > maxRow) maxRow = c.row; if (c.col > maxCol) maxCol = c.col; }
-  return { name: tpl.name, cells, maxRow, maxCol, rows: new Map(), cols: [], merges: [], recalc: true, read: { rows: height - 1, columns: width, overlap } };
+  return { name: tpl.name, cells, maxRow, maxCol, rows: new Map(), cols: [], merges: [], recalc: true, read: { rows: height - 1, columns: width, overlap }, dropped: dropped.size };
 }
 
 // ---- the A3 for any week, worked out by SITHUB -----------------------------------
@@ -823,7 +827,7 @@ function buildWeek(buf, week, data, { a3Sheet = 'A3 Weekly Report', dbSheet = 'D
       const R = table.range; // the table's own rows aren't needed from the workbook, only its first (the formulas)
       const tpl = Object.assign(book.sheet(info.name, { skipRows: (n) => n > R.top + 1 && n <= R.bottom }), { name: info.name });
       Object.defineProperty(sheets, info.name, { value: forecastSheet(tpl, table, f.buf, f.spec), enumerable: true, writable: true, configurable: true });
-      flags.push({ part: 'forecast-file', text: `${f.spec.label} read from ${f.file}${f.modified ? ` (saved ${String(f.modified).slice(0, 16).replace('T', ' ')})` : ''}.` });
+      flags.push({ part: 'forecast-file', text: `${f.spec.label} read from ${f.file}${f.modified ? ` (saved ${String(f.modified).slice(0, 16).replace('T', ' ')})` : ''}${sheets[info.name].dropped ? `; only its rows ${f.spec.keepRows.join(', ')} used (${sheets[info.name].dropped} other filled rows left out, so nothing is counted twice)` : ''}.` });
     } catch (err) { flags.push({ part: 'forecast', text: `${f.spec.label} couldn't be read from ${f.file}: ${err.message} — the workbook's copy is used.` }); }
   }
   const fcFromWorkbook = fcSheets.filter((n) => !sheets[n].recalc);

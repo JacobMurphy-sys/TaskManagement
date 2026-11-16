@@ -1662,6 +1662,21 @@ async function waitForServer() {
         const am = forecastSheet(Object.assign(cellsOf({ A1: { v: 'Column1' } }), { name: 'Amex Forecast', maxRow: 1, maxCol: 1 }), { range: { top: 1, left: 1, bottom: 2, right: 3 } }, mkZip(files2), { file: 'Amex Forecast.xlsx', sheet: 'Sittard', workbook: 'Amex Forecast' });
         assert.deepEqual(['A1', 'B1', 'C1', 'C2'].map((r) => am.cells.get(r)?.v), ['Column1', 'Column2', '01/01/2026', 9], 'blank headers ColumnN, dates as dd/mm/yyyy text');
         assert.throws(() => forecastSheet(tpl, { range: { top: 1, left: 1, bottom: 2, right: 5 } }, file, { file: 'x.xlsx', sheet: 'Other', workbook: 'BeNeLux Forecast' }), /no sheet called "Other"/);
+        // 🔧 Amex: only its own rows come across (keepRows), so a second row with the same label isn't added up again
+        {
+          const axFile = buildXlsx([{ name: 'Sittard', columns: [{ header: 'Column1' }, { header: 'Column2' }, { header: 'Jan', type: 'number' }], rows: [
+            ['TOTAL BAU', 'Total', 999], // row 2: an actuals block's total, filled for months already over
+            ['TOTAL BAU', 'Total', 1000], // row 3: the forecast's total
+          ] }]);
+          const axTpl = Object.assign(cellsOf({ A1: { v: 'Column1' }, G1: { f: 'SUMIFS(C:C,A:A,"TOTAL BAU")', v: 0 } }), { name: 'Amex Forecast', maxRow: 1, maxCol: 7 });
+          const spec = { file: 'Amex Forecast.xlsx', sheet: 'Sittard', workbook: 'Amex Forecast' };
+          const all = forecastSheet(axTpl, { range: { top: 1, left: 1, bottom: 2, right: 3 } }, axFile, spec);
+          assert.equal(createCalc({ 'Amex Forecast': all }).value('Amex Forecast', 'G1'), 1999, '(every row copied: the label counted twice)');
+          const kept = forecastSheet(axTpl, { range: { top: 1, left: 1, bottom: 2, right: 3 } }, axFile, { ...spec, keepRows: [1, 3] });
+          assert.deepEqual([createCalc({ 'Amex Forecast': kept }).value('Amex Forecast', 'G1'), kept.dropped, kept.cells.get('A2')?.v ?? null, kept.cells.get('C3').v], [1000, 1, null, 1000],
+            'only the rows kept: the total once, in its own place');
+          assert.deepEqual(require('../src/kpidata').FORECASTS.amex.keepRows, [1, 2, 3, 7, 32, 37, 42], 'Amex: titles, months (3), Laser (7), DOD (32, 37), the total (42)');
+        }
       }
       const yr = await call('GET', '/kpi/weeks?year=2026');
       assert.equal(yr.template, true, 'the loaded workbook is kept as the template');

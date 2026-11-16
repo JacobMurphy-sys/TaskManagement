@@ -85,7 +85,7 @@ function parseBenelux(buf, info = {}) {
 // Laser in row 7, black and white DOD in rows 32 and 37 (DOD = the two); Emboss is the rest of the total. Read by
 // labels before, which picked up more rows than the total and so far too much: kept only for a file without months
 // in row 3 (an older layout).
-const AMEX_ROWS = { months: 3, total: 42, laser: 7, dod: [32, 37] };
+const AMEX_ROWS = require('./kpidata').FORECASTS.amex.rows; // { months: 3, total: 42, laser: 7, dod: [32, 37] }
 const AMEX_READ = 2; // the version of these rules: a forecast read by older ones is read again (refreshForecasts)
 function parseAmex(buf) {
   const book = readBook(buf);
