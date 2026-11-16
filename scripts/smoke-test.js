@@ -2408,6 +2408,21 @@ async function waitForServer() {
         pr = cw.prepare(sc, { A: ' NEW1 ', B: '', C: '7', F: '2,5', G: '2026-11-16', H: '3.5', I: true }, 'A');
         assert.deepEqual(pr.fields.map((f) => [f.name, f.oledb, f.value]), [['A', 'VarWChar', 'NEW1'], ['C', 'UnsignedTinyInt', 7], ['F', 'Double', 2.5], ['G', 'Date', '2026-11-16T00:00:00'], ['H', 'Currency', 3.5], ['I', 'Boolean', true]],
           'typed for Access; blanks left out');
+        // 🔽 fixed answers: one of the list (as the list spells it), or refused; an admin changes the lists
+        const ch = (await call('GET', '/plan/cards')).choices;
+        assert.deepEqual([ch.Type, ch.Material, ch['Print Sides'], ch.Provider, ch['Front DoD'], ch['Back DoD']], [['DOD', 'Emboss', 'Laser'], ['PVC', 'Metal'], ['Front', 'Back', 'Front/Back'],
+          ['Mastercard', 'Visa', 'Amex', 'Maestro', 'Other'], ['Black', 'White', 'Colour', 'N/A'], ['Black', 'White', 'Colour', 'N/A']], 'the answers to start with');
+        const lists = { b: ['Red', 'Green'] };
+        assert.deepEqual(cw.prepare(sc, { A: 'NEW2', B: 'blue' }, 'A', lists).errors, ['B is one of: Red, Green'], 'not one of its answers: refused');
+        assert.deepEqual(cw.prepare(sc, { A: 'NEW2', B: 'green' }, 'A', lists).fields.find((f) => f.name === 'B').value, 'Green', 'one of them, spelled as the list has it');
+        let ch2 = (await call('PUT', '/plan/cards/choices', { column: 'material', answers: ['PVC', 'Metal', 'PETG', 'pvc', ''] })).choices;
+        assert.deepEqual(ch2.Material, ['PVC', 'Metal', 'PETG'], 'an answer added (no doubles, no blanks), to the column whatever its case');
+        ch2 = (await call('PUT', '/plan/cards/choices', { column: 'Tag', answers: ['Contactless'] })).choices;
+        assert.deepEqual(ch2.Tag, ['Contactless'], 'another column given a list');
+        ch2 = (await call('PUT', '/plan/cards/choices', { column: 'Tag', answers: [] })).choices;
+        assert.equal('Tag' in ch2, false, 'and taken off again: typed freely');
+        assert.deepEqual((await call('GET', '/plan/cards')).choices.Material, ['PVC', 'Metal', 'PETG'], 'kept');
+        await call('PUT', '/plan/cards/choices', { column: 'Material', answers: ['PVC', 'Metal'] });
         // what goes to the Access Database Engine (here into a log instead)
         const logF = path.join(tmp, 'cardwrite.log'); process.env.CARDWRITE_TEST_LOG = logF;
         const fx = path.join(tmp, 'Cards.accdb'); fs.copyFileSync(path.join(__dirname, 'fixtures', 'sample.accdb'), fx);

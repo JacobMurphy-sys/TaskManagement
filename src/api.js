@@ -2776,6 +2776,8 @@ async function cardSchema(file, table) {
   cardSchemaCache = { sig, value: v };
   return v;
 }
+// 🔽 the fixed answers (cardwrite.js): the defaults until an admin changes them
+function cardChoices() { try { const v = JSON.parse(db.get("SELECT value FROM settings WHERE key = 'card_choices'")?.value || 'null'); if (v && typeof v === 'object') return v; } catch { /* the defaults */ } return { ...cardWrite.DEFAULT_CHOICES }; }
 function cardDbOf() {
   const set = getSettings();
   const file = cleanPath(set.plan_db) || null; const table = set.plan_db_table || 'Cards';
@@ -2810,11 +2812,26 @@ function cardsMissing(known) {
 router.get('/plan/cards', h(async (req, res) => {
   const { file, table, r, writable } = cardDbOf();
   const base = { file, name: file ? path.basename(file) : null, table, writable, status: r.status, count: r.count || 0, error: r.error || null,
-    additions: db.all('SELECT id, ax_ref, item_name, by_name, created_at FROM card_additions ORDER BY id DESC LIMIT 30'), engine_url: cardWrite.ENGINE_URL };
+    additions: db.all('SELECT id, ax_ref, item_name, by_name, created_at FROM card_additions ORDER BY id DESC LIMIT 30'), engine_url: cardWrite.ENGINE_URL,
+    choices: cardChoices(), can_edit_choices: !accounts.enabled() || accounts.hasRight(req, 'setup') };
   if (r.status !== 'ok' || !writable) return res.json({ ...base, schema: null, missing: r.status === 'ok' ? cardsMissing(r.cards) : [] });
   const schema = await cardSchema(file, table);
   if (!schema) return res.json({ ...base, schema: null, reading: true, missing: cardsMissing(r.cards) });
   res.json({ ...base, schema, prefill: cardPrefillCols(schema, r.columns), missing: cardsMissing(r.cards) });
+}));
+// { column, answers: [...] }: a column's fixed answers (none: typed freely again); the setup right
+router.put('/plan/cards/choices', h((req, res) => {
+  if (accounts.enabled() && !accounts.hasRight(req, 'setup')) throw new HttpError(403, 'Changing the answers needs the “Change the setup” right');
+  const column = String(req.body?.column || '').trim().slice(0, 64);
+  if (!column) throw new HttpError(400, 'Which column?');
+  const seen = new Set(); const answers = [];
+  for (const a of Array.isArray(req.body?.answers) ? req.body.answers : []) { const t = String(a ?? '').trim().slice(0, 255); if (t && !seen.has(t.toLowerCase())) { seen.add(t.toLowerCase()); answers.push(t); } }
+  if (answers.length > 100) throw new HttpError(400, 'At most 100 answers');
+  const all = cardChoices(); const k = Object.keys(all).find((x) => x.toLowerCase() === column.toLowerCase()) || column;
+  if (answers.length) all[k] = answers; else delete all[k];
+  db.run("INSERT INTO settings (key, value) VALUES ('card_choices', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [JSON.stringify(all)]);
+  log.info(`🗂 Card database: ${k}'s answers ${answers.length ? `set to ${answers.join(', ')}` : 'removed (typed freely)'} by ${req.account?.person || 'this PC'}`);
+  res.json({ choices: all });
 }));
 // a change that touches no row, rolled back: the engine, its bitness and write access, nothing changed
 router.post('/plan/cards/test', h(async (req, res) => {
@@ -2833,7 +2850,7 @@ router.post('/plan/cards/add', h(async (req, res) => {
   const schema = await cardSchema(file, table); if (!schema) throw new HttpError(503, 'The card database is still being read: try again in a moment');
   const cols = cardPrefillCols(schema, r.columns);
   if (!cols.key) throw new HttpError(400, `The ${schema.table} table has no AX Ref column`);
-  const { fields, errors } = cardWrite.prepare(schema, req.body?.values || {}, cols.key);
+  const { fields, errors } = cardWrite.prepare(schema, req.body?.values || {}, cols.key, cardChoices());
   if (errors.length) throw new HttpError(400, errors.join(' · '));
   const ax = fields.find((f) => f.name === cols.key).value;
   if (r.cards.has(planning.axKey(ax))) throw new HttpError(409, `${ax} is already in the card database`);

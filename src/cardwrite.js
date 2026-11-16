@@ -69,11 +69,24 @@ function clean(col, raw) {
     default: return { error: `${col.name} can't be written from SITHUB` };
   }
 }
+// 🔽 Fixed answers: columns that take one of a list (Type: DOD, Emboss, Laser…), set on the page by an admin (the
+// setup right) and kept in settings (card_choices: { column: [answers] }). Until changed, these:
+const DEFAULT_CHOICES = {
+  Type: ['DOD', 'Emboss', 'Laser'], Material: ['PVC', 'Metal'], 'Print Sides': ['Front', 'Back', 'Front/Back'],
+  Provider: ['Mastercard', 'Visa', 'Amex', 'Maestro', 'Other'], 'Front DoD': ['Black', 'White', 'Colour', 'N/A'], 'Back DoD': ['Black', 'White', 'Colour', 'N/A'],
+};
+// a column's list, whatever the case of its name (Front DoD / Front DOD)
+const choicesFor = (choices, name) => { const k = Object.keys(choices || {}).find((x) => x.toLowerCase() === String(name).toLowerCase()); return k ? choices[k] : null; };
 // the form's values checked against the table: { fields: [{ name, oledb, value }], errors: [] }
-function prepare(schema, values, keyCol) {
+function prepare(schema, values, keyCol, choices = {}) {
   const fields = []; const errors = [];
   for (const c of schema.columns) {
     if (!c.writable) continue;
+    const list = choicesFor(choices, c.name);
+    if (list?.length && (c.kind === 'text' || c.kind === 'memo')) { // one of its answers (spelled as the list has it)
+      const v = values?.[c.name]; const t = v === null || v === undefined ? '' : String(v).trim();
+      if (t) { const hit = list.find((x) => x.toLowerCase() === t.toLowerCase()); if (!hit) { errors.push(`${c.name} is one of: ${list.join(', ')}`); continue; } values = { ...values, [c.name]: hit }; }
+    }
     const r = clean(c, values?.[c.name]);
     if (r.error) { errors.push(r.error); continue; }
     if (r.value === null) { if (c.required || c.name === keyCol) errors.push(`${c.name} is needed`); continue; }
@@ -189,4 +202,4 @@ async function write({ file, table, key, fields }) {
   return viaEngine({ mode: 'insert', file, table, key, fields });
 }
 
-module.exports = { schemaNow, prepare, clean, test, write, writable, ENGINE_URL, PS };
+module.exports = { DEFAULT_CHOICES, choicesFor, schemaNow, prepare, clean, test, write, writable, ENGINE_URL, PS };

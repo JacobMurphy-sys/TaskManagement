@@ -45,7 +45,7 @@ window.TIMELINE = {
   PINS: [
   { id: 'card-database-add', date: '2026-11-16', area: 'production', title: 'Add cards to the card database',
     text: 'Cards can be added to the card database from SITHUB, without Access or an inventory account. SITHUB writes them into the Access file, so everything reading it keeps working.',
-    points: ['A list of the cards on work orders or produced that the database hasn\'t got', 'Customer and item name filled in from the production reports', 'A form built from the table itself, with the values already used offered', 'Checked and written in one go, with a copy kept first, and a test that changes nothing'] },
+    points: ['A list of the cards on work orders or produced that the database hasn\'t got', 'Customer and item name filled in from the production reports', 'A form built from the table itself, with the values already used offered', 'Checked and written in one go, with a copy kept first, and a test that changes nothing', 'Type, material, print sides, provider and DoD chosen from lists an admin can change'] },
   { id: 'report-vault', date: '2026-11-16', area: 'reporting', title: 'Report vault',
     text: 'The source reports start again every 1 January, so Reporting now keeps a sealed copy of each month, with the file it came from. Last year stays in every report.',
     points: ['Each month sealed on the 5th of the next, after one more read of the file', 'A month the file stops covering is kept there and then', 'Sealed months are locked: a file that says otherwise is flagged, and an admin can reopen and seal again', 'A Vault tab in Reporting: the months by source, their rows and the original files', 'Switching OTD to SITHUB\'s own entries keeps the months the OTD report had'] },
