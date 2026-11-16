@@ -2761,6 +2761,91 @@ function planData(modeQ) {
     capacity, mode, projected, now: new Date().toISOString(), running, queue, slots: planning.loadByDeadline([...running, ...queue]) });
 }
 router.get('/plan', h((req, res) => res.json(planData(req.query.mode))));
+
+// 🗂 Adding cards to the card database (Access) from SITHUB (cardwrite.js): for people without Access or an
+// inventory management account. The cards to add are those the open work orders or the production reports name but
+// the database doesn't have, started with what the reports know (customer, item name); the rest is typed in.
+const cardWrite = require('./cardwrite');
+let cardSchemaCache = null; // { sig, value }
+async function cardSchema(file, table) {
+  const st = fs.statSync(file); const sig = `${file}|${table}|${st.mtimeMs}|${st.size}`;
+  if (cardSchemaCache?.sig === sig) return cardSchemaCache.value;
+  const v = await bg.within(bg.run('cardSchema', { file, table }), 45000);
+  if (!v) return null; // still being read
+  if (v.status === 'error') throw new HttpError(400, v.error);
+  cardSchemaCache = { sig, value: v };
+  return v;
+}
+function cardDbOf() {
+  const set = getSettings();
+  const file = cleanPath(set.plan_db) || null; const table = set.plan_db_table || 'Cards';
+  const r = planning.readCards({ file, table });
+  return { file, table, r, writable: cardWrite.writable(file) };
+}
+// the columns the reports' figures go into (the table's own, by name)
+function cardPrefillCols(schema, used) {
+  const has = (n) => (n && schema.columns.some((c) => c.name === n) ? n : null);
+  const find = (re) => schema.columns.find((c) => c.writable && re.test(c.name))?.name || null;
+  return { key: has(used?.key) || find(/^ax ?ref$/i), name: has(used?.name) || find(/item ?name|cardbody ?name|card ?name/i), customer: find(/^customer( ?name)?$/i) || has(used?.customer), trigram: has(used?.trigram) || find(/^trigram$/i) };
+}
+// AX Refs the work orders or production name that the card database hasn't got, with what the reports know of them
+function cardsMissing(known) {
+  const set = getSettings(); const names = customerNames(); const out = new Map();
+  const at = (ax) => { const k = planning.axKey(ax); if (!k || known.has(k)) return null; if (!out.has(k)) out.set(k, { ax: String(ax).trim(), item_name: null, customer: null, trigram: null, open_qty: 0, wos: new Set(), produced: 0, last_run: null }); return out.get(k); };
+  try {
+    const src = planning.readSource({ file: cleanPath(set.plan_src) || null, uploaded: PLAN_UPLOAD });
+    for (const l of src.lines || []) { const m = at(l.article); if (!m) continue; m.open_qty += Number(l.qty) || 0; m.wos.add(l.wo); m.trigram ||= l.customer || null; }
+  } catch { /* no open work orders */ }
+  const since = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+  const prod = [...db.all('SELECT item, item_name, customer, trigram, max(start_at) AS last, sum(qty) AS q FROM prod_runs WHERE item IS NOT NULL AND start_at >= ? GROUP BY item, item_name, customer, trigram', [since]),
+    ...db.all('SELECT item, item_name, customer, trigram, max(day) AS last, sum(qty) AS q FROM perso_output WHERE item IS NOT NULL AND day >= ? GROUP BY item, item_name, customer, trigram', [since])];
+  for (const r of prod) {
+    const m = at(r.item); if (!m) continue;
+    m.produced += Number(r.q) || 0;
+    if (!m.last_run || r.last > m.last_run) { m.last_run = r.last; m.item_name = r.item_name || m.item_name; m.customer = r.customer || m.customer; m.trigram = r.trigram || m.trigram; }
+  }
+  return [...out.values()].map((m) => ({ ...m, customer: m.customer || (m.trigram ? names.get(String(m.trigram).toUpperCase()) || null : null), wos: [...m.wos].slice(0, 8), wo_count: m.wos.size }))
+    .sort((a, b) => b.open_qty - a.open_qty || b.produced - a.produced).slice(0, 200);
+}
+router.get('/plan/cards', h(async (req, res) => {
+  const { file, table, r, writable } = cardDbOf();
+  const base = { file, name: file ? path.basename(file) : null, table, writable, status: r.status, count: r.count || 0, error: r.error || null,
+    additions: db.all('SELECT id, ax_ref, item_name, by_name, created_at FROM card_additions ORDER BY id DESC LIMIT 30'), engine_url: cardWrite.ENGINE_URL };
+  if (r.status !== 'ok' || !writable) return res.json({ ...base, schema: null, missing: r.status === 'ok' ? cardsMissing(r.cards) : [] });
+  const schema = await cardSchema(file, table);
+  if (!schema) return res.json({ ...base, schema: null, reading: true, missing: cardsMissing(r.cards) });
+  res.json({ ...base, schema, prefill: cardPrefillCols(schema, r.columns), missing: cardsMissing(r.cards) });
+}));
+// a change that touches no row, rolled back: the engine, its bitness and write access, nothing changed
+router.post('/plan/cards/test', h(async (req, res) => {
+  const { file, table, r, writable } = cardDbOf();
+  if (!writable) throw new HttpError(400, 'The card database isn\'t an Access file (.accdb / .mdb)');
+  if (r.status !== 'ok') throw new HttpError(400, r.error || 'The card database can\'t be read');
+  const schema = await cardSchema(file, table); if (!schema) throw new HttpError(503, 'The card database is still being read: try again in a moment');
+  const out = await cardWrite.test({ file, table: schema.table, key: cardPrefillCols(schema, r.columns).key });
+  res.status(out.ok ? 200 : 400).json(out.ok ? out : { ...out, error: out.error });
+}));
+// { values: { column: value } }: one card written into the table
+router.post('/plan/cards/add', h(async (req, res) => {
+  const { file, table, r, writable } = cardDbOf();
+  if (!writable) throw new HttpError(400, 'The card database isn\'t an Access file (.accdb / .mdb)');
+  if (r.status !== 'ok') throw new HttpError(400, r.error || 'The card database can\'t be read');
+  const schema = await cardSchema(file, table); if (!schema) throw new HttpError(503, 'The card database is still being read: try again in a moment');
+  const cols = cardPrefillCols(schema, r.columns);
+  if (!cols.key) throw new HttpError(400, `The ${schema.table} table has no AX Ref column`);
+  const { fields, errors } = cardWrite.prepare(schema, req.body?.values || {}, cols.key);
+  if (errors.length) throw new HttpError(400, errors.join(' · '));
+  const ax = fields.find((f) => f.name === cols.key).value;
+  if (r.cards.has(planning.axKey(ax))) throw new HttpError(409, `${ax} is already in the card database`);
+  const out = await cardWrite.write({ file, table: schema.table, key: cols.key, fields });
+  if (!out.ok) throw Object.assign(new HttpError(out.exists ? 409 : 400, out.error), { engine_url: out.engine_url });
+  const by = req.account?.person || String(req.get('X-User-Name') || '').slice(0, 60) || null;
+  db.run('INSERT INTO card_additions (ax_ref, item_name, fields, by_name, account_id, provider, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [String(ax), cols.name ? fields.find((f) => f.name === cols.name)?.value ?? null : null, JSON.stringify(fields.map((f) => [f.name, f.value])), by, req.account?.id ?? null, out.provider || null, new Date().toISOString()]);
+  log.info(`🗂 Card ${ax} added to the card database by ${by || '?'} (${fields.length} fields, ${out.provider || ''})`);
+  planning.forgetCards(); cardSchemaCache = null;
+  res.status(201).json({ ok: true, ax_ref: ax });
+}));
 // The machines and the product types each runs ("DOD, Laser"; blank = any).
 const machineFields = (b) => {
   const f = {};

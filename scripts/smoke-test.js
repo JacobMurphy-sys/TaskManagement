@@ -2389,6 +2389,36 @@ async function waitForServer() {
       pl = await call('GET', '/plan');
       assert.equal(pl.cards_db.status, 'ok');
       assert.deepEqual(pl.unknown_articles, ['E1'], 'card articles missing from the card database are listed');
+      // 🗂 adding cards to the card database (Access) from SITHUB
+      {
+        const cd = await call('GET', '/plan/cards');
+        const e1 = cd.missing.find((m) => m.ax === 'E1');
+        assert.deepEqual([cd.writable, cd.schema, e1?.trigram, e1?.open_qty > 0, e1?.wo_count], [false, null, 'SIX', true, 1], 'to add: the open work orders\' cards the database hasn\'t got (an Excel card list can\'t be written to)');
+        await assert.rejects(call('POST', '/plan/cards/add', { values: { 'AX Ref': 'E1' } }), /isn't an Access file/);
+        // the table read from the file: its columns, kinds, sizes; values checked against them
+        const cw = require('../src/cardwrite');
+        const sc = cw.schemaNow({ file: path.join(__dirname, 'fixtures', 'sample.accdb'), table: 'table1' });
+        assert.deepEqual([sc.table, sc.rows, sc.columns.map((c) => [c.name, c.kind, c.oledb])], ['Table1', 2, [['A', 'text', 'VarWChar'], ['B', 'text', 'VarWChar'], ['C', 'integer', 'UnsignedTinyInt'],
+          ['D', 'integer', 'SmallInt'], ['E', 'integer', 'Integer'], ['F', 'number', 'Double'], ['G', 'date', 'Date'], ['H', 'number', 'Currency'], ['I', 'boolean', 'Boolean']]], 'each column as Access has it');
+        assert.equal(cw.schemaNow({ file: path.join(__dirname, 'fixtures', 'sample.accdb'), table: 'Table3' }).columns.find((c) => c.name === 'a').writable, false, 'an AutoNumber is left to Access');
+        let pr = cw.prepare(sc, { A: 'NEW1', C: '300', D: 'x', G: 'soon' }, 'A');
+        assert.deepEqual(pr.errors, ['C is a whole number from 0 to 255', 'D is a whole number from -32768 to 32767', 'G is a date'], 'each value checked against its column');
+        assert.deepEqual(cw.prepare(sc, { B: 'x' }, 'A').errors, ['A is needed'], 'the AX Ref is needed');
+        assert.match(cw.prepare(sc, { A: 'x'.repeat(51) }, 'A').errors[0], /at most 50 characters/, 'a text field\'s size (Access counts bytes)');
+        pr = cw.prepare(sc, { A: ' NEW1 ', B: '', C: '7', F: '2,5', G: '2026-11-16', H: '3.5', I: true }, 'A');
+        assert.deepEqual(pr.fields.map((f) => [f.name, f.oledb, f.value]), [['A', 'VarWChar', 'NEW1'], ['C', 'UnsignedTinyInt', 7], ['F', 'Double', 2.5], ['G', 'Date', '2026-11-16T00:00:00'], ['H', 'Currency', 3.5], ['I', 'Boolean', true]],
+          'typed for Access; blanks left out');
+        // what goes to the Access Database Engine (here into a log instead)
+        const logF = path.join(tmp, 'cardwrite.log'); process.env.CARDWRITE_TEST_LOG = logF;
+        const fx = path.join(tmp, 'Cards.accdb'); fs.copyFileSync(path.join(__dirname, 'fixtures', 'sample.accdb'), fx);
+        assert.equal((await cw.write({ file: fx, table: 'Table1', key: 'A', fields: pr.fields })).ok, true);
+        assert.equal((await cw.test({ file: cardsF, table: 'Cards', key: 'AX Ref' })).ok, false, 'not an Access file: refused');
+        const sent = JSON.parse(fs.readFileSync(logF, 'utf8').trim());
+        assert.deepEqual([sent.mode, sent.table, sent.key, sent.fields.length], ['insert', 'Table1', 'A', 6], 'one row, its fields typed');
+        delete process.env.CARDWRITE_TEST_LOG;
+        assert.ok(/BeginTransaction[\s\S]*SELECT COUNT\(\*\) FROM \$t WHERE[\s\S]*INSERT INTO[\s\S]*Commit\(\)/.test(cw.PS) && /Rollback\(\)/.test(cw.PS), 'checked again, then written, in one transaction');
+        if (process.platform !== 'win32') assert.match((await cw.test({ file: fx, table: 'Table1', key: 'A' })).error, /needs SITHUB running on Windows/);
+      }
       const art = (key, a) => [...pl.running, ...pl.queue].find((j) => j.key === key).articles.find((x) => x.article === a);
       assert.deepEqual([art('CAESS26100601/0002', 'A1').speed, art('CAESS26100601/0002', 'A2').speed, art('CINDS26100602/0001', 'B1').speed], [1500, 2400, 600],
         'most specific rule: DOD PVC Front 2400, other DOD 1500, Laser 600');

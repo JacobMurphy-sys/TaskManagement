@@ -752,6 +752,8 @@ function readCards(opts) {
   return b.result || { status: 'loading', file, error: 'The card database is still being read (a minute or so); refresh in a moment' };
 }
 
+// read again from the file at the next look (after SITHUB has added a card to it)
+function forgetCards() { cardCache = null; if (bigCards) { bigCards.sig = null; bigCards.checked = 0; } }
 function readCardsNow({ file, table = 'Cards', columns = {} }) {
   if (!file) return { status: 'none' };
   let stat;
@@ -871,4 +873,4 @@ function readSource({ file, uploaded, parser = parse }) {
 }
 
 module.exports = {
-  shipFromPerso, lineStepper, machineStepper, workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, readCardsNow, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, mitigate, parseDisp, linkDisp, DISP_COLUMNS, workingDaysAhead, scoreJobs, deadlineScore, shiftAt, SHIFTS, DEADLINE_DEFAULTS, woOfName, OTTO_COLUMNS };
+  shipFromPerso, lineStepper, machineStepper, workingWindows, minutesByDay, projectMachines, capacityByType, canRun, readCards, readCardsNow, forgetCards, speedFor, withSpeeds, combos, axKey, CARD_COLUMNS, parse, parseDay, parseTime, jobsOf, order, project, addWorking, loadByDeadline, readSource, COLUMNS, parseOtto, orderOtto, linkOtto, projectOtto, catchUp, tooOld, mitigate, parseDisp, linkDisp, DISP_COLUMNS, workingDaysAhead, scoreJobs, deadlineScore, shiftAt, SHIFTS, DEADLINE_DEFAULTS, woOfName, OTTO_COLUMNS };

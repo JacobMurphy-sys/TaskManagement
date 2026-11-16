@@ -2688,3 +2688,10 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .vt-reopened { color: var(--text); background: color-mix(in srgb, #f0a445 12%, transparent); }
 .vt-key { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; }
 .vt-detail { margin-top: 12px; }
+
+/* 🗂 adding a card */
+.cd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px 14px; }
+.cd-f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.cd-f > span { font-weight: 600; }
+.cd-f input[type=checkbox] { width: auto; align-self: flex-start; }
+.cd-f.cd-key input { font-weight: 700; }

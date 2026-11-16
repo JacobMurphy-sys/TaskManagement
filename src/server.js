@@ -107,7 +107,7 @@ const NOT_IN_TRAINING = [
   [/^\/backups(\/|$)/, 'Backups'], [/^\/server(\/|$)/, 'The server controls'], [/^\/library\/(import|folder|excluded)/, 'Changing the Library'],
   [/^\/plan\/upload/, 'Uploading planning exports'], [/^\/plan\/auto\/[^/]+\/run$/, 'Running an automatic plan (it saves a file)'],
   [/^\/kpi\/(load|load-path|history)$/, 'Loading the workbook or importing weeks'], [/^\/charter-template/, 'Changing the charter template'],
-  [/^\/tickets\/\d+$/, 'Removing a ticket', 'DELETE'], [/^\/settings\/shared\/apply$/, 'Applying shared paths'],
+  [/^\/tickets\/\d+$/, 'Removing a ticket', 'DELETE'], [/^\/plan\/cards\/(add|test)$/, 'Adding to the card database (it changes the real Access file)'], [/^\/settings\/shared\/apply$/, 'Applying shared paths'],
 ];
 app.use('/api', (req, res, next) => {
   if (req.method === 'GET' || !db.inTraining()) return next();

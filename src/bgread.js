@@ -28,6 +28,7 @@ const TASKS = {
   pdata: ({ file, force }) => require('./persodata').readLinked(file || null, { force: !!force }),
   kpi: (opts) => require('./kpidata').importSources(opts),
   cards: (opts) => require('./planning').readCardsNow(opts), // a big card database (planning.js)
+  cardSchema: (opts) => require('./cardwrite').schemaNow(opts), // its columns and the values used (cardwrite.js)
 };
 
 if (!isMainThread && workerData?.bgread) {

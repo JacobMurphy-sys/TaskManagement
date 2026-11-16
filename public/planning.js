@@ -90,13 +90,14 @@ async function plNoSpeed() {
         ${canSet ? `<td class="nowrap"><input type="number" min="1" step="1" style="width:90px" data-ns-speed="${i}" value="${lk ? Math.round(lk.speed) : ''}" placeholder="cards/h"> <button class="small primary" data-ns-save="${i}">Save</button></td>` : ''}</tr>`; }).join('')}
       </tbody></table></div>` : ''}
     ${byArticle.size ? `<h3 class="pl-h">Not in the card database <span class="muted small">${byArticle.size} card${byArticle.size === 1 ? '' : 's'} · ${n(unknown.length)} lines · ${n(sum(unknown))} cards</span></h3>
-      <p class="small muted">Their kind isn't known, so no speed rule can reach them: add them to the card database (Access, the Cards table), or correct the Card AX in the work order if it's wrong.</p>
+      <p class="small muted">Their kind isn't known, so no speed rule can reach them: <a href="#/cards" data-cd-go>🗂 add them to the card database</a> (SITHUB writes them into the Access file, with the customer and item name from the reports), or correct the Card AX in the work order if it's wrong.</p>
       <div class="kdb-scroll"><table class="log pll-t"><thead><tr><th>Card (AX)</th><th class="num">Lines</th><th class="num">Cards</th><th>Work orders</th><th>Customers</th></tr></thead><tbody>
       ${[...byArticle].sort((a, b) => sum(b[1]) - sum(a[1])).map(([a, l]) => `<tr><td><b><a href="#" data-pf-open-item="${esc(a)}">${esc(a)}</a></b></td><td class="num">${n(l.length)}</td><td class="num">${n(sum(l))}</td><td class="small">${woLinks(l)}</td><td class="small">${esc([...new Set(l.map((x) => x.customer).filter(Boolean))].join(', '))}</td></tr>`).join('')}
       </tbody></table></div>` : ''}
     <div class="row" style="margin-top:10px"><span class="small muted">Every line, with its work order, job, card, kind and cards, as a CSV — to hand on.</span><span class="spacer"></span><button data-ns-csv>⬇ CSV</button></div>`, { wide: true });
   const box = $('#modal-body');
   box.onclick = async (e) => {
+    if (e.target.closest('[data-cd-go]')) { closeModal(); return; } // 🗂 to the card database page
     const w = e.target.closest('[data-pf-open-wo], [data-pf-open-item]');
     if (w) { e.preventDefault(); closeModal(); pfBack.length = 0; pfOpen(w.dataset.pfOpenWo ? 'wo' : 'item', w.dataset.pfOpenWo || w.dataset.pfOpenItem); return; }
     const sv = e.target.closest('[data-ns-save]');

@@ -589,6 +589,16 @@ const TABLES = {
     tech        TEXT,
     qty         REAL    NOT NULL DEFAULT 0,
     read_at     TEXT    NOT NULL`,
+  // 🗂 Cards added to the card database (Access) from SITHUB: what was written, by whom (cardwrite.js)
+  card_additions: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ax_ref      TEXT    NOT NULL,
+    item_name   TEXT,
+    fields      TEXT    NOT NULL,
+    by_name     TEXT,
+    account_id  INTEGER,
+    provider    TEXT,
+    created_at  TEXT    NOT NULL`,
   // 📈 Forecasts sent in (the Forecast tab, or its upload link with no sign-in): the workbook itself, who sent it and
   // what it held. The newest of a kind (benelux / amex) newer than the linked file is what 📐 Capacity reads.
   forecast_uploads: `
