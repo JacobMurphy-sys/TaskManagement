@@ -1684,6 +1684,11 @@ async function waitForServer() {
       assert.equal(yr.weeks.find((w) => w.week === 'W2639').a3.origin, 'excel');
       assert.equal(yr.weeks.find((w) => w.week === 'W2614_1').a3, null);
       const built = await call('POST', '/kpi/build', { week: 'W2614_1' });
+      { // 🔎 where the workbook takes its forecasts from, as a CSV to send
+        const tr = await fetch(`${BASE}/kpi/forecast-trace.csv`);
+        const txt = await tr.text();
+        assert.ok(tr.status === 200 && /section,sheet,cell,formula,value/.test(txt) && /Database: days and month,Database,B2/.test(txt), 'the forecast formulas export');
+      }
       assert.deepEqual([built.week, built.origin, built.source_name], ['W2614_1', 'ci', 'SITHUB']);
       assert.deepEqual(built.flags.map((f) => f.part), ['text', 'complaints'], 'flags what still comes from the workbook');
       assert.match(built.flags[1].text, /Customer complaints aren't written up: there's no "CC Week:"/, 'and that this template has nowhere for the complaints');

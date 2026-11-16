@@ -2193,6 +2193,39 @@ router.get('/kpi/ehs', h(async (req, res) => {
   res.json({ ...qualityPages.ehs(req.query.month), read, path_set: !!String(getSettings().kpi_src_ehs || '').trim() });
 }));
 
+// 🔎 Where the CI workbook takes its forecasts from: every formula that reads a forecast sheet, the formulas behind the
+// Database's Top 10 (month and year to date) and forecast rows, the top of its Amex Forecast sheet, and SITHUB's own
+// reading of the Amex file in use. A CSV to send to whoever maintains SITHUB, so the A3 can be fed the forecast directly.
+router.get('/kpi/forecast-trace.csv', h((req, res) => {
+  const buf = templateWorkbook(); if (!buf) throw new HttpError(400, 'No CI workbook loaded yet');
+  const { readBook } = require('./xlsxread');
+  const book = readBook(buf); const out = [['section', 'sheet', 'cell', 'formula', 'value']];
+  const FC = /amex forecast|sittard|benelux forecast|forecastimport/i;
+  const sheetOf = (n) => { try { return book.sheet(n); } catch { return null; } };
+  for (const info of book.sheets) {
+    const sh = sheetOf(info.name); if (!sh) continue;
+    for (const c of sh.cells.values()) if (c.f && FC.test(c.f) && out.length < 4000) out.push(['reads a forecast', info.name, c.r, `=${c.f}`, c.v]);
+  }
+  const L = (n) => { let x = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) x = String.fromCharCode(65 + ((n - 1) % 26)) + x; return x; };
+  const N = (letters) => [...letters].reduce((a, ch) => a * 26 + ch.charCodeAt(0) - 64, 0);
+  const block = (section, sheetName, c1, c2, r1, r2) => { const sh = book.sheets.find((x) => x.name.toLowerCase() === sheetName.toLowerCase()); const s2 = sh && sheetOf(sh.name); if (!s2) return;
+    for (let r = r1; r <= r2; r++) for (let c = N(c1); c <= N(c2); c++) { const x = s2.cells.get(`${L(c)}${r}`); if (x && (x.f || (x.v !== null && x.v !== undefined && x.v !== ''))) out.push([section, sh.name, `${L(c)}${r}`, x.f ? `=${x.f}` : '', x.v]); } };
+  const set = getSettings(); const dbName = set.kpi_db_sheet || 'Database';
+  block('Database: days and month', dbName, 'A', 'Z', 1, 5);
+  block('Database: Top 10 (MTD L-Q, YTD S-X)', dbName, 'L', 'X', 6, 15);
+  block('Database: forecast and budget rows', dbName, 'A', 'Q', 20, 30);
+  block('Amex Forecast sheet (top)', 'Amex Forecast', 'A', 'R', 1, 45);
+  try { for (const t of book.tables()) if (FC.test(`${t.name} ${t.sheet}`)) out.push(['table', t.sheet, `${L(t.range.left)}${t.range.top}:${L(t.range.right)}${t.range.bottom}`, t.name, '']); } catch { /* none */ }
+  // SITHUB's own reading of the Amex file in use (fixed rows), month by month
+  try {
+    const c = currentForecast('amex', { withData: true, set });
+    if (c.buf) for (const r of cpm.parseAmex(c.buf)) out.push(['SITHUB reads the Amex file', c.file || '', `${r.year}-${String(r.month).padStart(2, '0')}`, r.tech || 'total', r.qty]);
+  } catch (err) { out.push(['SITHUB reads the Amex file', '', '', `couldn't: ${err.message}`, '']); }
+  const q = (v) => { const t = v === null || v === undefined ? '' : String(v); return /[",\n;]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', 'attachment; filename="forecast-formulas.csv"');
+  res.send(`﻿${out.map((r) => r.map(q).join(',')).join('\r\n')}`);
+}));
 router.get('/kpi/calc', h((req, res) => {
   const year = Number(req.query.year) || new Date().getFullYear();
   const vol = kpiData.weeklyVolumes(year);
