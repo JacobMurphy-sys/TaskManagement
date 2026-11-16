@@ -78,7 +78,8 @@ function vaultUploadDialog(d) {
   openModal(`<div class="modal-head"><h2 style="margin:0">⬆ Old reports into the vault</h2><button class="icon" data-action="close-modal">✕</button></div>
     <p class="small muted">An old export of a source (last year's, or one from before SITHUB kept them), read exactly as SITHUB reads that source every day. Each month in it is sealed into the vault with the file, and appears in every report (the Database, Operations, Quality, EHS…). Check it first: you'll see what each month holds before anything is kept.</p>
     <div class="cd-grid">
-      <label class="cd-f"><span>Which report</span><select id="vu-src">${Object.entries(d.sources).map(([k, s]) => `<option value="${k}">${esc(s.label)}</option>`).join('')}</select></label>
+      <label class="cd-f" style="grid-column:1 / -1"><span>Which report <span class="small muted">· its file</span></span><select id="vu-src">${Object.entries(d.sources).map(([k, s]) => `<option value="${k}" title="${esc(s.linked && s.linked !== s.file ? `Read now from ${s.linked}` : '')}">${esc(s.label)} — ${esc(s.file)}${s.linked && s.linked.toLowerCase() !== String(s.file).toLowerCase() ? ` (now: ${esc(s.linked)})` : ''}</option>`).join('')}</select>
+        <span class="small muted" id="vu-hint"></span></label>
       <label class="cd-f"><span>The file</span><input type="file" id="vu-file" accept=".xlsx,.xlsm,.xls"></label>
       <label class="cd-f" id="vu-year-l" hidden><span>Year of its weeks <span class="small muted">(OTD weeks typed without a year)</span></span><input type="number" id="vu-year" value="${last}" min="2000" max="2100"></label>
     </div>
@@ -86,9 +87,19 @@ function vaultUploadDialog(d) {
     <div id="vu-out" style="margin-top:10px"></div>
     <div class="row" style="margin-top:10px"><span class="spacer"></span><button type="button" data-action="close-modal">Cancel</button>
       <button type="button" id="vu-check">Check the file</button><button type="button" class="primary" id="vu-go" disabled>Keep in the vault</button></div>`, { wide: true });
-  const src = $('#vu-src'); const showYear = () => { $('#vu-year-l').hidden = src.value !== 'otd'; };
+  const src = $('#vu-src');
+  // the file to look for: the report's usual name (and sheet), and the one it's read from now
+  const hint = () => { const x = d.sources[src.value]; $('#vu-hint').innerHTML = `Look for <b>${esc(x.file)}</b>${x.sheet ? ` (sheet ${esc(x.sheet)})` : ''}${x.linked && x.linked.toLowerCase() !== String(x.file).toLowerCase() ? `; it's read from <b>${esc(x.linked)}</b> now` : ''}: an older copy of it.`; };
+  const showYear = () => { $('#vu-year-l').hidden = src.value !== 'otd'; hint(); };
   src.addEventListener('change', () => { showYear(); $('#vu-go').disabled = true; $('#vu-out').innerHTML = ''; }); showYear();
-  $('#vu-file').addEventListener('change', () => { $('#vu-go').disabled = true; $('#vu-out').innerHTML = ''; });
+  // a file whose name looks like one of the reports picks that report
+  const stem = (n) => String(n || '').toLowerCase().replace(/\.[^.]+$/, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  $('#vu-file').addEventListener('change', () => {
+    $('#vu-go').disabled = true; $('#vu-out').innerHTML = '';
+    const f = $('#vu-file').files[0]; if (!f) return; const n = stem(f.name);
+    const hit = Object.entries(d.sources).find(([, x]) => [x.file, x.linked].some((t) => t && n.startsWith(stem(t))));
+    if (hit && hit[0] !== src.value) { src.value = hit[0]; showYear(); toast(`That looks like the ${hit[1].label} report: picked it`); }
+  });
   $('#vu-replace').addEventListener('change', () => { if (!$('#vu-go').disabled) send(true); });
   const send = async (dry) => {
     const f = $('#vu-file').files[0]; if (!f) { toast('Choose the file first', 'error'); return; }

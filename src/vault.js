@@ -193,7 +193,11 @@ function overview(year) {
   }
   const years = [...new Set([...db.all('SELECT DISTINCT substr(period, 1, 4) AS y FROM vault_periods').map((r) => +r.y), ...db.all("SELECT DISTINCT substr(day, 1, 4) AS y FROM kpi_rows WHERE day <> ''").map((r) => +r.y)])].filter(Boolean).sort();
   const files = db.get('SELECT count(*) AS n, coalesce(sum(length(gz)), 0) AS bytes FROM vault_files');
-  return { year: Number(year), years, sources: Object.fromEntries(Object.entries(kd().SOURCES).map(([k, s]) => [k, { label: s.label, vaulted: vaulted(k) }])), periods, live, seal_after_day: SEAL_AFTER_DAY, files };
+  // each source's usual file name, and the file it's read from now (so an old one can be told apart)
+  const linked = new Map(db.all('SELECT source, file FROM kpi_sources').map((r) => [r.source, r.file]));
+  const nameOf = (f) => (f ? String(f).split(/[\\/]/).pop() : null);
+  return { year: Number(year), years, sources: Object.fromEntries(Object.entries(kd().SOURCES).map(([k, s]) => [k, { label: s.label, vaulted: vaulted(k), file: s.file, sheet: s.sheet,
+    linked: /\.(xlsx|xlsm|xls|csv)$/i.test(linked.get(k) || "") ? nameOf(linked.get(k)) : null }])), periods, live, seal_after_day: SEAL_AFTER_DAY, files };
 }
 const fileOf = (id) => { ensure(); const f = db.get('SELECT name, gz FROM vault_files WHERE id = ?', [id]); return f ? { name: f.name, buf: zlib.gunzipSync(Buffer.from(f.gz)) } : null; };
 const rowsOf = (id) => { ensure(); return db.all(`SELECT ${ROW_COLS} FROM vault_rows WHERE period_id = ? ORDER BY day, week`, [id]); };
