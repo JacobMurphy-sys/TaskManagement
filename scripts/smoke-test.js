@@ -32,7 +32,7 @@ async function waitForServer() {
   process.env.LOG_DIR = path.join(tmp, 'logs-test'); // the app's modules loaded here log into the test folder, not your own logs
   const server = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], {
     env: {
-      ...process.env, PORT: String(PORT), BACKUP_INTERVAL_HOURS: '0',
+      ...process.env, PORT: String(PORT), BACKUP_INTERVAL_HOURS: '0', VAULT_AUTO: '0',
       DATA_DIR: tmp, DB_FILE: path.join(tmp, 'test.db'), BACKUP_DIR: path.join(tmp, 'backups'), LOG_DIR: path.join(tmp, 'logs'),
       DEFAULTS_FILE: path.join(tmp, 'share', 'cimanager-defaults.json'),
     },
@@ -3040,6 +3040,51 @@ async function waitForServer() {
         fs.rmSync(ptmp, { recursive: true, force: true });
       }
       for (const m of (await call('GET', '/plan')).machines) await call('DELETE', `/plan/machines/${m.id}`);
+    }
+
+    // 🗄 the report vault: a year's months kept when the source file starts again on 1 January
+    {
+      const { buildXlsx } = require('../src/xlsx');
+      const before = (await call('GET', '/settings')).kpi_src_perso;
+      const vf = path.join(tmp, 'vault-perso.xlsx');
+      const put = (rows) => { fs.writeFileSync(vf, buildXlsx([{ name: 'KPI_persoed_CI', columns: [['Customer'], ['Type'], ['duedate', 'date'], ['Perso Date', 'date'], ['Scrap', 'number'], ['Qty Persoed', 'number']].map((c) => ({ header: c[0], type: c[1] })), rows }])); };
+      const live = async (p) => (await call('GET', `/vault?year=${p.slice(0, 4)}`)).live.perso[p] || { rows: 0, qty: 0 };
+      const read = () => call('POST', '/kpi/calc/import', { force: true });
+      // 2024 as it stood in December: November and December
+      put([['Bank V', 'Card', '2024-11-12', '2024-11-12', 0, 100], ['Bank V', 'Card', '2024-12-10', '2024-12-10', 0, 200]]);
+      await call('PATCH', '/settings', { kpi_src_perso: vf }); await read();
+      assert.deepEqual([(await live('2024-11')).qty, (await live('2024-12')).qty], [100, 200]);
+      // November sealed (by hand here; at month end it's automatic), with the file
+      await assert.rejects(call('POST', '/vault/seal', { source: 'perso', period: '2999-01' }), /that's over/);
+      assert.equal((await call('POST', '/vault/seal', { source: 'perso', period: '2024-11' })).sealed, 1);
+      let v = await call('GET', '/vault?year=2024');
+      const nov = v.periods.find((p) => p.source === 'perso' && p.period === '2024-11');
+      assert.deepEqual([nov.status, nov.rows, nov.qty, nov.how, !!nov.file_id, v.can_edit], ['sealed', 1, 100, 'by hand', true, true], 'sealed, with the file kept');
+      // 1 January: the file starts again, with only January 2025
+      put([['Bank V', 'Card', '2025-01-08', '2025-01-08', 0, 50]]); await read();
+      v = await call('GET', '/vault?year=2024');
+      const dec = v.periods.find((p) => p.source === 'perso' && p.period === '2024-12');
+      assert.deepEqual([dec?.how, dec?.qty, dec?.file_id], ['kept when the file stopped covering it', 200, null], 'December, not sealed yet, kept the moment the file dropped it');
+      assert.deepEqual([(await live('2024-11')).qty, (await live('2024-12')).qty, (await live('2025-01')).qty], [100, 200, 50], 'the reports still have last year, and the new one');
+      const wk = (await call('GET', '/kpi/calc?year=2024')).weeks.reduce((a, w) => a + (w.perso_ps || 0), 0);
+      assert.equal(Math.round(wk * 1000), 300, 'the Database\'s weekly figures for last year still there');
+      // a file that says something else for a sealed month: flagged, not taken
+      put([['Bank V', 'Card', '2024-11-12', '2024-11-12', 0, 999], ['Bank V', 'Card', '2025-01-08', '2025-01-08', 0, 50]]); await read();
+      v = await call('GET', '/vault?year=2024');
+      const nov2 = v.periods.find((p) => p.id === nov.id);
+      assert.deepEqual([nov2.diff?.qty, (await live('2024-11')).qty], [999, 100], 'the difference noted; the sealed figure kept');
+      // reopened: the file's figures straight away; sealed again from them
+      await call('POST', `/vault/${nov.id}/reopen`);
+      assert.equal((await live('2024-11')).qty, 999, 'reopened: the file\'s figures');
+      await call('POST', `/vault/${nov.id}/seal`);
+      v = await call('GET', '/vault?year=2024');
+      const nov3 = v.periods.find((p) => p.source === 'perso' && p.period === '2024-11');
+      assert.deepEqual([nov3.status, nov3.qty, nov3.diff], ['sealed', 999, null], 'sealed again');
+      const csv = await fetch(`${BASE}/vault/${nov3.id}/rows.csv`).then((r) => r.text());
+      assert.match(csv, /2024-11-12,.*Bank V,Card,999/, 'its rows as a CSV');
+      const kept = await fetch(`${BASE}/vault/files/${nov3.file_id}`);
+      assert.deepEqual([kept.status, (await kept.arrayBuffer()).byteLength], [200, fs.statSync(vf).size], 'and the file as it was');
+      await call('PATCH', '/settings', { kpi_src_perso: before || '' });
     }
 
     // 👤 accounts: off until the first is made; then every request signs in, and 📥 My work gathers

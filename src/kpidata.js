@@ -272,6 +272,7 @@ function storeSource(name, rows, meta = {}) {
   let skipped = 0; let first = null; let last = null; let blanks = 0; // blanks: a form's template rows, not filled in (not counted at all)
   const ins = db.conn.prepare('INSERT INTO kpi_rows (source, day, week, customer, type, qty, scrap, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
   db.tx(() => {
+    const vault = require('./vault'); const kept = vault.before(name); // 🗄 months the file may no longer cover, kept
     db.run('DELETE FROM kpi_rows WHERE source = ?', [name]);
     const typed = !!SOURCES[name].typedWeek;
     for (const r of rows) {
@@ -304,6 +305,7 @@ function storeSource(name, rows, meta = {}) {
       ON CONFLICT(source) DO UPDATE SET file = excluded.file, modified = excluded.modified, imported_at = excluded.imported_at,
       rows = excluded.rows, skipped = excluded.skipped, first_day = excluded.first_day, last_day = excluded.last_day`,
     [name, meta.file || null, meta.modified || null, new Date().toISOString(), rows.length - skipped - blanks, skipped, first, last]);
+    vault.after(name, kept); // 🗄 sealed months back from the report vault
   });
   return { source: name, rows: rows.length - skipped - blanks, skipped, first_day: first, last_day: last };
 }
@@ -347,6 +349,7 @@ function storeConsumption(rows, meta = {}) {
   }
   const ins = db.conn.prepare('INSERT INTO kpi_rows (source, day, week, customer, type, qty, scrap, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
   db.tx(() => {
+    const vault = require('./vault'); const kept = vault.before('consumption'); // 🗄 as storeSource
     db.run("DELETE FROM kpi_rows WHERE source = 'consumption'");
     for (const x of remakes.values()) ins.run('consumption', x.day, weekCode(x.day, { splitWeekends }), x.customer, x.type, x.qty, x.qty, JSON.stringify({ remake: 1, ...x.extra }));
     for (const x of use.values()) ins.run('consumption', x.day, weekCode(x.day, { splitWeekends }), x.customer, null, x.qty, 0, JSON.stringify(x.extra));
@@ -354,6 +357,7 @@ function storeConsumption(rows, meta = {}) {
       ON CONFLICT(source) DO UPDATE SET file = excluded.file, modified = excluded.modified, imported_at = excluded.imported_at,
       rows = excluded.rows, skipped = excluded.skipped, first_day = excluded.first_day, last_day = excluded.last_day`,
     ['consumption', meta.file || null, meta.modified || null, new Date().toISOString(), rows.length - skipped, skipped, first, last]);
+    vault.after('consumption', kept);
   });
   return { source: 'consumption', rows: rows.length - skipped, remakes: remakeRows, skipped, first_day: first, last_day: last };
 }

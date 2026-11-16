@@ -20,6 +20,7 @@ async function renderKpi(arg, tab) {
   if (arg === 'calc' || arg === 'sources') return renderKpiSources();
   if (arg === 'quality' || arg === 'ehs' || arg === 'operations') return renderQualityTab(arg);
   if (arg === 'otd') return renderOtdTab();
+  if (arg === 'vault') return renderKpiVault();
   if (arg === 'prepare') return renderKpiPrepare(tab);
   if (arg === 'production') { store.set('planInsight', 'timing'); store.set('planHalf', 'insights'); location.replace('#/planning'); return; } // ⏱ Timing moved to Production › Insights
   const [weeks, settings, year] = await Promise.all([api.get('/kpi/snapshots'), api.get('/settings'), api.get('/kpi/weeks').catch(() => null)]);

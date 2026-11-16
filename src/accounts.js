@@ -58,6 +58,7 @@ const MODULE_API = [
   [/^\/kpi\/otd-from$/, ['kpi_sources']], // where OTD is counted from: Sources
   [/^\/kpi\/otd(\/|$)/, ['otd']], // 🚚 OTD (Despatch)
   [/^\/kpi\/calc(\/import|\/weekends)?$/, ['kpi', 'kpi_sources']], // the source files: Database and Sources both show them
+[/^\/vault(\/|$)/, ['kpi', 'quality', 'otd', 'kpi_sources']], // 🗄 the report vault: anyone with a Reporting tab
   [/^\/kpi(\/|$)/, ['kpi']], // the Weekly SC Report, its Database, Operations and Prepare
   [/^\/people\/(overview|focus)(\/|$)/, ['team']], [/^\/capex(\/|$)/, ['capex']], [/^\/(ideas|idea-notes)(\/|$)/, ['ideas']],
   [/^\/(plan|prod)(\/|$)/, ['planning']], [/^\/cpm(\/|$)/, ['cpm']], [/^\/forecasts(\/|$)/, ['forecast']], [/^\/report(\/|$)/, ['report']], [/^\/contacts(\/|$)/, ['contacts']],

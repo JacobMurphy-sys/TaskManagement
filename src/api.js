@@ -2212,6 +2212,70 @@ router.post('/kpi/calc/import', h(async (req, res) => {
   res.json(results);
 }));
 
+// 🗄 The report vault (vault.js): Reporting's sources kept month by month, so last year's figures outlive files that
+// start again on 1 January. Sealed a few days into each month (the source read once more first); kept the moment a
+// file stops covering a month that isn't sealed; by hand. Seeing it: anyone with Reporting; sealing and reopening:
+// the setup right.
+const vault = require('./vault');
+const needSetupRight = (req) => { if (accounts.enabled() && !accounts.hasRight(req, 'setup')) throw new HttpError(403, 'Sealing and reopening months needs the “Change the setup” right'); };
+router.get('/vault', h((req, res) => {
+  const year = Number(req.query.year) || new Date().getFullYear();
+  res.json({ ...vault.overview(year), can_edit: !accounts.enabled() || accounts.hasRight(req, 'setup') });
+}));
+router.get('/vault/files/:id', h((req, res) => {
+  const f = vault.fileOf(Number(req.params.id)); if (!f) throw notFound('File');
+  res.set('Content-Type', 'application/octet-stream');
+  res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(f.name)}`);
+  res.send(f.buf);
+}));
+// a sealed month's rows, as SITHUB read them (CSV, opens in Excel)
+router.get('/vault/:id/rows.csv', h((req, res) => {
+  const p = db.get('SELECT source, period FROM vault_periods WHERE id = ?', [Number(req.params.id)]); if (!p) throw notFound('Month');
+  const q = (v) => (v === null || v === undefined ? '' : /[",\n;]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+  const lines = ['day,week,customer,type,qty,scrap,extra', ...vault.rowsOf(Number(req.params.id)).map((r) => [r.day, r.week, r.customer, r.type, r.qty, r.scrap, r.extra].map(q).join(','))];
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', `attachment; filename="${p.source}-${p.period}-sealed.csv"`);
+  res.send(`\ufeff${lines.join('\r\n')}`);
+}));
+// { source, period }: seal a month now (the source read first, so it's the newest)
+router.post('/vault/seal', h(async (req, res) => {
+  needSetupRight(req);
+  const source = String(req.body.source || ''); const period = String(req.body.period || '');
+  if (!/^\d{4}-\d{2}$/.test(period)) throw new HttpError(400, 'A month is YYYY-MM');
+  if (period >= new Date().toISOString().slice(0, 7)) throw new HttpError(400, 'Only a month that\'s over can be sealed');
+  await refreshSource(source);
+  const n = vault.seal(source, [period], { how: 'by hand', by: req.account?.person || 'this PC' });
+  res.json({ sealed: n });
+}));
+router.post('/vault/:id/reopen', h(async (req, res) => {
+  needSetupRight(req);
+  const v = vault.reopen(Number(req.params.id), req.account?.person || 'this PC'); if (!v) throw notFound('Month');
+  // the file read again straight away (even unchanged), so its figures replace the sealed ones now
+  const set = getSettings();
+  try { await bg.run('kpi', { paths: kpiPaths(set), workbook: set.kpi_workbook_path || null, splitWeekends: splitWeekends(), only: [v.source], force: true }); } catch (err) { log.warn('🗄 Report vault: reading after reopening', err.message); }
+  res.json({ ok: true });
+}));
+// sealed again from the rows there now (a reopened month, after the file's been corrected)
+router.post('/vault/:id/seal', h(async (req, res) => {
+  needSetupRight(req);
+  const p = db.get('SELECT source, period FROM vault_periods WHERE id = ?', [Number(req.params.id)]); if (!p) throw notFound('Month');
+  await refreshSource(p.source);
+  res.json({ sealed: vault.seal(p.source, [p.period], { how: 'by hand', by: req.account?.person || 'this PC' }) });
+}));
+// the month-end seal: hourly, whatever is due (the sources read once more first)
+async function vaultMonthEnd() {
+  if (config.mode === 'planner' || !vault.due().length) return;
+  const srcs = [...new Set(vault.due().map((x) => x.source))];
+  const set = getSettings();
+  try { await bg.run('kpi', { paths: kpiPaths(set), workbook: set.kpi_workbook_path || null, splitWeekends: splitWeekends(), only: srcs }); } catch (err) { log.warn('🗄 Report vault: reading the sources first', err.message); }
+  for (const s of srcs) { const ps = vault.due().filter((x) => x.source === s).map((x) => x.period); if (ps.length) { try { vault.seal(s, ps, { how: 'month end' }); } catch (err) { log.warn(`🗄 Report vault: sealing ${s}`, err.message); } } }
+}
+const vaultMonthEndSafe = () => vaultMonthEnd().catch((err) => log.warn('🗄 Report vault', err.message));
+if (process.env.VAULT_AUTO !== '0') { // (the smoke test seals by hand)
+  setTimeout(vaultMonthEndSafe, 90 * 1000).unref();
+  setInterval(vaultMonthEndSafe, 60 * 60 * 1000).unref();
+}
+
 // A week's typed-in figures. protime: the Sun–Fri "present" counts (hours are worked out from them).
 router.put('/kpi/manual/:week', h((req, res) => {
   const week = String(req.params.week).trim().toUpperCase();

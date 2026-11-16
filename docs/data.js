@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'report-vault', date: '2026-11-16', area: 'reporting', title: 'Report vault',
+    text: 'The source reports start again every 1 January, so Reporting now keeps a sealed copy of each month, with the file it came from. Last year stays in every report.',
+    points: ['Each month sealed on the 5th of the next, after one more read of the file', 'A month the file stops covering is kept there and then', 'Sealed months are locked: a file that says otherwise is flagged, and an admin can reopen and seal again', 'A Vault tab in Reporting: the months by source, their rows and the original files'] },
   { id: 'forecast-tab', date: '2026-11-13', area: 'capacity', title: 'Forecast tab and upload link',
     text: 'A Forecast tab collects the customer forecasts and feeds the newest straight into Capacity planning. People who send forecasts get a link that needs no account.',
     points: ['Its own Forecast module, given to Management to start with', 'One upload link, switched on, off or replaced by an admin', 'The link page only sends a forecast and lists what that browser sent before', 'Every forecast kept with who sent it, when, its months and total', 'Checked on arrival, then the newest feeds the A3, the report tables and Capacity planning, in place of the linked file', 'The forecast drawn month by month by customer, against an earlier version, with a table view'] },
