@@ -11,7 +11,8 @@
 //  - by hand: an admin seals a month, reopens one (the next import's figures are used) and seals it again.
 // Every report reads kpi_rows, so after each import the sealed months are put back there from the vault (after()):
 // past months always read as sealed, wherever the reports are. A file whose figures for a sealed month differ is
-// noted on the month (diff), not taken. 🚚 OTD typed into SITHUB (otd_entries) is SITHUB's own and isn't vaulted.
+// noted on the month (diff), not taken. 🚚 OTD counts the same whether it's read from the OTD report or typed into SITHUB
+// (otdentry.js writes the entries in through here too): switching to the entries keeps the months the report had.
 
 const zlib = require('zlib');
 const crypto = require('crypto');
@@ -33,8 +34,7 @@ const TABLES = `
 let ready = false;
 const ensure = () => { if (!ready) { db.conn.exec(TABLES); ready = true; } };
 const kd = () => require('./kpidata');
-const otdEntered = () => db.get("SELECT value FROM settings WHERE key = 'kpi_otd_from'")?.value === 'entered';
-const vaulted = (source) => !!kd().SOURCES[source] && !(source === 'otd' && otdEntered());
+const vaulted = (source) => !!kd().SOURCES[source];
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const nextMonth = (p) => { const [y, m] = p.split('-').map(Number); return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`; };
 
@@ -124,7 +124,7 @@ function due(today = new Date()) {
 // seal months of a source from its rows now (the month-end seal, or by hand), with the file it was read from
 function seal(source, periods, { how = 'month end', by = null } = {}) {
   ensure();
-  if (!vaulted(source)) throw Object.assign(new Error(source === 'otd' ? 'OTD is typed into SITHUB (🚚 OTD), so it\'s kept as entered: nothing to seal' : `No source called ${source}`), { status: 400 });
+  if (!vaulted(source)) throw Object.assign(new Error(`No source called ${source}`), { status: 400 });
   const src = db.get('SELECT file, modified FROM kpi_sources WHERE source = ?', [source]) || {};
   const want = new Set(periods); const by_ = new Map();
   for (const r of db.all(`SELECT ${ROW_COLS} FROM kpi_rows WHERE source = ?`, [source])) { const p = periodOf(r); if (!want.has(p)) continue; if (!by_.has(p)) by_.set(p, []); by_.get(p).push(r); }

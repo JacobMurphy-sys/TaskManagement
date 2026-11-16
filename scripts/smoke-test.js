@@ -1528,8 +1528,16 @@ async function waitForServer() {
         assert.ok(!(await call('GET', `/kpi/calc/otd?week=${wk}`)).some((r) => r.qty === 1000), 'the OTD report still counts');
         await call('PATCH', `/kpi/otd/${en.id}`, { qty: 700 });
         // counted from the entries: they become the OTD source, as the report was
+        const otdBefore = (await call('GET', '/vault?year=2026')).live.otd;
         await call('PUT', '/kpi/otd-from', { from: 'entered' });
         assert.deepEqual((await call('GET', `/kpi/calc/otd?week=${wk}`)).map((r) => [r.customer, r.qty, r.type, r.reason]), [['BKA', 700, 'Internal', 'Machine Issues']], 'the entries are the OTD source');
+        { // 🗄 the months the report had before the switch stay (the vault keeps them), whatever the entries cover
+          const otdV = await call('GET', '/vault?year=2026');
+          const reportOnly = Object.keys(otdBefore).filter((m) => m !== '2026-04' && m < new Date().toISOString().slice(0, 7));
+          assert.ok(reportOnly.length, 'the OTD report had other months');
+          assert.deepEqual(reportOnly.map((m) => [m, otdV.live.otd[m]?.rows]), reportOnly.map((m) => [m, otdBefore[m].rows]), 'switching to the entries keeps the report\'s earlier months');
+          assert.ok(reportOnly.every((m) => otdV.periods.some((p) => p.source === 'otd' && p.period === m && p.status === 'sealed')), 'sealed in the vault');
+        }
         assert.equal((await call('POST', '/kpi/calc/import', {})).find((r) => r.source === 'otd').status, 'entered', 'the OTD report isn\'t read meanwhile');
         assert.equal((await call('GET', `/kpi/otd?week=${wk}`)).entries[0].renewal, false, 'a High priority work order: a daily');
         const bka = (await call('GET', '/kpi/operations?month=2026-04')).otd_customers.find((c) => c.customer === 'BKA');
@@ -1538,6 +1546,8 @@ async function waitForServer() {
         assert.equal((await call('GET', '/kpi/calc/otd?week=W2617')).length, 0, 'removed: gone from the figures too');
         await call('PUT', '/kpi/otd-from', { from: 'report' });
         assert.deepEqual((await call('GET', '/kpi/calc/otd?week=W2614_2')).map((r) => r.customer), ['ICA', 'BEL'], 'back to the OTD report: read again');
+        // (the months sealed by the switch reopened, so the tests below can swap OTD reports freely)
+        for (const p of (await call('GET', '/vault?year=2026')).periods.filter((x) => x.source === 'otd' && x.status === 'sealed')) await call('POST', `/vault/${p.id}/reopen`);
         assert.equal((await call('GET', `/kpi/otd?week=${wk}`)).entries.length, 1, 'the entries are kept');
         await call('DELETE', `/kpi/otd/${en.id}`);
         const sqd = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); sqd.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'OTDW%'").run(); sqd.close();

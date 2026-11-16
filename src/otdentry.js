@@ -147,6 +147,9 @@ function sync() {
   const ins = db.conn.prepare('INSERT INTO kpi_rows (source, day, week, customer, type, qty, scrap, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
   let first = null; let last = null;
   db.tx(() => {
+    // 🗄 through the report vault, as a read of the report is: the months the report had and the entries don't
+    // (everything before the switch) are kept, and sealed months stay as sealed
+    const vault = require('./vault'); const kept = vault.before('otd');
     db.run("DELETE FROM kpi_rows WHERE source = 'otd'");
     for (const r of rows) {
       if (r.due && (!first || r.due < first)) first = r.due;
@@ -157,6 +160,7 @@ function sync() {
     db.run(`INSERT INTO kpi_sources (source, file, modified, imported_at, rows, skipped, first_day, last_day) VALUES ('otd', ?, NULL, ?, ?, 0, ?, ?)
       ON CONFLICT(source) DO UPDATE SET file = excluded.file, modified = NULL, imported_at = excluded.imported_at, rows = excluded.rows, skipped = 0,
       first_day = excluded.first_day, last_day = excluded.last_day`, [ENTERED, new Date().toISOString(), rows.length, first, last]);
+    vault.after('otd', kept);
   });
   return true;
 }

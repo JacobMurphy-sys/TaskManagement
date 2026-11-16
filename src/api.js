@@ -2252,7 +2252,10 @@ router.post('/vault/:id/reopen', h(async (req, res) => {
   const v = vault.reopen(Number(req.params.id), req.account?.person || 'this PC'); if (!v) throw notFound('Month');
   // the file read again straight away (even unchanged), so its figures replace the sealed ones now
   const set = getSettings();
-  try { await bg.run('kpi', { paths: kpiPaths(set), workbook: set.kpi_workbook_path || null, splitWeekends: splitWeekends(), only: [v.source], force: true }); } catch (err) { log.warn('🗄 Report vault: reading after reopening', err.message); }
+  try {
+    if (v.source === 'otd' && otdFrom() === 'entered') otdEntry.sync(); // OTD typed into SITHUB: the entries written in again
+    else await bg.run('kpi', { paths: kpiPaths(set), workbook: set.kpi_workbook_path || null, splitWeekends: splitWeekends(), only: [v.source], force: true });
+  } catch (err) { log.warn('🗄 Report vault: reading after reopening', err.message); }
   res.json({ ok: true });
 }));
 // sealed again from the rows there now (a reopened month, after the file's been corrected)
