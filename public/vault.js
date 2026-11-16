@@ -42,7 +42,8 @@ async function renderKpiVault(pick) {
         ${d.can_edit ? `<button type="button" class="primary" data-vt-seal="${esc(pick)}">🔒 Seal it now</button>` : ''}`}</div>`;
   }
   main().innerHTML = `
-    <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>${KPI_PICK_SLOT}${kpiTabsHtml('vault')}<div class="spacer"></div></div>
+    <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>${KPI_PICK_SLOT}${kpiTabsHtml('vault')}<div class="spacer"></div>
+      ${d.can_edit ? '<button type="button" class="primary" data-vt-upload title="Old reports (last year\'s exports…) into the vault, month by month">⬆ Upload old reports</button>' : ''}</div>
     <div class="card">
       <div class="row"><h2 style="margin:0">🗄 Report vault</h2><div class="spacer"></div>
         <span class="seg">${[...new Set([...d.years, year])].sort().map((y) => `<button type="button" data-vt-year="${y}" class="${y === year ? 'on' : ''}">${y}</button>`).join('')}</span></div>
@@ -57,6 +58,7 @@ async function renderKpiVault(pick) {
     </div>
     ${detail}`;
   $$('[data-vt-year]').forEach((b) => b.addEventListener('click', () => { store.set('vaultYear', Number(b.dataset.vtYear)); renderKpiVault(); }));
+  $('[data-vt-upload]')?.addEventListener('click', () => vaultUploadDialog(d));
   $$('[data-vt]').forEach((c) => c.addEventListener('click', () => renderKpiVault(c.dataset.vt === pick ? null : c.dataset.vt)));
   $('[data-vt-close]')?.addEventListener('click', () => renderKpiVault());
   const act = async (fn, msg) => { try { await fn(); toast(msg); } catch (err) { toast(err.message, 'error'); } renderKpiVault(pick); };
@@ -66,4 +68,45 @@ async function renderKpiVault(pick) {
     if (!confirm('Reopen this month? Reports will use what the file says for it from the next read, until it\'s sealed again.')) return;
     act(() => api.post(`/vault/${e.target.dataset.vtReopen}/reopen`), 'Reopened');
   });
+}
+
+// ⬆ Old reports into the vault: pick the source and its file; SITHUB reads it as it reads the source every day and
+// shows, month by month, what it would keep; then it's sealed (the file kept with it) and in every report.
+function vaultUploadDialog(d) {
+  const last = new Date().getFullYear() - 1;
+  const ACT = { seal: ['🔒 kept', ''], replace: ['🔒 kept (replaces what was sealed)', 'vt-up-replace'], 'skip-sealed': ['already sealed: left as it is', 'muted'], 'skip-current': ['this month: not over yet', 'muted'] };
+  openModal(`<div class="modal-head"><h2 style="margin:0">⬆ Old reports into the vault</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <p class="small muted">An old export of a source (last year's, or one from before SITHUB kept them), read exactly as SITHUB reads that source every day. Each month in it is sealed into the vault with the file, and appears in every report (the Database, Operations, Quality, EHS…). Check it first: you'll see what each month holds before anything is kept.</p>
+    <div class="cd-grid">
+      <label class="cd-f"><span>Which report</span><select id="vu-src">${Object.entries(d.sources).map(([k, s]) => `<option value="${k}">${esc(s.label)}</option>`).join('')}</select></label>
+      <label class="cd-f"><span>The file</span><input type="file" id="vu-file" accept=".xlsx,.xlsm,.xls"></label>
+      <label class="cd-f" id="vu-year-l" hidden><span>Year of its weeks <span class="small muted">(OTD weeks typed without a year)</span></span><input type="number" id="vu-year" value="${last}" min="2000" max="2100"></label>
+    </div>
+    <label class="row small" style="margin-top:8px"><input type="checkbox" id="vu-replace"> Replace months already sealed with this file's figures</label>
+    <div id="vu-out" style="margin-top:10px"></div>
+    <div class="row" style="margin-top:10px"><span class="spacer"></span><button type="button" data-action="close-modal">Cancel</button>
+      <button type="button" id="vu-check">Check the file</button><button type="button" class="primary" id="vu-go" disabled>Keep in the vault</button></div>`, { wide: true });
+  const src = $('#vu-src'); const showYear = () => { $('#vu-year-l').hidden = src.value !== 'otd'; };
+  src.addEventListener('change', () => { showYear(); $('#vu-go').disabled = true; $('#vu-out').innerHTML = ''; }); showYear();
+  $('#vu-file').addEventListener('change', () => { $('#vu-go').disabled = true; $('#vu-out').innerHTML = ''; });
+  $('#vu-replace').addEventListener('change', () => { if (!$('#vu-go').disabled) send(true); });
+  const send = async (dry) => {
+    const f = $('#vu-file').files[0]; if (!f) { toast('Choose the file first', 'error'); return; }
+    const btn = dry ? $('#vu-check') : $('#vu-go'); const was = btn.textContent; btn.disabled = true; btn.textContent = dry ? 'Reading…' : 'Keeping…';
+    const qs = new URLSearchParams({ source: src.value, ...(dry ? { dry: '1' } : {}), ...($('#vu-replace').checked ? { replace: '1' } : {}), ...(src.value === 'otd' ? { year: $('#vu-year').value } : {}) });
+    try {
+      const r = await fetch(`/api/vault/upload?${qs}`, { method: 'POST', body: f, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(f.name), 'X-File-Modified': new Date(f.lastModified).toISOString() } });
+      const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.statusText);
+      const n = j.months.filter((m) => m.action === 'seal' || m.action === 'replace').length;
+      if (!dry) { closeModal(); toast(`${n} month${n === 1 ? '' : 's'} of ${d.sources[j.source].label} kept in the vault`); store.set('vaultYear', Number(j.months.find((m) => m.action === 'seal' || m.action === 'replace')?.period.slice(0, 4)) || new Date().getFullYear()); renderKpiVault(); return; }
+      $('#vu-out').innerHTML = `<p class="small"><b>${esc(j.file)}</b>: ${j.rows_read.toLocaleString('en-GB')} rows read${j.skipped ? `, ${j.skipped.toLocaleString('en-GB')} without a date (left out)` : ''}. ${n ? `<b>${n} month${n === 1 ? '' : 's'}</b> would be kept:` : 'Nothing new to keep.'}</p>
+        <div class="kdb-scroll" style="max-height:300px"><table class="log small"><thead><tr><th>Month</th><th class="num">Rows</th><th class="num">Quantity</th><th></th></tr></thead><tbody>
+        ${j.months.map((m) => { const [y, mo] = m.period.split('-').map(Number); const [t, cls] = ACT[m.action]; const clash = m.action === 'seal' && m.now_rows && Math.abs(m.now_qty - m.qty) > 1e-6;
+          return `<tr class="${cls}"><td>${VAULT_MON[mo - 1]} ${y}</td><td class="num">${m.rows.toLocaleString('en-GB')}</td><td class="num">${vaultQty(m.qty)}</td><td>${t}${clash ? `<div class="small pl-late">The current file says ${vaultQty(m.now_qty)} (${m.now_rows.toLocaleString('en-GB')} rows): this file's figures will be used, and the difference flagged</div>` : m.action === 'seal' && m.now_rows ? '<div class="small muted">the same as the current file</div>' : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
+      $('#vu-go').disabled = !n;
+    } catch (err) { $('#vu-out').innerHTML = `<div class="notice small">⚠ ${esc(err.message)}</div>`; $('#vu-go').disabled = true; }
+    btn.textContent = was; if (dry) btn.disabled = false;
+  };
+  $('#vu-check').addEventListener('click', () => send(true));
+  $('#vu-go').addEventListener('click', () => send(false));
 }

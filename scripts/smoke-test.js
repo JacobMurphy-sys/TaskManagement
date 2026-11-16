@@ -3172,6 +3172,35 @@ async function waitForServer() {
       assert.match(csv, /2024-11-12,.*Bank V,Card,999/, 'its rows as a CSV');
       const kept = await fetch(`${BASE}/vault/files/${nov3.file_id}`);
       assert.deepEqual([kept.status, (await kept.arrayBuffer()).byteLength], [200, fs.statSync(vf).size], 'and the file as it was');
+      // ⬆ an old report uploaded into the vault: checked first, then each month sealed with the file, and in the reports
+      {
+        const cols = [['Customer'], ['Type'], ['duedate', 'date'], ['Perso Date', 'date'], ['Scrap', 'number'], ['Qty Persoed', 'number']].map((c) => ({ header: c[0], type: c[1] }));
+        const old = (rows) => buildXlsx([{ name: 'KPI_persoed_CI', columns: cols, rows }]);
+        const today = new Date().toISOString().slice(0, 10);
+        const up = (buf, qs) => fetch(`${BASE}/vault/upload?${qs}`, { method: 'POST', body: buf, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': 'KPI_persoed_CI 2023.xlsx' } })
+          .then(async (r) => ({ status: r.status, data: await r.json() }));
+        const f23 = old([['Bank O', 'Card', '2023-05-03', '2023-05-03', 0, 400], ['Bank O', 'Card', '2023-05-20', '2023-05-20', 0, 100], ['Bank O', 'Card', '2023-06-07', '2023-06-07', 0, 250],
+          ['Bank O', 'Card', today, today, 0, 5]]);
+        let r = await up(f23, 'source=perso&dry=1');
+        assert.deepEqual(r.data.months.map((m) => [m.period, m.rows, m.qty, m.action]), [['2023-05', 2, 500, 'seal'], ['2023-06', 1, 250, 'seal'], [today.slice(0, 7), 1, 5, 'skip-current']],
+          'checked first: month by month what would be kept (this month isn\'t over)');
+        assert.equal((await live('2023-05')).qty, 0, 'a check keeps nothing');
+        r = await up(f23, 'source=perso');
+        const v23 = await call('GET', '/vault?year=2023');
+        const may = v23.periods.find((p) => p.source === 'perso' && p.period === '2023-05');
+        assert.deepEqual([may.how, may.qty, !!may.file_id, may.file_name], ['uploaded', 500, true, 'KPI_persoed_CI 2023.xlsx'], 'sealed, with the file');
+        assert.deepEqual([(await live('2023-05')).qty, (await live('2023-06')).qty], [500, 250], 'and in the reports');
+        assert.equal(Math.round((await call('GET', '/kpi/calc?year=2023')).weeks.reduce((a, w) => a + (w.perso_ps || 0), 0) * 1000), 750, 'the Database\'s weeks for 2023');
+        await read(); // the everyday file (no 2023) read again: 2023 stays
+        assert.equal((await live('2023-05')).qty, 500, 'kept through the daily reads');
+        // again: months already sealed are left, unless replaced
+        const f23b = old([['Bank O', 'Card', '2023-05-03', '2023-05-03', 0, 450]]);
+        assert.deepEqual((await up(f23b, 'source=perso&dry=1')).data.months.map((m) => m.action), ['skip-sealed']);
+        r = await up(f23b, 'source=perso&replace=1');
+        assert.deepEqual([r.data.months[0].action, (await live('2023-05')).qty], ['replace', 450], 'replaced when asked');
+        r = await up(Buffer.from('not a workbook'), 'source=perso');
+        assert.equal(r.status, 400, 'not a report: refused');
+      }
       await call('PATCH', '/settings', { kpi_src_perso: before || '' });
     }
 

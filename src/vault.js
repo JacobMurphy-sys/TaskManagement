@@ -9,6 +9,7 @@
 //  - kept when a file stops covering a month that isn't sealed yet (the 1 January reset, before December's seal):
 //    sealed there and then from the rows SITHUB had, before they're replaced (no file: it's already the new one);
 //  - by hand: an admin seals a month, reopens one (the next import's figures are used) and seals it again.
+//  - uploaded: an old report (before SITHUB kept them, or a file already gone) read and sealed month by month (upload()).
 // Every report reads kpi_rows, so after each import the sealed months are put back there from the vault (after()):
 // past months always read as sealed, wherever the reports are. A file whose figures for a sealed month differ is
 // noted on the month (diff), not taken. 🚚 OTD counts the same whether it's read from the OTD report or typed into SITHUB
@@ -50,14 +51,17 @@ const ROW_COLS = 'day, week, customer, type, qty, scrap, extra';
 const sums = (rows) => ({ rows: rows.length, qty: rows.reduce((a, r) => a + (Number(r.qty) || 0), 0), scrap: rows.reduce((a, r) => a + (Number(r.scrap) || 0), 0) });
 const sealed = (source) => new Map(db.all("SELECT * FROM vault_periods WHERE source = ? AND status = 'sealed'", [source]).map((p) => [p.period, p]));
 
-// the file kept with a seal (once, by its content)
+// the file kept with a seal (once, by its content): a path, or { buf, name } (an old report uploaded)
 function keepFile(file) {
   if (!file) return null;
-  let buf; try { const st = fs.statSync(file); if (st.size > MAX_FILE) return null; buf = fs.readFileSync(file); } catch { return null; }
+  let buf; let name;
+  if (file.buf) { buf = file.buf; name = file.name; if (buf.length > MAX_FILE) return null; } else {
+    try { const st = fs.statSync(file); if (st.size > MAX_FILE) return null; buf = fs.readFileSync(file); name = path.basename(file); } catch { return null; }
+  }
   const sha = crypto.createHash('sha256').update(buf).digest('hex');
   const had = db.get('SELECT id FROM vault_files WHERE sha = ?', [sha]);
   if (had) return had.id;
-  return Number(db.run('INSERT INTO vault_files (sha, name, size, gz, created_at) VALUES (?, ?, ?, ?, ?)', [sha, path.basename(file), buf.length, zlib.gzipSync(buf, { level: 6 }), new Date().toISOString()]).lastInsertRowid);
+  return Number(db.run('INSERT INTO vault_files (sha, name, size, gz, created_at) VALUES (?, ?, ?, ?, ?)', [sha, name, buf.length, zlib.gzipSync(buf, { level: 6 }), new Date().toISOString()]).lastInsertRowid);
 }
 // a month of a source into the vault (rows given), replacing a seal reopened before (no transaction of its own)
 function sealRows(source, period, rows, { how, by = null, file = null, fileModified = null } = {}) {
@@ -67,7 +71,7 @@ function sealRows(source, period, rows, { how, by = null, file = null, fileModif
   const old = db.get('SELECT id FROM vault_periods WHERE source = ? AND period = ?', [source, period]);
   if (old) { db.run('DELETE FROM vault_rows WHERE period_id = ?', [old.id]); db.run('DELETE FROM vault_periods WHERE id = ?', [old.id]); }
   const id = Number(db.run(`INSERT INTO vault_periods (source, period, status, how, sealed_at, sealed_by, rows, qty, scrap, file_id, file_name, file_modified)
-    VALUES (?, ?, 'sealed', ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [source, period, how, now, by, s.rows, s.qty, s.scrap, fileId, file ? path.basename(file) : null, fileModified]).lastInsertRowid);
+    VALUES (?, ?, 'sealed', ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [source, period, how, now, by, s.rows, s.qty, s.scrap, fileId, file ? (file.name || path.basename(file)) : null, fileModified]).lastInsertRowid);
   const ins = db.conn.prepare(`INSERT INTO vault_rows (period_id, ${ROW_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
   for (const r of rows) ins.run(id, r.day || '', r.week || '', r.customer ?? null, r.type ?? null, Number(r.qty) || 0, Number(r.scrap) || 0, r.extra ?? null);
   require('./logger').info(`🗄 Report vault: ${source} ${period} sealed (${how}${by ? `, by ${by}` : ''}): ${s.rows} rows`);
@@ -141,6 +145,40 @@ function reopen(id, by) {
   return v;
 }
 
+// ---- old reports, uploaded -------------------------------------------------------------------------------
+// An old export of a source (last year's KPI_persoed_CI.xlsx…) read as the source is read every day (kpidata's
+// readSource and storeSource, collecting the rows instead of storing them), its months sealed into the vault with the
+// file, and put into the reports. A month already sealed is left as it is unless replace; this month never (it isn't
+// over). dry: only what would happen, month by month.
+function upload(source, buf, { name = 'report.xlsx', modified = null, by = null, year = null, replace = false, dry = false, splitWeekends = false } = {}) {
+  ensure();
+  const K = kd();
+  if (!K.SOURCES[source]) throw Object.assign(new Error(`No source called ${source}`), { status: 400 });
+  let rows;
+  try { rows = K.readSource(source, buf); } catch (err) { throw Object.assign(new Error(`This doesn't read as the ${K.SOURCES[source].label} report: ${err.message}`), { status: 400 }); }
+  const got = K.storeSource(source, rows, { collect: true, splitWeekends, year });
+  const by_ = new Map();
+  for (const t of got.tuples) { const r = { day: t[1], week: t[2], customer: t[3], type: t[4], qty: t[5], scrap: t[6], extra: t[7] }; const p = periodOf(r); if (!p) continue; if (!by_.has(p)) by_.set(p, []); by_.get(p).push(r); }
+  const now = thisMonth(); const have = new Map(db.all('SELECT period, status FROM vault_periods WHERE source = ?', [source]).map((x) => [x.period, x.status]));
+  // what the reports have for those months now (from the everyday file): the upload's figures would take their place
+  const live = new Map(); for (const r of db.all(`SELECT ${ROW_COLS} FROM kpi_rows WHERE source = ?`, [source])) { const p = periodOf(r); if (!p || !by_.has(p)) continue; if (!live.has(p)) live.set(p, []); live.get(p).push(r); }
+  const months = [...by_].sort(([a], [b]) => (a < b ? -1 : 1)).map(([p, rs]) => {
+    const s = sums(rs);
+    const action = p >= now ? 'skip-current' : have.get(p) === 'sealed' && !replace ? 'skip-sealed' : have.get(p) === 'sealed' ? 'replace' : 'seal';
+    const l = live.has(p) && have.get(p) !== 'sealed' ? sums(live.get(p)) : null;
+    return { period: p, rows: s.rows, qty: s.qty, scrap: s.scrap, action, sealed: have.get(p) || null, now_rows: l?.rows ?? 0, now_qty: l?.qty ?? 0 };
+  });
+  if (!months.length) throw Object.assign(new Error(`Nothing dated in this file to keep (${got.rows} rows read, ${got.skipped || 0} without a date)`), { status: 400 });
+  if (!dry) {
+    db.tx(() => {
+      for (const m of months) if (m.action === 'seal' || m.action === 'replace') sealRows(source, m.period, by_.get(m.period), { how: 'uploaded', by, file: { buf, name }, fileModified: modified });
+      after(source, null); // into the reports: the sealed months put in place of what was there
+    });
+    require('./logger').info(`🗄 Report vault: ${name} uploaded for ${source} by ${by || '?'}: ${months.filter((m) => m.action === 'seal' || m.action === 'replace').map((m) => m.period).join(', ') || 'nothing new'}`);
+  }
+  return { source, file: name, rows_read: got.rows, skipped: got.skipped || 0, months };
+}
+
 // ---- reading it ------------------------------------------------------------------------------------------
 function overview(year) {
   ensure();
@@ -160,4 +198,4 @@ function overview(year) {
 const fileOf = (id) => { ensure(); const f = db.get('SELECT name, gz FROM vault_files WHERE id = ?', [id]); return f ? { name: f.name, buf: zlib.gunzipSync(Buffer.from(f.gz)) } : null; };
 const rowsOf = (id) => { ensure(); return db.all(`SELECT ${ROW_COLS} FROM vault_rows WHERE period_id = ? ORDER BY day, week`, [id]); };
 
-module.exports = { ensure, before, after, due, seal, reopen, overview, fileOf, rowsOf, periodOf, SEAL_AFTER_DAY };
+module.exports = { ensure, before, after, due, seal, reopen, upload, overview, fileOf, rowsOf, periodOf, SEAL_AFTER_DAY };

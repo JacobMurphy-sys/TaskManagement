@@ -2247,6 +2247,18 @@ router.post('/vault/seal', h(async (req, res) => {
   const n = vault.seal(source, [period], { how: 'by hand', by: req.account?.person || 'this PC' });
   res.json({ sealed: n });
 }));
+// ⬆ an old report into the vault: ?source=perso&dry=1 (what it would do) · &replace=1 (over months already sealed) · &year=2025
+// (OTD's weeks typed without a year). The body is the file.
+router.post('/vault/upload', express.raw({ type: () => true, limit: '80mb' }), h((req, res) => {
+  needSetupRight(req);
+  if (!Buffer.isBuffer(req.body) || !req.body.length) throw new HttpError(400, 'No file received');
+  const name = path.basename(fileNameHeader(req, 'report.xlsx'));
+  if (!/\.(xlsx|xlsm|xls)$/i.test(name)) throw new HttpError(400, 'Upload the report as an Excel workbook (.xlsx / .xlsm)');
+  const year = Number(req.query.year) || null;
+  const out = vault.upload(String(req.query.source || ''), req.body, { name, modified: String(req.get('X-File-Modified') || '') || null, by: req.account?.person || 'this PC',
+    year, replace: req.query.replace === '1', dry: req.query.dry === '1', splitWeekends: splitWeekends() });
+  res.json(out);
+}));
 router.post('/vault/:id/reopen', h(async (req, res) => {
   needSetupRight(req);
   const v = vault.reopen(Number(req.params.id), req.account?.person || 'this PC'); if (!v) throw notFound('Month');

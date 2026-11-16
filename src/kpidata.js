@@ -270,10 +270,13 @@ function storeSource(name, rows, meta = {}) {
   if (name === 'consumption') return storeConsumption(rows, meta);
   const splitWeekends = meta.splitWeekends ?? false;
   let skipped = 0; let first = null; let last = null; let blanks = 0; // blanks: a form's template rows, not filled in (not counted at all)
-  const ins = db.conn.prepare('INSERT INTO kpi_rows (source, day, week, customer, type, qty, scrap, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  // meta.collect: the rows as they'd be stored, handed back instead (🗄 an old report for the vault: vault.js upload)
+  const collect = meta.collect ? [] : null;
+  const ins = collect ? { run: (...a) => collect.push(a) } : db.conn.prepare('INSERT INTO kpi_rows (source, day, week, customer, type, qty, scrap, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  const vault = require('./vault');
   db.tx(() => {
-    const vault = require('./vault'); const kept = vault.before(name); // 🗄 months the file may no longer cover, kept
-    db.run('DELETE FROM kpi_rows WHERE source = ?', [name]);
+    const kept = collect ? null : vault.before(name); // 🗄 months the file may no longer cover, kept
+    if (!collect) db.run('DELETE FROM kpi_rows WHERE source = ?', [name]);
     const typed = !!SOURCES[name].typedWeek;
     for (const r of rows) {
       const day = dayOf(r.day);
@@ -301,13 +304,13 @@ function storeSource(name, rows, meta = {}) {
       ins.run(name, day || '', typed ? (typedWeek || '') : dateWeek, who === null || who === undefined ? null : String(who).trim(), r.type === null || r.type === undefined ? null : name === 'ehs' ? String(r.type).trim().toUpperCase() : String(r.type).trim(),
         name === 'salesforce' || name === 'ehs' ? 1 : Number(r.qty) || 0, Number(r.scrap) || 0, extra);
     }
-    db.run(`INSERT INTO kpi_sources (source, file, modified, imported_at, rows, skipped, first_day, last_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    if (!collect) db.run(`INSERT INTO kpi_sources (source, file, modified, imported_at, rows, skipped, first_day, last_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(source) DO UPDATE SET file = excluded.file, modified = excluded.modified, imported_at = excluded.imported_at,
       rows = excluded.rows, skipped = excluded.skipped, first_day = excluded.first_day, last_day = excluded.last_day`,
     [name, meta.file || null, meta.modified || null, new Date().toISOString(), rows.length - skipped - blanks, skipped, first, last]);
-    vault.after(name, kept); // 🗄 sealed months back from the report vault
+    if (!collect) vault.after(name, kept); // 🗄 sealed months back from the report vault
   });
-  return { source: name, rows: rows.length - skipped - blanks, skipped, first_day: first, last_day: last };
+  return { source: name, rows: rows.length - skipped - blanks, skipped, first_day: first, last_day: last, ...(collect ? { tuples: collect } : {}) };
 }
 
 // ♻ The consumption export: a reason code ending in "Err" is a remake (scrap = the cards taken for it);
@@ -347,19 +350,21 @@ function storeConsumption(rows, meta = {}) {
       use.set(k, { day, customer, qty: q, extra: { item, item_name: str(r.item_name), item_group: str(r.item_group), customer_name: str(r.customer_name) } });
     }
   }
-  const ins = db.conn.prepare('INSERT INTO kpi_rows (source, day, week, customer, type, qty, scrap, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  const collect = meta.collect ? [] : null; // (as storeSource)
+  const ins = collect ? { run: (...a) => collect.push(a) } : db.conn.prepare('INSERT INTO kpi_rows (source, day, week, customer, type, qty, scrap, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  const vault = require('./vault');
   db.tx(() => {
-    const vault = require('./vault'); const kept = vault.before('consumption'); // 🗄 as storeSource
-    db.run("DELETE FROM kpi_rows WHERE source = 'consumption'");
+    const kept = collect ? null : vault.before('consumption'); // 🗄 as storeSource
+    if (!collect) db.run("DELETE FROM kpi_rows WHERE source = 'consumption'");
     for (const x of remakes.values()) ins.run('consumption', x.day, weekCode(x.day, { splitWeekends }), x.customer, x.type, x.qty, x.qty, JSON.stringify({ remake: 1, ...x.extra }));
     for (const x of use.values()) ins.run('consumption', x.day, weekCode(x.day, { splitWeekends }), x.customer, null, x.qty, 0, JSON.stringify(x.extra));
-    db.run(`INSERT INTO kpi_sources (source, file, modified, imported_at, rows, skipped, first_day, last_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    if (!collect) db.run(`INSERT INTO kpi_sources (source, file, modified, imported_at, rows, skipped, first_day, last_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(source) DO UPDATE SET file = excluded.file, modified = excluded.modified, imported_at = excluded.imported_at,
       rows = excluded.rows, skipped = excluded.skipped, first_day = excluded.first_day, last_day = excluded.last_day`,
     ['consumption', meta.file || null, meta.modified || null, new Date().toISOString(), rows.length - skipped, skipped, first, last]);
-    vault.after('consumption', kept);
+    if (!collect) vault.after('consumption', kept);
   });
-  return { source: 'consumption', rows: rows.length - skipped, remakes: remakeRows, skipped, first_day: first, last_day: last };
+  return { source: 'consumption', rows: rows.length - skipped, remakes: remakeRows, skipped, first_day: first, last_day: last, ...(collect ? { tuples: collect } : {}) };
 }
 
 // Where the scrap (remakes) figure comes from: 'consumption' (goods used with an …Err reason) or 'remakes'
