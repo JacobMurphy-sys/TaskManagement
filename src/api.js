@@ -2814,11 +2814,10 @@ function cardsMissing(known) {
 router.get('/plan/cards', h(async (req, res) => {
   const { file, table, r, writable } = cardDbOf();
   const base = { file, name: file ? path.basename(file) : null, table, writable, status: r.status, count: r.count || 0, error: r.error || null,
-    additions: db.all('SELECT id, ax_ref, item_name, by_name, created_at FROM card_additions ORDER BY id DESC LIMIT 30'), engine_url: cardWrite.ENGINE_URL,
-    choices: cardChoices(), can_edit_choices: canApproveCards(req) || !accounts.enabled() || accounts.hasRight(req, 'setup'),
-    can_approve: canApproveCards(req), me: req.account?.person || null,
-    requests: db.all("SELECT id, ax_ref, item_name, vals, status, requested_by, account_id, created_at, decided_by, decided_at, reason, error FROM card_requests WHERE status = 'pending' OR decided_at >= ? ORDER BY id DESC LIMIT 100",
-      [new Date(Date.now() - 30 * 86400000).toISOString()]).map((x) => ({ ...x, vals: JSON.parse(x.vals || '{}'), mine: !!req.account && x.account_id === req.account.id })) };
+    additions: db.all("SELECT id, ax_ref, item_name, fields, by_name, account_id, created_at, status, checked_by, checked_at, undone_by, undone_at, reason FROM card_additions WHERE status = 'new' OR created_at >= ? ORDER BY id DESC LIMIT 200",
+      [new Date(Date.now() - 60 * 86400000).toISOString()]).map((x) => ({ ...x, fields: Object.fromEntries(JSON.parse(x.fields || '[]')), mine: !!req.account && x.account_id === req.account.id })),
+    engine_url: cardWrite.ENGINE_URL, choices: cardChoices(), can_edit_choices: canReviewCards(req) || !accounts.enabled() || accounts.hasRight(req, 'setup'),
+    can_review: canReviewCards(req), me: req.account?.person || null };
   if (r.status !== 'ok' || !writable) return res.json({ ...base, schema: null, missing: r.status === 'ok' ? cardsMissing(r.cards) : [] });
   const schema = await cardSchema(file, table);
   if (!schema) return res.json({ ...base, schema: null, reading: true, missing: cardsMissing(r.cards) });
@@ -2847,15 +2846,14 @@ router.post('/plan/cards/test', h(async (req, res) => {
   const out = await cardWrite.test({ file, table: schema.table, key: cardPrefillCols(schema, r.columns).key });
   res.status(out.ok ? 200 : 400).json(out.ok ? out : { ...out, error: out.error });
 }));
-// 🗂 Asking for a card and approving it. Anyone with Production asks (the values checked as for writing); someone with
-// the "Approve new cards" right (admins too; anyone while accounts are off) reviews it, can correct it, and approves
-// (SITHUB writes it into the Access file then) or turns it down with why. Not their own request, unless an admin.
-// Both sides get a ✉ message.
-const canApproveCards = (req) => !accounts.enabled() || accounts.hasRight(req, 'cards');
+// 🗂 Adding a card: live at once (anyone with Production), then reviewed. Everyone with the "Review new cards" right
+// (admins too) gets a ✉ message; they mark it checked, or undo it: taken out of the Access file again, with why, and
+// whoever added it is told. Nothing waits for anyone: an absent reviewer never holds a card up.
+const canReviewCards = (req) => !accounts.enabled() || accounts.hasRight(req, 'cards');
 const whoOf = (req) => req.account?.person || String(req.get('X-User-Name') || '').slice(0, 60) || null;
-const cardNote = (to, title, body, id) => { if (!to) return; try { db.run('INSERT INTO messages (to_person, kind, title, body, from_person, topic, link) VALUES (?, ?, ?, ?, ?, ?, ?)', [to, 'message', title, body, 'SITHUB', `card-request-${id}`, '#/cards']); } catch (err) { log.warn('🗂 Card request message', err.message); } };
-// the values checked against the table and the answers now: { schema, cols, fields, ax }
-async function cardCheck(values, { exceptRequest = null } = {}) {
+const cardNote = (to, title, body, id) => { if (!to) return; try { db.run('INSERT INTO messages (to_person, kind, title, body, from_person, topic, link) VALUES (?, ?, ?, ?, ?, ?, ?)', [to, 'message', title, body, 'SITHUB', `card-added-${id}`, '#/cards']); } catch (err) { log.warn('🗂 Card message', err.message); } };
+// the values checked against the table and the answers now: { file, schema, cols, fields, ax }
+async function cardCheck(values) {
   const { file, table, r, writable } = cardDbOf();
   if (!writable) throw new HttpError(400, 'The card database isn\'t an Access file (.accdb / .mdb)');
   if (r.status !== 'ok') throw new HttpError(400, r.error || 'The card database can\'t be read');
@@ -2866,59 +2864,49 @@ async function cardCheck(values, { exceptRequest = null } = {}) {
   if (errors.length) throw new HttpError(400, errors.join(' · '));
   const ax = String(fields.find((f) => f.name === cols.key).value);
   if (r.cards.has(planning.axKey(ax))) throw new HttpError(409, `${ax} is already in the card database`);
-  const twin = db.all("SELECT id, ax_ref, requested_by FROM card_requests WHERE status = 'pending'").find((x) => x.id !== exceptRequest && planning.axKey(x.ax_ref) === planning.axKey(ax));
-  if (twin) throw new HttpError(409, `${ax} has already been asked for${twin.requested_by ? ` by ${twin.requested_by}` : ''}, waiting for approval`);
   return { file, schema, cols, fields, ax };
 }
-const cardVals = (fields) => Object.fromEntries(fields.map((f) => [f.name, f.value]));
-// { values }: asked for; waits for approval
+// { values }: written into the Access file now; the reviewers are told
 router.post('/plan/cards/add', h(async (req, res) => {
-  const { cols, fields, ax } = await cardCheck(req.body?.values);
-  const by = whoOf(req);
-  const id = Number(db.run('INSERT INTO card_requests (ax_ref, item_name, vals, requested_by, account_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    [ax, cols.name ? fields.find((f) => f.name === cols.name)?.value ?? null : null, JSON.stringify(cardVals(fields)), by, req.account?.id ?? null, new Date().toISOString()]).lastInsertRowid);
-  log.info(`🗂 Card ${ax} asked for by ${by || '?'}: waiting for approval`);
-  for (const p of accounts.peopleWithRight('cards')) if (p.toLowerCase() !== String(by || '').toLowerCase()) cardNote(p, `🗂 A new card to approve: ${ax}`, `${by || 'Someone'} asked for ${ax} to be added to the card database. Review it on 🗂 Card database.`, id);
-  res.status(201).json({ ok: true, pending: true, id, ax_ref: ax });
-}));
-// { values? }: approved (corrected first if values are given) and written into the Access file
-router.post('/plan/cards/requests/:id/approve', h(async (req, res) => {
-  if (!canApproveCards(req)) throw new HttpError(403, 'Approving cards needs the “Approve new cards” right');
-  const q = db.get("SELECT * FROM card_requests WHERE id = ? AND status = 'pending'", [Number(req.params.id)]);
-  if (!q) throw new HttpError(404, 'That request isn\'t waiting any more');
-  if (req.account && q.account_id === req.account.id && req.account.role !== 'admin') throw new HttpError(403, 'Someone else approves your own request');
-  const { file, schema, cols, fields, ax } = await cardCheck(req.body?.values || JSON.parse(q.vals), { exceptRequest: q.id });
+  const { file, schema, cols, fields, ax } = await cardCheck(req.body?.values);
   const out = await cardWrite.write({ file, table: schema.table, key: cols.key, fields });
-  if (!out.ok) { db.run('UPDATE card_requests SET error = ? WHERE id = ?', [out.error, q.id]); throw new HttpError(out.exists ? 409 : 400, out.error); }
-  const by = whoOf(req); const now = new Date().toISOString();
-  const added = Number(db.run('INSERT INTO card_additions (ax_ref, item_name, fields, by_name, account_id, provider, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [ax, cols.name ? fields.find((f) => f.name === cols.name)?.value ?? null : null, JSON.stringify(fields.map((f) => [f.name, f.value])), `${q.requested_by || '?'} · approved by ${by || '?'}`, req.account?.id ?? null, out.provider || null, now]).lastInsertRowid);
-  db.run("UPDATE card_requests SET status = 'approved', vals = ?, ax_ref = ?, decided_by = ?, decided_at = ?, error = NULL, added_id = ? WHERE id = ?", [JSON.stringify(cardVals(fields)), ax, by, now, added, q.id]);
-  log.info(`🗂 Card ${ax} approved by ${by || '?'} and written to the card database (${fields.length} fields, ${out.provider || ''})`);
-  cardNote(q.requested_by, `🗂 ${ax} is in the card database`, `${by || 'Someone'} approved your card ${ax}: it's in the card database now.`, q.id);
-  planning.forgetCards(); cardSchemaCache = null;
-  res.json({ ok: true, ax_ref: ax });
-}));
-// { reason }: turned down
-router.post('/plan/cards/requests/:id/reject', h((req, res) => {
-  if (!canApproveCards(req)) throw new HttpError(403, 'Turning down cards needs the “Approve new cards” right');
-  const q = db.get("SELECT * FROM card_requests WHERE id = ? AND status = 'pending'", [Number(req.params.id)]);
-  if (!q) throw new HttpError(404, 'That request isn\'t waiting any more');
-  const reason = String(req.body?.reason || '').trim().slice(0, 500);
-  if (!reason) throw new HttpError(400, 'Say why, so they can put it right');
+  if (!out.ok) throw new HttpError(out.exists ? 409 : 400, out.error);
   const by = whoOf(req);
-  db.run("UPDATE card_requests SET status = 'rejected', decided_by = ?, decided_at = ?, reason = ? WHERE id = ?", [by, new Date().toISOString(), reason, q.id]);
-  log.info(`🗂 Card ${q.ax_ref} turned down by ${by || '?'}: ${reason}`);
-  cardNote(q.requested_by, `🗂 ${q.ax_ref} wasn't added`, `${by || 'Someone'} turned down your card ${q.ax_ref}: “${reason}”. You can ask again from 🗂 Card database.`, q.id);
+  const id = Number(db.run('INSERT INTO card_additions (ax_ref, item_name, fields, by_name, account_id, provider, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [ax, cols.name ? fields.find((f) => f.name === cols.name)?.value ?? null : null, JSON.stringify(fields.map((f) => [f.name, f.value])), by, req.account?.id ?? null, out.provider || null, new Date().toISOString()]).lastInsertRowid);
+  log.info(`🗂 Card ${ax} added to the card database by ${by || '?'} (${fields.length} fields, ${out.provider || ''})`);
+  for (const p of accounts.peopleWithRight('cards')) if (p.toLowerCase() !== String(by || '').toLowerCase()) cardNote(p, `🗂 New card to check: ${ax}`, `${by || 'Someone'} added ${ax} to the card database. It's live; check it on 🗂 Card database, and undo it there if it's wrong.`, id);
+  planning.forgetCards(); cardSchemaCache = null;
+  res.status(201).json({ ok: true, id, ax_ref: ax });
+}));
+// ✓ checked: off the list to check
+router.post('/plan/cards/additions/:id/checked', h((req, res) => {
+  if (!canReviewCards(req)) throw new HttpError(403, 'Checking new cards needs the “Review new cards” right');
+  const a = db.get("SELECT * FROM card_additions WHERE id = ? AND status = 'new'", [Number(req.params.id)]);
+  if (!a) throw new HttpError(404, 'That card isn\'t waiting to be checked');
+  db.run("UPDATE card_additions SET status = 'checked', checked_by = ?, checked_at = ? WHERE id = ?", [whoOf(req), new Date().toISOString(), a.id]);
   res.json({ ok: true });
 }));
-// withdrawn by whoever asked (or an approver)
-router.delete('/plan/cards/requests/:id', h((req, res) => {
-  const q = db.get("SELECT * FROM card_requests WHERE id = ? AND status = 'pending'", [Number(req.params.id)]);
-  if (!q) throw new HttpError(404, 'That request isn\'t waiting any more');
-  if (accounts.enabled() && !(req.account && q.account_id === req.account.id) && !canApproveCards(req)) throw new HttpError(403, 'Only whoever asked for it can withdraw it');
-  db.run('DELETE FROM card_requests WHERE id = ?', [q.id]);
-  res.status(204).end();
+// { reason }: undone — the row taken out of the Access file again (a copy of the database kept first)
+router.post('/plan/cards/additions/:id/undo', h(async (req, res) => {
+  if (!canReviewCards(req)) throw new HttpError(403, 'Undoing a card needs the “Review new cards” right');
+  const a = db.get("SELECT * FROM card_additions WHERE id = ? AND status <> 'undone'", [Number(req.params.id)]);
+  if (!a) throw new HttpError(404, 'That card has already been undone');
+  const reason = String(req.body?.reason || '').trim().slice(0, 500);
+  if (!reason) throw new HttpError(400, 'Say why, so whoever added it can put it right');
+  const { file, table, r, writable } = cardDbOf();
+  if (!writable || r.status !== 'ok') throw new HttpError(400, r.error || 'The card database can\'t be written to');
+  const schema = await cardSchema(file, table); if (!schema) throw new HttpError(503, 'The card database is still being read: try again in a moment');
+  const cols = cardPrefillCols(schema, r.columns);
+  const keyCol = schema.columns.find((c) => c.name === cols.key);
+  const out = await cardWrite.remove({ file, table: schema.table, key: cols.key, value: a.ax_ref, oledb: keyCol?.oledb || 'VarWChar' });
+  if (!out.ok) throw new HttpError(out.gone ? 409 : 400, out.error);
+  const by = whoOf(req);
+  db.run("UPDATE card_additions SET status = 'undone', undone_by = ?, undone_at = ?, reason = ? WHERE id = ?", [by, new Date().toISOString(), reason, a.id]);
+  log.info(`🗂 Card ${a.ax_ref} undone by ${by || '?'} (taken out of the card database): ${reason}`);
+  cardNote(a.by_name, `🗂 ${a.ax_ref} was taken out of the card database`, `${by || 'Someone'} undid the card ${a.ax_ref} you added: “${reason}”. Add it again from 🗂 Card database once it's put right.`, a.id);
+  planning.forgetCards(); cardSchemaCache = null;
+  res.json({ ok: true });
 }));
 // The machines and the product types each runs ("DOD, Laser"; blank = any).
 const machineFields = (b) => {

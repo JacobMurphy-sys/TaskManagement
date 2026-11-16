@@ -589,23 +589,8 @@ const TABLES = {
     tech        TEXT,
     qty         REAL    NOT NULL DEFAULT 0,
     read_at     TEXT    NOT NULL`,
-  // 🗂 Cards asked for on the card database page, waiting for someone with the "Approve new cards" right: pending,
-  // then approved (written into the Access file: card_additions) or rejected (with why); withdrawn ones are deleted.
-  card_requests: `
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    ax_ref       TEXT    NOT NULL,
-    item_name    TEXT,
-    vals         TEXT    NOT NULL,
-    status       TEXT    NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
-    requested_by TEXT,
-    account_id   INTEGER,
-    created_at   TEXT    NOT NULL,
-    decided_by   TEXT,
-    decided_at   TEXT,
-    reason       TEXT,
-    error        TEXT,
-    added_id     INTEGER`,
-  // 🗂 Cards added to the card database (Access) from SITHUB: what was written, by whom (cardwrite.js)
+  // 🗂 Cards added to the card database (Access) from SITHUB: what was written, by whom (cardwrite.js); live at once,
+  // then checked or undone (taken out of the file again) by someone with the "Review new cards" right
   card_additions: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     ax_ref      TEXT    NOT NULL,
@@ -614,7 +599,13 @@ const TABLES = {
     by_name     TEXT,
     account_id  INTEGER,
     provider    TEXT,
-    created_at  TEXT    NOT NULL`,
+    created_at  TEXT    NOT NULL,
+    status      TEXT    NOT NULL DEFAULT 'new',  -- new (live, not checked yet) · checked · undone (taken out again)
+    checked_by  TEXT,
+    checked_at  TEXT,
+    undone_by   TEXT,
+    undone_at   TEXT,
+    reason      TEXT`,
   // 📈 Forecasts sent in (the Forecast tab, or its upload link with no sign-in): the workbook itself, who sent it and
   // what it held. The newest of a kind (benelux / amex) newer than the linked file is what 📐 Capacity reads.
   forecast_uploads: `

@@ -95,7 +95,7 @@ const RIGHTS = [
   { key: 'backups', label: 'Backups', icon: '💾', what: 'make a backup and restore one — from any PC, not only on the server' },
   { key: 'server', label: 'Server', icon: '🖥', what: 'read the server\'s log and restart it (picking up an update) from any PC' },
   { key: 'tickets', label: 'Handle tickets', icon: '🎫', what: 'set the status of bug reports and feature requests, and answer them' },
-  { key: 'cards', label: 'Approve new cards', icon: '🗂', what: 'approve or turn down the cards asked for on 🗂 Card database before SITHUB writes them into the Access file, and change its fixed answers' },
+  { key: 'cards', label: 'Review new cards', icon: '🗂', what: 'told of each card added on 🗂 Card database (it\'s live straight away): mark it checked, or undo it (taken out of the Access file again); and change its fixed answers' },
   { key: 'poke', label: 'Poke people', icon: '👉', what: 'send anyone a ✉ nudge about a task given to them (project leaders and sponsors can always on their own projects)' },
 ];
 const RIGHT_KEYS = RIGHTS.map((r) => r.key);

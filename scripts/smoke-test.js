@@ -2433,36 +2433,37 @@ async function waitForServer() {
         delete process.env.CARDWRITE_TEST_LOG;
         assert.ok(/BeginTransaction[\s\S]*SELECT COUNT\(\*\) FROM \$t WHERE[\s\S]*INSERT INTO[\s\S]*Commit\(\)/.test(cw.PS) && /Rollback\(\)/.test(cw.PS), 'checked again, then written, in one transaction');
         if (process.platform !== 'win32') assert.match((await cw.test({ file: fx, table: 'Table1', key: 'A' })).error, /needs SITHUB running on Windows/);
-        // ⏳ asked for, then approved (written) or turned down: end to end, the server writing into a log (CARDWRITE_TEST_LOG)
+        // 🔎 added (live at once), then checked or undone: end to end, the server writing into a log (CARDWRITE_TEST_LOG)
         {
           const s0 = await call('GET', '/settings');
+          const wlog = path.join(tmp, 'cardwrite-server.log');
+          const lastWrite = () => JSON.parse(fs.readFileSync(wlog, 'utf8').trim().split('\n').pop());
           await call('PATCH', '/settings', { plan_db: fx, plan_db_table: 'Table1', plan_db_key: 'A' });
           let pg = await call('GET', '/plan/cards');
-          assert.deepEqual([pg.writable, pg.schema?.table, pg.prefill?.key, pg.can_approve], [true, 'Table1', 'A', true], 'an Access card database, its AX Ref column set by name');
+          assert.deepEqual([pg.writable, pg.schema?.table, pg.prefill?.key, pg.can_review], [true, 'Table1', 'A', true], 'an Access card database, its AX Ref column set by name');
           await assert.rejects(call('POST', '/plan/cards/add', { values: { A: 'abcdefg' } }), /already in the card database/);
-          const q1 = await call('POST', '/plan/cards/add', { values: { A: 'NEW9', B: 'Gold card', C: '5' } });
-          assert.deepEqual([q1.pending, q1.ax_ref], [true, 'NEW9'], 'asked for: waiting');
-          assert.equal(fs.existsSync(path.join(tmp, 'cardwrite-server.log')), false, 'nothing written yet');
-          await assert.rejects(call('POST', '/plan/cards/add', { values: { A: 'new9' } }), /already been asked for/);
+          await assert.rejects(call('POST', '/plan/cards/add', { values: { A: 'NEW9', C: '999' } }), /C is a whole number/);
+          const a1 = await call('POST', '/plan/cards/add', { values: { A: 'NEW9', B: 'Gold card', C: '6' } });
+          assert.deepEqual([a1.ok, a1.ax_ref], [true, 'NEW9'], 'added');
+          const w = lastWrite();
+          assert.deepEqual([w.mode, w.table, w.key, w.fields.map((f) => [f.name, f.value])], ['insert', 'Table1', 'A', [['A', 'NEW9'], ['B', 'Gold card'], ['C', 6]]], 'written into the Access file straight away: no one to wait for');
           pg = await call('GET', '/plan/cards');
-          assert.deepEqual(pg.requests.filter((q) => q.status === 'pending').map((q) => [q.ax_ref, q.item_name, q.vals.C]), [['NEW9', null, 5]], 'waiting for approval (this table has no item name column)');
-          // approved, corrected first
-          await assert.rejects(call('POST', `/plan/cards/requests/${q1.id}/approve`, { values: { A: 'NEW9', C: '999' } }), /C is a whole number/);
-          assert.equal((await call('POST', `/plan/cards/requests/${q1.id}/approve`, { values: { A: 'NEW9', B: 'Gold card', C: '6' } })).ok, true);
-          const w = JSON.parse(fs.readFileSync(path.join(tmp, 'cardwrite-server.log'), 'utf8').trim().split('\n').pop());
-          assert.deepEqual([w.mode, w.table, w.key, w.fields.map((f) => [f.name, f.value])], ['insert', 'Table1', 'A', [['A', 'NEW9'], ['B', 'Gold card'], ['C', 6]]], 'written as corrected');
-          pg = await call('GET', '/plan/cards');
-          assert.deepEqual([pg.requests.find((q) => q.id === q1.id).status, pg.additions[0].ax_ref], ['approved', 'NEW9'], 'approved, and listed as added');
-          await assert.rejects(call('POST', `/plan/cards/requests/${q1.id}/approve`), /isn't waiting/);
-          // turned down (with why), and withdrawn
-          const q2 = await call('POST', '/plan/cards/add', { values: { A: 'NEW10' } });
-          await assert.rejects(call('POST', `/plan/cards/requests/${q2.id}/reject`, {}), /Say why/);
-          await call('POST', `/plan/cards/requests/${q2.id}/reject`, { reason: 'Wrong AX Ref' });
-          const r2 = (await call('GET', '/plan/cards')).requests.find((q) => q.id === q2.id);
-          assert.deepEqual([r2.status, r2.reason], ['rejected', 'Wrong AX Ref'], 'turned down, with why');
-          const q3 = await call('POST', '/plan/cards/add', { values: { A: 'NEW11' } });
-          await call('DELETE', `/plan/cards/requests/${q3.id}`);
-          assert.equal((await call('GET', '/plan/cards')).requests.some((q) => q.id === q3.id), false, 'withdrawn');
+          const n1 = pg.additions.find((x) => x.id === a1.id);
+          assert.deepEqual([n1.status, n1.fields.B, n1.fields.C], ['new', 'Gold card', 6], 'on the list to check, with what was written');
+          // ✓ checked: off the list
+          await call('POST', `/plan/cards/additions/${a1.id}/checked`);
+          await assert.rejects(call('POST', `/plan/cards/additions/${a1.id}/checked`), /isn't waiting/);
+          assert.equal((await call('GET', '/plan/cards')).additions.find((x) => x.id === a1.id).status, 'checked', 'checked');
+          // ↩ undone: taken out of the Access file again, with why
+          const a2 = await call('POST', '/plan/cards/add', { values: { A: 'NEW10' } });
+          await assert.rejects(call('POST', `/plan/cards/additions/${a2.id}/undo`, {}), /Say why/);
+          await call('POST', `/plan/cards/additions/${a2.id}/undo`, { reason: 'Wrong AX Ref' });
+          const u = lastWrite();
+          assert.deepEqual([u.mode, u.key, u.value, u.oledb], ['delete', 'A', 'NEW10', 'VarWChar'], 'its row deleted by its AX Ref');
+          const r2 = (await call('GET', '/plan/cards')).additions.find((x) => x.id === a2.id);
+          assert.deepEqual([r2.status, r2.reason], ['undone', 'Wrong AX Ref'], 'undone, with why');
+          await assert.rejects(call('POST', `/plan/cards/additions/${a2.id}/undo`, { reason: 'again' }), /already been undone/);
+          assert.match(cw.PS, /mode -eq 'delete'[\s\S]*DELETE FROM \$t WHERE[\s\S]*-ne 1\) \{ \$tx\.Rollback\(\)/, 'only ever the one row, or nothing');
           await call('PATCH', '/settings', { plan_db: s0.plan_db || '', plan_db_table: s0.plan_db_table || 'Cards', plan_db_key: '' });
         }
       }
@@ -3423,10 +3424,10 @@ async function waitForServer() {
           };
           const look = async (token, cookie = fcCookie) => { const r = await fetch(`${BASE}/fc-submit/${token}`, { headers: cookie ? { Cookie: cookie } : {} }); return { status: r.status, data: await r.json().catch(() => null) }; };
           assert.equal((await sam('GET', '/forecasts')).status, 403, 'Forecast is a module of its own');
-          // 🗂 approving new cards: a right of its own
-          assert.ok((await admin('GET', '/auth/me')).data.rights.some((x) => x.key === 'cards'), 'the "Approve new cards" right');
-          const samApprove = await sam('POST', '/plan/cards/requests/1/approve');
-          assert.ok(samApprove.status === 403 && /Approve new cards|doesn't include/.test(samApprove.data.error), 'without it: no approving');
+          // 🗂 reviewing new cards: a right of its own
+          assert.ok((await admin('GET', '/auth/me')).data.rights.some((x) => x.key === 'cards' && /Review new cards/.test(x.label)), 'the "Review new cards" right');
+          const samUndo = await sam('POST', '/plan/cards/additions/1/undo', { reason: 'x' });
+          assert.ok(samUndo.status === 403 && /Review new cards|doesn't include/.test(samUndo.data.error), 'without it: no undoing');
           let fc = (await admin('GET', '/forecasts')).data;
           assert.deepEqual([fc.link.on, fc.link.path, fc.link.can_edit], [false, null, true], 'the link starts off');
           assert.equal((await look('anything')).status, 404, 'off: no link works');

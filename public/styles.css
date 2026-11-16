@@ -2701,3 +2701,4 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .cd-chip .icon { padding: 0 4px; font-size: 11px; }
 .cd-addans { display: inline-flex; gap: 4px; } .cd-addans input { width: 140px; padding: 3px 8px; }
 .cd-ans td { vertical-align: top; }
+.cd-vals { max-width: 640px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

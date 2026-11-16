@@ -9,6 +9,7 @@
 //    transaction: the AX Ref checked again inside it, then inserted; any error and nothing is written. If the engine
 //    isn't there for the 64-bit PowerShell, the 32-bit one is tried (the engine comes in one or the other).
 //  - Before the first write of the hour, a copy of the database is kept (DATA_DIR/card-db-backups, the last 20).
+//  - remove(): the undo of a card added (by someone with the "Review new cards" right): its one row deleted again.
 //  - test(): opens the file for writing and makes a change that touches no row, then rolls it back: proves the engine,
 //    its bitness and write access to the file without changing anything.
 // CARDWRITE_TEST_LOG (the smoke test only): instead of writing, each request is appended to that file.
@@ -122,7 +123,13 @@ try {
   if ($null -eq $conn) { throw "NOENGINE: $last" }
   $tx = $conn.BeginTransaction()
   $t = Q $p.table
-  if ($p.mode -eq 'test') {
+  if ($p.mode -eq 'delete') {
+    $kf = [pscustomobject]@{ name = $p.key; oledb = $p.oledb; value = $p.value }
+    $cmd = $conn.CreateCommand(); $cmd.Transaction = $tx; $cmd.CommandText = "DELETE FROM $t WHERE $(Q $p.key) = ?"; P $cmd $kf
+    $n = $cmd.ExecuteNonQuery()
+    if ($n -ne 1) { $tx.Rollback(); throw "GONE: $n" }
+    $tx.Commit(); $out.ok = $true
+  } elseif ($p.mode -eq 'test') {
     $cmd = $conn.CreateCommand(); $cmd.Transaction = $tx
     $cmd.CommandText = "UPDATE $t SET $(Q $p.key) = $(Q $p.key) WHERE 1 = 0"
     [void]$cmd.ExecuteNonQuery()
@@ -172,6 +179,7 @@ function explain(r) {
     if (/not registered/i.test(e)) return { ...r, error: 'The Access Database Engine isn\'t installed on the server (in 64 or 32 bits). Install Microsoft\'s free "Access Database Engine 2016 Redistributable" there (no Access needed), then test again.', engine_url: ENGINE_URL };
     return { ...r, error: `Access couldn't open the database: ${e.replace(/^NOENGINE:\s*/, '')}` };
   }
+  if (/^GONE/.test(e)) return { ...r, error: /GONE: 0/.test(e) ? 'It isn\'t in the card database any more' : 'More than one card has that AX Ref: take it out in Access', gone: true };
   if (/^EXISTS/.test(e)) return { ...r, error: `${e.replace(/^EXISTS:\s*/, '')} is already in the card database`, exists: true };
   if (/locked|in use|exclusive|could not use/i.test(e)) return { ...r, error: 'The database is locked (opened exclusively, or being saved): try again in a moment' };
   if (/read-only|updateable|permission|access is denied/i.test(e)) return { ...r, error: `The server can't write to the database: ${e}` };
@@ -202,4 +210,11 @@ async function write({ file, table, key, fields }) {
   return viaEngine({ mode: 'insert', file, table, key, fields });
 }
 
-module.exports = { DEFAULT_CHOICES, choicesFor, schemaNow, prepare, clean, test, write, writable, ENGINE_URL, PS };
+// the undo: the one row with that AX Ref taken out again (a copy of the database kept first)
+async function remove({ file, table, key, value, oledb }) {
+  if (!writable(file)) return { ok: false, error: 'The card database isn\'t an Access file' };
+  if (!process.env.CARDWRITE_TEST_LOG) backup(file);
+  return viaEngine({ mode: 'delete', file, table, key, value, oledb });
+}
+
+module.exports = { DEFAULT_CHOICES, choicesFor, schemaNow, prepare, clean, test, write, remove, writable, ENGINE_URL, PS };
