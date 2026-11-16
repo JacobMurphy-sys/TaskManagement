@@ -589,6 +589,22 @@ const TABLES = {
     tech        TEXT,
     qty         REAL    NOT NULL DEFAULT 0,
     read_at     TEXT    NOT NULL`,
+  // 🗂 Cards asked for on the card database page, waiting for someone with the "Approve new cards" right: pending,
+  // then approved (written into the Access file: card_additions) or rejected (with why); withdrawn ones are deleted.
+  card_requests: `
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ax_ref       TEXT    NOT NULL,
+    item_name    TEXT,
+    vals         TEXT    NOT NULL,
+    status       TEXT    NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    requested_by TEXT,
+    account_id   INTEGER,
+    created_at   TEXT    NOT NULL,
+    decided_by   TEXT,
+    decided_at   TEXT,
+    reason       TEXT,
+    error        TEXT,
+    added_id     INTEGER`,
   // 🗂 Cards added to the card database (Access) from SITHUB: what was written, by whom (cardwrite.js)
   card_additions: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

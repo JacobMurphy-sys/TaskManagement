@@ -2097,7 +2097,7 @@ otdEntry.useCalendar(() => { const s = getSettings(); return { workDays: new Set
 function customerNames() {
   const set = getSettings(); const names = new Map();
   try {
-    const cards = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+    const cards = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards', columns: cardKeyCols(set) });
     if (cards.status === 'ok') for (const c of cards.cards.values()) if (c.trigram && c.customer && !names.has(c.trigram.toUpperCase())) names.set(c.trigram.toUpperCase(), c.customer);
   } catch { /* no card database: codes only */ }
   return names;
@@ -2336,6 +2336,8 @@ router.delete('/kpi/overrides/:week/:col', h((req, res) => {
 
 // The customer forecast files, as set (they're read when an A3 is built).
 const cleanPath = (p) => String(p || '').trim().replace(/^"|"$/g, '');
+// the card database's AX Ref column, when it isn't called "AX Ref" (plan_db_key)
+const cardKeyCols = (set) => (String(set.plan_db_key || '').trim() ? { key: String(set.plan_db_key).trim() } : {});
 // 📈 Each customer forecast as it stands now: the file linked in Sources, or the newest sent in (📈 Forecast,
 // forecasts.js) when it came after that file was saved. Everything using the forecast reads it through here: the
 // A3 build (and so the A3 and the Database's report tables), Capacity planning, and the status on Sources and
@@ -2664,7 +2666,7 @@ async function checkPlanExport() {
   await prefetchAll([file, cleanPath(set.plan_db), cleanPath(set.plan_otto_src), cleanPath(set.plan_disp_src)]);
   try {
     if (file) recordPlan(planning.readSource({ file }));
-    if (cleanPath(set.plan_db)) planning.readCards({ file: cleanPath(set.plan_db), table: set.plan_db_table || 'Cards' });
+    if (cleanPath(set.plan_db)) planning.readCards({ file: cleanPath(set.plan_db), table: set.plan_db_table || 'Cards', columns: cardKeyCols(set) });
     if (cleanPath(set.plan_otto_src)) recordOtto(planning.readSource({ file: cleanPath(set.plan_otto_src), parser: planning.parseOtto }));
     if (cleanPath(set.plan_disp_src)) recordDisp(planning.readSource({ file: cleanPath(set.plan_disp_src), parser: planning.parseDisp }));
   } catch (err) { log.warn('Planning: reading ahead', err.message); }
@@ -2683,7 +2685,7 @@ function planData(modeQ) {
     buffer: Math.max(0, Number(set.plan_buffer) || 0), changeover: Math.max(0, Number(set.plan_changeover) || 0) };
   const source = { status: src.status, file: src.file || null, name: src.name || null, uploaded: !!src.uploaded, modified: src.modified || null, read_at: src.read_at || null, error: src.error || null,
     lines: src.lines?.length || 0, skipped: src.skipped || [] };
-  const db_ = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+  const db_ = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards', columns: cardKeyCols(set) });
   const cardsDb = { status: db_.status, file: db_.file || null, name: db_.name || null, modified: db_.modified || null, table: db_.table || null, count: db_.count || 0, error: db_.error || null, columns: db_.columns || null };
   const rules = db.all('SELECT * FROM plan_speeds ORDER BY type, material, sides');
   let sharedSetup = null; try { sharedSetup = JSON.parse(metaGet('shared_setup_info') || 'null'); } catch { /* none */ }
@@ -2781,7 +2783,7 @@ function cardChoices() { try { const v = JSON.parse(db.get("SELECT value FROM se
 function cardDbOf() {
   const set = getSettings();
   const file = cleanPath(set.plan_db) || null; const table = set.plan_db_table || 'Cards';
-  const r = planning.readCards({ file, table });
+  const r = planning.readCards({ file, table, columns: cardKeyCols(set) });
   return { file, table, r, writable: cardWrite.writable(file) };
 }
 // the columns the reports' figures go into (the table's own, by name)
@@ -2813,7 +2815,10 @@ router.get('/plan/cards', h(async (req, res) => {
   const { file, table, r, writable } = cardDbOf();
   const base = { file, name: file ? path.basename(file) : null, table, writable, status: r.status, count: r.count || 0, error: r.error || null,
     additions: db.all('SELECT id, ax_ref, item_name, by_name, created_at FROM card_additions ORDER BY id DESC LIMIT 30'), engine_url: cardWrite.ENGINE_URL,
-    choices: cardChoices(), can_edit_choices: !accounts.enabled() || accounts.hasRight(req, 'setup') };
+    choices: cardChoices(), can_edit_choices: canApproveCards(req) || !accounts.enabled() || accounts.hasRight(req, 'setup'),
+    can_approve: canApproveCards(req), me: req.account?.person || null,
+    requests: db.all("SELECT id, ax_ref, item_name, vals, status, requested_by, account_id, created_at, decided_by, decided_at, reason, error FROM card_requests WHERE status = 'pending' OR decided_at >= ? ORDER BY id DESC LIMIT 100",
+      [new Date(Date.now() - 30 * 86400000).toISOString()]).map((x) => ({ ...x, vals: JSON.parse(x.vals || '{}'), mine: !!req.account && x.account_id === req.account.id })) };
   if (r.status !== 'ok' || !writable) return res.json({ ...base, schema: null, missing: r.status === 'ok' ? cardsMissing(r.cards) : [] });
   const schema = await cardSchema(file, table);
   if (!schema) return res.json({ ...base, schema: null, reading: true, missing: cardsMissing(r.cards) });
@@ -2821,7 +2826,7 @@ router.get('/plan/cards', h(async (req, res) => {
 }));
 // { column, answers: [...] }: a column's fixed answers (none: typed freely again); the setup right
 router.put('/plan/cards/choices', h((req, res) => {
-  if (accounts.enabled() && !accounts.hasRight(req, 'setup')) throw new HttpError(403, 'Changing the answers needs the “Change the setup” right');
+  if (accounts.enabled() && !accounts.hasRight(req, 'setup') && !accounts.hasRight(req, 'cards')) throw new HttpError(403, 'Changing the answers needs the “Approve new cards” right');
   const column = String(req.body?.column || '').trim().slice(0, 64);
   if (!column) throw new HttpError(400, 'Which column?');
   const seen = new Set(); const answers = [];
@@ -2842,26 +2847,78 @@ router.post('/plan/cards/test', h(async (req, res) => {
   const out = await cardWrite.test({ file, table: schema.table, key: cardPrefillCols(schema, r.columns).key });
   res.status(out.ok ? 200 : 400).json(out.ok ? out : { ...out, error: out.error });
 }));
-// { values: { column: value } }: one card written into the table
-router.post('/plan/cards/add', h(async (req, res) => {
+// 🗂 Asking for a card and approving it. Anyone with Production asks (the values checked as for writing); someone with
+// the "Approve new cards" right (admins too; anyone while accounts are off) reviews it, can correct it, and approves
+// (SITHUB writes it into the Access file then) or turns it down with why. Not their own request, unless an admin.
+// Both sides get a ✉ message.
+const canApproveCards = (req) => !accounts.enabled() || accounts.hasRight(req, 'cards');
+const whoOf = (req) => req.account?.person || String(req.get('X-User-Name') || '').slice(0, 60) || null;
+const cardNote = (to, title, body, id) => { if (!to) return; try { db.run('INSERT INTO messages (to_person, kind, title, body, from_person, topic, link) VALUES (?, ?, ?, ?, ?, ?, ?)', [to, 'message', title, body, 'SITHUB', `card-request-${id}`, '#/cards']); } catch (err) { log.warn('🗂 Card request message', err.message); } };
+// the values checked against the table and the answers now: { schema, cols, fields, ax }
+async function cardCheck(values, { exceptRequest = null } = {}) {
   const { file, table, r, writable } = cardDbOf();
   if (!writable) throw new HttpError(400, 'The card database isn\'t an Access file (.accdb / .mdb)');
   if (r.status !== 'ok') throw new HttpError(400, r.error || 'The card database can\'t be read');
   const schema = await cardSchema(file, table); if (!schema) throw new HttpError(503, 'The card database is still being read: try again in a moment');
   const cols = cardPrefillCols(schema, r.columns);
   if (!cols.key) throw new HttpError(400, `The ${schema.table} table has no AX Ref column`);
-  const { fields, errors } = cardWrite.prepare(schema, req.body?.values || {}, cols.key, cardChoices());
+  const { fields, errors } = cardWrite.prepare(schema, values || {}, cols.key, cardChoices());
   if (errors.length) throw new HttpError(400, errors.join(' · '));
-  const ax = fields.find((f) => f.name === cols.key).value;
+  const ax = String(fields.find((f) => f.name === cols.key).value);
   if (r.cards.has(planning.axKey(ax))) throw new HttpError(409, `${ax} is already in the card database`);
+  const twin = db.all("SELECT id, ax_ref, requested_by FROM card_requests WHERE status = 'pending'").find((x) => x.id !== exceptRequest && planning.axKey(x.ax_ref) === planning.axKey(ax));
+  if (twin) throw new HttpError(409, `${ax} has already been asked for${twin.requested_by ? ` by ${twin.requested_by}` : ''}, waiting for approval`);
+  return { file, schema, cols, fields, ax };
+}
+const cardVals = (fields) => Object.fromEntries(fields.map((f) => [f.name, f.value]));
+// { values }: asked for; waits for approval
+router.post('/plan/cards/add', h(async (req, res) => {
+  const { cols, fields, ax } = await cardCheck(req.body?.values);
+  const by = whoOf(req);
+  const id = Number(db.run('INSERT INTO card_requests (ax_ref, item_name, vals, requested_by, account_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [ax, cols.name ? fields.find((f) => f.name === cols.name)?.value ?? null : null, JSON.stringify(cardVals(fields)), by, req.account?.id ?? null, new Date().toISOString()]).lastInsertRowid);
+  log.info(`🗂 Card ${ax} asked for by ${by || '?'}: waiting for approval`);
+  for (const p of accounts.peopleWithRight('cards')) if (p.toLowerCase() !== String(by || '').toLowerCase()) cardNote(p, `🗂 A new card to approve: ${ax}`, `${by || 'Someone'} asked for ${ax} to be added to the card database. Review it on 🗂 Card database.`, id);
+  res.status(201).json({ ok: true, pending: true, id, ax_ref: ax });
+}));
+// { values? }: approved (corrected first if values are given) and written into the Access file
+router.post('/plan/cards/requests/:id/approve', h(async (req, res) => {
+  if (!canApproveCards(req)) throw new HttpError(403, 'Approving cards needs the “Approve new cards” right');
+  const q = db.get("SELECT * FROM card_requests WHERE id = ? AND status = 'pending'", [Number(req.params.id)]);
+  if (!q) throw new HttpError(404, 'That request isn\'t waiting any more');
+  if (req.account && q.account_id === req.account.id && req.account.role !== 'admin') throw new HttpError(403, 'Someone else approves your own request');
+  const { file, schema, cols, fields, ax } = await cardCheck(req.body?.values || JSON.parse(q.vals), { exceptRequest: q.id });
   const out = await cardWrite.write({ file, table: schema.table, key: cols.key, fields });
-  if (!out.ok) throw Object.assign(new HttpError(out.exists ? 409 : 400, out.error), { engine_url: out.engine_url });
-  const by = req.account?.person || String(req.get('X-User-Name') || '').slice(0, 60) || null;
-  db.run('INSERT INTO card_additions (ax_ref, item_name, fields, by_name, account_id, provider, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [String(ax), cols.name ? fields.find((f) => f.name === cols.name)?.value ?? null : null, JSON.stringify(fields.map((f) => [f.name, f.value])), by, req.account?.id ?? null, out.provider || null, new Date().toISOString()]);
-  log.info(`🗂 Card ${ax} added to the card database by ${by || '?'} (${fields.length} fields, ${out.provider || ''})`);
+  if (!out.ok) { db.run('UPDATE card_requests SET error = ? WHERE id = ?', [out.error, q.id]); throw new HttpError(out.exists ? 409 : 400, out.error); }
+  const by = whoOf(req); const now = new Date().toISOString();
+  const added = Number(db.run('INSERT INTO card_additions (ax_ref, item_name, fields, by_name, account_id, provider, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [ax, cols.name ? fields.find((f) => f.name === cols.name)?.value ?? null : null, JSON.stringify(fields.map((f) => [f.name, f.value])), `${q.requested_by || '?'} · approved by ${by || '?'}`, req.account?.id ?? null, out.provider || null, now]).lastInsertRowid);
+  db.run("UPDATE card_requests SET status = 'approved', vals = ?, ax_ref = ?, decided_by = ?, decided_at = ?, error = NULL, added_id = ? WHERE id = ?", [JSON.stringify(cardVals(fields)), ax, by, now, added, q.id]);
+  log.info(`🗂 Card ${ax} approved by ${by || '?'} and written to the card database (${fields.length} fields, ${out.provider || ''})`);
+  cardNote(q.requested_by, `🗂 ${ax} is in the card database`, `${by || 'Someone'} approved your card ${ax}: it's in the card database now.`, q.id);
   planning.forgetCards(); cardSchemaCache = null;
-  res.status(201).json({ ok: true, ax_ref: ax });
+  res.json({ ok: true, ax_ref: ax });
+}));
+// { reason }: turned down
+router.post('/plan/cards/requests/:id/reject', h((req, res) => {
+  if (!canApproveCards(req)) throw new HttpError(403, 'Turning down cards needs the “Approve new cards” right');
+  const q = db.get("SELECT * FROM card_requests WHERE id = ? AND status = 'pending'", [Number(req.params.id)]);
+  if (!q) throw new HttpError(404, 'That request isn\'t waiting any more');
+  const reason = String(req.body?.reason || '').trim().slice(0, 500);
+  if (!reason) throw new HttpError(400, 'Say why, so they can put it right');
+  const by = whoOf(req);
+  db.run("UPDATE card_requests SET status = 'rejected', decided_by = ?, decided_at = ?, reason = ? WHERE id = ?", [by, new Date().toISOString(), reason, q.id]);
+  log.info(`🗂 Card ${q.ax_ref} turned down by ${by || '?'}: ${reason}`);
+  cardNote(q.requested_by, `🗂 ${q.ax_ref} wasn't added`, `${by || 'Someone'} turned down your card ${q.ax_ref}: “${reason}”. You can ask again from 🗂 Card database.`, q.id);
+  res.json({ ok: true });
+}));
+// withdrawn by whoever asked (or an approver)
+router.delete('/plan/cards/requests/:id', h((req, res) => {
+  const q = db.get("SELECT * FROM card_requests WHERE id = ? AND status = 'pending'", [Number(req.params.id)]);
+  if (!q) throw new HttpError(404, 'That request isn\'t waiting any more');
+  if (accounts.enabled() && !(req.account && q.account_id === req.account.id) && !canApproveCards(req)) throw new HttpError(403, 'Only whoever asked for it can withdraw it');
+  db.run('DELETE FROM card_requests WHERE id = ?', [q.id]);
+  res.status(204).end();
 }));
 // The machines and the product types each runs ("DOD, Laser"; blank = any).
 const machineFields = (b) => {
@@ -3399,7 +3456,7 @@ router.delete('/plan/pins', h((req, res) => {
 // 🔬 Learned from the production runs: speeds, OEE, accuracy, patterns and findings (see planlearn.js).
 function learnNow(daysQ, toQ) {
   const set = getSettings();
-  const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+  const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards', columns: cardKeyCols(set) });
   const cards = dbc.status === 'ok' ? dbc.cards : null;
   const custNames = new Map();
   if (cards) for (const c of cards.values()) if (c.trigram && c.customer && !custNames.has(c.trigram.toUpperCase())) custNames.set(c.trigram.toUpperCase(), c.customer);
@@ -3422,7 +3479,7 @@ function findCtx(withModel = false) {
   const set = getSettings();
   const src = planning.readSource({ file: cleanPath(set.plan_src) || null, uploaded: PLAN_UPLOAD });
   const o = planning.readSource({ file: cleanPath(set.plan_otto_src) || null, uploaded: OTTO_UPLOAD, parser: planning.parseOtto });
-  const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+  const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards', columns: cardKeyCols(set) });
   const cards = dbc.status === 'ok' ? dbc.cards : null;
   const dsp = planning.readSource({ file: cleanPath(set.plan_disp_src) || null, uploaded: DISP_UPLOAD, parser: planning.parseDisp });
   return { lines: src.status === 'ok' ? src.lines : [], otto: o.status === 'ok' ? o.jobs : [], disp: dsp.status === 'ok' ? dsp.jobs : [], cards,
@@ -3434,7 +3491,7 @@ router.get('/plan/find/item/:ax', h((req, res) => res.json(planFind.item(req.par
 // 🔎 Explode: one of its tables opened up over any dates, grouped by anything, with each row's share.
 router.get('/plan/learn/explode', h((req, res) => {
   const set = getSettings();
-  const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+  const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards', columns: cardKeyCols(set) });
   const cards = dbc.status === 'ok' ? dbc.cards : null;
   const custNames = new Map();
   if (cards) for (const c of cards.values()) if (c.trigram && c.customer && !custNames.has(c.trigram.toUpperCase())) custNames.set(c.trigram.toUpperCase(), c.customer);
@@ -3502,7 +3559,7 @@ const SETTING_DEFAULTS = {
   // and whether weekend days in a week split across two months count in their month's part.
   kpi_src_perso: '', kpi_src_shipped: '', kpi_src_remakes: '', kpi_src_consumption: '', kpi_scrap_from: 'auto', kpi_otd_from: 'report', kpi_src_otd: '', kpi_src_salesforce: '', kpi_src_ehs: '', kpi_split_weekends: '0',
   // The customer forecast files (blank: the workbook's copy of them).
-  kpi_fc_benelux: '', kpi_fc_amex: '',
+  kpi_fc_benelux: '', kpi_fc_amex: '', plan_db_key: '',
   // ⏱ The daily timing reports (each job's start and end on its machine), perso and Matching.
   kpi_time_perso: '', kpi_time_otto: '', cpm_shifts: '3', cpm_hours: '6', cpm_holidays: '', cpm_oee_default: '0.35', cpm_machines: '{}', cpm_rnw_hours: '{}', cpm_rnw_bonus: '0.05', cpm_rnw_share: '{}', cpm_hour_full: '1', cpm_day_profile: 'arrival', cpm_day_shape: 'typical', cpm_cutoffs: '', cpm_cutoff_default: '17:00', cpm_cutoff_cust: '{}', cpm_day_manual: '{}', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
@@ -3549,7 +3606,7 @@ setInterval(readProdReportsSafe, 10 * 60 * 1000).unref();
 // The runs from a day (from=YYYY-MM-DD, days=1..31): Gantt, load, totals and anomalies.
 // 📐 CPM — capacity planning (Prod Management): forecasts against actuals, flex, capacity and scenarios (cpm.js).
 const cpm = require('./cpm');
-function cpmCards() { const set = getSettings(); const c = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' }); return c.status === 'ok' ? c.cards : null; }
+function cpmCards() { const set = getSettings(); const c = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards', columns: cardKeyCols(set) }); return c.status === 'ok' ? c.cards : null; }
 function cpmRefresh(force = false) {
   const set = getSettings();
   // 📈 the file linked in Sources, or the newest forecast sent in after it (currentForecast)
@@ -3733,7 +3790,7 @@ router.delete('/cpm/scenarios/:id', h((req, res) => { const sc = cpmScenario(req
 // work orders now or in the history of the past days
 router.get('/plan/optimise', h((req, res) => {
   const set = getSettings();
-  const db_ = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+  const db_ = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards', columns: cardKeyCols(set) });
   const cards = db_.status === 'ok' ? db_.cards : null;
   const history = req.query.source === 'history';
   const days = Math.max(1, Math.min(366, Number(req.query.days) || 28));
@@ -3752,7 +3809,7 @@ router.get('/plan/optimise', h((req, res) => {
 
 router.get('/plan/dplus', h((req, res) => {
   const set = getSettings();
-  const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+  const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards', columns: cardKeyCols(set) });
   const custNames = new Map();
   if (dbc.status === 'ok') for (const c of dbc.cards.values()) if (c.trigram && c.customer && !custNames.has(c.trigram.toUpperCase())) custNames.set(c.trigram.toUpperCase(), c.customer);
   const workDays = new Set(String(set.plan_days || '1,2,3,4,5').split(',').map(Number).filter((d) => d >= 0 && d <= 6));
@@ -3771,7 +3828,7 @@ router.get('/prod', h(async (req, res) => {
   const set = getSettings();
   const v = prod.view(source, from, to, { sensitivity: String(req.query.sensitivity || 'normal'), withAnomalies: req.query.anomalies === '1' });
   // customer names from Planning's card database, where the report has none
-  const cards = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+  const cards = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards', columns: cardKeyCols(set) });
   if (cards.status === 'ok') {
     const names = new Map();
     for (const c of cards.cards.values()) if (c.trigram && c.customer && !names.has(c.trigram.toUpperCase())) names.set(c.trigram.toUpperCase(), c.customer);
@@ -3927,7 +3984,7 @@ router.get('/plan/hidden.xlsx', h((req, res) => {
   const daysAgo = (due) => (due ? Math.floor((now - new Date(`${due}T12:00:00`)) / 86400000) : null);
   const src = planning.readSource({ file: cleanPath(set.plan_src) || null, uploaded: PLAN_UPLOAD });
   const o = planning.readSource({ file: cleanPath(set.plan_otto_src) || null, uploaded: OTTO_UPLOAD, parser: planning.parseOtto });
-  const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards' });
+  const dbc = planning.readCards({ file: cleanPath(set.plan_db) || null, table: set.plan_db_table || 'Cards', columns: cardKeyCols(set) });
   const cards = dbc.status === 'ok' ? dbc.cards : null;
   const custName = new Map(); if (cards) for (const c of cards.values()) if (c.trigram && c.customer && !custName.has(c.trigram.toUpperCase())) custName.set(c.trigram.toUpperCase(), c.customer);
   const lines = src.status === 'ok' ? src.lines.filter((l) => planning.tooOld(l.due, maxAge)) : [];
