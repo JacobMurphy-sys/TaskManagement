@@ -231,6 +231,7 @@ window.TIMELINE = {
 
   // 🎬 The blooper reel: the hidden easter egg (click the logo five times, type "oops", or find the 🐞)
   BLOOPERS: [
+  { date: '2026-11-16', title: 'Amex, counted twice and then some', text: 'The Amex forecast came out far too big: its rows were found by their labels, and the Forecast tab added the Laser, Emboss and DOD rows on top of the total they split up. Now it reads fixed rows, and the split stays a split.', lesson: 'A breakdown of a total is not more of it.' },
   { date: '2026-11-16', title: 'The gatekeeper nobody could get past', text: 'New cards first waited for an approver before going into the card database. Then came the obvious question: what if the approver is on holiday? The gate became a doorbell: cards go in at once, and someone is told and can undo them.', lesson: 'Review after, unless waiting is really worth it.' },
   { date: '2026-11-13', title: 'The badge that ran away', text: 'The 📥 My work count had nothing to hold on to, so it drifted to the far corner of the top bar and hid behind the scrollbar, looking like an alert nobody could open.', lesson: 'A badge needs a parent to sit on.' },
     { date: '2026-11-12', title: 'It was never the VPN',

@@ -3493,6 +3493,25 @@ async function waitForServer() {
           assert.deepEqual([view.current.benelux.from, view.current.benelux.sent_in.id, q(view.rows, 1, 'KBC Bank NV'), q(view.rows, 2, 'ING')], ['sent_in', v2.id, 1500, 300], 'the newest version, by customer and month');
           assert.deepEqual([view.compare.id, q(view.compare.rows, 1), q(view.compare.rows, 2)], [sent.data.id, 1200, 800], 'and the one before, to compare');
           await admin('DELETE', `/forecasts/${v2.id}`);
+          // 🔧 the Amex forecast by its fixed rows: months in row 3, the total in row 42, Laser row 7, DOD rows 32 + 37
+          {
+            const rowsAx = Array.from({ length: 41 }, () => [null, null, null, null]); // sheet rows 2…42
+            const put = (row, vals) => { rowsAx[row - 2] = vals; };
+            put(3, ['', '', `01/01/${Y}`, `01/02/${Y}`]);
+            put(7, ['LASER', 'Total', 300, 310]);
+            put(20, ['TOTAL BAU', 'Total', 99999, 99999]); // a label the old reading counted: not the total row
+            put(32, ['DOD Black', 'Total', 100, 100]);
+            put(37, ['DOD White', 'Total', 50, 60]);
+            put(42, ['TOTAL BAU', 'Total', 1000, 1100]);
+            const ax = buildXlsx([{ name: 'Sittard', columns: [{ header: 'Sittard' }, { header: '' }, { header: '' }, { header: '' }], rows: rowsAx }]);
+            const upA = await fetch(`${BASE}/forecasts/upload`, { method: 'POST', body: ax, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': 'Amex Forecast.xlsx', Cookie: jar.admin } });
+            const ja = await upA.json();
+            assert.deepEqual([upA.status, ja.kind, ja.summary[`${Y}-01`], ja.summary[`${Y}-02`]], [201, 'amex', 1000, 1100], 'the total from row 42 only (no technology rows, no stray TOTAL rows added on)');
+            const va = (await admin('GET', '/forecasts/view')).data;
+            const am = (m) => va.rows.filter((r) => r.kind === 'amex' && r.year === Y && r.month === m).reduce((t, r) => t + r.qty, 0);
+            assert.deepEqual([am(1), am(2)], [1000, 1100], 'the Forecast tab draws the total, not the total and its split');
+            await admin('DELETE', `/forecasts/${ja.id}`);
+          }
           const file = await fetch(`${BASE}/forecasts/${sent.data.id}/file`, { headers: { Cookie: jar.admin } });
           assert.deepEqual([file.status, (await file.arrayBuffer()).byteLength], [200, bnl.length], 'downloaded as sent');
           // a new link: the old one stops working

@@ -40,7 +40,7 @@ function store(buf, { fileName, submitter, note = null, via, sender = null, acco
   const need = require('./kpidata').FORECASTS[got.kind].sheet;
   if (!got.sheets.some((n) => n.toLowerCase() === need.toLowerCase())) throw bad(`The ${KINDS[got.kind]} needs its "${need}" sheet (this file has: ${got.sheets.join(', ')}). Send the workbook as it comes, without renaming the sheet.`);
   // per month (YYYY-MM) the total
-  const by = {}; for (const r of got.rows) { const k = `${r.year}-${String(r.month).padStart(2, '0')}`; by[k] = (by[k] || 0) + (Number(r.qty) || 0); }
+  const by = {}; for (const r of got.rows.filter((x) => !x.tech)) { const k = `${r.year}-${String(r.month).padStart(2, '0')}`; by[k] = (by[k] || 0) + (Number(r.qty) || 0); }
   const now = new Date().toISOString();
   const r = db.run('INSERT INTO forecast_uploads (kind, file_name, size, data, submitter, note, via, sender, account_id, rows, summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [got.kind, name, buf.length, buf, String(submitter).trim().slice(0, 80), note ? String(note).slice(0, 500) : null, via, sender, accountId, got.rows.length, JSON.stringify(by), now]);

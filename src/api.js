@@ -3637,12 +3637,12 @@ router.get('/forecasts/view', h((req, res) => {
     const c = currentForecast(kind, { withData: true, set });
     current[kind] = { from: c.from, file: c.file || null, modified: c.modified || null, sent_in: c.sent_in || null, error: c.error || null };
     if (!c.buf) continue;
-    try { rows = rows.concat(fold(kind, parse(kind, c.buf))); } catch (err) { current[kind].error = err.message; }
+    try { rows = rows.concat(fold(kind, parse(kind, c.buf).filter((r) => !r.tech))); } catch (err) { current[kind].error = err.message; } // (the technology rows are the total's split)
   }
   let compare = null;
   if (req.query.compare) {
     const id = Number(req.query.compare); const info = db.get('SELECT id, kind, file_name, submitter, created_at FROM forecast_uploads WHERE id = ?', [id]);
-    if (info) { try { compare = { ...info, rows: fold(info.kind, parse(info.kind, forecasts.dataOf(id))) }; } catch (err) { compare = { ...info, rows: [], error: err.message }; } }
+    if (info) { try { compare = { ...info, rows: fold(info.kind, parse(info.kind, forecasts.dataOf(id)).filter((r) => !r.tech)) }; } catch (err) { compare = { ...info, rows: [], error: err.message }; } }
   }
   res.json({ kinds: Object.fromEntries(Object.entries(kpiData.FORECASTS).map(([k, x]) => [k, x.label])), current, rows, compare,
     versions: db.all('SELECT id, kind, file_name, submitter, created_at FROM forecast_uploads ORDER BY created_at DESC, id DESC LIMIT 100') });

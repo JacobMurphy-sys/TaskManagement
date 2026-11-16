@@ -81,12 +81,35 @@ function parseBenelux(buf, info = {}) {
   Object.assign(info, { sheet: name, lines, kept, by_position: byPos });
   return [...sum].map(([k, qty]) => { const [y, m, nm] = k.split('|'); return { year: +y, month: +m, name: nm, tech: null, qty }; });
 }
-// Amex (Sittard): months across row 1 (01/MM/YYYY), sections down column A, New / Rep / Rew / Total in B
+// Amex (Sittard), by its fixed rows: the months (01/MM/YYYY) across row 3, the total volume in row 42 (TOTAL BAU),
+// Laser in row 7, black and white DOD in rows 32 and 37 (DOD = the two); Emboss is the rest of the total. Read by
+// labels before, which picked up more rows than the total and so far too much: kept only for a file without months
+// in row 3 (an older layout).
+const AMEX_ROWS = { months: 3, total: 42, laser: 7, dod: [32, 37] };
+const AMEX_READ = 2; // the version of these rules: a forecast read by older ones is read again (refreshForecasts)
 function parseAmex(buf) {
   const book = readBook(buf);
   const t = book.tables().find((x) => /sittard/i.test(x.name || x.displayName || ''));
   const sh = book.sheet(t?.sheet || book.sheets.find((s) => /sittard|amex/i.test(s.name))?.name || book.sheets[0].name);
   const v = (c, r) => sh.cells.get(`${colLetters(c)}${r}`)?.v;
+  const R = AMEX_ROWS;
+  const monthCols = []; for (let c = 1; c <= sh.maxCol; c++) { const d = dateOf(v(c, R.months)); if (d) monthCols.push([c, d]); }
+  if (monthCols.length >= 2) {
+    const num = (c, r) => { const n = Number(v(c, r)); return Number.isFinite(n) ? n : 0; };
+    const out = [];
+    for (const [c, d] of monthCols) {
+      const total = num(c, R.total); if (!total) continue;
+      const laser = num(c, R.laser); const dod = R.dod.reduce((a, r) => a + num(c, r), 0);
+      const emboss = Math.max(0, total - laser - dod);
+      out.push({ year: d.y, month: d.m, name: 'AMEX', tech: null, qty: total });
+      // the split (Capacity takes the total, and these as its shares)
+      if (laser) out.push({ year: d.y, month: d.m, name: 'AMEX', tech: 'Laser', qty: laser });
+      if (dod) out.push({ year: d.y, month: d.m, name: 'AMEX', tech: 'DOD', qty: dod });
+      if (emboss) out.push({ year: d.y, month: d.m, name: 'AMEX', tech: 'Emboss', qty: emboss });
+    }
+    return out;
+  }
+  // an older layout: months across one of the first rows, sections by their labels
   let head = 0;
   for (let r = 1; r <= 5 && !head; r++) { let n = 0; for (let c = 3; c <= Math.min(sh.maxCol, 12); c++) if (dateOf(v(c, r))) n++; if (n >= 2) head = r; }
   if (!head) throw new Error('Can\'t find the months in the Amex forecast');
@@ -123,7 +146,7 @@ function dateOf(x) {
 // What each read gave (or why not) is kept for the Overview: status().
 function refreshForecasts(files, force = false) {
   const asOf = ymd(new Date()).slice(0, 7);
-  const okSig = (f) => `${f.key}|${f.file}|${f.modified}`;
+  const okSig = (f) => `${f.key}|${f.file}|${f.modified}${f.key === 'amex' ? `|r${AMEX_READ}` : ''}`; // (read again when the Amex rules change)
   const done = String(setting('cpm_fc_sig', '')); const doneOf = done.startsWith(`${asOf}#`) ? done.slice(asOf.length + 1).split(';') : [];
   const todo = files.filter((f) => f.buf && (force || !doneOf.includes(okSig(f))));
   const status = json(setting('cpm_fc_status', '{}'), {});
@@ -635,4 +658,4 @@ function siteCapacity(year, cards = null) {
     months, techs: TECHS, speed_from: Object.fromEntries(Object.entries(sp).map(([t, x]) => [t, x])), machines, total: sum((m) => m.counted), by_tech: byTech, counted_by_tech: countedBy, cards: !!cards, warnings: [...new Set(warnings)] };
 }
 
-module.exports = { detectForecast, TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity, machineMix };
+module.exports = { AMEX_ROWS, detectForecast, TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity, machineMix };
