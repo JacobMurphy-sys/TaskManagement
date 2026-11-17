@@ -242,6 +242,19 @@ function tx(fn) {
 // One-off data changes, each recorded in settings so it runs only once. Triggers are
 // dropped while they run so they don't bump updated_at or flood the audit log.
 const DATA_MIGRATIONS = {
+  // the Database tab's Whole sheet retired: each week kept drops its drawing of the Database sheet (Report tables reads values)
+  kpi_snapshots_drop_database_view() {
+    const zlib = require('zlib');
+    let rows = []; try { rows = all('SELECT id, model FROM kpi_snapshots'); } catch { return; }
+    for (const r of rows) {
+      try {
+        const m = JSON.parse(zlib.gunzipSync(Buffer.from(r.model, 'base64')).toString());
+        if (!m.views || !('database' in m.views)) continue;
+        delete m.views.database;
+        run('UPDATE kpi_snapshots SET model = ? WHERE id = ?', [zlib.gzipSync(JSON.stringify(m)).toString('base64'), r.id]);
+      } catch { /* a week that can't be read is left as it is */ }
+    }
+  },
   // 📈 the new Forecast module: Management (the managers who look at forecasts) has it to start with
   forecast_module_for_management() {
     run("UPDATE accounts SET modules = modules || ',forecast' WHERE modules IS NOT NULL AND ((',' || modules || ',') LIKE '%,management,%' OR (',' || modules || ',') LIKE '%,projects,%') AND (',' || modules || ',') NOT LIKE '%,forecast,%'");

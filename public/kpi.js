@@ -29,17 +29,19 @@ async function renderKpi(arg, tab) {
   const snap = id ? await api.get(`/kpi/snapshots/${id}`).catch((err) => { toast(err.message, 'error'); return null; }) : null;
   const setupMissing = !settings.kpi_workbook_path || !settings.kpi_export_dir;
   const notes = snap ? kpiNotices(snap) : { info: [], actions: [] };
-  // Database tab: Source / KPI (the year's weekly figures), Report tables and the whole sheet (the week's)
+  // Database tab: Source / KPI (the year's weekly figures) and Report tables (the week's). (The Whole sheet, the Database
+  // sheet as Excel draws it, was retired: Report tables, Source and KPI have its figures.)
   let dbTab = store.get('kdbTab', 'source');
-  if (!['source', 'kpi', 'tables', 'sheet'].includes(dbTab) || (!snap && (dbTab === 'tables' || dbTab === 'sheet'))) dbTab = 'source';
+  if (dbTab === 'sheet') dbTab = 'tables';
+  if (!['source', 'kpi', 'tables'].includes(dbTab) || (!snap && dbTab === 'tables')) dbTab = 'source';
   const calc = view === 'database' && (dbTab === 'source' || dbTab === 'kpi')
     ? await api.get(`/kpi/calc?year=${Number(store.get('kpiYear', snap?.year || new Date().getFullYear()))}`) : null;
-  const sheetShown = view === 'a3' || dbTab === 'sheet';
+  const sheetShown = view === 'a3';
   const dbHtml = view !== 'database' ? '' : `<div class="card kdb" style="margin-top:12px">
       <div class="row"><div class="seg kc-tabs">${[['source', 'Source', 'What the KPIs are made from, week by week'], ['kpi', 'KPI', 'The KPIs, week by week'],
-        ...(snap ? [['tables', 'Report tables', `The report's own tables for ${snap.week} (Database rows 1–57)`], ['sheet', 'Whole sheet (legacy)', 'The Database sheet as it looks in Excel: from the old workbook format, being phased out (Report tables has its figures)']] : [])]
+        ...(snap ? [['tables', 'Report tables', `The report's own tables for ${snap.week} (Database rows 1–57)`]] : [])]
         .map(([k, l, t]) => `<button type="button" data-kdb-tab="${k}" class="${dbTab === k ? 'on' : ''}" title="${esc(t)}">${l}</button>`).join('')}</div></div>
-      ${calc ? kpiTablesHtml(calc, dbTab, snap?.week) : dbTab === 'tables' ? kpiReportTablesHtml(snap) : `${kpiSheetCoverageHtml(snap)}<div class="kpi-sheet-wrap" id="kpi-wrap"><div id="kpi-sizer"><div id="kpi-sheet"></div></div></div>`}</div>`;
+      ${calc ? kpiTablesHtml(calc, dbTab, snap?.week) : kpiReportTablesHtml(snap)}</div>`;
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
       ${year?.weeks?.length ? `<select id="kpi-week" class="kpi-pick" title=""Reporting week — any week of ${year.year}: from Excel, or built by SITHUB from the source figures">
@@ -129,8 +131,6 @@ async function renderKpi(arg, tab) {
     if (!e.target.closest('.kpi-info')) $$('.kpi-info[open]').forEach((d) => { d.open = false; });
     const dt = e.target.closest('[data-kdb-tab]');
     if (dt) { store.set('kdbTab', dt.dataset.kdbTab); route(); return; }
-    const go = e.target.closest('[data-kdb-go]'); // (the Whole sheet's note: to Report tables)
-    if (go) { e.preventDefault(); store.set('kdbTab', go.dataset.kdbGo); route(); return; }
     const jump = e.target.closest('[data-kdb-jump]');
     if (jump) { e.preventDefault(); $$('.kdb-group h3').find((h) => h.textContent === jump.dataset.kdbJump)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (calc && await kpiTablesClick(e, calc)) return;
@@ -772,27 +772,9 @@ async function kpiTablesClick(e, calc) {
 // The report's own tables (the Database sheet's rows 1–57), drawn from their values. The
 // cell references are where the workbook keeps each figure.
 const KPI_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-// 🗄 The Whole sheet is being phased out (the Database sheet as Excel draws it, from the old workbook format). Before it
-// goes: which figures in the report's own rows (1–57) does it show that Report tables doesn't? Rows 58 and below are the
-// weekly figures, which Source and KPI show from the sources.
-function kpiSheetCoverageHtml(snap) {
-  KPI_TABLE_REFS.clear(); kpiReportTablesHtml(snap);
-  const V = snap.values || {}; const rowOf = (r) => Number(String(r).replace(/^[A-Z]+/, ''));
-  const miss = Object.entries(V).filter(([r, v]) => typeof v === 'number' && Number.isFinite(v) && rowOf(r) <= 57 && !KPI_TABLE_REFS.has(r))
-    .sort(([a], [b]) => rowOf(a) - rowOf(b) || a.length - b.length || (a < b ? -1 : 1));
-  const label = (r) => { const n = rowOf(r); for (const c of ['A', 'B', 'C', 'D']) { const t = V[`${c}${n}`]; if (typeof t === 'string' && t.trim()) return t.trim(); } return ''; };
-  const fmtV = (v) => (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString('en-GB') : String(Math.round(v * 1000) / 1000));
-  return `<div class="kc-note small kdb-legacy">🗄 <b>Being phased out.</b> This is the Database sheet as Excel draws it, from the old workbook format: <a href="#" data-kdb-go="tables">Report tables</a> has its figures, laid out for SITHUB, and Source / KPI the weekly ones.
-    ${miss.length ? `<details><summary>${miss.length} figure${miss.length === 1 ? '' : 's'} in rows 1–57 aren't in Report tables yet: if any of them matters, say so, so it's added before this view goes</summary>
-      <div class="kdb-scroll" style="max-height:260px"><table class="log small"><thead><tr><th>Cell</th><th>Row</th><th class="num">${esc(snap.week)}</th></tr></thead><tbody>
-      ${miss.slice(0, 400).map(([r, v]) => `<tr><td>${esc(r)}</td><td>${esc(label(r))}</td><td class="num">${esc(fmtV(v))}</td></tr>`).join('')}</tbody></table></div></details>`
-    : '✅ Every figure in the report\'s rows (1–57) is also in Report tables.'}</div>`;
-}
-// the Database cells Report tables shows (for the Whole sheet's check of what it alone shows)
-const KPI_TABLE_REFS = new Set();
 function kpiReportTablesHtml(snap) {
   const V = snap.values || {};
-  const raw = (ref) => { KPI_TABLE_REFS.add(ref); return V[ref]; };
+  const raw = (ref) => V[ref];
   const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
   const fmt = (v, d = 1, kind = 'n') => {
     if (!isNum(v)) return v === undefined || v === null || v === '' ? '<span class="muted">–</span>' : esc(String(v));
@@ -809,7 +791,6 @@ function kpiReportTablesHtml(snap) {
   const shownAs = (x, d, kind) => { if (d === undefined || d === null) return x; const f = (kind === '%' ? 100 : 1) * 10 ** d; return Number((Math.round(Number((x * f).toPrecision(12))) / f).toPrecision(12)); };
   const vs = (v, t, higher, d, kind) => { if (!isNum(v) || !isNum(t)) return ''; const a = shownAs(v, d, kind); return (higher ? a >= t : a <= t) ? 'kdb-ok' : 'kdb-bad'; };
   const sign = (v) => (!isNum(v) ? '' : v < 0 ? 'kdb-bad' : 'kdb-ok');
-  const arrow = (v) => { const t = String(v ?? '').trim(); return t === '▲' ? '<span class="kdb-ok">▲</span>' : t === '▼' ? '<span class="kdb-bad">▼</span>' : t === '▬' ? '<span class="kdb-warn">▬</span>' : esc(t); };
   const tile = (label, value, cls = '', sub = '') => `<div class="kdb-tile"><div class="kdb-tile-l">${esc(label)}</div><div class="kdb-tile-v ${cls}">${value}</div>${sub ? `<div class="kdb-tile-s">${sub}</div>` : ''}</div>`;
   const card = (title, body, note = '') => `<div class="kdb-card"><div class="kdb-title">${esc(title)}${note ? ` <span class="muted small">${note}</span>` : ''}</div>${body}</div>`;
   const table = (head, rows, cls = '') => `<div class="kdb-scroll"><table class="log kdb-t ${cls}"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -868,43 +849,9 @@ function kpiReportTablesHtml(snap) {
     <tr class="kdb-group-row"><td colspan="14">Calendar</td></tr>${mRow('Working days', 31, 0)}`;
   const forecast = card('Forecast, budget and working days by month', table(monthHead, fcBody, 'kdb-months'));
 
-  // ---- trend arrows: expected (forecast pace) vs shipped and persoed
-  const trend = (title, first, rows, daily, mtd) => {
-    const [wk, exp, sh, shd, sha, pe, ped, pea] = cols(first, 8);
-    const line = (r, label) => `<tr${raw(`${wk}${r}`) === week ? ' class="kdb-now-row"' : ''}><td>${esc(label ?? raw(`${wk}${r}`) ?? '')}</td><td class="num">${fmt(raw(`${exp}${r}`), 1)}</td>
-      <td class="num">${fmt(raw(`${sh}${r}`), 1)}</td><td class="num">${fmt(raw(`${shd}${r}`), 0, '%')}</td><td>${arrow(raw(`${sha}${r}`))}</td>
-      <td class="num">${fmt(raw(`${pe}${r}`), 1)}</td><td class="num">${fmt(raw(`${ped}${r}`), 0, '%')}</td><td>${arrow(raw(`${pea}${r}`))}</td></tr>`;
-    const body = rows.filter((r) => raw(`${wk}${r}`)).map((r) => line(r)).join('') + line(mtd, 'Month to date');
-    return card(title, table('<th>Week</th><th class="num">Expected</th><th class="num">Shipped</th><th class="num">vs exp.</th><th></th><th class="num">Persoed</th><th class="num">vs exp.</th><th></th>', body),
-      isNum(raw(daily)) ? `expected ${fmt(raw(daily), 1)} kU a working day` : '');
-  };
-  const trends = `<div class="kdb-grid">${trend('PS', 'D', [34, 35, 36, 37, 38], 'E39', 40)}${trend('ISI', 'M', [42, 43, 44, 45, 46], 'N47', 48)}
-    ${trend('PIN', 'V', [42, 43, 44, 45, 46], 'W47', 48)}${trend('Total cards', 'AE', [42, 43, 44, 45, 46], 'AF47', 48)}</div>`;
-
-  // ---- quality and KPI history
-  const qCols = cols('Z', 12);
-  const qRow = (label, r, d, kind, ytdRef, cls) => `<tr><td>${esc(label)}</td>${qCols.map((c, i) => {
-    const v = raw(`${c}${r}`);
-    return `<td class="num${i === monthIdx ? ' kdb-now' : ''} ${i > monthIdx ? '' : cls ? cls(v, d, kind) : ''}">${i > monthIdx && monthIdx >= 0 ? '<span class="muted">–</span>' : fmt(v, d, kind)}</td>`;
-  }).join('')}<td class="num"><b>${fmt(raw(ytdRef), d, kind)}</b></td></tr>`;
-  const qBody = `<tr class="kdb-group-row"><td colspan="14">Quality</td></tr>${qRow('CPMS', 22, 2, 'n', 'AL24', (v, d, k) => vs(v, targets.cpms, false, d, k))}${qRow('Complaints', 23, 0, 'n', 'AL23')}
-    <tr class="kdb-group-row"><td colspan="14">On-time delivery</td></tr>${qRow('OTD SC', 28, 1, '%', 'AL30', (v, d, k) => vs(v, targets.otd, true, d, k))}${qRow('OTD customer', 29, 1, '%', 'AL31', (v, d, k) => vs(v, targets.otd, true, d, k))}
-    ${qRow('Internal delays (kU)', 33, 1, 'n', 'AL33')}${qRow('External delays (kU)', 34, 1, 'n', 'AL34')}${qRow('Total delays (kU)', 35, 1, 'n', 'AL35')}`;
-  const quality = card('Quality and delivery by month', table(monthHead.replace('>Year<', '>Year to date<'), qBody, 'kdb-months'));
-  const oCols = cols('M', 12);
-  const oRow = (label, r, d) => `<tr><td>${esc(label)}</td>${oCols.map((c, i) => `<td class="num${i === monthIdx ? ' kdb-now' : ''}">${monthIdx >= 0 && i > monthIdx ? '<span class="muted">–</span>' : fmt(raw(`${c}${r}`), d)}</td>`).join('')}<td class="num"><b>${fmt(raw(`Y${r}`), d)}</b></td></tr>`;
-  const overview = card('Monthly overview', table(monthHead, `${oRow('Shipped (kU)', 51, 1)}${oRow('Persoed (kU)', 52, 1)}${oRow('Remakes (units)', 53, 0)}${oRow('Hours', 54, 1)}`, 'kdb-months'));
-  const gCols = cols('E', 5).filter((c) => raw(`${c}42`));
-  const G = [['OTD SC', 43, 1, '%', (v, d, k) => vs(v, targets.otd, true, d, k)], ['OTD target', 44, 1, '%'], ['Complaints — minor', 45, 0], ['Complaints — major', 46, 0], ['Complaints — critical', 47, 0],
-    ['CPMS', 48, 2, 'n', (v, d, k) => vs(v, targets.cpms, false, d, k)], ['CPMS target', 49, 2], ['Scrap rate', 50, 2, '%', (v, d, k) => vs(v, targets.scrap, false, d, k)], ['Scrap target', 51, 2, '%'],
-    ['Productivity', 52, 1, 'n', (v, d, k) => vs(v, targets.prod, true, d, k)], ['Productivity target', 53, 0], ['Contract', 54, 0], ['Temps', 55, 0], ['HC target', 56, 0]];
-  const graphs = card('KPI chart data — the last 5 weeks on the A3 charts', table(`<th></th>${gCols.map((c) => `<th class="num${raw(`${c}42`) === week ? ' kdb-now' : ''}">${esc(raw(`${c}42`))}</th>`).join('')}`,
-    G.map(([label, r, d, kind = 'n', cls]) => `<tr${/target/i.test(label) ? ' class="kdb-target-row"' : ''}><td>${esc(label)}</td>${gCols.map((c) => { const v = raw(`${c}${r}`); return `<td class="num${raw(`${c}42`) === week ? ' kdb-now' : ''} ${cls ? cls(v, d, kind) : ''}">${fmt(v, d, kind)}</td>`; }).join('')}</tr>`).join('')));
-
-  const groups = [
-    ['The week', theWeek], ['Customers', customers], ['Forecast & budget', forecast], ['Trend arrows', trends],
-    ['Quality & history', `${quality}${overview}<div class="kdb-grid">${graphs}</div>`],
-  ];
+  // (the trend arrows and the quality & history tables were taken out: the A3 shows the arrows, worked out by the
+  // workbook's own formulas, and 🧪 Quality the quality figures, from the source data)
+  const groups = [['The week', theWeek], ['Customers', customers], ['Forecast & budget', forecast]];
   return `<p class="small muted">The figures behind ${esc(snap.week)}'s A3 — the report's own tables on the Database sheet (rows 1–57). Jump to:
       ${groups.map(([g]) => `<a href="#" data-kdb-jump="${esc(g)}">${esc(g)}</a>`).join(' · ')}</p>
     ${groups.map(([g, html]) => `<section class="kdb-group"><h3>${esc(g)}</h3>${html}</section>`).join('')}`;

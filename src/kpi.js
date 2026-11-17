@@ -695,7 +695,7 @@ function loadWeek(buf, { a3Sheet = 'A3 Weekly Report', dbSheet = 'Database', wee
   const a3cf = symbolColours(a3, conditionalStyles(book, a3));
   const views = { a3: sheetView(book, a3, a3cf) };
   views.a3.edit = editKinds(book, a3, views.a3);
-  if (dbs) views.database = sheetView(book, dbs, conditionalStyles(book, dbs));
+  // (the Database sheet isn't drawn: its view, the Whole sheet, was retired; Report tables reads its values)
   // Raw values of the Database sheet, to check SITHUB's own figures against.
   const values = dbs ? Object.fromEntries([...dbs.cells.values()].filter((c) => c.v !== null && c.v !== '' && c.t !== 'e').map((c) => [c.r, c.v])) : {};
   const parts = weekParts(week);
@@ -962,7 +962,7 @@ function buildWeek(buf, week, data, { a3Sheet = 'A3 Weekly Report', dbSheet = 'D
       }
     }
   }
-  const views = { a3: sheetView(book2, a3New, a3cf), database: sheetView(book2, dbNew, conditionalStyles(book2, dbNew)) };
+  const views = { a3: sheetView(book2, a3New, a3cf) }; // (no Database drawing: Report tables reads its values)
   views.a3.edit = editKinds(book2, a3New, views.a3);
   const values = Object.fromEntries([...dbNew.cells.values()].filter((c) => c.v !== null && c.v !== '' && c.t !== 'e').map((c) => [c.r, c.v]));
   const pkg = buildA3Package(book2, a3New, a3cf, { title: `A3 Weekly Report ${week}` });

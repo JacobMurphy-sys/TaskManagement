@@ -1189,7 +1189,7 @@ async function waitForServer() {
       const ax = Object.values(a3v.charts[0].spec.axes).find((a) => a.kind === 'valAx');
       assert.deepEqual(ax.ticks.map((t) => t.text), ['30.0%', '40.0%', '50.0%', '60.0%', '70.0%', '80.0%', '90.0%', '100.0%'], 'axis ticks as Excel spaces them');
       assert.deepEqual(a3v.charts[0].spec.groups[0].series[0].vals, [1, 0.665], 'chart drawn from its stored values');
-      assert.ok(snap.views.database.cells.some((c) => c[2] === 'W2639'), 'Database sheet view');
+      assert.equal(snap.views.database, undefined, 'the Database sheet is no longer drawn (the Whole sheet was retired)'); assert.equal(snap.values.B2, 'W2639', 'Report tables reads its values');
       assert.equal((await call('GET', '/kpi/snapshots')).length, 1);
       // the disconnected A3
       const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
