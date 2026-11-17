@@ -1633,6 +1633,9 @@ details.hint > summary:hover, details.hint[open] > summary { background: var(--a
 /* 💶 the investment's window: about three quarters of the screen */
 dialog#modal.cx-big { width: min(75vw, calc(100vw - 32px)); height: min(88vh, calc(100vh - 32px)); max-height: none; }
 @media (max-width: 900px) { dialog#modal.cx-big { width: calc(100vw - 16px); height: calc(100vh - 16px); } }
+.cx-quote { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 10px; }
+.cx-quote img { max-width: 220px; max-height: 200px; border: 1px solid var(--border); border-radius: 4px; background: #fff; }
+.cx-file { cursor: pointer; }
 /* 🧭 step by step */
 .cxg { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: start; }
 .cxg-steps { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; }

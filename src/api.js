@@ -788,13 +788,31 @@ const irName = (x, what, ext) => capexIr.fileName(x, what, ext, getSettings().ca
 // how complete the IR pack is, its figures as the model works them out, and the checklist's automatic answers
 router.get('/capex/:id/ir', h(async (req, res) => {
   const x = capexOne(req.params.id);
-  const out = { ...capexIr.readiness(x), results: null, model_error: null };
+  const out = { ...capexIr.readiness(x), results: null, model_error: null, quote: quoteOf(x.id) };
   const f = capexIr.figures(x);
   out.auto = capexIr.autoAnswers(f);
   const m = await irTemplate('model');
   if (m.buf) { try { const r = capexIr.fillModel(m.buf, x, { figures: f }); out.results = r.results; } catch (err) { out.model_error = err.message; } } else out.model_error = m.error;
   res.json(out);
 }));
+// 📑 the chosen supplier's quote as a picture, for the supplier selection slide (a PDF is made a picture in the browser)
+const QUOTE_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpeg' };
+const quoteOf = (id, withData = false) => db.get(`SELECT id, file_name, mime, size, created_at${withData ? ', data' : ''} FROM capex_files WHERE capex_id = ? AND kind = 'quote'`, [id]) || null;
+router.post('/capex/:id/ir/quote', express.raw({ type: () => true, limit: '15mb' }), h((req, res) => {
+  const x = capexOne(req.params.id);
+  const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  const mime = buf.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ? 'image/png' : buf[0] === 0xff && buf[1] === 0xd8 ? 'image/jpeg' : null;
+  if (!mime) throw new HttpError(400, 'A quote is a picture (PNG or JPEG) — a PDF is turned into one in the browser');
+  const name = decodeURIComponent(String(req.get('X-File-Name') || `quote.${QUOTE_TYPES[mime]}`)).replace(/[\\/]/g, ' ').slice(0, 200);
+  db.run(`INSERT INTO capex_files (capex_id, kind, file_name, mime, size, data) VALUES (?, 'quote', ?, ?, ?, ?)
+          ON CONFLICT(capex_id, kind) DO UPDATE SET file_name = excluded.file_name, mime = excluded.mime, size = excluded.size, data = excluded.data, created_at = ${"strftime('%Y-%m-%dT%H:%M:%fZ','now')"}`, [x.id, name, mime, buf.length, buf]);
+  res.status(201).json(quoteOf(x.id));
+}));
+router.get('/capex/:id/ir/quote', h((req, res) => {
+  const x = capexOne(req.params.id); const q = quoteOf(x.id, true); if (!q) throw notFound('Quote');
+  res.setHeader('Content-Type', q.mime); res.setHeader('Cache-Control', 'no-store'); res.send(Buffer.from(q.data));
+}));
+router.delete('/capex/:id/ir/quote', h((req, res) => { const x = capexOne(req.params.id); db.run("DELETE FROM capex_files WHERE capex_id = ? AND kind = 'quote'", [x.id]); res.status(204).end(); }));
 router.get('/capex/:id/ir/model.xlsx', h(async (req, res) => {
   const x = capexOne(req.params.id); const m = await irTemplate('model'); if (!m.buf) throw new HttpError(400, m.error);
   let r; try { r = capexIr.fillModel(m.buf, x); } catch (err) { throw new HttpError(400, `The financial model couldn't be filled in: ${err.message}`); }
@@ -804,7 +822,8 @@ router.get('/capex/:id/ir/deck.pptx', h(async (req, res) => {
   const x = capexOne(req.params.id); const [m, d] = await Promise.all([irTemplate('model'), irTemplate('deck')]); if (!d.buf) throw new HttpError(400, d.error);
   const f = capexIr.figures(x);
   let model = null; if (m.buf) { try { model = capexIr.fillModel(m.buf, x, { figures: f }); } catch { model = null; } }
-  let r; try { r = capexIr.fillDeck(d.buf, x, { figures: f, model }); } catch (err) { throw new HttpError(400, `The IR deck couldn't be filled in: ${err.message}`); }
+  const q = quoteOf(x.id, true);
+  let r; try { r = capexIr.fillDeck(d.buf, x, { figures: f, model, quote: q ? { buf: Buffer.from(q.data), mime: q.mime } : null }); } catch (err) { throw new HttpError(400, `The IR deck couldn't be filled in: ${err.message}`); }
   sendFile(res, r.buf, 'application/vnd.openxmlformats-officedocument.presentationml.presentation', irName(x, 'IR deck', 'pptx'));
 }));
 
