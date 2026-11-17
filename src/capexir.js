@@ -572,7 +572,7 @@ function fillDeck(tpl, x, { figures: f0, model = null, today = new Date() } = {}
   const cashByMonth = {}; for (const i of f.capexItems) for (const [m, v] of Object.entries(i.cashout)) cashByMonth[m] = (cashByMonth[m] || 0) + v;
   const paybackMonths = R?.payback_years !== null && R?.payback_years !== undefined ? Math.round(R.payback_years * 12) : (x.payback_months ?? null);
 
-  let unified = false; const drop = [];
+  let unified = false; const drop = []; const hidden = [];
   for (const s of slidesOf(files)) {
     let xml = s.xml; const t = s.title;
     let shapes = shapesOf(xml);
@@ -780,9 +780,13 @@ function fillDeck(tpl, x, { figures: f0, model = null, today = new Date() } = {}
       if (title) replace(title, setGeom(setText(title.xml, ['IR'], { dark: false }), { x: 0.26 * EMU, y: 0.12 * EMU, w: 3.6 * EMU, h: 0.42 * EMU }));
       for (const tb of unifiedTables(R.summary, f, nextId())) insert(tb);
     }
+    // a slide SITHUB had nothing to fill in is hidden (still in the deck: PowerPoint's Unhide brings it back); the cover and
+    // slides without a title (the closing contact slide) stay
+    if (xml === s.xml && t && !/^investment committee/i.test(t)) { xml = xml.replace(/<p:sld\b([^>]*?)>/, (w, a) => `<p:sld${a.replace(/\sshow="[^"]*"/, '')} show="0">`); hidden.push(t); }
     if (xml !== s.xml) files[s.path] = Buffer.from(xml, 'utf8');
   }
   for (const path of drop) removeSlide(files, path);
+  if (hidden.length) notes.push(`Hidden, as there was nothing to fill in: ${hidden.join(', ')} (Unhide in PowerPoint to use them).`);
   if (!R) notes.push('The financial slides (Financial KPI 1–4) are left as in the template: set where the financial model template is saved to fill them.');
   return { buf: zip(files), notes };
 }
