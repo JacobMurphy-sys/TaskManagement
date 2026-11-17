@@ -784,6 +784,40 @@ function forecastSheet(tpl, table, buf, spec) {
   return { name: tpl.name, cells, maxRow, maxCol, rows: new Map(), cols: [], merges: [], recalc: true, read: { rows: height - 1, columns: width, overlap }, dropped: dropped.size };
 }
 
+// 📈 The Amex helper rows, from SITHUB's own reading of the Amex forecast. The workbook's Amex Forecast sheet has, under its
+// Sittard table, row 48 (month names: January…), row 49 (the volume) and row 50 (short names, as DatabaseReferences has
+// them: Jan, …, Sept…), and HW49 (the year). Its own formulas there ran over every year of the file, so the year to
+// date (HW49) counted more than one year. Fed here: the report's year only, January to December in columns B to M,
+// HW49 their sum (the whole year, as the BeNeLux customers' YTD is). feed: { year, months: { 1: qty, … }, file }.
+const MONTH_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function feedAmex(sheets, findSheet, book, feed) {
+  const info = findSheet('Amex Forecast');
+  if (!info) throw new Error('the workbook has no "Amex Forecast" sheet');
+  const sh = sheets[info.name];
+  // the workbook's own short names for each month (row 50 under row 48), else DatabaseReferences' first row, else Jan…
+  const short = {};
+  try {
+    const t = book.sheet(info.name);
+    for (const c of t.cells.values()) if (c.row === 48 && typeof c.v === 'string') { const m = MONTH_FULL.findIndex((x) => x.toLowerCase() === c.v.trim().toLowerCase()); const s50 = t.cells.get(`${colLetters(c.col)}50`)?.v; if (m >= 0 && !short[m + 1] && s50) short[m + 1] = String(s50); }
+  } catch { /* the workbook's copy can't be read: the next two */ }
+  try { const ref = findSheet('DatabaseReferences'); if (ref) { const r = book.sheet(ref.name); for (let k = 1; k <= 12; k++) { const v = r.cells.get(`${colLetters(k)}1`)?.v; if (!short[k] && v) short[k] = String(v); } } } catch { /* standard */ }
+  for (let k = 1; k <= 12; k++) short[k] ||= MONTH_FULL[k - 1].slice(0, 3);
+  // rows 48 to 50 cleared from column B to HV, and HW49
+  const last = colNum('HV');
+  for (const [ref, c] of [...sh.cells]) if (((c.row >= 48 && c.row <= 50 && c.col >= 2 && c.col <= last)) || ref === 'HW49') sh.cells.delete(ref);
+  const put = (row, col, v) => { const r = `${colLetters(col)}${row}`; sh.cells.set(r, { r, row, col, s: 0, t: typeof v === 'string' ? 's' : 'n', v, f: null }); };
+  let total = 0;
+  for (let k = 1; k <= 12; k++) {
+    const q = Number(feed.months?.[k]) || 0; total += q;
+    put(48, 1 + k, MONTH_FULL[k - 1]); put(49, 1 + k, q); put(50, 1 + k, short[k]);
+  }
+  put(49, colNum('HW'), total);
+  sh.maxRow = Math.max(sh.maxRow || 0, 50); sh.maxCol = Math.max(sh.maxCol || 0, colNum('HW'));
+  sh.recalc = true;
+  const k0 = Object.keys(feed.months || {}).length;
+  return { part: 'forecast-file', text: `Amex forecast fed straight from ${feed.file || 'the forecast in use'}: row 42 for ${feed.year}${k0 < 12 ? ` (${k0} months in it)` : ''}, ${Math.round(total).toLocaleString('en-GB')} for the year.` };
+}
+
 // ---- the A3 for any week, worked out by SITHUB -----------------------------------
 
 // The workbook (the last one loaded) is the template: its Database and A3 formulas are
@@ -827,9 +861,12 @@ function buildWeek(buf, week, data, { a3Sheet = 'A3 Weekly Report', dbSheet = 'D
       const R = table.range; // the table's own rows aren't needed from the workbook, only its first (the formulas)
       const tpl = Object.assign(book.sheet(info.name, { skipRows: (n) => n > R.top + 1 && n <= R.bottom }), { name: info.name });
       Object.defineProperty(sheets, info.name, { value: forecastSheet(tpl, table, f.buf, f.spec), enumerable: true, writable: true, configurable: true });
-      flags.push({ part: 'forecast-file', text: `${f.spec.label} read from ${f.file}${f.modified ? ` (saved ${String(f.modified).slice(0, 16).replace('T', ' ')})` : ''}${sheets[info.name].dropped ? `; only its rows ${f.spec.keepRows.join(', ')} used (${sheets[info.name].dropped} other filled rows left out, so nothing is counted twice)` : ''}.` });
+      flags.push({ part: 'forecast-file', text: `${f.spec.label} read from ${f.file}${f.modified ? ` (saved ${String(f.modified).slice(0, 16).replace('T', ' ')})` : ''}.` });
     } catch (err) { flags.push({ part: 'forecast', text: `${f.spec.label} couldn't be read from ${f.file}: ${err.message} — the workbook's copy is used.` }); }
   }
+  // 📈 Amex fed straight from the forecast in use (SITHUB's reading of row 42), into the helper rows the workbook's
+  // formulas read: the Database's Top 10 (N10, U10), its forecast rows (E22:P22) and HC Forecast all look there
+  if (data.amexFeed) { try { flags.push(feedAmex(sheets, findSheet, book, data.amexFeed)); } catch (err) { flags.push({ part: 'forecast', text: `Amex forecast couldn't be fed in: ${err.message} — the workbook's own figures are used.` }); } }
   const fcFromWorkbook = fcSheets.filter((n) => !sheets[n].recalc);
   if (fcFromWorkbook.length) flags.push({ part: 'forecast-workbook', text: `${fcFromWorkbook.join(' and ')}: the workbook's copy, as Excel last refreshed it.` });
   const over = new Map();
@@ -955,4 +992,4 @@ function exportTarget(set, week) {
   return { dir, name, path: path.join(dir, name) };
 }
 
-module.exports = { colLettersOf: (n) => colLetters(n), withJoins, joinTarget, joinsToPackage, withAddedRows, addRowTarget, addRowsToPackage, complaintsWriteUp, withAdded, loadWeek, buildWeek, applyEdits, editKinds, forecastSheet, symbolColours, SYMBOL_COLOURS, sheetView, prepareChart, buildA3Package, exportA3, weekParts, fillPattern, exportTarget, colPx, isErr, decode, parseRef, section, resolvePart, relsPathOf };
+module.exports = { feedAmex, colLettersOf: (n) => colLetters(n), withJoins, joinTarget, joinsToPackage, withAddedRows, addRowTarget, addRowsToPackage, complaintsWriteUp, withAdded, loadWeek, buildWeek, applyEdits, editKinds, forecastSheet, symbolColours, SYMBOL_COLOURS, sheetView, prepareChart, buildA3Package, exportA3, weekParts, fillPattern, exportTarget, colPx, isErr, decode, parseRef, section, resolvePart, relsPathOf };

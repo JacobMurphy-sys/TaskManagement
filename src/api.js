@@ -2408,6 +2408,14 @@ function forecastStatus() {
     return { key, label: spec.label, default_file: spec.file, sheet: spec.sheet, workbook_sheet: spec.workbook, path: c.path, found: c.found || c.from === 'sent_in', modified: c.modified || null, from: c.from, sent_in: c.sent_in || null };
   });
 }
+// 📈 Amex for the A3 (kpi.js feedAmex): row 42 of the forecast in use, month by month, for a year
+function amexFeedFor(year, set = getSettings()) {
+  try {
+    const c = currentForecast('amex', { withData: true, set }); if (!c.buf) return null;
+    const months = {}; for (const r of require('./cpm').parseAmex(c.buf)) if (!r.tech && r.year === year) months[r.month] = (months[r.month] || 0) + r.qty;
+    return Object.keys(months).length ? { year, months, file: c.file } : null;
+  } catch { return null; }
+}
 function forecastFiles() {
   const set = getSettings();
   return Object.entries(kpiData.FORECASTS).map(([key, spec]) => {
@@ -2499,7 +2507,7 @@ router.post('/kpi/build', h((req, res) => {
   try {
     w = kpi.buildWeek(template, week, {
       weeks: kpiData.weeklyVolumes(year).weeks, topScrap: kpiData.topScrap, shippedFor: kpiData.shippedFor, weekEnd: kpiData.weekEnd, columns: kpiData.DATABASE_COLUMNS,
-      forecasts: forecastFiles(), complaints: kpiData.complaintsOf,
+      forecasts: forecastFiles(), complaints: kpiData.complaintsOf, amexFeed: amexFeedFor(year, set),
     }, { a3Sheet: set.kpi_a3_sheet, dbSheet: set.kpi_db_sheet, weekCell: set.kpi_week_cell });
   } catch (err) { throw new HttpError(400, err.message); }
   const row = {

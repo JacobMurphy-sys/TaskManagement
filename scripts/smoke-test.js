@@ -1675,7 +1675,26 @@ async function waitForServer() {
           const kept = forecastSheet(axTpl, { range: { top: 1, left: 1, bottom: 2, right: 3 } }, axFile, { ...spec, keepRows: [1, 3] });
           assert.deepEqual([createCalc({ 'Amex Forecast': kept }).value('Amex Forecast', 'G1'), kept.dropped, kept.cells.get('A2')?.v ?? null, kept.cells.get('C3').v], [1000, 1, null, 1000],
             'only the rows kept: the total once, in its own place');
-          assert.deepEqual(require('../src/kpidata').FORECASTS.amex.keepRows, [1, 2, 3, 7, 32, 37, 42], 'Amex: titles, months (3), Laser (7), DOD (32, 37), the total (42)');
+        }
+        // 📈 Amex fed straight from the forecast: the workbook's helper rows (48 months, 49 volume, 50 short names, HW49 the
+        // year), as its Database (N10, U10, E22:P22) and HC Forecast read them
+        {
+          const { colNum: cn } = require('../src/xlsxread');
+          const at = (ref) => { const m = ref.match(/^([A-Z]+)(\d+)$/); return { row: Number(m[2]), col: cn(m[1]) }; };
+          const sheetOf = (o) => ({ cells: new Map(Object.entries(o).map(([r, c]) => [r, { r, ...at(r), t: typeof c.v === 'string' ? 's' : 'n', s: 0, f: null, ...c }])), maxRow: 60, maxCol: 240 });
+          // the workbook as it stands: helper formulas over every year of the file, a year to date of two years
+          const amexWb = sheetOf({ B48: { v: 'January', f: 'X' }, B49: { v: 1, f: 'X' }, B50: { v: 'Jan', f: 'X' }, J48: { v: 'September' }, J50: { v: 'Sept' }, N48: { v: 'January' }, N49: { v: 999 }, N50: { v: 'Jan' }, HW49: { v: 2202903, f: 'SUM(B49:HU49)' } });
+          const sheetsA = { 'Amex Forecast': amexWb };
+          const book = { sheet: () => sheetOf({ B48: { v: 'January' }, B50: { v: 'Jan' }, J48: { v: 'September' }, J50: { v: 'Sept' } }) };
+          const findSheet = (n) => (n === 'Amex Forecast' ? { name: 'Amex Forecast' } : null);
+          const fl = require('../src/kpi').feedAmex(sheetsA, findSheet, book, { year: 2026, file: 'Amex Forecast.xlsx', months: { 1: 103214, 2: 95866, 9: 98922, 11: 105935.8 } });
+          const dbase = sheetOf({ A2: { v: 'Sept' }, N10: { f: '_xlfn.XLOOKUP(A2,\'Amex Forecast\'!B50:HU50,\'Amex Forecast\'!B49:HU49,"#",0,1)', v: 0 }, U10: { f: '\'Amex Forecast\'!HW49', v: 0 },
+            E21: { v: 'January' }, E22: { f: '_xlfn.XLOOKUP(E21,\'Amex Forecast\'!$B$48:$HU$48,\'Amex Forecast\'!$B$49:$HU$49,"#",0,1)/1000', v: 0 } });
+          const calcA = createCalc({ 'Amex Forecast': amexWb, Database: dbase });
+          assert.deepEqual([calcA.value('Database', 'N10'), calcA.value('Database', 'U10'), calcA.value('Database', 'E22')], [98922, 103214 + 95866 + 98922 + 105935.8, 103.214],
+            'the month (by the workbook\'s own short name), the whole year (not two), and the monthly forecast row');
+          assert.deepEqual([amexWb.cells.get('N49'), amexWb.cells.get('M48').v, amexWb.cells.get('J50').v], [undefined, 'December', 'Sept'], 'the old helper cells cleared; the year in B to M');
+          assert.match(fl.text, /fed straight from Amex Forecast\.xlsx: row 42 for 2026 \(4 months in it\)/);
         }
       }
       const yr = await call('GET', '/kpi/weeks?year=2026');
