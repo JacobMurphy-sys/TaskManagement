@@ -325,6 +325,26 @@ function createCalc(sheets, { recalc = () => true, override = () => undefined } 
         if (best < 0) throw ERR('#N/A');
         return best + 1;
       }
+      case 'VLOOKUP': { // exact (0/FALSE) or approximate on a sorted first column, like Excel
+        const want = val(0); const G = grid(raw(1)); const col = num(2); const approx = n.args[3] ? toBool(val(3)) !== false : true;
+        if (col < 1 || col > G.w) throw ERR('#REF!');
+        let hit = -1;
+        if (!approx) hit = G.rows.findIndex((line) => line[0] !== null && line[0] !== undefined && compare(line[0], want) === 0 && (typeof line[0] === typeof want || typeof want === 'string'));
+        else for (let i = 0; i < G.rows.length; i++) { const v = G.rows[i][0]; if (v === null || v === undefined) continue; if (compare(v, want) <= 0) hit = i; else break; }
+        if (hit < 0) throw ERR('#N/A');
+        const out = G.rows[hit][col - 1]; return out === undefined ? null : out;
+      }
+      case 'IRR': { // the rate that brings the cash flows' net present value to 0 (Newton, then bisection), as Excel
+        const flows = grid(raw(0)).flat().filter((v) => typeof v === 'number');
+        if (!flows.some((v) => v > 0) || !flows.some((v) => v < 0)) throw ERR('#NUM!');
+        const npv = (r) => flows.reduce((t, v, i) => t + v / (1 + r) ** i, 0);
+        const d = (r) => flows.reduce((t, v, i) => t - (i * v) / (1 + r) ** (i + 1), 0);
+        let r = n.args[1] && !(n.args[1].k === 'lit' && n.args[1].v === null) ? num(1, 0.1) : 0.1;
+        for (let k = 0; k < 100; k++) { const f = npv(r); const g = d(r); if (!g) break; const next = r - f / g; if (!Number.isFinite(next) || next <= -1) break; if (Math.abs(next - r) < 1e-10) return next; r = next; }
+        let lo = -0.9999; let hi = 10; if (npv(lo) * npv(hi) > 0) throw ERR('#NUM!');
+        for (let k = 0; k < 200; k++) { const mid = (lo + hi) / 2; if (npv(lo) * npv(mid) <= 0) hi = mid; else lo = mid; if (hi - lo < 1e-12) break; }
+        return (lo + hi) / 2;
+      }
       case 'XLOOKUP': {
         const want = val(0);
         const L = grid(raw(1)); const Rt = grid(raw(2));
@@ -403,6 +423,6 @@ function createCalc(sheets, { recalc = () => true, override = () => undefined } 
 const FUNCS = new Set(['LET', 'IF', 'IFERROR', 'AND', 'OR', 'NOT', 'ISERROR', 'ISNA', 'ISNUMBER', 'ISTEXT', 'ISBLANK', 'SEARCH', 'FIND', 'LEFT', 'RIGHT', 'MID', 'LEN',
   'UPPER', 'LOWER', 'TRIM', 'CHAR', 'CONCAT', 'CONCATENATE', 'VALUE', 'ABS', 'INT', 'ROUND', 'MIN', 'MAX', 'SUM', 'AVERAGE', 'COUNT', 'COUNTA', 'SUMPRODUCT', 'SUMIF',
   'COUNTIF', 'SUMIFS', 'COUNTIFS', 'AVERAGEIFS', 'INDEX', 'MATCH', 'XLOOKUP', 'FILTER', 'SEQUENCE', 'TRANSPOSE', 'CHOOSE', 'ANCHORARRAY', 'EOMONTH', 'YEAR', 'MONTH',
-  'DAY', 'DATE', 'TEXT', 'NA']);
+  'DAY', 'DATE', 'TEXT', 'NA', 'VLOOKUP', 'IRR']);
 
 module.exports = { createCalc, Grid, isGrid };

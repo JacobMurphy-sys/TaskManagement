@@ -426,6 +426,91 @@ async function waitForServer() {
       await call('DELETE', `/capex/${c2.id}`); await call('DELETE', `/capex/${c1.id}`);
       assert.ok((await call('GET', '/audit')).some((e) => e.table_name === 'capex' && e.action === 'DELETE'), 'CAPEX changes are in the activity log');
     }
+    // ---- 📑 CAPEX IR pack: the corporate financial model and IR deck filled in from an investment (stand-in templates,
+    // shaped as the real ones: those are company documents and aren't part of SITHUB)
+    {
+      const { zip: mkZip, readZip: rz } = require('../src/xlsx'); const { readBook } = require('../src/xlsxread');
+      const X = (s) => Buffer.from(s, 'utf8');
+      const ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+      const c = (ref, v) => (typeof v === 'string' && v.startsWith('=') ? `<c r="${ref}"><f>${v.slice(1).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</f><v>0</v></c>`
+        : typeof v === 'number' ? `<c r="${ref}"><v>${v}</v></c>` : `<c r="${ref}" t="inlineStr"><is><t>${v}</t></is></c>`);
+      const sheetXml = (cells) => { const rows = {}; for (const [ref, v] of Object.entries(cells)) (rows[ref.match(/\d+/)[0]] = rows[ref.match(/\d+/)[0]] || []).push(c(ref, v));
+        return `<?xml version="1.0"?><worksheet ${ns}><sheetData>${Object.keys(rows).sort((a, b) => a - b).map((r) => `<row r="${r}">${rows[r].join('')}</row>`).join('')}</sheetData></worksheet>`; };
+      const SH = {
+        'Step1 > KPIs': { B8: 'Project Name', C8: '', C10: 'BU1', C13: 2025, C14: '', C17: "='Asset-project description'!D8", C22: "=VLOOKUP($C$10,'Group assumptions'!$B$5:$I$6,3,0)", C23: "=VLOOKUP($C$10,'Group assumptions'!$B$5:$I$6,2,0)" },
+        'Step2 >  P&L': { D41: 'Shop floor Labour costs', E41: '', D50: 'Asset depreciation', E79: '=E41+F41*0', O79: '=SUM(E41:N41)' },
+        'Step3 > Cash Flow': { C25: "=-'Step4 > Cash-out plan'!P4", C30: "=C25+'Step2 >  P&L'!E41", D30: "='Step2 >  P&L'!F41", E30: "='Step2 >  P&L'!G41", C45: '=IRR(C30:E30)', C41: '=SUM(C30:E30)' },
+        'Group assumptions': { B4: 'BU', C4: 'Discount rate', D4: 'Tax', B5: 'BU1', C5: 0.092, D5: 0.25, B6: 'BU2', C6: 0.1, D6: 0.25 },
+        'Step4 > Cash-out plan': { C9: 'Equipment 1', P4: '=SUM(D9:O18)' },
+        'Risks & Opps': { A2: 'Risks', A9: 'Opportunities' },
+        'Asset-project description': { C5: 'Machine unit costs', C7: 'set-up costs', D8: '=D5+D7' },
+      };
+      const names = Object.keys(SH);
+      const model = mkZip({
+        '[Content_Types].xml': X('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>'),
+        '_rels/.rels': X('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'),
+        'xl/workbook.xml': X(`<?xml version="1.0"?><workbook ${ns}><sheets>${names.map((n, i) => `<sheet name="${n.replace(/&/g, '&amp;').replace(/>/g, '&gt;')}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets><calcPr calcId="191029"/></workbook>`),
+        'xl/_rels/workbook.xml.rels': X(`<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${names.map((n, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}</Relationships>`),
+        ...Object.fromEntries(names.map((n, i) => [`xl/worksheets/sheet${i + 1}.xml`, X(sheetXml(SH[n]))])),
+      });
+      // the deck: a cover, a checklist, the executive summary's items table and a financial slide with an example picture
+      const P = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"';
+      const sp = (id, name, text, { ph, x = 0, y = 0, w = 914400, h = 300000 } = {}) => `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${name}"/><p:cNvSpPr/><p:nvPr>${ph ? `<p:ph type="${ph}"/>` : ''}</p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/>${text.split(' / ').map((t) => `<a:p><a:r><a:rPr lang="en-US" sz="1200"/><a:t>${t}</a:t></a:r></a:p>`).join('')}</p:txBody></p:sp>`;
+      const tbl = (id, rows, y = 1000000) => `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="${id}" name="Table ${id}"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="0" y="${y}"/><a:ext cx="4000000" cy="900000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblGrid>${rows[0].map(() => '<a:gridCol w="1000000"/>').join('')}</a:tblGrid>${rows.map((r) => `<a:tr h="200000">${r.map((t) => `<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p>${t ? `<a:r><a:rPr lang="en-US" sz="800"/><a:t>${t}</a:t></a:r>` : '<a:endParaRPr lang="en-US" sz="800"/>'}</a:p></a:txBody><a:tcPr/></a:tc>`).join('')}</a:tr>`).join('')}</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`;
+      const pic = (id) => `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="Picture ${id}"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill/><p:spPr><a:xfrm><a:off x="5000000" y="1000000"/><a:ext cx="4000000" cy="3000000"/></a:xfrm></p:spPr></p:pic>`;
+      const slide = (shapes) => X(`<?xml version="1.0"?><p:sld ${P}><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>${shapes}</p:spTree></p:cSld></p:sld>`);
+      const slides = [
+        sp(2, 'Title 1', 'Investment committee', { ph: 'ctrTitle' }) + sp(3, 'Subtitle 2', 'Project name : / IR n° :', { ph: 'subTitle' }),
+        sp(2, 'Title 1', 'IR DECK CHECkLIST (1/2)', { ph: 'title' }) + tbl(4, [['Topic', '#', 'Questions', 'Yes ✔ ; No ✘ or N/A'], ['Planning', '3', 'Was the IR budgeted or not ?', ''], ['Purchasing', '12', '3 quotes ?', '']]),
+        sp(2, 'Title 1', 'Executive Summary', { ph: 'title' }) + tbl(5, [['Items', 'Quotation (k€)'], ['', ''], ['', '']]),
+        sp(2, 'Title 1', 'Financial KPI (2/4)', { ph: 'title' }) + sp(3, 'Subtitle 2', 'Key points / Example points', { x: 200000, y: 1000000, w: 9000000, h: 3000000 }) + pic(8) + sp(9, 'Rectangle 9', 'Example', { x: 2000000, y: 2000000 }),
+      ];
+      const deck = mkZip({
+        '[Content_Types].xml': X('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>'),
+        'ppt/presentation.xml': X(`<?xml version="1.0"?><p:presentation ${P}><p:sldIdLst>${slides.map((s, i) => `<p:sldId id="${256 + i}" r:id="rId${i + 1}"/>`).join('')}</p:sldIdLst></p:presentation>`),
+        'ppt/_rels/presentation.xml.rels': X(`<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${slides.map((s, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${i + 1}.xml"/>`).join('')}</Relationships>`),
+        ...Object.fromEntries(slides.map((s, i) => [`ppt/slides/slide${i + 1}.xml`, slide(s)])),
+      });
+      const tdir = fs.mkdtempSync(path.join(os.tmpdir(), 'irtpl-'));
+      const mPath = path.join(tdir, 'model.xlsx'); const dPath = path.join(tdir, 'deck.pptx');
+      let meta = await call('GET', '/capex/ir/meta');
+      assert.ok(/Set where/.test(meta.model.error) && /Set where/.test(meta.deck.error), 'no templates set: says where to set them');
+      fs.writeFileSync(mPath, model); fs.writeFileSync(dPath, deck);
+      await call('PATCH', '/settings', { capex_ir_model: mPath, capex_ir_deck: `"${dPath}"` });
+      meta = await call('GET', '/capex/ir/meta');
+      assert.deepEqual([meta.model.error, meta.model.bus, meta.deck.error, meta.deck.checklist.map((q) => q.n)], [null, ['BU1', 'BU2'], null, [3, 12]], 'the business units and checklist read from the templates');
+      const ir = { ir_number: 'IR-26-001', bu: 'BU2', site: 'Main site', nature: 'Equipment', justif: 'Growth / Capacity increase', budgeted: 'yes', depreciation_years: 4, cap_start: '2026-04',
+        items: [{ name: 'Printer', kind: 'equipment', amount: 100000, initial: 110000, supplier: 'Acme', cashout: { '2026-02': 30000, '2026-04': 70000 } }, { name: 'Install', kind: 'setup', amount: 20000, cashout: { '2026-04': 20000 } }],
+        quotes: [{ supplier: 'Acme', price: 100000, selected: true }, { supplier: 'B', price: 95000 }, { supplier: 'C', price: 130000 }],
+        savings: { labour: { 2026: 30000, 2027: 60000, 2028: 60000 } }, checklist: { 3: { a: 'no', note: 'moved from next year' } }, junk: 'dropped' };
+      const cx = await call('POST', '/capex', { title: 'Printer line 3', category: 'Capacity / growth', owner: 'Riley Owner', amount: 120000, currency: '€', planned_date: '2026-02-01', justification: 'More capacity', ir: JSON.stringify(ir) });
+      const kept = JSON.parse(cx.ir);
+      assert.deepEqual([kept.junk, kept.items.length, kept.bu, kept.milestones.po], [undefined, 2, 'BU2', ''], 'the IR details kept, cleaned');
+      const st = await call('GET', `/capex/${cx.id}/ir`);
+      assert.ok(st.results && st.results.total_k === 120 && Math.abs(st.results.irr - 0.2152) < 0.002 && st.auto[12]?.a === 'yes' && st.auto[3]?.a === 'yes', `the model worked out (${JSON.stringify(st.results)}) and the automatic answers`);
+      const get = async (u) => { const r = await fetch(BASE + u, { headers: { 'X-Requested-With': 'TaskManager' } }); return { r, b: Buffer.from(await r.arrayBuffer()) }; };
+      const m = await get(`/capex/${cx.id}/ir/model.xlsx`);
+      assert.ok(m.r.ok && /Financial model/.test(decodeURIComponent(m.r.headers.get('content-disposition'))), 'the model downloads');
+      const mb = readBook(m.b); const v = (s, ref) => mb.sheet(s).cells.get(ref)?.v;
+      assert.deepEqual([v('Step1 > KPIs', 'C8'), v('Step1 > KPIs', 'C10'), v('Step1 > KPIs', 'C13'), v('Step1 > KPIs', 'C14'), v('Step1 > KPIs', 'C16'), v('Step1 > KPIs', 'C17'), v('Step1 > KPIs', 'C23')],
+        [`${cx.ref} Printer line 3`, 'BU2', 2026, 4, 'EUR', 120, 0.1], 'Step 1: the project, its business unit (and that unit\'s rate), worked out and saved in the file');
+      assert.deepEqual([v('Step4 > Cash-out plan', 'C9'), v('Step4 > Cash-out plan', 'E9'), v('Step4 > Cash-out plan', 'G9'), v('Step4 > Cash-out plan', 'G10'), v('Step2 >  P&L', 'E41'), v('Step2 >  P&L', 'E50'), v('Step2 >  P&L', 'F50')],
+        ['Printer', 30, 70, 20, 30, -22.5, -30], 'the cash-out by month and item (k), savings and depreciation from April over 4 years');
+      assert.deepEqual([v('Asset-project description', 'D5'), v('Asset-project description', 'D7'), v('Asset-project description', 'D8'), v('Asset-project description', 'C12')], [100, 20, 120, 'Printer'], 'the asset sheet');
+      assert.ok(/fullCalcOnLoad="1"/.test(rz(m.b)['xl/workbook.xml'].toString()), 'Excel recalculates it on opening');
+      const d = await get(`/capex/${cx.id}/ir/deck.pptx`);
+      const dz = rz(d.b); const s = (n) => dz[`ppt/slides/slide${n}.xml`].toString();
+      assert.ok(d.r.ok && /Project name : CAPEX-\d+ Printer line 3/.test(s(1)) && /IR n° : IR-26-001/.test(s(1)), 'the cover');
+      assert.ok(/No ✘ – moved from next year/.test(s(2)) && /Yes ✔/.test(s(2)), 'the checklist: as answered, and automatic');
+      assert.ok(/<a:t>Printer<\/a:t>/.test(s(3)) && /<a:t>100<\/a:t>/.test(s(3)) && /<a:t>Install<\/a:t>/.test(s(3)), 'the executive summary\'s items');
+      assert.ok(/name="SITHUB P&amp;L"/.test(s(4)) && !/<p:pic>/.test(s(4)) && !/<a:t>Example<\/a:t>/.test(s(4)) && /Depreciation over 4 years from Apr 26/.test(s(4)), 'the financial slide: a table in place of the example picture, and its key points');
+      for (const n of [1, 2, 3, 4]) assert.ok(/^<\?xml[\s\S]*<\/p:sld>$/.test(s(n)) && (s(n).match(/<p:sp>/g) || []).length === (s(n).match(/<\/p:sp>/g) || []).length, `slide ${n} is whole`);
+      await call('PATCH', '/settings', { capex_ir_deck: path.join(tdir, 'gone.pptx') });
+      assert.match((await get(`/capex/${cx.id}/ir/deck.pptx`)).b.toString(), /no such file/, 'a template that isn\'t there: says so');
+      await call('PATCH', '/settings', { capex_ir_model: '', capex_ir_deck: '' });
+      await call('DELETE', `/capex/${cx.id}`);
+      fs.rmSync(tdir, { recursive: true, force: true });
+    }
 
     // ---- Costs
     await call('POST', `/projects/${np.id}/costs`, { description: 'Room hire', amount: '350', spent_on: '2026-10-01' });

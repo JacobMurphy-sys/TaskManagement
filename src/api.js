@@ -721,6 +721,7 @@ router.get('/contacts/teams', h((req, res) => {
 
 // ---- 💶 CAPEX planner --------------------------------------------------------------------------------
 const capex = require('./capex');
+const capexIr = require('./capexir');
 const CAPEX_SELECT = 'SELECT c.*, p.name AS project_name FROM capex c LEFT JOIN projects p ON p.id = c.project_id';
 function capexFields(body, current = null) {
   const f = pick(body, capex.FIELDS);
@@ -729,6 +730,7 @@ function capexFields(body, current = null) {
   if (f.payback_months !== undefined && f.payback_months !== null) { const n = Number(f.payback_months); if (!Number.isFinite(n) || n < 0) throw new HttpError(400, 'Payback must be a number of months'); f.payback_months = n; }
   if (f.project_id !== undefined) f.project_id = f.project_id ? Number(f.project_id) : null;
   if (f.currency !== undefined && f.currency !== null) f.currency = String(f.currency).trim().slice(0, 5) || null;
+  if (f.ir !== undefined) { try { f.ir = f.ir === null ? null : capexIr.irJson(f.ir); } catch (err) { throw new HttpError(400, err.message); } } // 📑 the IR pack's details
   for (const k of ['title', 'category', 'owner', 'justification']) if (f[k] !== undefined && f[k] !== null) f[k] = String(f[k]).trim() || null;
   // what has to be filled in (when creating; when changing, it can't be emptied)
   const missing = Object.entries(capex.REQUIRED).filter(([k]) => (current ? k in f && (f[k] === null || f[k] === '') : f[k] === undefined || f[k] === null || f[k] === '')).map(([, l]) => l);
@@ -762,6 +764,48 @@ router.get('/capex/overview.pdf', h(async (req, res) => sendFile(res, await cape
 router.get('/capex/:id/onepager.pdf', h(async (req, res) => {
   const x = db.get(`${CAPEX_SELECT} WHERE c.id = ?`, [req.params.id]); if (!x) throw notFound('Investment');
   sendFile(res, await capex.onePager(x, { currency: getSettings().currency, stamp: capexStamp() }), 'application/pdf', `${x.ref} ${x.title}.pdf`.replace(/[\\/:*?"<>|]/g, ' ').slice(0, 120));
+}));
+
+// ---- 📑 The IR pack: the financial model and IR deck templates, filled in from an investment -----------
+// The templates are company documents, so they aren't part of SITHUB: they're read from where they're saved
+// (💶 CAPEX ⋯ › IR templates; changing that needs the setup right, as any setting does).
+async function irTemplate(kind) {
+  const p = cleanPath(getSettings()[kind === 'deck' ? 'capex_ir_deck' : 'capex_ir_model']);
+  if (!p) return { path: '', error: `Set where the ${kind === 'deck' ? 'IR deck' : 'financial model'} template is saved (💶 CAPEX ⋯ › IR templates)` };
+  try { await netfile.prefetch(p); return { path: p, buf: netfile.readFileSync(p) }; } catch (err) { return { path: p, error: `Can't open ${p}: ${err.code === 'ENOENT' ? 'no such file' : err.message}` }; }
+}
+// what the templates offer (business units, the checklist) and where they are
+router.get('/capex/ir/meta', h(async (req, res) => {
+  const [m, d] = await Promise.all([irTemplate('model'), irTemplate('deck')]);
+  const model = { path: m.path, error: m.error || null, bus: [] }; const deck = { path: d.path, error: d.error || null, checklist: [] };
+  if (m.buf) { try { model.bus = capexIr.modelMeta(m.buf).bus; } catch (err) { model.error = err.message; } }
+  if (d.buf) { try { deck.checklist = capexIr.checklistOf(d.buf); if (!deck.checklist.length) deck.error = 'No checklist found in the deck (a slide titled "… checklist" with a # and Questions table)'; } catch (err) { deck.error = `The deck can't be read: ${err.message}`; } }
+  res.json({ model, deck, natures: capexIr.NATURES, justifs: capexIr.JUSTIFS, kinds: capexIr.ITEM_KINDS, lines: Object.fromEntries(Object.entries(capexIr.SAVING_LINES).map(([k, [l]]) => [k, l])),
+    milestones: capexIr.MILESTONES, answers: capexIr.ANSWERS, bu: getSettings().capex_ir_bu || '', site: getSettings().capex_ir_site || '' });
+}));
+const capexOne = (id) => { const x = db.get(`${CAPEX_SELECT} WHERE c.id = ?`, [id]); if (!x) throw notFound('Investment'); return x; };
+const irName = (x, what, ext) => `${x.ref} ${what} – ${x.title}.${ext}`.replace(/[\\/:*?"<>|]/g, ' ').slice(0, 140);
+// how complete the IR pack is, its figures as the model works them out, and the checklist's automatic answers
+router.get('/capex/:id/ir', h(async (req, res) => {
+  const x = capexOne(req.params.id);
+  const out = { ...capexIr.readiness(x), results: null, model_error: null };
+  const f = capexIr.figures(x);
+  out.auto = capexIr.autoAnswers(f);
+  const m = await irTemplate('model');
+  if (m.buf) { try { const r = capexIr.fillModel(m.buf, x, { figures: f }); out.results = r.results; } catch (err) { out.model_error = err.message; } } else out.model_error = m.error;
+  res.json(out);
+}));
+router.get('/capex/:id/ir/model.xlsx', h(async (req, res) => {
+  const x = capexOne(req.params.id); const m = await irTemplate('model'); if (!m.buf) throw new HttpError(400, m.error);
+  let r; try { r = capexIr.fillModel(m.buf, x); } catch (err) { throw new HttpError(400, `The financial model couldn't be filled in: ${err.message}`); }
+  sendFile(res, r.buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', irName(x, 'Financial model', 'xlsx'));
+}));
+router.get('/capex/:id/ir/deck.pptx', h(async (req, res) => {
+  const x = capexOne(req.params.id); const [m, d] = await Promise.all([irTemplate('model'), irTemplate('deck')]); if (!d.buf) throw new HttpError(400, d.error);
+  const f = capexIr.figures(x);
+  let model = null; if (m.buf) { try { model = capexIr.fillModel(m.buf, x, { figures: f }); } catch { model = null; } }
+  let r; try { r = capexIr.fillDeck(d.buf, x, { figures: f, model }); } catch (err) { throw new HttpError(400, `The IR deck couldn't be filled in: ${err.message}`); }
+  sendFile(res, r.buf, 'application/vnd.openxmlformats-officedocument.presentationml.presentation', irName(x, 'IR deck', 'pptx'));
 }));
 
 // ---- 👥 People: each person's open work, their next action and colour --------------------------------
@@ -3607,6 +3651,8 @@ const SETTING_DEFAULTS = {
   kpi_time_perso: '', kpi_time_otto: '', cpm_shifts: '3', cpm_hours: '6', cpm_holidays: '', cpm_oee_default: '0.35', cpm_machines: '{}', cpm_rnw_hours: '{}', cpm_rnw_bonus: '0.05', cpm_rnw_share: '{}', cpm_hour_full: '1', cpm_day_profile: 'arrival', cpm_day_shape: 'typical', cpm_cutoffs: '', cpm_cutoff_default: '17:00', cpm_cutoff_cust: '{}', cpm_day_manual: '{}', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
+  // 📑 💶 CAPEX's IR pack: where the corporate templates are saved, and the business unit and site they're filled in with
+  capex_ir_model: '', capex_ir_deck: '', capex_ir_bu: '', capex_ir_site: '',
   plan_src: '', planner_url: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_learned_times: '0', plan_oee_default: '', plan_otto_src: '', plan_disp_src: '', plan_max_age: '30', plan_miti_days: '5', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
 };
 function getSettings() {
