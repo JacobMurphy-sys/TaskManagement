@@ -781,10 +781,10 @@ router.get('/capex/ir/meta', h(async (req, res) => {
   if (m.buf) { try { model.bus = capexIr.modelMeta(m.buf).bus; } catch (err) { model.error = err.message; } }
   if (d.buf) { try { deck.checklist = capexIr.checklistOf(d.buf); if (!deck.checklist.length) deck.error = 'No checklist found in the deck (a slide titled "… checklist" with a # and Questions table)'; } catch (err) { deck.error = `The deck can't be read: ${err.message}`; } }
   res.json({ model, deck, natures: capexIr.NATURES, justifs: capexIr.JUSTIFS, kinds: capexIr.ITEM_KINDS, lines: Object.fromEntries(Object.entries(capexIr.SAVING_LINES).map(([k, [l]]) => [k, l])),
-    milestones: capexIr.MILESTONES, answers: capexIr.ANSWERS, bu: getSettings().capex_ir_bu || '', site: getSettings().capex_ir_site || '' });
+    milestones: capexIr.MILESTONES, answers: capexIr.ANSWERS, bu: getSettings().capex_ir_bu || '', site: getSettings().capex_ir_site || '', name: getSettings().capex_ir_name || capexIr.DEFAULT_NAME });
 }));
 const capexOne = (id) => { const x = db.get(`${CAPEX_SELECT} WHERE c.id = ?`, [id]); if (!x) throw notFound('Investment'); return x; };
-const irName = (x, what, ext) => `${x.ref} ${what} – ${x.title}.${ext}`.replace(/[\\/:*?"<>|]/g, ' ').slice(0, 140);
+const irName = (x, what, ext) => capexIr.fileName(x, what, ext, getSettings().capex_ir_name); // the site's naming scheme (IR templates)
 // how complete the IR pack is, its figures as the model works them out, and the checklist's automatic answers
 router.get('/capex/:id/ir', h(async (req, res) => {
   const x = capexOne(req.params.id);
@@ -3652,7 +3652,7 @@ const SETTING_DEFAULTS = {
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
   // 📑 💶 CAPEX's IR pack: where the corporate templates are saved, and the business unit and site they're filled in with
-  capex_ir_model: '', capex_ir_deck: '', capex_ir_bu: '', capex_ir_site: '',
+  capex_ir_model: '', capex_ir_deck: '', capex_ir_bu: '', capex_ir_site: '', capex_ir_name: 'InvestCo {project} {ref}',
   plan_src: '', planner_url: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_learned_times: '0', plan_oee_default: '', plan_otto_src: '', plan_disp_src: '', plan_max_age: '30', plan_miti_days: '5', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
 };
 function getSettings() {

@@ -491,7 +491,9 @@ async function waitForServer() {
       assert.ok(st.results && st.results.total_k === 120 && Math.abs(st.results.irr - 0.2152) < 0.002 && st.auto[12]?.a === 'yes' && st.auto[3]?.a === 'yes', `the model worked out (${JSON.stringify(st.results)}) and the automatic answers`);
       const get = async (u) => { const r = await fetch(BASE + u, { headers: { 'X-Requested-With': 'TaskManager' } }); return { r, b: Buffer.from(await r.arrayBuffer()) }; };
       const m = await get(`/capex/${cx.id}/ir/model.xlsx`);
-      assert.ok(m.r.ok && /Financial model/.test(decodeURIComponent(m.r.headers.get('content-disposition'))), 'the model downloads');
+      assert.ok(m.r.ok && decodeURIComponent(m.r.headers.get('content-disposition')).includes(`InvestCo Printer line 3 C-${String(cx.id).padStart(4, '0')}.xlsx`), 'the model downloads, named by the default pattern');
+      await call('PATCH', '/settings', { capex_ir_name: 'IR {project} {site} {ref} – {doc} {nope}' });
+      assert.ok(decodeURIComponent((await get(`/capex/${cx.id}/ir/model.xlsx`)).r.headers.get('content-disposition')).includes(`IR Printer line 3 Main site C-${String(cx.id).padStart(4, '0')} – Financial model {nope}.xlsx`), 'named by the site\'s own pattern');
       const mb = readBook(m.b); const v = (s, ref) => mb.sheet(s).cells.get(ref)?.v;
       assert.deepEqual([v('Step1 > KPIs', 'C8'), v('Step1 > KPIs', 'C10'), v('Step1 > KPIs', 'C13'), v('Step1 > KPIs', 'C14'), v('Step1 > KPIs', 'C16'), v('Step1 > KPIs', 'C17'), v('Step1 > KPIs', 'C23')],
         [`${cx.ref} Printer line 3`, 'BU2', 2026, 4, 'EUR', 120, 0.1], 'Step 1: the project, its business unit (and that unit\'s rate), worked out and saved in the file');

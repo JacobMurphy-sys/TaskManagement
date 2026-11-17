@@ -853,6 +853,19 @@ function removeSlide(files, path) {
   files['[Content_Types].xml'] = Buffer.from(files['[Content_Types].xml'].toString('utf8').replace(new RegExp(`<Override\\b[^>]*PartName="/(${gone.map((g) => g.replace(/[.]/g, '\\.')).join('|')})"[^>]*/>`, 'g'), ''), 'utf8');
 }
 
+// 📑 The downloaded files' names, from a pattern set in CAPEX ⋯ › IR templates (the site's own naming scheme):
+// {project} the investment's title, {ref} its short ref (CAPEX-0001 → C-0001), {site}, {bu}, {irn} the IR n°, {doc} IR deck /
+// Financial model. Without {doc}, the deck and the model share the name (.pptx and .xlsx).
+const DEFAULT_NAME = 'InvestCo {project} {ref}';
+const shortRef = (ref) => String(ref || '').replace(/^CAPEX-/i, 'C-');
+function fileName(x, doc, ext, pattern) {
+  const ir = irOf(x.ir);
+  const vals = { project: x.title || '', ref: shortRef(x.ref), site: ir.site, bu: ir.bu, irn: ir.ir_number, doc };
+  const base = String(pattern || DEFAULT_NAME).replace(/\{(\w+)\}/g, (w, k) => (k.toLowerCase() in vals ? vals[k.toLowerCase()] ?? '' : w))
+    .replace(/[\\/:*?"<>|\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 150);
+  return `${base || shortRef(x.ref) || 'IR'}.${ext}`;
+}
+
 // what's still missing for a full IR pack (shown on the investment)
 function readiness(x) {
   const f = figures(x); const { ir } = f; const out = [];
@@ -866,4 +879,4 @@ function readiness(x) {
   return { parts: out, notes: f.notes, nature: f.nature, justif: f.justif };
 }
 
-module.exports = { NATURES, JUSTIFS, ITEM_KINDS, SAVING_LINES, MILESTONES, ANSWERS, irOf, irJson, figures, modelMeta, fillModel, checklistOf, applies, autoAnswers, fillDeck, readiness, defaultsFor, _test: { shapesOf, writeCells, newTable, setText } };
+module.exports = { fileName, shortRef, DEFAULT_NAME, NATURES, JUSTIFS, ITEM_KINDS, SAVING_LINES, MILESTONES, ANSWERS, irOf, irJson, figures, modelMeta, fillModel, checklistOf, applies, autoAnswers, fillDeck, readiness, defaultsFor, _test: { shapesOf, writeCells, newTable, setText } };
