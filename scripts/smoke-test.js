@@ -1695,6 +1695,23 @@ async function waitForServer() {
             'the month (by the workbook\'s own short name), the whole year (not two), and the monthly forecast row');
           assert.deepEqual([amexWb.cells.get('N49'), amexWb.cells.get('M48').v, amexWb.cells.get('J50').v], [undefined, 'December', 'Sept'], 'the old helper cells cleared; the year in B to M');
           assert.match(fl.text, /fed straight from Amex Forecast\.xlsx: row 42 for 2026 \(4 months in it\)/);
+          // 📈 BeNeLux summed by SITHUB: the workbook's SUMIFS give the same figures from the summed lines as from the raw file
+          const H = Array.from({ length: 39 }, (_, i) => ({ 0: 'Line_Year', 3: 'Line_Month', 5: 'Line_Date', 8: 'Man_SubArea_Nm', 12: 'Cust_Nm', 22: 'Item_Nm', 38: 'Line_Qty' })[i] || `Col${i + 1}`);
+          const line = (y, m, area, item, cust, q) => { const r = Array(39).fill(null); r[0] = y; r[3] = m; r[5] = `${y}-0${m}-15`; r[8] = area; r[12] = cust; r[22] = item; r[38] = q; return r; };
+          const bnlFile = buildXlsx([{ name: 'LIVE_EU_PAY_CARDS', columns: H.map((h, i) => ({ header: h, type: [0, 3, 38].includes(i) ? 'number' : undefined })), rows: [
+            line(2026, 1, 'Benelux', 'basic KBC', 'KBC Bank NV', 100), line(2026, 1, 'Benelux', 'Basic card', 'KBC Bank NV', 50), line(2026, 1, 'Benelux', 'DRP Monthly Fee', 'KBC Bank NV', 999),
+            line(2026, 1, 'Germany & Austria', 'Basic', 'KBC Bank NV', 500), line(2026, 2, 'Benelux', 'basic', 'ING', 70), line(2025, 1, 'Benelux', 'basic', 'KBC Bank NV', 30)] }]);
+          const sumifs = (crit) => ({ f: `SUMIFS($AM:$AM,$A:$A,${crit.y},$I:$I,"Benelux",$W:$W,"*basic*"${crit.c ? `,$M:$M,"${crit.c}"` : ''}${crit.m ? `,$D:$D,"${crit.m}"` : ''})`, v: 0 });
+          const bnlTpl = () => sheetOf({ AO1: sumifs({ y: 2026, c: 'KBC Bank NV', m: 1 }), AO2: sumifs({ y: 2026 }), AO3: sumifs({ y: 2025 }), AO4: { f: 'SUMIFS($AM:$AM,$I:$I,"Germany & Austria")', v: 0 } });
+          const bspec = { file: 'Benelux Forecast.xlsx', sheet: 'LIVE_EU_PAY_CARDS', workbook: 'BeNeLux Forecast' };
+          const T = { range: { top: 1, left: 1, bottom: 2, right: 39 } };
+          const figs = (sh) => { const cc = createCalc({ 'BeNeLux Forecast': sh }); return ['AO1', 'AO2', 'AO3', 'AO4'].map((r) => cc.value('BeNeLux Forecast', r)); };
+          const compact = require('../src/cpm').beneluxCompact(bnlFile);
+          const raw = forecastSheet(bnlTpl(), T, bnlFile, bspec); const summed = forecastSheet(bnlTpl(), T, compact, bspec);
+          assert.deepEqual(figs(raw), [150, 220, 30, 500], '(the raw file: KBC January, the year, last year, another area)');
+          assert.deepEqual(figs(summed), figs(raw), 'the same figures from SITHUB\'s summed lines');
+          assert.deepEqual([compact.compact.lines, compact.compact.kept, summed.cells.get('F2').v, summed.cells.get('AM2').v], [5, 4, '2026-01-15', 150], 'basic lines summed into one per year, month, area and customer, the other columns kept');
+          assert.equal(summed.maxRow < raw.maxRow, true, 'fewer lines for the workbook to work through');
         }
       }
       const yr = await call('GET', '/kpi/weeks?year=2026');

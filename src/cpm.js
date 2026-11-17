@@ -81,6 +81,41 @@ function parseBenelux(buf, info = {}) {
   Object.assign(info, { sheet: name, lines, kept, by_position: byPos });
   return [...sum].map(([k, qty]) => { const [y, m, nm] = k.split('|'); return { year: +y, month: +m, name: nm, tech: null, qty }; });
 }
+// 📈 The BeNeLux forecast for the CI workbook (kpi.js forecastSheet), summed by SITHUB: the basic-card lines only (every
+// formula reading it filters on *basic*), one line per year, month, area and customer with their quantity added up,
+// each line keeping the file's other columns from the first of its lines (so the workbook's own lookups on it, its
+// customer and month names, still work). The workbook's SUMIFS give the same figures from hundreds of lines instead of
+// every order line, and they're the figures SITHUB's own reading gives (Capacity, the Forecast tab).
+// → a sheet { name, cells, maxRow, maxCol, compact: { lines, kept } } in the file's columns
+function beneluxCompact(buf) {
+  const book = readBook(buf);
+  const name = (book.sheets.find((x) => /^live_eu_pay_cards$/i.test(x.name)) || book.sheets[0])?.name;
+  if (!name) throw new Error('The file has no sheets');
+  const sh = book.sheet(name);
+  let top = Infinity; let left = Infinity;
+  for (const c of sh.cells.values()) if (c.v !== null && c.v !== undefined && c.v !== '') { if (c.row < top) top = c.row; if (c.col < left) left = c.col; }
+  if (top === Infinity) throw new Error(`The "${name}" sheet is empty`);
+  const norm = (x) => String(x ?? '').trim().toLowerCase().replace(/[\s_]+/g, '');
+  const heads = new Map(); for (let c = left; c <= sh.maxCol; c++) { const h = norm(sh.cells.get(`${colLetters(c)}${top}`)?.v); if (h && !heads.has(h)) heads.set(h, c); }
+  const col = {}; for (const [k, [h, off]] of Object.entries(BNL_COLS)) col[k] = heads.get(norm(h)) || left + off;
+  const v = (k, r) => sh.cells.get(`${colLetters(col[k])}${r}`)?.v;
+  const groups = new Map(); let lines = 0;
+  for (let r = top + 1; r <= sh.maxRow; r++) {
+    if (!/basic/i.test(String(v('item', r) ?? ''))) continue;
+    const y = Number(v('year', r)) || dateOf(v('month', r))?.y; const m = monthOf(v('month', r));
+    if (!y || !m) continue;
+    lines++;
+    const k = `${y}|${m}|${String(v('area', r) ?? '').trim().toLowerCase()}|${String(v('cust', r) ?? '').trim()}`;
+    const g = groups.get(k) || groups.set(k, { row: r, qty: 0 }).get(k);
+    g.qty += Number(v('qty', r)) || 0;
+  }
+  const cells = new Map();
+  const copy = (fromRow, toRow, qty) => { for (let c = left; c <= sh.maxCol; c++) { const x = sh.cells.get(`${colLetters(c)}${fromRow}`); if (!x) continue; const r = `${colLetters(c)}${toRow}`; cells.set(r, { ...x, r, row: toRow }); }
+    if (qty !== undefined) { const r = `${colLetters(col.qty)}${toRow}`; cells.set(r, { r, row: toRow, col: col.qty, s: 0, t: 'n', v: qty, f: null }); } };
+  copy(top, 1);
+  let at = 2; for (const g of groups.values()) copy(g.row, at++, g.qty);
+  return { name, cells, maxRow: at - 1, maxCol: sh.maxCol, compact: { lines, kept: groups.size } };
+}
 // Amex (Sittard), by its fixed rows: the months (01/MM/YYYY) across row 3, the total volume in row 42 (TOTAL BAU),
 // Laser in row 7, black and white DOD in rows 32 and 37 (DOD = the two); Emboss is the rest of the total. Read by
 // labels before, which picked up more rows than the total and so far too much: kept only for a file without months
@@ -658,4 +693,4 @@ function siteCapacity(year, cards = null) {
     months, techs: TECHS, speed_from: Object.fromEntries(Object.entries(sp).map(([t, x]) => [t, x])), machines, total: sum((m) => m.counted), by_tech: byTech, counted_by_tech: countedBy, cards: !!cards, warnings: [...new Set(warnings)] };
 }
 
-module.exports = { AMEX_ROWS, detectForecast, TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity, machineMix };
+module.exports = { beneluxCompact, AMEX_ROWS, detectForecast, TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity, machineMix };

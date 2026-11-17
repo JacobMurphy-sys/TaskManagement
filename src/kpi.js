@@ -717,10 +717,12 @@ function loadWeek(buf, { a3Sheet = 'A3 Weekly Report', dbSheet = 'Database', wee
 // groups by) are carried down every row; the rest of the workbook's sheet (the formulas
 // beside or under the table) is kept.
 function forecastSheet(tpl, table, buf, spec) {
-  const fb = readBook(buf);
-  const info = fb.sheets.find((x) => x.name.toLowerCase() === spec.sheet.toLowerCase());
+  // buf: the file, or a sheet SITHUB has already read and summed ({ name, cells, maxRow, maxCol }: cpm.beneluxCompact)
+  const ready = !!(buf && buf.cells);
+  const fb = ready ? null : readBook(buf);
+  const info = ready ? { name: buf.name } : fb.sheets.find((x) => x.name.toLowerCase() === spec.sheet.toLowerCase());
   if (!info) throw new Error(`${spec.file} has no sheet called "${spec.sheet}" (it has ${fb.sheets.map((x) => x.name).join(', ')})`);
-  const src = fb.sheet(info.name);
+  const src = ready ? buf : fb.sheet(info.name);
   const filled = (v) => v !== null && v !== undefined && v !== '';
   let top = Infinity; let left = Infinity; let right = 0; let bottom = 0;
   for (const c of src.cells.values()) if (filled(c.v)) { top = Math.min(top, c.row); left = Math.min(left, c.col); right = Math.max(right, c.col); bottom = Math.max(bottom, c.row); }
@@ -854,14 +856,14 @@ function buildWeek(buf, week, data, { a3Sheet = 'A3 Weekly Report', dbSheet = 'D
     const info = findSheet(f.spec.workbook);
     if (!info) continue;
     fcSheets.push(info.name);
-    if (!f.buf) { if (f.error) flags.push({ part: 'forecast', text: `${f.spec.label}: ${f.error} — the workbook's copy is used.` }); continue; }
+    if (!f.buf && !f.sheet) { if (f.error) flags.push({ part: 'forecast', text: `${f.spec.label}: ${f.error} — the workbook's copy is used.` }); continue; }
     try {
       const table = book.tables().find((t) => t.name.toLowerCase() === f.spec.table.toLowerCase() && t.sheet.toLowerCase() === info.name.toLowerCase());
       if (!table) throw new Error(`the workbook has no "${f.spec.table}" table on its ${info.name} sheet to put it in`);
       const R = table.range; // the table's own rows aren't needed from the workbook, only its first (the formulas)
       const tpl = Object.assign(book.sheet(info.name, { skipRows: (n) => n > R.top + 1 && n <= R.bottom }), { name: info.name });
-      Object.defineProperty(sheets, info.name, { value: forecastSheet(tpl, table, f.buf, f.spec), enumerable: true, writable: true, configurable: true });
-      flags.push({ part: 'forecast-file', text: `${f.spec.label} read from ${f.file}${f.modified ? ` (saved ${String(f.modified).slice(0, 16).replace('T', ' ')})` : ''}.` });
+      Object.defineProperty(sheets, info.name, { value: forecastSheet(tpl, table, f.sheet || f.buf, f.spec), enumerable: true, writable: true, configurable: true });
+      flags.push({ part: 'forecast-file', text: `${f.spec.label} read from ${f.file}${f.modified ? ` (saved ${String(f.modified).slice(0, 16).replace('T', ' ')})` : ''}${f.sheet?.compact ? `, summed by SITHUB: ${f.sheet.compact.lines.toLocaleString('en-GB')} basic-card lines into ${f.sheet.compact.kept.toLocaleString('en-GB')} (one per year, month, area and customer)` : ''}.` });
     } catch (err) { flags.push({ part: 'forecast', text: `${f.spec.label} couldn't be read from ${f.file}: ${err.message} — the workbook's copy is used.` }); }
   }
   // 📈 Amex fed straight from the forecast in use (SITHUB's reading of row 42), into the helper rows the workbook's

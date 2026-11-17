@@ -2421,7 +2421,9 @@ function forecastFiles() {
   return Object.entries(kpiData.FORECASTS).map(([key, spec]) => {
     const c = currentForecast(key, { withData: true, set });
     if (c.from === 'workbook') return { spec };
-    return { spec, file: c.file, modified: c.modified, ...(c.buf ? { buf: c.buf } : { error: c.error || 'can\'t be opened' }) };
+    // 📈 BeNeLux summed by SITHUB (cpm.beneluxCompact): the workbook's formulas get SITHUB's reading; the file itself if that fails
+    let sheet = null; if (key === 'benelux' && c.buf) { try { sheet = require('./cpm').beneluxCompact(c.buf); } catch { sheet = null; } }
+    return { spec, file: c.file, modified: c.modified, ...(sheet ? { sheet } : {}), ...(c.buf ? { buf: c.buf } : { error: c.error || 'can\'t be opened' }) };
   });
 }
 
