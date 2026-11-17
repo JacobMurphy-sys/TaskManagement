@@ -792,9 +792,10 @@ function fillDeck(tpl, x, { figures: f0, model = null, today = new Date(), quote
       if (title) replace(title, setGeom(setText(title.xml, ['IR'], { dark: false }), { x: 0.26 * EMU, y: 0.12 * EMU, w: 3.6 * EMU, h: 0.42 * EMU }));
       for (const tb of unifiedTables(R.summary, f, nextId())) insert(tb);
     }
-    // a slide SITHUB had nothing to fill in is hidden (still in the deck: PowerPoint's Unhide brings it back); the cover and
-    // slides without a title (the closing contact slide) stay
-    if (xml === s.xml && t && !/^investment committee/i.test(t)) { xml = xml.replace(/<p:sld\b([^>]*?)>/, (w, a) => `<p:sld${a.replace(/\sshow="[^"]*"/, '')} show="0">`); hidden.push(t); }
+    // a slide SITHUB had nothing to fill in is hidden (still in the deck: PowerPoint's Unhide brings it back), and the
+    // checklist always is (not asked for: answered in Details › Checklist when a review wants it); the cover and slides
+    // without a title (the closing contact slide) stay
+    if (((xml === s.xml && t) || /check\s*list/i.test(t)) && !/^investment committee/i.test(t)) { xml = xml.replace(/<p:sld\b([^>]*?)>/, (w, a) => `<p:sld${a.replace(/\sshow="[^"]*"/, '')} show="0">`); hidden.push(t); }
     if (xml !== s.xml) files[s.path] = Buffer.from(xml, 'utf8');
   }
   for (const path of drop) removeSlide(files, path);

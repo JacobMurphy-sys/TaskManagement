@@ -1637,6 +1637,16 @@ dialog#modal.cx-big { width: min(75vw, calc(100vw - 32px)); height: min(88vh, ca
 .cx-quote img { max-width: 220px; max-height: 200px; border: 1px solid var(--border); border-radius: 4px; background: #fff; }
 .cx-file { cursor: pointer; }
 /* 🧭 step by step */
+.cx-irsub { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: -2px 0 10px; }
+.cxg-tag { display: inline-block; font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 4px; line-height: 16px; vertical-align: 1px; }
+.cxg-p1 { background: #c93636; color: #fff; }
+.cxg-p2 { background: #b86e00; color: #fff; }
+.cxg-p3 { background: var(--border); color: var(--muted); }
+.cxg-legend { margin-top: 12px; line-height: 1.9; }
+.cxg-steps button.part .cxg-n { background: #b86e00; border-color: #b86e00; color: #fff; }
+.cxg-grid4 { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; margin-top: 4px; }
+.cxg-open { margin: 8px 0; }
+.cxg-open ul { margin: 4px 0 0; }
 .cxg { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: start; }
 .cxg-steps { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; }
 .cxg-steps button { display: flex; gap: 8px; align-items: center; text-align: left; border: 0; background: transparent; padding: 6px 8px; border-radius: 6px; color: var(--text); font-weight: normal; }
