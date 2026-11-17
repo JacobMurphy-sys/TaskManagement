@@ -437,7 +437,7 @@ async function waitForServer() {
       const sheetXml = (cells) => { const rows = {}; for (const [ref, v] of Object.entries(cells)) (rows[ref.match(/\d+/)[0]] = rows[ref.match(/\d+/)[0]] || []).push(c(ref, v));
         return `<?xml version="1.0"?><worksheet ${ns}><sheetData>${Object.keys(rows).sort((a, b) => a - b).map((r) => `<row r="${r}">${rows[r].join('')}</row>`).join('')}</sheetData></worksheet>`; };
       const SH = {
-        'Step1 > KPIs': { B8: 'Project Name', C8: '', C10: 'BU1', C13: 2025, C14: '', C17: "='Asset-project description'!D8", C22: "=VLOOKUP($C$10,'Group assumptions'!$B$5:$I$6,3,0)", C23: "=VLOOKUP($C$10,'Group assumptions'!$B$5:$I$6,2,0)" },
+        'Step1 > KPIs': { B8: 'Project Name', C8: '', B10: 'Business unit', C10: 'BU1', C13: 2025, C14: '', C17: "='Asset-project description'!D8", C22: "=VLOOKUP($C$10,'Group assumptions'!$B$5:$I$6,3,0)", C23: "=VLOOKUP($C$10,'Group assumptions'!$B$5:$I$6,2,0)" },
         'Step2 >  P&L': { D41: 'Shop floor Labour costs', E41: '', D50: 'Asset depreciation', E79: '=E41+F41*0', O79: '=SUM(E41:N41)' },
         'Step3 > Cash Flow': { C25: "=-'Step4 > Cash-out plan'!P4", C30: "=C25+'Step2 >  P&L'!E41", D30: "='Step2 >  P&L'!F41", E30: "='Step2 >  P&L'!G41", C45: '=IRR(C30:E30)', C41: '=SUM(C30:E30)' },
         'Group assumptions': { B4: 'BU', C4: 'Discount rate', D4: 'Tax', B5: 'BU1', C5: 0.092, D5: 0.25, B6: 'BU2', C6: 0.1, D6: 0.25 },
@@ -463,7 +463,8 @@ async function waitForServer() {
         sp(2, 'Title 1', 'Investment committee', { ph: 'ctrTitle' }) + sp(3, 'Subtitle 2', 'Project name : / IR n° :', { ph: 'subTitle' }),
         sp(2, 'Title 1', 'IR DECK CHECkLIST (1/2)', { ph: 'title' }) + tbl(4, [['Topic', '#', 'Questions', 'Yes ✔ ; No ✘ or N/A'], ['Planning', '3', 'Was the IR budgeted or not ?', ''], ['Purchasing', '12', '3 quotes ?', '']]),
         sp(2, 'Title 1', 'Executive Summary', { ph: 'title' }) + tbl(5, [['Items', 'Quotation (k€)'], ['', ''], ['', '']]),
-        sp(2, 'Title 1', 'Financial KPI (2/4)', { ph: 'title' }) + sp(3, 'Subtitle 2', 'Key points / Example points', { x: 200000, y: 1000000, w: 9000000, h: 3000000 }) + pic(8) + sp(9, 'Rectangle 9', 'Example', { x: 2000000, y: 2000000 }),
+        sp(2, 'Title 1', 'Financial KPI (1/4)', { ph: 'title' }) + sp(3, 'Subtitle 2', 'Key points / Example points', { x: 200000, y: 1000000, w: 9000000, h: 3000000 }) + pic(8) + sp(9, 'Rectangle 9', 'Example', { x: 2000000, y: 2000000 }),
+        sp(2, 'Title 1', 'Financial KPI (2/4)', { ph: 'title' }) + pic(8),
       ];
       const deck = mkZip({
         '[Content_Types].xml': X('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>'),
@@ -503,7 +504,9 @@ async function waitForServer() {
       assert.ok(d.r.ok && /Project name : CAPEX-\d+ Printer line 3/.test(s(1)) && /IR n° : IR-26-001/.test(s(1)), 'the cover');
       assert.ok(/No ✘ – moved from next year/.test(s(2)) && /Yes ✔/.test(s(2)), 'the checklist: as answered, and automatic');
       assert.ok(/<a:t>Printer<\/a:t>/.test(s(3)) && /<a:t>100<\/a:t>/.test(s(3)) && /<a:t>Install<\/a:t>/.test(s(3)), 'the executive summary\'s items');
-      assert.ok(/name="SITHUB P&amp;L"/.test(s(4)) && !/<p:pic>/.test(s(4)) && !/<a:t>Example<\/a:t>/.test(s(4)) && /Depreciation over 4 years from Apr 26/.test(s(4)), 'the financial slide: a table in place of the example picture, and its key points');
+      assert.ok(['SITHUB IR initial input', 'SITHUB IR KPIs', 'SITHUB IR P&amp;L', 'SITHUB IR cash-out plan'].every((n) => s(4).includes(`name="${n}"`)) && !/<p:pic>/.test(s(4)) && !/<a:t>Example<\/a:t>/.test(s(4))
+        && /<a:t>BU2<\/a:t>/.test(s(4)) && /<a:t>Printer<\/a:t>/.test(s(4)), 'the financial slides as one: the model\'s Step 1, P&L and cash-out plan side by side, in place of the example pictures');
+      assert.ok(!dz['ppt/slides/slide5.xml'] && (dz['ppt/presentation.xml'].toString().match(/<p:sldId\b/g) || []).length === 4 && !/slide5/.test(dz['ppt/_rels/presentation.xml.rels'].toString() + dz['[Content_Types].xml'].toString()), 'the other financial slides taken out, cleanly');
       for (const n of [1, 2, 3, 4]) assert.ok(/^<\?xml[\s\S]*<\/p:sld>$/.test(s(n)) && (s(n).match(/<p:sp>/g) || []).length === (s(n).match(/<\/p:sp>/g) || []).length, `slide ${n} is whole`);
       await call('PATCH', '/settings', { capex_ir_deck: path.join(tdir, 'gone.pptx') });
       assert.match((await get(`/capex/${cx.id}/ir/deck.pptx`)).b.toString(), /no such file/, 'a template that isn\'t there: says so');
