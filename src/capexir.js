@@ -562,7 +562,7 @@ function slidesOf(files) {
 }
 
 // The deck filled in. model: fillModel()'s result (for the financial slides), or null.
-function fillDeck(tpl, x, { figures: f0, model = null, today = new Date() } = {}) {
+function fillDeck(tpl, x, { figures: f0, model = null, today = new Date(), quote = null } = {}) {
   const f = f0 || figures(x, { today });
   const { ir } = f; const files = readZip(tpl); const notes = [];
   const R = model?.results || null;
@@ -747,6 +747,18 @@ function fillDeck(tpl, x, { figures: f0, model = null, today = new Date() } = {}
           const bold = ir.freight_mode === k; return [{ t: lbl, bold }, { t: v.co2, bold }, { t: v.lead, bold }, { t: v.price !== null ? `${kU(v.price)} ${kc}` : '', bold }]; });
         replace(freight, fillTable(freight.xml, vals));
       }
+      // the chosen supplier's quote, in the box left for its screenshot, as large as fits
+      const qbox = by((sh) => /insert quotation/i.test(sh.text));
+      if (qbox && quote?.buf) {
+        const size = imageSize(quote.buf);
+        if (size) {
+          const pad = 0.06 * EMU; const bw = qbox.w - 2 * pad; const bh = qbox.h - 2 * pad; const k = Math.min(bw / size.w, bh / size.h);
+          const w = size.w * k; const h = size.h * k;
+          const rid = addMedia(files, s.path, quote.buf, size.ext);
+          replace(qbox, setText(qbox.xml, ['']));
+          insert(`<p:pic><p:nvPicPr><p:cNvPr id="${nextId()}" name="SITHUB quote" descr="The chosen supplier's quote"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="${Math.round(qbox.x + pad + (bw - w) / 2)}" y="${Math.round(qbox.y + pad + (bh - h) / 2)}"/><a:ext cx="${Math.round(w)}" cy="${Math.round(h)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`);
+        }
+      }
       const fr = by((sh) => /^sea freight should be selected/i.test(sh.text.trim()));
       if (fr && ir.freight_mode === 'air' && ir.freight_reason) replace(fr, setText(fr.xml, [`Air freight: ${ir.freight_reason}`]));
     } else if (/^purchasing negotiation/i.test(t)) {
@@ -834,6 +846,35 @@ function unifiedTables(sum, f, firstId) {
   const planRows = [head, totalRow, ...items.map((r) => [{ t: r.label }, ...r.months[0].map((v) => ({ t: k1(v), align: 'ctr' })), { t: k1(tot(r, 0)), align: 'ctr', b: true }, ...later.map((yi) => ({ t: k1(tot(r, yi)), align: 'ctr', b: true }))])];
   out.push(newTable({ id: id++, name: 'SITHUB IR cash-out plan', x: R + 0.5 * EMU, y: 3.42 * EMU, w: RW - 0.5 * EMU, h: Math.min(1.65, 0.15 * planRows.length) * EMU, widths: [1.6, ...MONTHS.map(() => 0.5), 0.7, ...later.map(() => 0.7)], rows: planRows, sz: 550, dense: true }));
   return out;
+}
+// a picture's size in pixels (PNG or JPEG)
+function imageSize(buf) {
+  if (buf.length > 24 && buf.readUInt32BE(0) === 0x89504e47) return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20), ext: 'png' };
+  if (buf[0] === 0xff && buf[1] === 0xd8) {
+    let i = 2;
+    while (i + 9 < buf.length) {
+      if (buf[i] !== 0xff) { i++; continue; }
+      const m = buf[i + 1]; const len = buf.readUInt16BE(i + 2);
+      if (m >= 0xc0 && m <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(m)) return { w: buf.readUInt16BE(i + 7), h: buf.readUInt16BE(i + 5), ext: 'jpeg' };
+      i += 2 + len;
+    }
+  }
+  return null;
+}
+// a picture into the deck, linked from a slide → its relationship id there
+function addMedia(files, slidePath, buf, ext) {
+  let n = 1; while (files[`ppt/media/sithub${n}.${ext}`]) n++;
+  const media = `ppt/media/sithub${n}.${ext}`; files[media] = buf;
+  const relsPath = slidePath.replace(/([^/]+)$/, '_rels/$1.rels');
+  let rels = files[relsPath]?.toString('utf8') || '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+  let k = 1; while (new RegExp(`Id="rIdS${k}"`).test(rels)) k++;
+  const rid = `rIdS${k}`;
+  rels = rels.replace(/<\/Relationships>/, `<Relationship Id="${rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/sithub${n}.${ext}"/></Relationships>`);
+  files[relsPath] = Buffer.from(rels, 'utf8');
+  let ct = files['[Content_Types].xml'].toString('utf8');
+  if (!new RegExp(`<Default\\b[^>]*Extension="${ext}"`, 'i').test(ct)) ct = ct.replace(/<Types\b([^>]*)>/, `<Types$1><Default Extension="${ext}" ContentType="image/${ext}"/>`);
+  files['[Content_Types].xml'] = Buffer.from(ct, 'utf8');
+  return rid;
 }
 // a slide out of the deck: its place in the list, its relationship, its part, its notes and pictures only it used
 function removeSlide(files, path) {

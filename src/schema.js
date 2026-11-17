@@ -608,6 +608,18 @@ const TABLES = {
     reason      TEXT`,
   // 📈 Forecasts sent in (the Forecast tab, or its upload link with no sign-in): the workbook itself, who sent it and
   // what it held. The newest of a kind (benelux / amex) newer than the linked file is what 📐 Capacity reads.
+  // 📑 a file kept with an investment for its IR pack (the chosen supplier's quote, as a picture). Not audited: a picture.
+  capex_files: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    capex_id    INTEGER NOT NULL REFERENCES capex(id) ON DELETE CASCADE,
+    kind        TEXT    NOT NULL DEFAULT 'quote',
+    file_name   TEXT    NOT NULL,
+    mime        TEXT    NOT NULL,
+    size        INTEGER NOT NULL,
+    data        BLOB    NOT NULL,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    UNIQUE (capex_id, kind)`,
+
   forecast_uploads: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     kind        TEXT    NOT NULL,

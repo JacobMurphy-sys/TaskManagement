@@ -467,6 +467,7 @@ async function waitForServer() {
         sp(2, 'Title 1', 'Financial KPI (2/4)', { ph: 'title' }) + pic(8),
         sp(2, 'Title 1', 'Obsolescence', { ph: 'title' }),
         sp(2, 'Name 1', 'Contact', { ph: 'body' }),
+        sp(2, 'Title 1', 'Supplier selection', { ph: 'title' }) + sp(5, 'Rectangle 40', 'Insert quotation screenshot', { x: 4800000, y: 1100000, w: 4000000, h: 3600000 }),
       ];
       const deck = mkZip({
         '[Content_Types].xml': X('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>'),
@@ -503,6 +504,14 @@ async function waitForServer() {
         ['Printer', 30, 70, 20, 30, -22.5, -30], 'the cash-out by month and item (k), savings and depreciation from April over 4 years');
       assert.deepEqual([v('Asset-project description', 'D5'), v('Asset-project description', 'D7'), v('Asset-project description', 'D8'), v('Asset-project description', 'C12')], [100, 20, 120, 'Printer'], 'the asset sheet');
       assert.ok(/fullCalcOnLoad="1"/.test(rz(m.b)['xl/workbook.xml'].toString()), 'Excel recalculates it on opening');
+      // the chosen supplier's quote, as a picture, onto the supplier selection slide
+      const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+      const up = (body, name) => fetch(`${BASE}/capex/${cx.id}/ir/quote`, { method: 'POST', body, headers: { 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(name) } });
+      assert.equal((await up(Buffer.from('%PDF-1.4 not a picture'), 'q.pdf')).status, 400, 'a quote is a picture');
+      assert.equal((await up(png, 'Acme quote.png')).status, 201);
+      const qs = await call('GET', `/capex/${cx.id}/ir`);
+      const qimg = await get(`/capex/${cx.id}/ir/quote`);
+      assert.ok(qs.quote?.file_name === 'Acme quote.png' && qimg.r.headers.get('content-type') === 'image/png' && qimg.b.equals(png), 'the quote kept with the investment');
       const d = await get(`/capex/${cx.id}/ir/deck.pptx`);
       const dz = rz(d.b); const s = (n) => dz[`ppt/slides/slide${n}.xml`].toString();
       assert.ok(d.r.ok && /Project name : CAPEX-\d+ Printer line 3/.test(s(1)) && /IR n° : IR-26-001/.test(s(1)), 'the cover');
@@ -510,7 +519,11 @@ async function waitForServer() {
       assert.ok(/<a:t>Printer<\/a:t>/.test(s(3)) && /<a:t>100<\/a:t>/.test(s(3)) && /<a:t>Install<\/a:t>/.test(s(3)), 'the executive summary\'s items');
       assert.ok(['SITHUB IR initial input', 'SITHUB IR KPIs', 'SITHUB IR P&amp;L', 'SITHUB IR cash-out plan'].every((n) => s(4).includes(`name="${n}"`)) && !/<p:pic>/.test(s(4)) && !/<a:t>Example<\/a:t>/.test(s(4))
         && /<a:t>BU2<\/a:t>/.test(s(4)) && /<a:t>Printer<\/a:t>/.test(s(4)), 'the financial slides as one: the model\'s Step 1, P&L and cash-out plan side by side, in place of the example pictures');
-      assert.ok(!dz['ppt/slides/slide5.xml'] && (dz['ppt/presentation.xml'].toString().match(/<p:sldId\b/g) || []).length === 6 && !/slide5\.xml/.test(dz['ppt/_rels/presentation.xml.rels'].toString() + dz['[Content_Types].xml'].toString()), 'the other financial slides taken out, cleanly');
+      assert.ok(!dz['ppt/slides/slide5.xml'] && (dz['ppt/presentation.xml'].toString().match(/<p:sldId\b/g) || []).length === 7 && !/slide5\.xml/.test(dz['ppt/_rels/presentation.xml.rels'].toString() + dz['[Content_Types].xml'].toString()), 'the other financial slides taken out, cleanly');
+      const sup = s(8); const supRels = dz['ppt/slides/_rels/slide8.xml.rels']?.toString() || '';
+      const rid = sup.match(/name="SITHUB quote"[\s\S]*?r:embed="([^"]+)"/)?.[1]; const target = supRels.match(new RegExp(`Id="${rid}"[^>]*Target="\\.\\./(media/[^"]+)"`))?.[1];
+      assert.ok(rid && target && dz[`ppt/${target}`]?.equals(png) && /Extension="png"/.test(dz['[Content_Types].xml'].toString()) && !/<a:t>Insert quotation/.test(sup), 'the quote on the supplier selection slide, in its box');
+      await call('DELETE', `/capex/${cx.id}/ir/quote`); assert.equal((await call('GET', `/capex/${cx.id}/ir`)).quote, null, 'and removed');
       assert.deepEqual([1, 2, 3, 4, 6, 7].map((n) => /<p:sld\b[^>]*show="0"/.test(s(n))), [false, false, false, false, true, false], 'a slide with nothing to fill in hidden (not the cover, not the closing slide)');
       for (const n of [1, 2, 3, 4]) assert.ok(/^<\?xml[\s\S]*<\/p:sld>$/.test(s(n)) && (s(n).match(/<p:sp>/g) || []).length === (s(n).match(/<\/p:sp>/g) || []).length, `slide ${n} is whole`);
       await call('PATCH', '/settings', { capex_ir_deck: path.join(tdir, 'gone.pptx') });

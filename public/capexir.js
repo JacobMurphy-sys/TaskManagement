@@ -117,6 +117,15 @@ function cxIrPanes(root, x, getX) {
     modalFormDirty = true;
   }
   const money_ = (v) => esc(money(v, cur()));
+  let quoteV = Date.now();
+  const quoteBlock = () => {
+    const pick = (label) => `<label class="button small cx-file">${label}<input type="file" data-cxq accept="image/png,image/jpeg,application/pdf,.pdf" hidden></label>`;
+    if (!x?.id) return '<div class="small muted">Save the investment first, then add the chosen supplier\'s quote here.</div>';
+    const qt = status?.quote;
+    return `<div class="cx-quote">${qt ? `<a href="/api/capex/${x.id}/ir/quote?v=${quoteV}" target="_blank" title="Open it full size"><img src="/api/capex/${x.id}/ir/quote?v=${quoteV}" alt="The quote"></a>
+      <div><b>${esc(qt.file_name)}</b><div class="small muted">On the supplier selection slide, in the quotation box.</div><div class="row" style="gap:6px;margin-top:6px">${pick('Replace…')}<button type="button" class="small" data-cxir="quote-del">Remove</button></div></div>`
+      : `<div>${pick('📎 Add the quote (a picture or a PDF)')}<div class="small muted" style="margin-top:4px">A screenshot (PNG, JPEG) or the quote's PDF: it goes on the supplier selection slide. For a PDF, SITHUB uses its first page (or the page you choose).</div></div>`}</div>`;
+  };
   const STEPS = [
     { k: 'basics', title: 'The basics', done: () => ir.site && ir.bu, html: () => `
       ${q('Which site is it for?', inp('site', { ph: meta?.site || 'e.g. the site\'s name' }))}
@@ -152,6 +161,7 @@ function cxIrPanes(root, x, getX) {
           ${ir.quotes.map((qq, i) => `<tr><td>${inp(`quotes.${i}.supplier`)}</td><td>${inp(`quotes.${i}.price`, { type: 'number' })}</td><td>${inp(`quotes.${i}.comment`, { ph: 'lead time, conditions…' })}</td><td class="ctr"><input type="radio" name="cxg-quote" data-cxir="pick-quote" data-i="${i}" ${qq.selected ? 'checked' : ''}></td><td><button type="button" class="icon" data-cxir="del-quote" data-i="${i}">✕</button></td></tr>`).join('')}
         </tbody></table><button type="button" class="small" data-cxir="add-quote" style="margin-top:6px" ${ir.quotes.length >= 6 ? 'disabled' : ''}>＋ A quote</button>`, 'The process asks for 3 quotes for any single item over 10 k€.')}
       ${ir.quotes.some((qq) => qq.selected) && ir.quotes.some((qq) => qq.price !== null && ir.quotes.find((s) => s.selected).price > qq.price) ? q('You didn\'t pick the cheapest: why this one?', area('selection_reason', 2, 'e.g. 4 months shorter lead time, better service')) : ''}
+      ${q('Have you got the chosen supplier\'s quote? Add it here', quoteBlock(), 'A screenshot or the PDF: it goes on the supplier selection slide.')}
       ${q('How will it arrive?', gOpts('freight', [['sea', '🚢 By sea'], ['air', '✈️ By air', 'faster, but costs more and emits more'], ['local', '🚚 By road / locally', 'no sea or air freight']]))}
       ${G().freight === 'air' ? q('Why not by sea?', inp('freight_reason', { ph: 'e.g. the line stops if it\'s later than March' })) : ''}`,
       fills: 'the supplier selection slide and the purchasing questions of the checklist' },
@@ -249,6 +259,7 @@ function cxIrPanes(root, x, getX) {
       </tbody></table>
       <div class="row" style="margin:6px 0"><button type="button" class="small" data-cxir="add-quote" ${ir.quotes.length >= 6 ? 'disabled' : ''}>＋ Quote</button></div>
       ${lbl('Why this supplier <span class="small muted">— if not the best price: strategy, quality, lead time, risks</span>', area('selection_reason', 2), 'full')}
+      <div class="cx-h">The chosen supplier's quote</div>${quoteBlock()}
       <div class="cx-h">Transport</div>
       <table class="log cx-grid"><thead><tr><th></th><th>Carbon footprint</th><th>Lead time</th><th class="num">Price (${esc(cur())})</th><th>Chosen</th></tr></thead><tbody>
         ${['sea', 'air'].map((k) => `<tr><td><b>${k === 'sea' ? 'Sea freight' : 'Air freight'}</b></td><td>${inp(`freight.${k}.co2`, { ph: 'e.g. 1.2 t CO₂' })}</td><td>${inp(`freight.${k}.lead`, { ph: 'e.g. 6 weeks' })}</td><td>${inp(`freight.${k}.price`, { type: 'number' })}</td>
@@ -344,8 +355,28 @@ function cxIrPanes(root, x, getX) {
   const LAYOUT = /^(items\.\d+\.(amount|kind|name)|freight_mode|justif|depreciation_years|cap_start|milestones\.\w+|growth\.\d+\.customer)$|\.cashout\.|^savings\./;
   const takeG = (el) => { if (el.type === 'radio' && !el.checked) return; G()[el.dataset.g] = el.value; };
   root.addEventListener('input', (e) => { const el = e.target.closest('[data-k]'); if (el) take(el); const g = e.target.closest('[data-g]'); if (g) takeG(g); });
-  root.addEventListener('change', (e) => {
+  root.addEventListener('change', async (e) => {
     const el = e.target;
+    if (el.matches('[data-cxq]')) {
+      const file = el.files?.[0]; if (!file) return;
+      try {
+        let body = file; let name = file.name;
+        if (/pdf$/i.test(file.type) || /\.pdf$/i.test(file.name)) {
+          toast('Reading the PDF…');
+          const first = await cxPdfToPng(file, 1); let shot = first;
+          if (first.pages > 1) {
+            const n = Number(prompt(`The PDF has ${first.pages} pages. Which one shows the quote?`, '1'));
+            if (!n) return;
+            if (n !== 1) shot = await cxPdfToPng(file, n);
+          }
+          body = shot.blob; name = `${file.name.replace(/\.pdf$/i, '')}.png`;
+        } else if (!/^image\/(png|jpeg)$/.test(file.type)) { toast('A quote is a PNG or JPEG picture, or a PDF', 'error'); return; }
+        const r = await fetch(`/api/capex/${x.id}/ir/quote`, { method: 'POST', body, headers: { 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(name) } });
+        const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Couldn't add it (${r.status})`);
+        status = { ...(status || {}), quote: j }; quoteV = Date.now(); toast('Quote added'); render();
+      } catch (err) { toast(/vendor\/pdfjs|import/i.test(err.message) ? 'The PDF can\'t be read here (the app\'s PDF reader is missing: run the update), add a screenshot instead' : err.message, 'error'); }
+      return;
+    }
     if (el.id === 'cxir-cofrom') { ui.coFrom = el.value; rerender(); return; }
     if (el.id === 'cxir-con') { ui.coN = Number(el.value); rerender(); return; }
     if (el.matches('[data-g]')) { takeG(el); applyGuide(); setTimeout(rerender, 0); return; }
@@ -376,6 +407,7 @@ function cxIrPanes(root, x, getX) {
     if (a === 'del-growth') ir.growth.splice(i, 1);
     if (a === 'add-ro') ir.risks_opps.push({ kind: 'risk', text: '', k: null });
     if (a === 'del-ro') ir.risks_opps.splice(i, 1);
+    if (a === 'quote-del') { if (!confirm('Remove the quote from this investment?')) return; api.del(`/capex/${x.id}/ir/quote`).then(() => { status = { ...(status || {}), quote: null }; render(); }).catch((err) => toast(err.message, 'error')); return; }
     if (a === 'clear-cash') ir.items.forEach((it) => { it.cashout = {}; });
     if (a === 'phase') {
       const ms = ir.milestones; const planned = (X.planned_date || new Date().toISOString()).slice(0, 7);
@@ -399,6 +431,30 @@ function cxIrPanes(root, x, getX) {
   cxIrMeta().then((m) => { meta = m; render(); }).catch((err) => { meta = { model: { bus: [], error: err.message }, deck: { checklist: [], error: err.message } }; render(); });
   if (x?.id) api.get(`/capex/${x.id}/ir`).then((s) => { status = s; render(); }).catch(() => {});
   return { value: () => ir };
+}
+// 📄 a PDF's page as a PNG picture (pdf.js, served by SITHUB from its own install) → { blob, pages }
+async function cxPdfToPng(file, pageNo = 1) {
+  const pdfjs = await import('/vendor/pdfjs/pdf.min.mjs');
+  pdfjs.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs';
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  const page = await doc.getPage(Math.min(Math.max(1, pageNo), doc.numPages));
+  const vp = page.getViewport({ scale: 2 });
+  const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+  const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  // the page's white margins trimmed, so the quote fills the slide's box (a little white kept around it)
+  const { data, width, height } = ctx.getImageData(0, 0, c.width, c.height);
+  let top = height; let bottom = -1; let left = width; let right = -1;
+  for (let y = 0; y < height; y += 2) for (let x0 = 0; x0 < width; x0 += 2) {
+    const i = (y * width + x0) * 4; if (data[i] > 245 && data[i + 1] > 245 && data[i + 2] > 245) continue;
+    if (y < top) top = y; if (y > bottom) bottom = y; if (x0 < left) left = x0; if (x0 > right) right = x0;
+  }
+  let out = c;
+  if (bottom > top && right > left) {
+    const pad = 24; const x1 = Math.max(0, left - pad); const y1 = Math.max(0, top - pad); const w = Math.min(width, right + pad) - x1; const h = Math.min(height, bottom + pad) - y1;
+    out = document.createElement('canvas'); out.width = w; out.height = h; out.getContext('2d').drawImage(c, x1, y1, w, h, 0, 0, w, h);
+  }
+  return { blob: await new Promise((ok) => out.toBlob(ok, 'image/png')), pages: doc.numPages };
 }
 // is a checklist question asked for this justification ("All", "Replacement / Obsolete", …)? (as capexir.js applies())
 function cxApplies(forText, justif) {

@@ -159,6 +159,8 @@ const PLANNER_API = /^\/(plan|settings|presence|audit|backups|info|health)(\/|$|
 if (config.mode === 'planner') app.use('/api', (req, res, next) => (PLANNER_API.test(req.path) ? next() : res.status(404).json({ error: 'Not part of the planner' })));
 app.use('/api', api);
 app.use(express.static(path.join(config.ROOT, 'public')));
+// 📄 pdf.js, for turning a quote's PDF into a picture in the browser (💶 CAPEX's IR pack): served from the app, never a CDN
+app.use('/vendor/pdfjs', express.static(path.join(config.ROOT, 'node_modules', 'pdfjs-dist', 'build')));
 // A request the app couldn't read (too large, or not valid JSON): a plain message, not an HTML page.
 app.use((err, req, res, next) => {
   if (!err || res.headersSent || !(err.type === 'entity.too.large' || err.type === 'entity.parse.failed')) return next(err);
