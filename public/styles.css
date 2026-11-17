@@ -2440,6 +2440,8 @@ dialog#modal .tm-title:focus { border-color: var(--accent); background: var(--pa
 .ops-table td { vertical-align: top; }
 .ops-slot { height: 100%; }
 .q-bars.wide .q-bar-row { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 44px 44px; }
+.q-bars.single .q-bar-row { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 28px; } .q-bars.wide.single .q-bar-row { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 44px; }
+.q-bar-head { font-size: 11px; }
 .q-chart .ops-target-l { fill: var(--q-c1); font-weight: 600; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; }
 /* 🏭 Operations: the charts and customers row gives room to the tables below it */
 .qd.ops .qd-top { flex: 1 1 0; }
