@@ -2,7 +2,7 @@
 // need beyond the essentials — the request, items and quotes, cash-out and milestones, the business case
 // and the checklist. Kept with the investment (its `ir`) and saved with it; ⬇ IR pack fills the templates.
 
-const CXIR_TABS = [['guide', '🧭 Step by step'], ['request', 'Request'], ['items', 'Items & quotes'], ['cash', 'Cash-out & plan'], ['case', 'Business case'], ['check', 'Checklist']];
+const CXIR_TABS = [['guide', '🧭 Step by step'], ['request', 'Request'], ['items', 'Items & quotes'], ['cash', 'Cash-out & plan'], ['case', 'Business case'], ['check', 'Checklist (optional)']];
 let cxIrMetaCache = null;
 const cxIrMeta = async (fresh = false) => { if (!cxIrMetaCache || fresh) cxIrMetaCache = await api.get('/capex/ir/meta'); return cxIrMetaCache; };
 
@@ -49,7 +49,7 @@ function cxIrPanes(root, x, getX) {
   const gIn = (k, { type = 'text', ph = '', w = '' } = {}) => `<input type="${type}" data-g="${k}" value="${esc(gv(k))}" placeholder="${esc(ph)}"${type === 'number' ? ' step="any" min="0"' : ''}${w ? ` style="max-width:${w}"` : ''}>`;
   const gOpts = (k, opts) => `<div class="cxg-opts">${opts.map(([v, title, hint]) => `<label class="cxg-opt ${String(gv(k)) === v ? 'on' : ''}"><input type="radio" name="cxg-${k}" data-g="${k}" value="${esc(v)}" ${String(gv(k)) === v ? 'checked' : ''}><b>${title}</b>${hint ? `<span>${hint}</span>` : ''}</label>`).join('')}</div>`;
   const gYesNo = (k) => gOpts(k, [['yes', 'Yes'], ['no', 'No']]);
-  const q = (text, html, hint = '') => `<div class="cxg-q"><div class="cxg-qt">${text}</div>${hint ? `<div class="small muted">${hint}</div>` : ''}${html}</div>`;
+  const q = (text, html, hint = '', p = 0) => `<div class="cxg-q"><div class="cxg-qt">${p ? `<span class="cxg-tag ${PRIO[p][2]}" title="${PRIO[p][1]}">${PRIO[p][0]}</span> ` : ''}${text}</div>${hint ? `<div class="small muted">${hint}</div>` : ''}${html}</div>`;
   const NATURE_OF = { building: 'Building', equipment: 'Equipment', it: 'IT' };
   const JUSTIF_OF = { replace: 'Replacement / Obsolescence', growth: 'Growth / Capacity increase', save: 'Improvement / Productivity', comply: 'Compliance', footprint: 'Strategic footprint' };
   const YEARS_FOR = { building: 20, equipment: 7, it: 3 };
@@ -91,7 +91,8 @@ function cxIrPanes(root, x, getX) {
     if (from) {
       const fy = Number(from.slice(0, 4)); const fm = Number(from.slice(5, 7)); const dep = Number(ir.depreciation_years) || 5;
       const ys = []; for (let y = fy; y <= fy + dep && y < fy + 10; y++) if (y < fy + dep || fm > 1) ys.push(y);
-      const share = (y) => (y === fy ? (13 - fm) / 12 : y === fy + dep ? (fm - 1) / 12 : 1);
+      const ramp = g.ramp !== undefined && g.ramp !== '' && Number(g.ramp) >= 0 ? Math.min(Number(g.ramp), 100) / 100 : 1;
+      const share = (y) => (y === fy ? ((13 - fm) / 12) * ramp : y === fy + dep ? (fm - 1) / 12 : 1);
       const spread = (annual) => Object.fromEntries(ys.map((y) => [y, Math.round(annual * share(y) * 100) / 100]).filter(([, v]) => v));
       const labour = (Number(g.hours_week) || 0) * (Number(g.hour_cost) || 0) * (Number(g.weeks) || 48);
       const lines = { labour, maint: Number(g.maint_year) || 0, consumables: Number(g.scrap_year) || 0, opex: Number(g.other_year) || 0 };
@@ -126,94 +127,105 @@ function cxIrPanes(root, x, getX) {
       <div><b>${esc(qt.file_name)}</b><div class="small muted">On the supplier selection slide, in the quotation box.</div><div class="row" style="gap:6px;margin-top:6px">${pick('Replace…')}<button type="button" class="small" data-cxir="quote-del">Remove</button></div></div>`
       : `<div>${pick('📎 Add the quote (a picture or a PDF)')}<div class="small muted" style="margin-top:4px">A screenshot (PNG, JPEG) or the quote's PDF: it goes on the supplier selection slide. For a PDF, SITHUB uses its first page (or the page you choose).</div></div>`}</div>`;
   };
+  // Each question has a priority: 1 required (the pack can't be made properly without it), 2 important (a gap in the
+  // deck without it), 3 if known. A step is ticked once its priority 1 questions are answered.
+  const PRIO = { 1: ['P1', 'Required', 'cxg-p1'], 2: ['P2', 'Important', 'cxg-p2'], 3: ['P3', 'If known', 'cxg-p3'] };
+  const filled = (v) => v !== null && v !== undefined && String(v).trim() !== '';
+  const eqItems = () => ir.items.filter((it) => it.kind === 'equipment');
   const STEPS = [
-    { k: 'basics', title: 'The basics', done: () => ir.site && ir.bu, html: () => `
-      ${q('Which site is it for?', inp('site', { ph: meta?.site || 'e.g. the site\'s name' }))}
-      ${q('Which business unit pays for it?', `<input type="text" data-k="bu" data-t="str" list="cxir-bus" value="${esc(ir.bu)}" placeholder="${esc(meta?.bu || '')}"><datalist id="cxir-bus">${(meta?.model.bus || []).map((b) => `<option value="${esc(b)}">`).join('')}</datalist>`, 'If you\'re not sure, it\'s usually your own site\'s unit.')}
-      ${q('Has the corporate IR tool given it a number yet?', inp('ir_number', { ph: 'Leave blank if not yet' }), 'You get one once the request is entered there; add it later.')}`,
+    { k: 'basics', title: 'The basics', reqs: [[1, 'Site', () => filled(ir.site)], [1, 'Business unit', () => filled(ir.bu)], [3, 'IR n°', () => filled(ir.ir_number)]], html: () => `
+      ${q('Which site is it for?', inp('site', { ph: meta?.site || 'e.g. the site\'s name' }), '', 1)}
+      ${q('Which business unit pays for it?', `<input type="text" data-k="bu" data-t="str" list="cxir-bus" value="${esc(ir.bu)}" placeholder="${esc(meta?.bu || '')}"><datalist id="cxir-bus">${(meta?.model.bus || []).map((b) => `<option value="${esc(b)}">`).join('')}</datalist>`, 'If you\'re not sure, it\'s usually your own site\'s unit.', 1)}
+      ${q('Has the corporate IR tool given it a number yet?', inp('ir_number', { ph: 'Leave blank if not yet' }), 'You get one once the request is entered there; add it later.', 3)}`,
       fills: 'the cover, the executive summary\'s site and the model\'s business unit (its tax and discount rates)' },
-    { k: 'kind', title: 'What kind of investment', done: () => G().kind, html: () => q('What are you asking for?', gOpts('kind', [['equipment', '🏭 A machine or equipment', 'printers, lines, tools, vehicles…'], ['building', '🏢 A building or building works', 'construction, racking, warehouse, utilities…'], ['it', '💻 IT', 'software, servers, scanners, networks…']])),
+    { k: 'kind', title: 'What kind of investment', reqs: [[1, 'What kind', () => G().kind]], html: () => q('What are you asking for?', gOpts('kind', [['equipment', '🏭 A machine or equipment', 'printers, lines, tools, vehicles…'], ['building', '🏢 A building or building works', 'construction, racking, warehouse, utilities…'], ['it', '💻 IT', 'software, servers, scanners, networks…']]), '', 1),
       fills: 'the nature of the investment and a sensible depreciation period' },
-    { k: 'why', title: 'Why it\'s needed', done: () => G().why, html: () => {
-      const g = G();
-      return `${q('What\'s the main reason?', gOpts('why', [['replace', '♻️ Something old has to be replaced', 'worn out, breaking down, no spare parts or support'], ['growth', '📈 We need more capacity', 'more volume than we can make today'], ['save', '💶 It saves money or works better', 'fewer hours, less scrap, less downtime'], ['comply', '✅ It\'s required', 'a law, an audit, a customer or safety rule'], ['footprint', '🗺 It\'s part of a site plan', 'a move or reorganisation decided for the group']]))}
-        ${g.why === 'replace' ? `${q('How old is what it replaces? (years)', gIn('age', { type: 'number', w: '120px' }))}${q('Does the maker still support it (spare parts and service)?', gYesNo('support'))}${q('How many similar machines are there on site?', gIn('similar', { type: 'number', w: '120px', ph: '0 if it\'s the only one' }), 'If it\'s the only one, a breakdown stops production (a "single point of failure").')}` : ''}
-        ${g.why === 'comply' ? `${q('Is it needed to pass an audit?', gYesNo('audit'))}${g.audit === 'yes' ? q('When is the audit?', gIn('audit_date', { type: 'date', w: '180px' })) : ''}${q('Have auditors already asked for it?', gYesNo('auditors'))}` : ''}`;
-    }, fills: 'the justification ticked on the executive summary, and the checklist questions for that kind of investment' },
-    { k: 'budget', title: 'Budget', done: () => G().budgeted, html: () => `
-      ${q('Was it in this year\'s budget?', gOpts('budgeted', [['yes', 'Yes'], ['no', 'No']]), 'Your controller knows if you don\'t.')}
-      ${G().budgeted === 'yes' ? q(`How much was budgeted? (${esc(cur())})`, gIn('budget_amount', { type: 'number', w: '180px' })) : ''}
-      ${q('Has the site director already seen and agreed it?', gYesNo('director'))}`,
-      fills: 'the budget comparison on the executive summary and the checklist' },
-    { k: 'buy', title: 'What you\'re buying', done: () => ir.items.some((it) => it.kind === 'equipment' && it.amount), html: () => {
+    { k: 'why', title: 'Why it\'s needed', reqs: [[1, 'The main reason', () => G().why]], html: () => q('What\'s the main reason?', gOpts('why', [['replace', '♻️ Something old has to be replaced', 'worn out, breaking down, no spare parts or support'], ['growth', '📈 We need more capacity', 'more volume than we can make today'], ['save', '💶 It saves money or works better', 'fewer hours, less scrap, less downtime'], ['comply', '✅ It\'s required', 'a law, an audit, a customer or safety rule'], ['footprint', '🗺 It\'s part of a site plan', 'a move or reorganisation decided for the group']]), '', 1),
+      fills: 'the justification ticked on the executive summary' },
+    { k: 'budget', title: 'Budget', reqs: [[1, 'Budgeted or not', () => G().budgeted], [2, 'The budgeted amount', () => filled(ir.budget.capex), () => G().budgeted === 'yes'], [3, 'The rest of the budget assumptions', () => [ir.budget.cashout_year, ir.budget.opex, ir.budget.payback, ir.budget.roi].some(filled), () => G().budgeted === 'yes']], html: () => `
+      ${q('Was it in this year\'s budget?', gOpts('budgeted', [['yes', 'Yes'], ['no', 'No']]), 'Your controller knows if you don\'t.', 1)}
+      ${G().budgeted === 'yes' ? q(`How much was budgeted? (${esc(cur())})`, gIn('budget_amount', { type: 'number', w: '180px' }), '', 2) : ''}
+      ${G().budgeted === 'yes' ? q('What else did the budget assume?', `<div class="cxg-grid4">${lbl(`Cash-out this year (${esc(cur())})`, inp('budget.cashout_year', { type: 'number' }))}${lbl(`OPEX (${esc(cur())})`, inp('budget.opex', { type: 'number' }))}${lbl('Payback (months)', inp('budget.payback', { type: 'number' }))}${lbl('ROI (%)', inp('budget.roi', { type: 'number' }))}</div>`, 'The budget column of the executive summary\'s comparison.', 3) : ''}`,
+      fills: 'the comparison with the budget on the executive summary' },
+    { k: 'buy', title: 'What you\'re buying', reqs: [[1, 'The things bought, with their price', () => eqItems().some((it) => it.amount)], [1, 'Whether delivery and installation are included', () => G().install_included], [1, 'What transport and installation cost', () => Number(G().install_cost) > 0, () => G().install_included === 'no'], [2, 'One-off costs that aren\'t equipment', () => G().oneoff], [3, 'Prices before negotiation', () => eqItems().some((it) => filled(it.initial))]], html: () => {
       const g = G(); const eq = ir.items.map((it, i) => [it, i]).filter(([it]) => it.kind === 'equipment');
-      return `${q('List the main things you\'re buying, with the price you were quoted', `<table class="log cx-grid"><thead><tr><th>What</th><th class="num">How many</th><th class="num">Price (${esc(cur())})</th><th>Supplier</th><th></th></tr></thead><tbody>
-          ${eq.map(([, i]) => `<tr><td>${inp(`items.${i}.name`, { ph: 'e.g. DOD printer' })}</td><td>${inp(`items.${i}.qty`, { type: 'number', w: '80px' })}</td><td>${inp(`items.${i}.amount`, { type: 'number' })}</td><td>${inp(`items.${i}.supplier`)}</td><td><button type="button" class="icon" data-cxir="del-item" data-i="${i}">✕</button></td></tr>`).join('')}
-        </tbody></table><button type="button" class="small" data-cxir="add-item" style="margin-top:6px">＋ ${eq.length ? 'Another thing' : 'Add the first thing'}</button>`, 'The total price of each line (not per piece).')}
-        ${q('Does the price include delivery and installation?', gOpts('install_included', [['yes', 'Yes, it\'s all included'], ['no', 'No, they cost extra']]))}
-        ${g.install_included === 'no' ? q(`What do transport and installation cost? (${esc(cur())})`, gIn('install_cost', { type: 'number', w: '180px' }), 'Transport, import duties, installation, site preparation: these count as CAPEX too.') : ''}
-        ${q('Are there one-off costs that aren\'t equipment?', gOpts('oneoff', [['yes', 'Yes', 'training, short licences, moving an old machine…'], ['no', 'No']]))}
-        ${g.oneoff === 'yes' ? `${q('What are they?', gIn('oneoff_what', { ph: 'e.g. operator training' }))}${q(`How much? (${esc(cur())})`, gIn('oneoff_cost', { type: 'number', w: '180px' }))}` : ''}
+      return `${q('List the main things you\'re buying, with the price you were quoted', `<table class="log cx-grid"><thead><tr><th>What</th><th class="num">How many</th><th class="num">Price (${esc(cur())})</th><th>Supplier</th><th class="num" title="If the price was negotiated down: the first quote">Before negotiation <span class="cxg-tag cxg-p3">P3</span></th><th></th></tr></thead><tbody>
+          ${eq.map(([, i]) => `<tr><td>${inp(`items.${i}.name`, { ph: 'e.g. DOD printer' })}</td><td>${inp(`items.${i}.qty`, { type: 'number', w: '80px' })}</td><td>${inp(`items.${i}.amount`, { type: 'number' })}</td><td>${inp(`items.${i}.supplier`)}</td><td>${inp(`items.${i}.initial`, { type: 'number', ph: 'if negotiated' })}</td><td><button type="button" class="icon" data-cxir="del-item" data-i="${i}">✕</button></td></tr>`).join('')}
+        </tbody></table><button type="button" class="small" data-cxir="add-item" style="margin-top:6px">＋ ${eq.length ? 'Another thing' : 'Add the first thing'}</button>`, 'The total price of each line (not per piece).', 1)}
+        ${q('Does the price include delivery and installation?', gOpts('install_included', [['yes', 'Yes, it\'s all included'], ['no', 'No, they cost extra']]), '', 1)}
+        ${g.install_included === 'no' ? q(`What do transport and installation cost? (${esc(cur())})`, gIn('install_cost', { type: 'number', w: '180px' }), 'Transport, import duties, installation, site preparation: these count as CAPEX too.', 1) : ''}
+        ${q('Are there one-off costs that aren\'t equipment?', gOpts('oneoff', [['yes', 'Yes', 'training, short licences, moving an old machine…'], ['no', 'No']]), '', 2)}
+        ${g.oneoff === 'yes' ? `${q('What are they?', gIn('oneoff_what', { ph: 'e.g. operator training' }), '', 2)}${q(`How much? (${esc(cur())})`, gIn('oneoff_cost', { type: 'number', w: '180px' }), '', 2)}` : ''}
         <div class="small muted">CAPEX total: <b>${money_(ir.items.filter((it) => it.kind !== 'opex').reduce((a, it) => a + (Number(it.amount) || 0), 0))}</b></div>`;
-    }, fills: 'the item list, CAPEX vs OPEX, the model\'s asset sheet and cash-out plan' },
-    { k: 'quotes', title: 'Quotes and delivery', done: () => ir.quotes.length && G().freight, html: () => `
+    }, fills: 'the item list, CAPEX vs OPEX, the model\'s asset sheet and cash-out plan (and the negotiation slide, with the prices before negotiation)' },
+    { k: 'quotes', title: 'Quotes and delivery', reqs: [[1, 'The chosen supplier\'s quote (supplier and price)', () => ir.quotes.some((qq) => qq.selected && filled(qq.supplier) && filled(qq.price))], [2, 'The other quotes (3 for an item over 10 k€)', () => ir.quotes.filter((qq) => filled(qq.supplier)).length >= 3],
+      [2, 'Why not the cheapest', () => filled(ir.selection_reason), () => notCheapest()], [2, 'The quote document', () => !!status?.quote, () => !!x?.id], [2, 'How it arrives', () => G().freight], [3, 'Freight cost, lead time and CO₂', () => ['sea', 'air'].some((m) => filled(ir.freight[m].price) || filled(ir.freight[m].lead))]], html: () => `
       ${q('Which suppliers quoted, and which one did you pick?', `<table class="log cx-grid"><thead><tr><th>Supplier</th><th class="num">Price (${esc(cur())})</th><th>Notes</th><th>Picked</th><th></th></tr></thead><tbody>
           ${ir.quotes.map((qq, i) => `<tr><td>${inp(`quotes.${i}.supplier`)}</td><td>${inp(`quotes.${i}.price`, { type: 'number' })}</td><td>${inp(`quotes.${i}.comment`, { ph: 'lead time, conditions…' })}</td><td class="ctr"><input type="radio" name="cxg-quote" data-cxir="pick-quote" data-i="${i}" ${qq.selected ? 'checked' : ''}></td><td><button type="button" class="icon" data-cxir="del-quote" data-i="${i}">✕</button></td></tr>`).join('')}
-        </tbody></table><button type="button" class="small" data-cxir="add-quote" style="margin-top:6px" ${ir.quotes.length >= 6 ? 'disabled' : ''}>＋ A quote</button>`, 'The process asks for 3 quotes for any single item over 10 k€.')}
-      ${ir.quotes.some((qq) => qq.selected) && ir.quotes.some((qq) => qq.price !== null && ir.quotes.find((s) => s.selected).price > qq.price) ? q('You didn\'t pick the cheapest: why this one?', area('selection_reason', 2, 'e.g. 4 months shorter lead time, better service')) : ''}
-      ${q('Have you got the chosen supplier\'s quote? Add it here', quoteBlock(), 'A screenshot or the PDF: it goes on the supplier selection slide.')}
-      ${q('How will it arrive?', gOpts('freight', [['sea', '🚢 By sea'], ['air', '✈️ By air', 'faster, but costs more and emits more'], ['local', '🚚 By road / locally', 'no sea or air freight']]))}
-      ${G().freight === 'air' ? q('Why not by sea?', inp('freight_reason', { ph: 'e.g. the line stops if it\'s later than March' })) : ''}`,
-      fills: 'the supplier selection slide and the purchasing questions of the checklist' },
-    { k: 'dates', title: 'Dates', done: () => ir.milestones.po && ir.milestones.delivery && ir.milestones.sop, html: () => `
-      ${q('When should it be approved?', inp('milestones.investco', { type: 'date' }), 'The investment committee date, if you know it.')}
-      ${q('When will you place the order?', inp('milestones.po', { type: 'date' }))}
-      ${q('When will it be delivered?', inp('milestones.delivery', { type: 'date' }))}
-      ${q('When will it run in production?', inp('milestones.sop', { type: 'date' }), 'Depreciation, savings and added volumes start from here.')}
-      ${q('Is there an impact if it\'s late?', gYesNo('delay'))}
-      ${G().delay === 'yes' ? q('What happens if it\'s late?', gIn('delay_what', { ph: 'e.g. 5 k€ a month of overtime, a missed tender' })) : ''}`,
+        </tbody></table><button type="button" class="small" data-cxir="add-quote" style="margin-top:6px" ${ir.quotes.length >= 6 ? 'disabled' : ''}>＋ A quote</button>`, 'The chosen one is required; the process asks for 3 quotes for any single item over 10 k€.', 1)}
+      ${notCheapest() ? q('You didn\'t pick the cheapest: why this one?', area('selection_reason', 2, 'e.g. 4 months shorter lead time, better service'), '', 2) : ''}
+      ${q('Have you got the chosen supplier\'s quote? Add it here', quoteBlock(), 'A screenshot or the PDF: it goes on the supplier selection slide.', 2)}
+      ${q('How will it arrive?', gOpts('freight', [['sea', '🚢 By sea'], ['air', '✈️ By air', 'faster, but costs more and emits more'], ['local', '🚚 By road / locally', 'no sea or air freight']]), '', 2)}
+      ${G().freight === 'air' ? q('Why not by sea?', inp('freight_reason', { ph: 'e.g. the line stops if it\'s later than March' }), '', 2) : ''}
+      ${G().freight === 'sea' || G().freight === 'air' ? q('Sea and air compared, if you have the figures', `<table class="log cx-grid"><thead><tr><th></th><th class="num">Price (${esc(cur())})</th><th>Lead time</th><th>CO₂</th></tr></thead><tbody>${['sea', 'air'].map((m) => `<tr><td><b>${m === 'sea' ? 'Sea' : 'Air'}</b></td><td>${inp(`freight.${m}.price`, { type: 'number' })}</td><td>${inp(`freight.${m}.lead`, { ph: 'e.g. 6 weeks' })}</td><td>${inp(`freight.${m}.co2`, { ph: 'e.g. 1.2 t' })}</td></tr>`).join('')}</tbody></table>`, 'The supplier or the forwarder can give them.', 3) : ''}`,
+      fills: 'the supplier selection slide' },
+    { k: 'dates', title: 'Dates', reqs: [[1, 'Order date', () => filled(ir.milestones.po)], [1, 'Delivery date', () => filled(ir.milestones.delivery)], [1, 'Start of production', () => filled(ir.milestones.sop)], [2, 'Approval date', () => filled(ir.milestones.investco)], [3, 'FAT and SAT', () => filled(ir.milestones.fat) || filled(ir.milestones.sat)]], html: () => `
+      ${q('When will you place the order?', inp('milestones.po', { type: 'date' }), '', 1)}
+      ${q('When will it be delivered?', inp('milestones.delivery', { type: 'date' }), '', 1)}
+      ${q('When will it run in production?', inp('milestones.sop', { type: 'date' }), 'Depreciation, savings and added volumes start from here.', 1)}
+      ${q('When should it be approved?', inp('milestones.investco', { type: 'date' }), 'The investment committee date, if you know it.', 2)}
+      ${q('Acceptance tests, if there are any', `<div class="cxg-grid4">${lbl('At the supplier (FAT)', inp('milestones.fat', { type: 'date' }))}${lbl('On site (SAT)', inp('milestones.sat', { type: 'date' }))}</div>`, 'On the planning slide; the last payment is usually after the SAT.', 3)}`,
       fills: 'the planning slide, the macro planning on the executive summary and when the model starts' },
-    { k: 'pay', title: 'Paying for it', done: () => G().pay, html: () => `
-      ${q('How will the supplier be paid?', gOpts('pay', [['split', 'A deposit with the order, most at delivery, the rest once it runs', '30% · 60% · 10%, the usual terms'], ['delivery', 'All at delivery'], ['order', 'All with the order'], ['even', 'Evenly, month by month, from the order to delivery'], ['manual', 'I\'ll enter it month by month', 'in Cash-out & plan']]), 'Ask purchasing if you\'re not sure: it\'s in the quote\'s payment terms.')}
+    { k: 'pay', title: 'Paying for it', reqs: [[1, 'How it\'s paid', () => G().pay]], html: () => `
+      ${q('How will the supplier be paid?', gOpts('pay', [['split', 'A deposit with the order, most at delivery, the rest once it runs', '30% · 60% · 10%, the usual terms'], ['delivery', 'All at delivery'], ['order', 'All with the order'], ['even', 'Evenly, month by month, from the order to delivery'], ['manual', 'I\'ll enter it month by month', 'in Details › Cash-out & plan']]), 'Ask purchasing if you\'re not sure: it\'s in the quote\'s payment terms.', 1)}
       ${!ir.milestones.po || !ir.milestones.delivery ? '<div class="small pl-late">Give the order and delivery dates (Dates) so this can be placed in the right months.</div>' : ''}`,
       fills: 'the cash-out by month on the executive summary, the financial slide and the model\'s cash-out plan' },
-    { k: 'benefit', title: 'What it brings', done: () => Object.keys(ir.savings).length || ir.growth.length, html: () => {
+    { k: 'benefit', title: 'What it brings', reqs: [[1, 'What it saves or earns (or that it doesn\'t)', () => G().no_benefit === 'yes' || Object.keys(ir.savings).length || ir.growth.length], [1, 'Price and cost per added unit', () => filled(G().growth_price) && filled(G().growth_cost), () => Number(G().growth_volume) > 0], [2, 'How many years it\'s used', () => filled(ir.depreciation_years)], [3, 'Ramp-up in the first year', () => filled(G().ramp)]], html: () => {
       const g = G();
       return `<p class="small muted" style="margin-top:0">A year's worth, once it runs. Give what applies; leave the rest blank.</p>
-        <div class="cxg-cols"><div><div class="cx-h">It saves</div>
+        <label class="cx-radio" style="margin-bottom:10px"><input type="checkbox" data-g="no_benefit" value="yes" ${g.no_benefit === 'yes' ? 'checked' : ''}> It doesn't save or earn anything measurable (e.g. it's required by a rule) <span class="cxg-tag cxg-p1">P1</span></label>
+        <div class="cxg-cols"><div><div class="cx-h">It saves <span class="cxg-tag cxg-p1">P1</span></div>
           ${q('Operator hours saved a week', gIn('hours_week', { type: 'number', w: '140px' }))}
           ${q(`What an operator hour costs (${esc(cur())})`, gIn('hour_cost', { type: 'number', w: '140px' }), 'Your controller has the loaded hourly rate.')}
           ${q('Weeks a year it runs', gIn('weeks', { type: 'number', w: '140px', ph: '48' }))}
           ${q(`Maintenance saved a year (${esc(cur())})`, gIn('maint_year', { type: 'number', w: '140px' }))}
           ${q(`Scrap and consumables saved a year (${esc(cur())})`, gIn('scrap_year', { type: 'number', w: '140px' }))}
           ${q(`Other running costs saved a year (${esc(cur())})`, gIn('other_year', { type: 'number', w: '140px' }), 'Energy, rent, subcontracting… (negative if it costs more to run).')}</div>
-        <div><div class="cx-h">It earns</div>
+        <div><div class="cx-h">It earns <span class="cxg-tag cxg-p1">P1</span></div>
           ${q('Extra units a year (thousands)', gIn('growth_volume', { type: 'number', w: '140px' }), 'Only for more capacity: what you could sell that you can\'t make today.')}
-          ${Number(g.growth_volume) > 0 ? `${q('For which customer(s)?', gIn('growth_customer'))}${q(`Price per unit (${esc(cur())})`, gIn('growth_price', { type: 'number', w: '140px' }))}${q(`Material and variable cost per unit (${esc(cur())})`, gIn('growth_cost', { type: 'number', w: '140px' }))}` : ''}</div></div>
-        ${q('How many years will it be used?', gIn('years', { type: 'number', w: '140px', ph: String(YEARS_FOR[g.kind] || 5) }), `The depreciation period: typically ${g.kind === 'building' ? '20' : g.kind === 'it' ? '3' : '5 to 10'} years${g.kind ? ' for this kind' : ''}; finance confirms it.`)}`;
+          ${Number(g.growth_volume) > 0 ? `${q('For which customer(s)?', gIn('growth_customer'), '', 2)}${q(`Price per unit (${esc(cur())})`, gIn('growth_price', { type: 'number', w: '140px' }), '', 1)}${q(`Material and variable cost per unit (${esc(cur())})`, gIn('growth_cost', { type: 'number', w: '140px' }), '', 1)}` : ''}</div></div>
+        ${q('How many years will it be used?', gIn('years', { type: 'number', w: '140px', ph: String(YEARS_FOR[g.kind] || 5) }), `The depreciation period: typically ${g.kind === 'building' ? '20' : g.kind === 'it' ? '3' : '5 to 10'} years${g.kind ? ' for this kind' : ''}; finance confirms it. Blank: 5.`, 2)}
+        ${g.no_benefit !== 'yes' ? q('In its first year running, how much of that does it reach? (%)', gIn('ramp', { type: 'number', w: '140px', ph: '100' }), 'If it takes time to get up to speed, e.g. 60: the first year counts that share.', 3) : ''}`;
     }, fills: 'the P&L, payback, NPV, ROI and IRR in the model and on the financial slide' },
-    { k: 'story', title: 'The story', done: () => ir.reasons.filter(Boolean).length >= 3 && ir.risks.filter(Boolean).length >= 3, html: () => `
-      ${q('In a few lines, what will be done?', area('detail', 3, 'e.g. Install a second DOD printer on line 3; the layout stays as it is'))}
-      ${q('Three reasons to do it', ir.reasons.map((_, i) => inp(`reasons.${i}`, { ph: ['e.g. Cover the forecast peak in Q4', 'e.g. Cut lead times to 5 days', 'e.g. Win the new tender'][i] || '' })).join(''))}
-      ${q('Three things that happen if we don\'t', ir.risks.map((_, i) => inp(`risks.${i}`, { ph: ['e.g. Orders we can\'t take', 'e.g. Weekend overtime', 'e.g. Late deliveries'][i] || '' })).join(''))}`,
+    { k: 'story', title: 'The story', reqs: [[1, 'What will be done', () => filled(ir.detail)], [1, 'Three reasons to do it', () => ir.reasons.filter(Boolean).length >= 3], [1, 'Three risks of not doing it', () => ir.risks.filter(Boolean).length >= 3]], html: () => `
+      ${q('In a few lines, what will be done?', area('detail', 3, 'e.g. Install a second DOD printer on line 3; the layout stays as it is'), '', 1)}
+      ${q('Three reasons to do it', ir.reasons.map((_, i) => inp(`reasons.${i}`, { ph: ['e.g. Cover the forecast peak in Q4', 'e.g. Cut lead times to 5 days', 'e.g. Win the new tender'][i] || '' })).join(''), '', 1)}
+      ${q('Three things that happen if we don\'t', ir.risks.map((_, i) => inp(`risks.${i}`, { ph: ['e.g. Orders we can\'t take', 'e.g. Weekend overtime', 'e.g. Late deliveries'][i] || '' })).join(''), '', 1)}`,
       fills: 'the description & justification slide' },
-    { k: 'extra', title: 'Last questions', done: () => G().subsidy, html: () => `
-      ${q('Could a subsidy or grant pay for part of it?', gOpts('subsidy', [['yes', 'Yes'], ['no', 'No']]))}
-      ${G().subsidy === 'yes' ? q('About what share? (%)', gIn('subsidy_pct', { type: 'number', w: '120px' })) : ''}`,
-      fills: 'the subsidies questions of the checklist' },
-    { k: 'done', title: 'Check and download', done: () => false, html: () => {
-      const missing = STEPS.filter((s) => s.k !== 'done' && !s.done());
-      return `${missing.length ? `<div class="kc-note"><b>Still open:</b> ${missing.map((s) => `<button type="button" class="link" data-cxg-go="${s.k}">${esc(s.title)}</button>`).join(' · ')}</div>` : '<div class="kc-note">✓ Every step answered.</div>'}
-        <p>From your answers SITHUB has filled in the technical parts: the nature and justification, items (CAPEX and OPEX), the cash-out by month, the milestones, the savings and volumes year by year, the depreciation${Object.keys(ir.checklist).length ? `, and ${Object.keys(ir.checklist).length} checklist answer${Object.keys(ir.checklist).length === 1 ? '' : 's'}` : ''}. Check or fine-tune them in the other tabs (Request, Items & quotes, Cash-out & plan, Business case, Checklist).</p>
+    { k: 'done', title: 'Check and download', reqs: [], html: () => {
+      const open = (p) => STEPS.flatMap((st) => st.reqs.filter(([pr, , ok, when]) => pr === p && (!when || when()) && !ok()).map(([, label]) => [st, label]));
+      const list = (p, intro) => { const o = open(p); if (!o.length) return ''; const [tag, name, cls] = PRIO[p];
+        return `<div class="cxg-open"><span class="cxg-tag ${cls}">${tag} ${name}</span> ${intro}<ul class="mini">${o.map(([st, label]) => `<li><button type="button" class="link" data-cxg-go="${st.k}">${esc(st.title)}</button> — ${esc(label)}</li>`).join('')}</ul></div>`; };
+      const p1 = open(1).length;
+      return `${p1 ? '' : '<div class="kc-note">✓ Everything required is answered: the IR pack is ready to download.</div>'}
+        ${list(1, 'needed before the pack is ready:')}${list(2, 'leaves a gap in the deck without it:')}${list(3, 'add it if you know it:')}
+        <p>From your answers SITHUB has filled in the technical parts: the nature and justification, items (CAPEX and OPEX), the cash-out by month, the milestones, the savings and volumes year by year and the depreciation. <b>🔧 Details</b> shows them all, to check or fine-tune (payments month by month, savings that change from year to year, several customers, risks and opportunities, the checklist).</p>
+        <p>The checklist slides come in the deck hidden: unhide them in PowerPoint if your review asks for them (Details › Checklist answers them).</p>
         <p>${x?.id ? 'Then <b>⬇ IR pack</b> (top right) saves it and gives you the IR deck and the financial model. The payback, NPV, ROI and IRR are shown above once saved.' : 'Then save the investment (Add investment), open it again and use <b>⬇ IR pack</b> (top right) for the IR deck and the financial model.'}</p>`;
     }, fills: '' },
   ];
+  // did they pick a quote that isn't the cheapest?
+  function notCheapest() { const sel = ir.quotes.find((qq) => qq.selected); return !!sel && filled(sel.price) && ir.quotes.some((qq) => filled(qq.price) && Number(qq.price) < Number(sel.price)); }
+  const stepState = (st) => { const due = (p) => st.reqs.filter(([pr, , , when]) => pr === p && (!when || when())); const ok = (p) => due(p).every(([, , f]) => f());
+    return !st.reqs.length ? '' : !ok(1) ? '' : ok(2) ? 'ok' : 'part'; };
   let gStep = store.get('cxGuideStep', 'basics'); if (!STEPS.some((s) => s.k === gStep)) gStep = 'basics';
   const guideHtml = () => {
     const at = STEPS.findIndex((s) => s.k === gStep); const s = STEPS[at];
-    const done = STEPS.filter((st) => st.k !== 'done' && st.done()).length;
+    const counted = STEPS.filter((st) => st.reqs.length); const done = counted.filter((st) => stepState(st)).length;
     return `<div class="cxg">
-      <nav class="cxg-steps"><div class="small muted" style="margin-bottom:6px">${done} of ${STEPS.length - 1} answered</div>${STEPS.map((st, i) => `<button type="button" data-cxg-go="${st.k}" class="${st.k === gStep ? 'on' : ''} ${st.k !== 'done' && st.done() ? 'ok' : ''}"><span class="cxg-n">${st.k !== 'done' && st.done() ? '✓' : i + 1}</span>${esc(st.title)}</button>`).join('')}</nav>
+      <nav class="cxg-steps"><div class="small muted" style="margin-bottom:6px">${done} of ${counted.length} steps have what's required</div>${STEPS.map((st, i) => { const stt = stepState(st);
+        return `<button type="button" data-cxg-go="${st.k}" class="${st.k === gStep ? 'on' : ''} ${stt}" title="${stt === 'part' ? 'Required answered; something important still open' : stt === 'ok' ? 'Done' : ''}"><span class="cxg-n">${stt ? '✓' : i + 1}</span>${esc(st.title)}</button>`; }).join('')}
+        <div class="cxg-legend small muted">${[1, 2, 3].map((p) => `<span class="cxg-tag ${PRIO[p][2]}">${PRIO[p][0]}</span> ${PRIO[p][1]}`).join('<br>')}</div></nav>
       <section class="cxg-body"><h3 style="margin-top:0">${at + 1}. ${esc(s.title)}</h3>${s.html()}
         ${s.fills ? `<div class="cxg-fills small">📝 This fills in ${esc(s.fills)}.</div>` : ''}
         <div class="row" style="margin-top:14px">${at > 0 ? `<button type="button" data-cxg-go="${STEPS[at - 1].k}">← Back</button>` : ''}<div class="spacer"></div>${at < STEPS.length - 1 ? `<button type="button" class="primary" data-cxg-go="${STEPS[at + 1].k}">Next →</button>` : ''}</div></section></div>`;
@@ -341,7 +353,9 @@ function cxIrPanes(root, x, getX) {
       : '<span class="small muted">Save the investment to download its IR pack.</span>'}</div>`;
   };
   function render() {
-    root.innerHTML = `${head()}<div class="seg cx-irtabs">${CXIR_TABS.map(([k, l]) => `<button type="button" data-cxir-tab="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+    const detail = store.get('cxIrDetail', 'request');
+    root.innerHTML = `${head()}<div class="seg cx-irtabs"><button type="button" data-cxir-tab="guide" class="${tab === 'guide' ? 'on' : ''}">🧭 Step by step</button><button type="button" data-cxir-tab="${tab === 'guide' ? detail : tab}" class="${tab !== 'guide' ? 'on' : ''}" title="Every field, to check the result or for unusual cases">🔧 Details</button></div>
+      ${tab !== 'guide' ? `<div class="cx-irsub"><span class="small muted">Every field, to check what Step by step filled in or for unusual cases:</span> <div class="seg">${CXIR_TABS.filter(([k]) => k !== 'guide').map(([k, l]) => `<button type="button" data-cxir-tab="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>` : ''}
       <div class="cx-irpane">${meta ? panes[tab]() : '<div class="empty small">Reading the IR templates…</div>'}</div>`;
     joinLabels?.();
   }
@@ -353,7 +367,7 @@ function cxIrPanes(root, x, getX) {
     cxSetPath(ir, el.dataset.k, v);
   };
   const LAYOUT = /^(items\.\d+\.(amount|kind|name)|freight_mode|justif|depreciation_years|cap_start|milestones\.\w+|growth\.\d+\.customer)$|\.cashout\.|^savings\./;
-  const takeG = (el) => { if (el.type === 'radio' && !el.checked) return; G()[el.dataset.g] = el.value; };
+  const takeG = (el) => { if (el.type === 'radio' && !el.checked) return; G()[el.dataset.g] = el.type === 'checkbox' ? (el.checked ? el.value : '') : el.value; };
   root.addEventListener('input', (e) => { const el = e.target.closest('[data-k]'); if (el) take(el); const g = e.target.closest('[data-g]'); if (g) takeG(g); });
   root.addEventListener('change', async (e) => {
     const el = e.target;
@@ -393,7 +407,7 @@ function cxIrPanes(root, x, getX) {
     const box = root.closest('.modal-body, #modal-body, dialog'); if (box && sc !== undefined) box.scrollTop = sc;
   }
   root.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-cxir-tab]'); if (t) { tab = t.dataset.cxirTab; store.set('cxIrTab', tab); render(); return; }
+    const t = e.target.closest('[data-cxir-tab]'); if (t) { tab = t.dataset.cxirTab; store.set('cxIrTab', tab); if (tab !== 'guide') store.set('cxIrDetail', tab); render(); return; }
     const go = e.target.closest('[data-cxg-go]'); if (go) { gStep = go.dataset.cxgGo; store.set('cxGuideStep', gStep); render(); root.querySelector('.cxg-body')?.scrollIntoView({ block: 'nearest' }); return; }
     const b = e.target.closest('[data-cxir]'); if (!b) return;
     const i = Number(b.dataset.i); const a = b.dataset.cxir; const X = getX();
