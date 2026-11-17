@@ -421,10 +421,16 @@ async function cxIrTemplates() {
         ${meta ? `<span class="small ${meta.deck.error ? 'pl-late' : 'muted'}">${esc(meta.deck.error || `✓ Read: ${meta.deck.checklist.length} checklist questions`)}</span>` : ''}</label>
       <label class="f">Business unit <span class="small muted">— the usual one</span><input type="text" name="capex_ir_bu" value="${esc(s.capex_ir_bu || '')}"></label>
       <label class="f">Site <span class="small muted">— the usual one</span><input type="text" name="capex_ir_site" value="${esc(s.capex_ir_site || '')}"></label>
+      <label class="f full">File names <span class="small muted">— the deck and the model are named by this pattern</span><input type="text" name="capex_ir_name" id="cxir-name" value="${esc(s.capex_ir_name || 'InvestCo {project} {ref}')}">
+        <span class="small muted">{project} the title · {ref} the short ref (C-0001) · {site} · {bu} business unit · {irn} the IR n° · {doc} IR deck / Financial model (without it, both share the name). e.g. <i id="cxir-name-eg"></i></span></label>
       <div class="full row"><div class="spacer"></div><button type="button" data-action="close-modal">Close</button><button class="primary" type="submit">Save</button></div>
     </form>`;
+  const example = () => { const el = $('#cxir-name-eg'); if (!el) return;
+    const v = { project: 'Second laser line', ref: 'C-0007', site: s.capex_ir_site || 'Site', bu: s.capex_ir_bu || 'BU', irn: 'IR-26-014', doc: 'IR deck' };
+    el.textContent = `${($('#cxir-name').value || '').replace(/\{(\w+)\}/g, (w, k) => v[k.toLowerCase()] ?? w).replace(/\s+/g, ' ').trim()}.pptx`; };
   const draw = () => {
     openModal(body());
+    example(); $('#cxir-name').oninput = example;
     $('#cxir-tpl').onsubmit = async (e) => {
       e.preventDefault();
       try { state.settings = await api.patch('/settings', Object.fromEntries(new FormData(e.target))); Object.assign(s, state.settings); meta = await cxIrMeta(true); toast('Saved'); draw(); } catch (err) { toast(err.message, 'error'); }
