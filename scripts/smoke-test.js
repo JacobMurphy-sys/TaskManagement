@@ -465,6 +465,8 @@ async function waitForServer() {
         sp(2, 'Title 1', 'Executive Summary', { ph: 'title' }) + tbl(5, [['Items', 'Quotation (k€)'], ['', ''], ['', '']]),
         sp(2, 'Title 1', 'Financial KPI (1/4)', { ph: 'title' }) + sp(3, 'Subtitle 2', 'Key points / Example points', { x: 200000, y: 1000000, w: 9000000, h: 3000000 }) + pic(8) + sp(9, 'Rectangle 9', 'Example', { x: 2000000, y: 2000000 }),
         sp(2, 'Title 1', 'Financial KPI (2/4)', { ph: 'title' }) + pic(8),
+        sp(2, 'Title 1', 'Obsolescence', { ph: 'title' }),
+        sp(2, 'Name 1', 'Contact', { ph: 'body' }),
       ];
       const deck = mkZip({
         '[Content_Types].xml': X('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>'),
@@ -508,7 +510,8 @@ async function waitForServer() {
       assert.ok(/<a:t>Printer<\/a:t>/.test(s(3)) && /<a:t>100<\/a:t>/.test(s(3)) && /<a:t>Install<\/a:t>/.test(s(3)), 'the executive summary\'s items');
       assert.ok(['SITHUB IR initial input', 'SITHUB IR KPIs', 'SITHUB IR P&amp;L', 'SITHUB IR cash-out plan'].every((n) => s(4).includes(`name="${n}"`)) && !/<p:pic>/.test(s(4)) && !/<a:t>Example<\/a:t>/.test(s(4))
         && /<a:t>BU2<\/a:t>/.test(s(4)) && /<a:t>Printer<\/a:t>/.test(s(4)), 'the financial slides as one: the model\'s Step 1, P&L and cash-out plan side by side, in place of the example pictures');
-      assert.ok(!dz['ppt/slides/slide5.xml'] && (dz['ppt/presentation.xml'].toString().match(/<p:sldId\b/g) || []).length === 4 && !/slide5/.test(dz['ppt/_rels/presentation.xml.rels'].toString() + dz['[Content_Types].xml'].toString()), 'the other financial slides taken out, cleanly');
+      assert.ok(!dz['ppt/slides/slide5.xml'] && (dz['ppt/presentation.xml'].toString().match(/<p:sldId\b/g) || []).length === 6 && !/slide5\.xml/.test(dz['ppt/_rels/presentation.xml.rels'].toString() + dz['[Content_Types].xml'].toString()), 'the other financial slides taken out, cleanly');
+      assert.deepEqual([1, 2, 3, 4, 6, 7].map((n) => /<p:sld\b[^>]*show="0"/.test(s(n))), [false, false, false, false, true, false], 'a slide with nothing to fill in hidden (not the cover, not the closing slide)');
       for (const n of [1, 2, 3, 4]) assert.ok(/^<\?xml[\s\S]*<\/p:sld>$/.test(s(n)) && (s(n).match(/<p:sp>/g) || []).length === (s(n).match(/<\/p:sp>/g) || []).length, `slide ${n} is whole`);
       await call('PATCH', '/settings', { capex_ir_deck: path.join(tdir, 'gone.pptx') });
       assert.match((await get(`/capex/${cx.id}/ir/deck.pptx`)).b.toString(), /no such file/, 'a template that isn\'t there: says so');
