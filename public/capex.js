@@ -37,7 +37,7 @@ async function renderCapex(openId) {
       <div class="seg">${[['open', 'Open'], ['all', 'All'], ...Object.entries(S).filter(([k]) => !CAPEX_OPEN.includes(k))].map(([k, l]) => `<button type="button" data-cx-status="${k}" class="${f.status === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div class="spacer"></div>
       <button class="primary" id="cx-new">＋ New investment</button>
-      ${ddMenu('⋯', `<a href="/api/capex/export.xlsx?${qs}" download>⬇ Excel — the register to edit and examine</a><a href="/api/capex/overview.pdf?${qs}" download>📄 The plan on a page (PDF)</a>`, { title: 'Excel export, PDF one-pager' })}
+      ${ddMenu('⋯', `<a href="/api/capex/export.xlsx?${qs}" download>⬇ Excel — the register to edit and examine</a><a href="/api/capex/overview.pdf?${qs}" download>📄 The plan on a page (PDF)</a><hr><button type="button" id="cx-irtpl">📑 IR templates…</button>`, { title: 'Excel export, PDF one-pager, IR templates' })}
     </div>
     ${typeof ACCT !== 'undefined' && ACCT.enabled ? `<div class="small muted" style="margin:-4px 0 8px">🔒 ${ACCT.account?.manages?.length ? 'As a manager (someone reports to you) you see every investment.' : 'You see the investments you raised, requested or sponsor.'} Each is seen by whoever raised it, its requester and sponsor, and every manager (anyone with someone below them in the 🌳 management tree).</div>` : ''}
     <div class="kdb-tiles pl-tiles">
@@ -64,6 +64,7 @@ async function renderCapex(openId) {
   $('#cx-cat').onchange = (e) => set('cxCat', e.target.value); $('#cx-who').onchange = (e) => set('cxWho', e.target.value); $('#cx-year').onchange = (e) => set('cxYear', e.target.value);
   let qt = null; $('#cx-q').oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => { store.set('cxQ', e.target.value); renderCapex().then(() => { const i = $('#cx-q'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }); }, 300); };
   $('#cx-new').onclick = () => capexForm(null, d);
+  $('#cx-irtpl').onclick = () => cxIrTemplates();
   $$('tr[data-cx]').forEach((tr) => { tr.onclick = (e) => { if (e.target.closest('a')) return; capexForm(d.items.find((x) => String(x.id) === tr.dataset.cx), d); }; });
   if (openId) { const x = d.items.find((y) => String(y.id) === String(openId)); if (x) capexForm(x, d); }
 }
@@ -75,8 +76,11 @@ function capexForm(x, d) {
   const names = [...new Set([...state.projects.flatMap((p) => [p.leader, p.sponsor, p.team_names, p.task_owners].flatMap(splitOwners)), ...d.items.flatMap((y) => [y.owner, y.sponsor].filter(Boolean))])].sort((a, b) => a.localeCompare(b));
   const v = (k) => esc(x[k] ?? '');
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">💶 ${isNew ? 'New investment' : `${esc(x.ref)} — ${esc(x.title)}`}</h2>${isNew ? '' : `<a class="button small" href="/api/capex/${x.id}/onepager.pdf" download>📄 One-pager</a>`}<button class="icon" data-action="close-modal">✕</button></div>
-    <form id="cx-form" class="form-grid">
+    <div class="modal-head"><h2 style="margin:0">💶 ${isNew ? 'New investment' : `${esc(x.ref)} — ${esc(x.title)}`}</h2>${isNew ? '' : `<a class="button small" href="/api/capex/${x.id}/onepager.pdf" download>📄 One-pager</a>
+      ${ddMenu('⬇ IR pack', `<a href="/api/capex/${x.id}/ir/deck.pptx" data-cx-dl>📊 IR deck (PowerPoint)</a><a href="/api/capex/${x.id}/ir/model.xlsx" data-cx-dl>📈 Financial model (Excel)</a>`, { title: 'The corporate IR deck and financial model, filled in from this investment (saved first)' })}`}<button class="icon" data-action="close-modal">✕</button></div>
+    <div class="seg cx-maintabs"><button type="button" data-cx-main="ess" class="on">The investment</button><button type="button" data-cx-main="ir">📑 IR pack</button></div>
+    <form id="cx-form">
+      <div class="cx-main form-grid" data-cx-pane="ess">
       <div class="full cx-sec">The essentials <span class="small muted">— <span class="req">*</span> needed to save</span></div>
       <label class="f full">Title${req('title')}<input type="text" name="title" required value="${v('title')}" placeholder="e.g. Second DOD printer for line 3"></label>
       <label class="f">Category${req('category')}<input type="text" name="category" required list="cx-cats" value="${v('category')}" placeholder="Pick or type"><datalist id="cx-cats">${d.categories.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></label>
@@ -104,18 +108,38 @@ function capexForm(x, d) {
       <label class="f">PO number<input type="text" name="po_number" value="${v('po_number')}"></label>
       <label class="f">Actual cost<input type="number" name="actual_cost" min="0" step="0.01" value="${v('actual_cost')}"></label>
       <label class="f full">Notes<textarea name="notes" rows="2">${v('notes')}</textarea></label>
-      <div class="full row">${isNew ? '' : '<button type="button" class="danger" id="cx-del">Delete…</button>'}<div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button>
+      </div>
+      <div class="cx-main" data-cx-pane="ir" id="cx-ir" hidden></div>
+      <div class="full row" style="margin-top:10px">${isNew ? '' : '<button type="button" class="danger" id="cx-del">Delete…</button>'}<div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button>
         <button class="primary" type="submit">${isNew ? 'Add investment' : 'Save'}</button></div>
-    </form>`);
+    </form>`, { wide: true });
   // a label's text (with its * and hint) in one piece above its box
   for (const l of $$('#cx-form label.f')) { const first = l.querySelector('input, select, textarea'); if (!first || l.firstElementChild?.classList.contains('f-l')) continue;
     const span = document.createElement('span'); span.className = 'f-l'; while (l.firstChild && l.firstChild !== first) span.append(l.firstChild); l.prepend(span); }
   $('#cx-form [name=currency]').oninput = (e) => { $('#cx-cur').textContent = e.target.value.trim() || cur; };
+  // 📑 the IR pack's tabs (capexir.js), saved with the rest
+  const irCtl = cxIrPanes($('#cx-ir'), isNew ? null : x, () => Object.fromEntries(new FormData($('#cx-form'))));
+  const mainTab = (k) => { $$('[data-cx-main]').forEach((b) => b.classList.toggle('on', b.dataset.cxMain === k)); $$('[data-cx-pane]').forEach((p) => { p.hidden = p.dataset.cxPane !== k; }); store.set('cxMainTab', k); };
+  $$('[data-cx-main]').forEach((b) => { b.onclick = () => mainTab(b.dataset.cxMain); });
+  if (!isNew && store.get('cxMainTab', 'ess') === 'ir') mainTab('ir');
+  const bodyOf = () => ({ ...Object.fromEntries(new FormData($('#cx-form'))), ir: JSON.stringify(irCtl.value()) });
   $('#cx-form').onsubmit = async (e) => {
     e.preventDefault();
-    const body = Object.fromEntries(new FormData(e.target));
-    try { if (isNew) await api.post('/capex', body); else await api.patch(`/capex/${x.id}`, body); closeModal(); toast(isNew ? 'Investment added' : 'Saved'); renderCapex(); } catch (err) { toast(err.message, 'error'); }
+    try { if (isNew) await api.post('/capex', bodyOf()); else await api.patch(`/capex/${x.id}`, bodyOf()); closeModal(); toast(isNew ? 'Investment added' : 'Saved'); renderCapex(); } catch (err) { toast(err.message, 'error'); }
   };
+  // ⬇ IR pack: saved first, so the files are as the window shows
+  $$('[data-cx-dl]').forEach((a) => { a.onclick = async (e) => {
+    e.preventDefault();
+    if (!$('#cx-form').reportValidity()) return;
+    try { await api.patch(`/capex/${x.id}`, bodyOf()); modalFormDirty = false; } catch (err) { toast(err.message, 'error'); return; }
+    toast('Filling in the template…');
+    try {
+      const r = await fetch(a.href, { headers: { 'X-Requested-With': 'TaskManager' } });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || `Couldn't make it (${r.status})`); }
+      const name = decodeURIComponent((r.headers.get('Content-Disposition') || '').match(/filename\*=UTF-8''([^;]+)/)?.[1] || 'IR pack');
+      const url = URL.createObjectURL(await r.blob()); const link = document.createElement('a'); link.href = url; link.download = name; document.body.append(link); link.click(); setTimeout(() => { link.parentNode?.removeChild(link); URL.revokeObjectURL(url); }, 30000);
+    } catch (err) { toast(err.message, 'error'); }
+  }; });
   const del = $('#cx-del'); if (del) del.onclick = async () => { if (!confirm(`Delete ${x.ref} “${x.title}”? (The activity log keeps a record.)`)) return; try { await api.del(`/capex/${x.id}`); closeModal(); renderCapex(); } catch (err) { toast(err.message, 'error'); } };
   $('#cx-form [name=title]').focus();
 }

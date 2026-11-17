@@ -13,7 +13,7 @@ const PRIORITY = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Critical' };
 // what has to be filled in before an investment can be saved
 const REQUIRED = { title: 'Title', category: 'Category', owner: 'Requested by', amount: 'Estimated cost', planned_date: 'Planned date', justification: 'Business justification' };
 const FIELDS = ['title', 'category', 'owner', 'amount', 'currency', 'planned_date', 'justification', 'status', 'priority', 'description', 'sponsor', 'department',
-  'supplier', 'quote_ref', 'annual_saving', 'payback_months', 'risk_if_not', 'approved_on', 'approved_by', 'po_number', 'actual_cost', 'project_id', 'next_action', 'notes'];
+  'supplier', 'quote_ref', 'annual_saving', 'payback_months', 'risk_if_not', 'approved_on', 'approved_by', 'po_number', 'actual_cost', 'project_id', 'next_action', 'notes', 'ir'];
 
 const quarter = (d) => (d ? `${String(d).slice(0, 4)} Q${Math.floor((Number(String(d).slice(5, 7)) - 1) / 3) + 1}` : '');
 // payback in months worked out from the saving, unless given

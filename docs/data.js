@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'capex-ir-pack', date: '2026-11-17', area: 'projects', title: 'CAPEX: the investment request pack',
+    text: 'An investment now collects what the corporate investment request needs, and fills in the IR deck and the financial model on demand, ready to present.',
+    points: ['Request, items and quotes, cash-out and milestones, business case and checklist, in tabs on the investment', 'The financial model filled in and worked out by SITHUB: payback, NPV, ROI and IRR shown on the investment', 'The deck filled in: executive summary, justification, planning, supplier selection, checklist, and the financial slides as editable tables instead of screenshots', 'Checklist questions read from the deck itself, some answered from what is entered', 'The templates stay where they are saved; a new version is used at once'] },
   { id: 'whole-sheet-retired', date: '2026-11-17', area: 'reporting', title: 'Database tab: the Whole sheet retired',
     text: 'The Database tab no longer shows the Database sheet as Excel draws it, a leftover from the old workbook format. Report tables, Source and KPI show its figures, laid out for SITHUB.',
     points: ['Report tables keeps the week, the customers and the forecast and budget', 'The trend arrows are on the A3 and the quality figures in Quality, so their tables are gone from Report tables', 'Weeks already kept drop their copy of the sheet, which makes them smaller'] },
