@@ -343,6 +343,18 @@ function fillModel(tpl, x, opts = {}) {
   for (const r of [...pl, ...cf]) r.total = r.values.reduce((t, v) => t + v, 0);
   for (const r of cf) if (r.row === 33) r.total = r.values[r.values.length - 1];
   results.tables = { years: Array.from({ length: yearsShown }, (_, k) => f.capYear + k), pl, cf };
+  // the model's sheets as the IR slide groups them: Step 1's inputs and KPIs, the P&L over 10 years, the cash-out plan
+  const lab = (sheet, col, r) => { const v = val(sheet, `${col}${r}`); return v === null || v === undefined ? '' : String(v).trim(); };
+  results.summary = {
+    title: lab(S.kpi, 'C', 8),
+    initial: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 29].map((r) => ({ row: r, label: lab(S.kpi, 'B', r), value: val(S.kpi, `C${r}`) })).filter((x) => x.label),
+    kpis: [31, 32, 33, 35, 36, 38, 39, 41, 43, 45, 47, 49].map((r) => ({ row: r, label: lab(S.kpi, 'B', r), value: r === 31 ? null : val(S.kpi, `C${r}`) })).filter((x) => x.label),
+    years: Array.from({ length: 10 }, (_, k) => n(val(S.pl, `${colLetters(5 + k)}6`)) || f.capYear + k),
+    pl: [17, 28, 39, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 58, 59, 60, 62, 63, 70, 71, 72, 73, 74, 75, 77, 79]
+      .map((r) => ({ row: r, label: lab(S.pl, 'D', r), values: Array.from({ length: 10 }, (_, k) => n(val(S.pl, `${colLetters(5 + k)}${r}`))), total: n(val(S.pl, `O${r}`)) })),
+    plan: { year: f.capYear, rows: Array.from({ length: 10 }, (_, k) => 9 + k).map((r) => ({ row: r, label: lab(S.plan, 'C', r),
+      months: [0, 1, 2, 3].map((yi) => Array.from({ length: 12 }, (_, m) => n(val(S.plan, `${colLetters([3, 16, 29, 42][yi] + 1 + m)}${r}`)) || 0)) })) },
+  };
   return { buf: zip(files), results, figures: f };
 }
 
@@ -465,16 +477,17 @@ function fillTable(frameXml, values, opts = {}) {
   return out;
 }
 // A new table (SITHUB's own, in the deck's colours): rows of cells { t, b, fill, color, align }
-const BRAND = '430099'; const LIGHT = 'EDE7F6'; const LINE = 'C9C2DC';
-function newTable({ id, name, x, y, w, h, widths, rows, sz = 700 }) {
+const BRAND = '430099'; const LIGHT = 'EDE7F6'; const LINE = 'C9C2DC'; const TEAL = '32B4B4'; const INPUT = 'DDF3F3';
+function newTable({ id, name, x, y, w, h, widths, rows, sz = 700, dense = false }) {
   const total = widths.reduce((t, v) => t + v, 0); const cols = widths.map((v) => Math.round((v / total) * w));
-  const rh = Math.max(150000, Math.round(h / Math.max(rows.length, 1)));
+  const rh = Math.max(dense ? 60000 : 150000, Math.round(h / Math.max(rows.length, 1)));
+  const mar = dense ? 'marL="27432" marR="27432" marT="0" marB="0"' : 'marL="45720" marR="45720" marT="18288" marB="18288"';
   const border = (side) => `<a:${side} w="6350"><a:solidFill><a:srgbClr val="${LINE}"/></a:solidFill></a:${side}>`;
   const tc = (c) => {
     const cell = typeof c === 'object' && c ? c : { t: c };
-    const color = cell.color || (cell.fill === BRAND ? 'FFFFFF' : '1D1B2E');
+    const color = cell.color || ([BRAND, TEAL].includes(cell.fill) ? 'FFFFFF' : '1D1B2E');
     const paras = String(cell.t ?? '').split('\n').map((t) => `<a:p><a:pPr algn="${cell.align || 'l'}"/>${t === '' ? `<a:endParaRPr lang="en-GB" sz="${sz}" dirty="0"/>` : `<a:r><a:rPr lang="en-GB" sz="${cell.sz || sz}"${cell.b ? ' b="1"' : ''} dirty="0"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:rPr><a:t>${esc(t)}</a:t></a:r>`}</a:p>`).join('');
-    return `<a:tc${cell.span > 1 ? ` gridSpan="${cell.span}"` : ''}${cell.merged ? ' hMerge="1"' : ''}><a:txBody><a:bodyPr/><a:lstStyle/>${paras}</a:txBody><a:tcPr marL="45720" marR="45720" marT="18288" marB="18288" anchor="ctr">${border('lnL')}${border('lnR')}${border('lnT')}${border('lnB')}${cell.fill ? `<a:solidFill><a:srgbClr val="${cell.fill}"/></a:solidFill>` : '<a:noFill/>'}</a:tcPr></a:tc>`;
+    return `<a:tc${cell.span > 1 ? ` gridSpan="${cell.span}"` : ''}${cell.merged ? ' hMerge="1"' : ''}><a:txBody><a:bodyPr/><a:lstStyle/>${paras}</a:txBody><a:tcPr ${mar} anchor="ctr">${border('lnL')}${border('lnR')}${border('lnT')}${border('lnB')}${cell.fill ? `<a:solidFill><a:srgbClr val="${cell.fill}"/></a:solidFill>` : '<a:noFill/>'}</a:tcPr></a:tc>`;
   };
   return `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="${id}" name="${esc(name)}"/><p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>`
     + `<p:xfrm><a:off x="${Math.round(x)}" y="${Math.round(y)}"/><a:ext cx="${Math.round(w)}" cy="${rh * rows.length}"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">`
@@ -556,6 +569,7 @@ function fillDeck(tpl, x, { figures: f0, model = null, today = new Date() } = {}
   const cashByMonth = {}; for (const i of f.capexItems) for (const [m, v] of Object.entries(i.cashout)) cashByMonth[m] = (cashByMonth[m] || 0) + v;
   const paybackMonths = R?.payback_years !== null && R?.payback_years !== undefined ? Math.round(R.payback_years * 12) : (x.payback_months ?? null);
 
+  let unified = false; const drop = [];
   for (const s of slidesOf(files)) {
     let xml = s.xml; const t = s.title;
     let shapes = shapesOf(xml);
@@ -753,100 +767,87 @@ function fillDeck(tpl, x, { figures: f0, model = null, today = new Date() } = {}
           return undefined;
         }));
       }
-    } else if (/^financial kpi/i.test(t) && R) {
-      dropExample();
-      const pic = by((sh) => sh.kind === 'p:pic');
-      const which = (t.match(/\((\d)\s*\/\s*4\)/) || [])[1];
-      const yrs = R.tables.years;
-      const rowCells = (r, { b, fill } = {}) => [{ t: r.label, b, fill }, ...r.values.map((v) => ({ t: kOf(v), align: 'r', b, fill })), { t: kOf(r.total), align: 'r', b: true, fill: fill || LIGHT }];
-      const yearHead = (first) => [{ t: first, b: true, fill: BRAND }, ...yrs.map((y) => ({ t: String(y), b: true, fill: BRAND, align: 'r' })), { t: 'Total', b: true, fill: BRAND, align: 'r' }];
-      const keyBox = by((sh) => /^key points/i.test(sh.text.trim()));
-      const bold = [77, 79, 30, 33, 62];
-      if (which === '1') {
-        const area = pic ? { x: pic.x, y: pic.y, w: pic.w, h: pic.h } : { x: 5.9 * EMU, y: 0.9 * EMU, w: 3.8 * EMU, h: 4.4 * EMU };
-        if (pic) remove(pic);
-        const ebitda3 = (R.tables.cf.find((r) => r.row === 10)?.values || []).slice(0, 3).reduce((a, v) => a + v, 0);
-        const kpis = [[{ t: `Payback analysis (${kc})`, b: true, fill: BRAND }, { t: '', fill: BRAND }],
-          ['Investment', kU(f.capex)], ['Payback', paybackMonths !== null ? `${paybackMonths} months` : '–'], ['NPV', kOf(R.npv)], ['ROI', pct(R.roi)], ['IRR', pct(R.irr)], ['EBITDA, first 3 years', kOf(ebitda3)]];
-        const cfRows = R.tables.cf.filter((r) => [30, 33].includes(r.row));
-        const yearsTbl = [[{ t: 'Year', b: true, fill: BRAND }, ...cfRows.map((r) => ({ t: r.label, b: true, fill: BRAND, align: 'r' }))], ...yrs.map((y, k) => [String(y), ...cfRows.map((r) => ({ t: kOf(r.values[k]), align: 'r' }))])];
-        const h1 = area.h * 0.42;
-        insert(newTable({ id: nextId(), name: 'SITHUB payback', x: area.x, y: area.y, w: area.w, h: h1, widths: [1.6, 1], rows: kpis, sz: 800 }));
-        insert(newTable({ id: nextId(), name: 'SITHUB payback by year', x: area.x, y: area.y + h1 + 0.1 * EMU, w: area.w, h: area.h - h1 - 0.1 * EMU, widths: [0.8, 1.2, 1.4], rows: yearsTbl, sz: 700 }));
-        if (keyBox) {
-          const kb = shapesOf(xml).find((z) => z.id === keyBox.id);
-          const lines = [
-            `${kU(f.capex)} ${kc} investment${ir.budget.capex !== null ? ` vs ${kU(ir.budget.capex)} ${kc} budgeted` : ir.budgeted === 'no' ? ' (not budgeted)' : ''}`,
-            ...(f.capexItems.some((i) => i.kind === 'setup') ? [`${kU(f.capexItems.filter((i) => i.kind === 'setup').reduce((a, i) => a + (i.amount || 0), 0))} ${kc} transport, installation and set-up included`] : []),
-            ...(paybackMonths !== null ? [`Payback of ${paybackMonths} months${ir.milestones.po && ir.milestones.delivery ? `, including ${Math.max(0, monthsBetween(ir.milestones.po.slice(0, 7), ir.milestones.delivery.slice(0, 7)))} months to delivery` : ''}`] : []),
-            `EBITDA of ${kOf(ebitda3)} ${kc} over the first 3 years; NPV ${kOf(R.npv)} ${kc}, IRR ${pct(R.irr)}`,
-          ];
-          let nx = setText(kb.xml, lines, { keepFirst: true });
-          if (kb.x !== null && kb.x + kb.w > area.x) nx = setGeom(nx, { x: kb.x, y: kb.y, w: area.x - kb.x - 0.15 * EMU, h: kb.h });
-          else if (kb.x === null) nx = setGeom(nx, { x: 0.28 * EMU, y: 1.28 * EMU, w: area.x - 0.45 * EMU, h: 2.6 * EMU });
-          replace(kb, nx);
-        }
-        const kq = by((sh) => /^key questions/i.test(sh.text.trim()));
-        if (kq) {
-          const contrib = Object.entries(f.savings).map(([k, byY]) => `${SAVING_LINES[k][0]} ${kU(sumOf(byY))}`).join(' · ');
-          const q38 = answers[38]?.a ? ANSWERS[answers[38].a] : '';
-          replace(kq, setText(kq.xml, [`Are ROI savings matching the budget plan? ${q38}`, `What contributes to ROI: ${contrib ? `${contrib} ${kc} over the period` : (f.growth.length ? 'the added volumes' : '–')}`], { keepFirst: true }));
-        }
-      } else if (which === '2' || which === '3') {
-        const area = pic ? { x: pic.x, y: pic.y, w: pic.w, h: pic.h } : { x: 4.4 * EMU, y: 1.3 * EMU, w: 5.4 * EMU, h: 3.6 * EMU };
-        if (pic) remove(pic);
-        const src = which === '2' ? R.tables.pl : R.tables.cf;
-        const rows = [yearHead(which === '2' ? `P&L (${kc})` : `Cash flow (${kc})`), ...src.map((r) => rowCells(r, bold.includes(r.row) ? { b: true, fill: LIGHT } : {}))];
-        insert(newTable({ id: nextId(), name: which === '2' ? 'SITHUB P&L' : 'SITHUB cash flow', ...area, widths: [2.6, ...yrs.map(() => 1), 1.1], rows, sz: yrs.length > 6 ? 600 : 700 }));
-        if (keyBox) {
-          const kb = shapesOf(xml).find((z) => z.id === keyBox.id);
-          const lines = which === '2' ? [
-            ...(f.growth.length ? [`Added volumes: ${kOf(f.growth.reduce((a, g) => a + sumOf(g.volumes), 0))} k units over ${new Set(f.growth.flatMap((g) => Object.keys(g.volumes))).size} years (${f.growth.map((g) => g.customer).filter(Boolean).join(', ')})`] : []),
-            ...Object.entries(f.savings).map(([k, byY]) => `${SAVING_LINES[k][0]}: ${kU(sumOf(byY))} ${kc} over the period`),
-            `Depreciation over ${f.depYears} years from ${monthLabel(f.capStart)}`,
-            ...(f.capexItems.some((i) => i.kind === 'setup') ? ['Transport & installation costs included'] : []),
-            ...(f.opex ? [`${kU(f.opex)} ${kc} associated expenses (OPEX) in the year they're spent`] : []),
-          ] : [
-            `Payback ${paybackMonths !== null ? `${paybackMonths} months` : '–'}, NPV ${kOf(R.npv)} ${kc}, IRR ${pct(R.irr)}`,
-            `Discount rate ${pct(R.discount)}, tax ${pct(R.tax)}${ir.bu ? ` (${ir.bu})` : ''}`,
-            `Working capital: ${R.dso ?? '–'} days of DSO, ${R.dio ?? '–'} of DIO, ${R.dpo ?? '–'} of DPO`,
-          ];
-          let nx = setText(kb.xml, lines, { keepFirst: true, sz: 1200 });
-          if (kb.x !== null && kb.x + kb.w > area.x - 0.1 * EMU) nx = setGeom(nx, { x: kb.x, y: kb.y, w: area.x - kb.x - 0.15 * EMU, h: kb.h });
-          replace(kb, nx);
-        }
-      } else if (which === '4') {
-        const area = pic ? { x: pic.x, y: pic.y, w: pic.w, h: pic.h } : { x: 0.5 * EMU, y: 1.06 * EMU, w: 9 * EMU, h: 2.5 * EMU };
-        if (pic) remove(pic);
-        if (f.allMonths.length) {
-          const first = f.allMonths[0]; const last = f.allMonths[f.allMonths.length - 1];
-          let span = monthsBetween(first, last) + 1; const quarterly = span > 15;
-          const start = quarterly ? `${first.slice(0, 4)}-${String(Math.floor((Number(first.slice(5, 7)) - 1) / 3) * 3 + 1).padStart(2, '0')}` : first;
-          if (quarterly) span = Math.floor(monthsBetween(start, last) / 3) + 1;
-          const cols = Array.from({ length: span }, (_, k) => monthAdd(start, quarterly ? k * 3 : k));
-          const colOf = (m) => (quarterly ? Math.floor(monthsBetween(start, m) / 3) : monthsBetween(start, m));
-          const line = (label, cashout, opts2 = {}) => { const v = cols.map(() => 0); for (const [m, a] of Object.entries(cashout)) { const c = colOf(m); if (c >= 0 && c < v.length) v[c] += a; } return [{ t: label, ...opts2 }, ...v.map((a) => ({ t: a ? kU(a) : '', align: 'r', ...opts2 })), { t: kU(sumOf(cashout)), align: 'r', b: true, fill: opts2.fill || LIGHT }]; };
-          const rows = [[{ t: `Cash-out (${kc})`, b: true, fill: BRAND }, ...cols.map((c) => ({ t: quarterly ? `Q${Math.floor((Number(c.slice(5, 7)) - 1) / 3) + 1} ${c.slice(0, 4)}` : monthLabel(c), b: true, fill: BRAND, align: 'r' })), { t: 'Total', b: true, fill: BRAND, align: 'r' }],
-            ...f.items.map((i) => line(`${i.name}${i.kind === 'opex' ? ' (OPEX)' : ''}`, i.cashout)),
-            line('Total CAPEX', cashByMonth, { b: true, fill: LIGHT })];
-          insert(newTable({ id: nextId(), name: 'SITHUB cash-out', ...area, widths: [2.6, ...cols.map(() => 1), 1.1], rows, sz: cols.length > 12 ? 600 : 700 }));
-        }
-        const com = by((sh) => /^comments/i.test(sh.text.trim()));
-        if (com) {
-          const thisYearCash = Object.entries(cashByMonth).filter(([m]) => Number(m.slice(0, 4)) === thisYear).reduce((a, [, v]) => a + v, 0);
-          const lines = ir.cashout_comments ? ir.cashout_comments.split('\n') : [
-            ...(f.allMonths.length ? [`Cash-out of ${kU(f.capex)} ${kc} CAPEX from ${monthLabel(f.allMonths[0])} to ${monthLabel(f.allMonths[f.allMonths.length - 1])}`] : []),
-            `This year (${thisYear}): ${kU(thisYearCash)} ${kc}${ir.budget.cashout_year !== null ? ` vs ${kU(ir.budget.cashout_year)} ${kc} budgeted` : ''}`,
-            ...(f.opex ? [`Associated expenses (OPEX): ${kU(f.opex)} ${kc}`] : []),
-          ];
-          replace(com, setText(com.xml, lines, { keepFirst: true }));
-        }
-      }
+    } else if (/^financial kpi/i.test(t) && R?.summary) {
+      // 📑 one slide in place of the four: the model's Step 1, P&L and cash-out plan side by side (as the screenshots
+      // of the model usually are); the other three go
+      if (unified) { drop.push(s.path); continue; }
+      unified = true;
+      for (const sh of [...shapes]) if (!/^(title|dt|ftr|sldNum)$/.test(sh.ph)) { const now = shapes.find((z) => z.id === sh.id); if (now) remove(now); }
+      const title = by((sh) => sh.ph === 'title');
+      if (title) replace(title, setGeom(setText(title.xml, ['IR'], { dark: false }), { x: 0.26 * EMU, y: 0.12 * EMU, w: 3.6 * EMU, h: 0.42 * EMU }));
+      for (const tb of unifiedTables(R.summary, f, nextId())) insert(tb);
     }
     if (xml !== s.xml) files[s.path] = Buffer.from(xml, 'utf8');
   }
+  for (const path of drop) removeSlide(files, path);
   if (!R) notes.push('The financial slides (Financial KPI 1–4) are left as in the template: set where the financial model template is saved to fill them.');
   return { buf: zip(files), notes };
+}
+
+// The unified financial slide's tables, laid out as the model's sheets are usually pasted: Step 1 (initial input,
+// then the KPIs) on the left, the P&L top right, the cash-out plan under it. Colours as the model's.
+function unifiedTables(sum, f, firstId) {
+  let id = firstId; const out = [];
+  const int = (v) => (typeof v === 'number' ? (Math.round(v) || 0).toLocaleString('en-GB') : v ?? '');
+  const p1 = (v) => (typeof v === 'number' ? `${(v * 100).toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%` : v ?? '');
+  const dateOf = (v) => { if (typeof v !== 'number') return v ?? ''; const d = new Date(Math.round((v - 25569) * 86400000)); return `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`; };
+  const fmt1 = { 13: String, 14: String, 15: dateOf, 17: int, 18: String, 19: int, 20: int, 21: int, 22: p1, 23: p1 };
+  const fmtK = { 32: int, 35: int, 38: int, 33: p1, 36: p1, 39: p1, 47: p1 };
+  const L = 0.26 * EMU; const LW = 3.62 * EMU; const R = 3.98 * EMU; const RW = 5.76 * EMU;
+  const title = sum.title || `${f.x.ref || ''} ${f.x.title}`.trim();
+  out.push(newTable({ id: id++, name: 'SITHUB IR project', x: L, y: 0.62 * EMU, w: LW, h: 0.2 * EMU, widths: [1], rows: [[{ t: title, b: true, fill: BRAND, align: 'ctr', sz: 900 }]], dense: true }));
+  const init = [[{ t: 'Initial input', b: true, fill: TEAL, align: 'ctr', sz: 800, span: 2 }, { t: '', fill: TEAL, merged: true }],
+    ...sum.initial.map((r) => [{ t: r.label }, { t: (fmt1[r.row] || ((v) => (typeof v === 'number' ? int(v) : v ?? '')))(r.value), b: true, align: 'ctr', fill: [8, 9, 10, 11, 12, 13, 14, 15, 18, 29].includes(r.row) ? INPUT : undefined }])];
+  const initH = init.length * 0.118 * EMU;
+  out.push(newTable({ id: id++, name: 'SITHUB IR initial input', x: L, y: 0.9 * EMU, w: LW, h: initH, widths: [1.45, 1.25], rows: init, sz: 550, dense: true }));
+  const kp = sum.kpis.map((r) => r.row === 31 ? [{ t: r.label, b: true, fill: TEAL, align: 'ctr', sz: 700, span: 2 }, { t: '', fill: TEAL, merged: true }]
+    : [{ t: r.label, b: [32, 35, 38, 41, 43, 45, 47, 49].includes(r.row) }, { t: (fmtK[r.row] || ((v) => (typeof v === 'number' ? int(v) : v ?? '')))(r.value), b: true, align: 'ctr' }]);
+  const kpY = 0.9 * EMU + initH + 0.12 * EMU;
+  out.push(newTable({ id: id++, name: 'SITHUB IR KPIs', x: L, y: kpY, w: LW, h: Math.min(5.1 * EMU - kpY, kp.length * 0.15 * EMU), widths: [1.45, 1.25], rows: kp, sz: 600, dense: true }));
+  // the P&L, 10 years and the period's total; the model's subtotal rows in its colours
+  const purple = [17, 28, 39, 62, 77, 79]; const teal = [52, 58, 60, 75];
+  const plRows = [[{ t: title, b: true, fill: BRAND, align: 'ctr', sz: 700 }, ...sum.years.map(() => ({ t: '', fill: BRAND })), { t: '', fill: BRAND }],
+    [{ t: `in K${f.currency}`, b: true }, ...sum.years.map((y) => ({ t: String(y), b: true, align: 'r' })), { t: 'Total period', b: true, align: 'r' }],
+    ...sum.pl.map((r) => {
+      const fill = purple.includes(r.row) ? BRAND : teal.includes(r.row) ? TEAL : undefined; const b = !!fill || r.row === 51;
+      const v = (x) => (x === null ? '' : r.row === 28 ? x.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : r.row === 63 ? p1(x) : int(x));
+      return [{ t: r.label, b, fill }, ...r.values.map((x) => ({ t: v(x), align: 'r', b, fill })), { t: v(r.total), align: 'r', b: true, fill: fill || LIGHT }];
+    })];
+  plRows[0][0].span = 12; for (let k = 1; k < 12; k++) plRows[0][k].merged = true;
+  out.push(newTable({ id: id++, name: 'SITHUB IR P&L', x: R, y: 0.12 * EMU, w: RW, h: 3.18 * EMU, widths: [2.4, ...sum.years.map(() => 0.62), 0.75], rows: plRows, sz: 500, dense: true }));
+  // the cash-out plan: the first year by month, later years' totals
+  const items = sum.plan.rows.filter((r) => r.label && r.months.some((y) => y.some((v) => v)));
+  const later = [1, 2, 3].filter((yi) => items.some((r) => r.months[yi].some((v) => v)));
+  const y0 = sum.plan.year;
+  const tot = (r, yi) => r.months[yi].reduce((a, v) => a + v, 0);
+  const k1 = (v) => (v ? v.toLocaleString('en-GB', { maximumFractionDigits: 1 }) : '');
+  const head = [{ t: `in k${f.currency}`, b: true, fill: BRAND }, ...MONTHS.map((m) => ({ t: m, b: true, fill: BRAND, align: 'ctr' })), { t: `FY ${y0}`, b: true, fill: BRAND, align: 'ctr' }, ...later.map((yi) => ({ t: `FY ${y0 + yi}`, b: true, fill: BRAND, align: 'ctr' }))];
+  const totalRow = [{ t: 'Cash-out', b: true, fill: LIGHT }, ...MONTHS.map((_, m) => ({ t: k1(items.reduce((a, r) => a + r.months[0][m], 0)) || '0', b: true, align: 'ctr', fill: LIGHT })),
+    { t: k1(items.reduce((a, r) => a + tot(r, 0), 0)) || '0', b: true, align: 'ctr', fill: LIGHT }, ...later.map((yi) => ({ t: k1(items.reduce((a, r) => a + tot(r, yi), 0)), b: true, align: 'ctr', fill: LIGHT }))];
+  const planRows = [head, totalRow, ...items.map((r) => [{ t: r.label }, ...r.months[0].map((v) => ({ t: k1(v), align: 'ctr' })), { t: k1(tot(r, 0)), align: 'ctr', b: true }, ...later.map((yi) => ({ t: k1(tot(r, yi)), align: 'ctr', b: true }))])];
+  out.push(newTable({ id: id++, name: 'SITHUB IR cash-out plan', x: R + 0.5 * EMU, y: 3.42 * EMU, w: RW - 0.5 * EMU, h: Math.min(1.65, 0.15 * planRows.length) * EMU, widths: [1.6, ...MONTHS.map(() => 0.5), 0.7, ...later.map(() => 0.7)], rows: planRows, sz: 550, dense: true }));
+  return out;
+}
+// a slide out of the deck: its place in the list, its relationship, its part, its notes and pictures only it used
+function removeSlide(files, path) {
+  const name = path.split('/').pop(); const relsOf = (p) => p.replace(/([^/]+)$/, '_rels/$1.rels');
+  const presRels = files['ppt/_rels/presentation.xml.rels'].toString('utf8');
+  const rel = presRels.match(new RegExp(`<Relationship\\b[^>]*Target="(?:/ppt/)?slides/${name}"[^>]*/>`));
+  if (!rel) return;
+  const rid = rel[0].match(/\sId="([^"]+)"/)[1];
+  files['ppt/_rels/presentation.xml.rels'] = Buffer.from(presRels.replace(rel[0], ''), 'utf8');
+  files['ppt/presentation.xml'] = Buffer.from(files['ppt/presentation.xml'].toString('utf8').replace(new RegExp(`<p:sldId\\b[^>]*r:id="${rid}"[^>]*/>`), ''), 'utf8');
+  const gone = [path];
+  const own = files[relsOf(path)]?.toString('utf8') || '';
+  for (const m of own.matchAll(/Target="\.\.\/(notesSlides\/[^"]+|media\/[^"]+)"/g)) gone.push(`ppt/${m[1]}`);
+  for (const g of gone) {
+    if (g.startsWith('ppt/media/')) { // a picture another part still uses stays
+      const still = Object.entries(files).some(([k, v]) => k.endsWith('.rels') && !gone.map(relsOf).includes(k) && v.toString('utf8').includes(g.slice(4)));
+      if (still) continue;
+    }
+    delete files[g]; delete files[relsOf(g)];
+  }
+  files['[Content_Types].xml'] = Buffer.from(files['[Content_Types].xml'].toString('utf8').replace(new RegExp(`<Override\\b[^>]*PartName="/(${gone.map((g) => g.replace(/[.]/g, '\\.')).join('|')})"[^>]*/>`, 'g'), ''), 'utf8');
 }
 
 // what's still missing for a full IR pack (shown on the investment)
