@@ -112,7 +112,7 @@ function capexForm(x, d) {
       <div class="cx-main" data-cx-pane="ir" id="cx-ir" hidden></div>
       <div class="full row" style="margin-top:10px">${isNew ? '' : '<button type="button" class="danger" id="cx-del">Delete…</button>'}<div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button>
         <button class="primary" type="submit">${isNew ? 'Add investment' : 'Save'}</button></div>
-    </form>`, { wide: true });
+    </form>`, { wide: true, cls: 'cx-big' });
   // a label's text (with its * and hint) in one piece above its box
   for (const l of $$('#cx-form label.f')) { const first = l.querySelector('input, select, textarea'); if (!first || l.firstElementChild?.classList.contains('f-l')) continue;
     const span = document.createElement('span'); span.className = 'f-l'; while (l.firstChild && l.firstChild !== first) span.append(l.firstChild); l.prepend(span); }

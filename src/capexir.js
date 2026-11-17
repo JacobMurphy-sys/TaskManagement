@@ -44,7 +44,7 @@ function irOf(raw) {
     cap_start: ym(r.cap_start), depreciation_years: num(r.depreciation_years),
     detail: str(r.detail, 4000), reasons: list(r.reasons).slice(0, 6).map((s) => str(s, 400)), risks: list(r.risks).slice(0, 6).map((s) => str(s, 400)),
     items: list(r.items).slice(0, 40).map((i) => ({ name: str(i?.name, 200), kind: ITEM_KINDS[i?.kind] ? i.kind : 'equipment', qty: num(i?.qty), amount: num(i?.amount), initial: num(i?.initial),
-      supplier: str(i?.supplier, 200), validated: !!i?.validated, cashout: months(i?.cashout) })),
+      supplier: str(i?.supplier, 200), validated: !!i?.validated, cashout: months(i?.cashout), ...(i?.from_guide ? { from_guide: true } : {}) })),
     quotes: list(r.quotes).slice(0, 6).map((q) => ({ supplier: str(q?.supplier, 200), price: num(q?.price), comment: str(q?.comment, 400), selected: !!q?.selected })),
     selection_reason: str(r.selection_reason, 2000),
     freight: Object.fromEntries(['sea', 'air'].map((k) => [k, { co2: str(r.freight?.[k]?.co2, 60), lead: str(r.freight?.[k]?.lead, 60), price: num(r.freight?.[k]?.price) }])),
@@ -55,6 +55,9 @@ function irOf(raw) {
     savings: Object.fromEntries(Object.keys(SAVING_LINES).map((k) => [k, years(r.savings?.[k])]).filter(([, v]) => Object.keys(v).length)),
     growth: list(r.growth).slice(0, 9).map((g) => ({ customer: str(g?.customer, 120), asp: num(g?.asp), unit_cost: num(g?.unit_cost), volumes: years(g?.volumes) })),
     risks_opps: list(r.risks_opps).slice(0, 10).map((x) => ({ kind: x?.kind === 'opp' ? 'opp' : 'risk', text: str(x?.text, 400), k: num(x?.k) })),
+    // 🧭 the step-by-step answers, as given (the fields above are worked out from them in the browser)
+    guide: Object.fromEntries(Object.entries(r.guide && typeof r.guide === 'object' ? r.guide : {}).filter(([k, v]) => /^[a-z_]{1,30}$/.test(k) && ['string', 'number', 'boolean'].includes(typeof v)).slice(0, 80)
+      .map(([k, v]) => [k, typeof v === 'string' ? v.slice(0, 500) : v])),
     checklist: Object.fromEntries(Object.entries(r.checklist && typeof r.checklist === 'object' ? r.checklist : {})
       .filter(([n, v]) => /^\d{1,3}$/.test(n) && v && (ANSWERS[v.a] || v.note)).map(([n, v]) => [n, { a: ANSWERS[v.a] ? v.a : '', note: str(v.note, 400) }])),
   };
