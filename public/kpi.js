@@ -37,9 +37,9 @@ async function renderKpi(arg, tab) {
   const sheetShown = view === 'a3' || dbTab === 'sheet';
   const dbHtml = view !== 'database' ? '' : `<div class="card kdb" style="margin-top:12px">
       <div class="row"><div class="seg kc-tabs">${[['source', 'Source', 'What the KPIs are made from, week by week'], ['kpi', 'KPI', 'The KPIs, week by week'],
-        ...(snap ? [['tables', 'Report tables', `The report's own tables for ${snap.week} (Database rows 1–57)`], ['sheet', 'Whole sheet', 'The Database sheet as it looks in Excel']] : [])]
+        ...(snap ? [['tables', 'Report tables', `The report's own tables for ${snap.week} (Database rows 1–57)`], ['sheet', 'Whole sheet (legacy)', 'The Database sheet as it looks in Excel: from the old workbook format, being phased out (Report tables has its figures)']] : [])]
         .map(([k, l, t]) => `<button type="button" data-kdb-tab="${k}" class="${dbTab === k ? 'on' : ''}" title="${esc(t)}">${l}</button>`).join('')}</div></div>
-      ${calc ? kpiTablesHtml(calc, dbTab, snap?.week) : dbTab === 'tables' ? kpiReportTablesHtml(snap) : '<div class="kpi-sheet-wrap" id="kpi-wrap"><div id="kpi-sizer"><div id="kpi-sheet"></div></div></div>'}</div>`;
+      ${calc ? kpiTablesHtml(calc, dbTab, snap?.week) : dbTab === 'tables' ? kpiReportTablesHtml(snap) : `${kpiSheetCoverageHtml(snap)}<div class="kpi-sheet-wrap" id="kpi-wrap"><div id="kpi-sizer"><div id="kpi-sheet"></div></div></div>`}</div>`;
   main().innerHTML = `
     <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
       ${year?.weeks?.length ? `<select id="kpi-week" class="kpi-pick" title=""Reporting week — any week of ${year.year}: from Excel, or built by SITHUB from the source figures">
@@ -129,6 +129,8 @@ async function renderKpi(arg, tab) {
     if (!e.target.closest('.kpi-info')) $$('.kpi-info[open]').forEach((d) => { d.open = false; });
     const dt = e.target.closest('[data-kdb-tab]');
     if (dt) { store.set('kdbTab', dt.dataset.kdbTab); route(); return; }
+    const go = e.target.closest('[data-kdb-go]'); // (the Whole sheet's note: to Report tables)
+    if (go) { e.preventDefault(); store.set('kdbTab', go.dataset.kdbGo); route(); return; }
     const jump = e.target.closest('[data-kdb-jump]');
     if (jump) { e.preventDefault(); $$('.kdb-group h3').find((h) => h.textContent === jump.dataset.kdbJump)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (calc && await kpiTablesClick(e, calc)) return;
@@ -770,9 +772,27 @@ async function kpiTablesClick(e, calc) {
 // The report's own tables (the Database sheet's rows 1–57), drawn from their values. The
 // cell references are where the workbook keeps each figure.
 const KPI_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// 🗄 The Whole sheet is being phased out (the Database sheet as Excel draws it, from the old workbook format). Before it
+// goes: which figures in the report's own rows (1–57) does it show that Report tables doesn't? Rows 58 and below are the
+// weekly figures, which Source and KPI show from the sources.
+function kpiSheetCoverageHtml(snap) {
+  KPI_TABLE_REFS.clear(); kpiReportTablesHtml(snap);
+  const V = snap.values || {}; const rowOf = (r) => Number(String(r).replace(/^[A-Z]+/, ''));
+  const miss = Object.entries(V).filter(([r, v]) => typeof v === 'number' && Number.isFinite(v) && rowOf(r) <= 57 && !KPI_TABLE_REFS.has(r))
+    .sort(([a], [b]) => rowOf(a) - rowOf(b) || a.length - b.length || (a < b ? -1 : 1));
+  const label = (r) => { const n = rowOf(r); for (const c of ['A', 'B', 'C', 'D']) { const t = V[`${c}${n}`]; if (typeof t === 'string' && t.trim()) return t.trim(); } return ''; };
+  const fmtV = (v) => (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString('en-GB') : String(Math.round(v * 1000) / 1000));
+  return `<div class="kc-note small kdb-legacy">🗄 <b>Being phased out.</b> This is the Database sheet as Excel draws it, from the old workbook format: <a href="#" data-kdb-go="tables">Report tables</a> has its figures, laid out for SITHUB, and Source / KPI the weekly ones.
+    ${miss.length ? `<details><summary>${miss.length} figure${miss.length === 1 ? '' : 's'} in rows 1–57 aren't in Report tables yet: if any of them matters, say so, so it's added before this view goes</summary>
+      <div class="kdb-scroll" style="max-height:260px"><table class="log small"><thead><tr><th>Cell</th><th>Row</th><th class="num">${esc(snap.week)}</th></tr></thead><tbody>
+      ${miss.slice(0, 400).map(([r, v]) => `<tr><td>${esc(r)}</td><td>${esc(label(r))}</td><td class="num">${esc(fmtV(v))}</td></tr>`).join('')}</tbody></table></div></details>`
+    : '✅ Every figure in the report\'s rows (1–57) is also in Report tables.'}</div>`;
+}
+// the Database cells Report tables shows (for the Whole sheet's check of what it alone shows)
+const KPI_TABLE_REFS = new Set();
 function kpiReportTablesHtml(snap) {
   const V = snap.values || {};
-  const raw = (ref) => V[ref];
+  const raw = (ref) => { KPI_TABLE_REFS.add(ref); return V[ref]; };
   const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
   const fmt = (v, d = 1, kind = 'n') => {
     if (!isNum(v)) return v === undefined || v === null || v === '' ? '<span class="muted">–</span>' : esc(String(v));
