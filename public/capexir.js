@@ -210,7 +210,7 @@ function cxIrPanes(root, x, getX) {
       return `${p1 ? '' : '<div class="kc-note">✓ Everything required is answered: the IR pack is ready to download.</div>'}
         ${list(1, 'needed before the pack is ready:')}${list(2, 'leaves a gap in the deck without it:')}${list(3, 'add it if you know it:')}
         <p>From your answers SITHUB has filled in the technical parts: the nature and justification, items (CAPEX and OPEX), the cash-out by month, the milestones, the savings and volumes year by year and the depreciation. <b>🔧 Details</b> shows them all, to check or fine-tune (payments month by month, savings that change from year to year, several customers, risks and opportunities, the checklist).</p>
-        <p>The checklist slides come in the deck hidden: unhide them in PowerPoint if your review asks for them (Details › Checklist answers them).</p>
+        <p>The checklist slides (2–3) come filled in with what SITHUB can tell from your answers; complete the rest in PowerPoint after downloading (or in Details › Checklist).</p>
         <p>${x?.id ? 'Then <b>⬇ IR pack</b> (top right) saves it and gives you the IR deck and the financial model. The payback, NPV, ROI and IRR are shown above once saved.' : 'Then save the investment (Add investment), open it again and use <b>⬇ IR pack</b> (top right) for the IR deck and the financial model.'}</p>`;
     }, fills: '' },
   ];

@@ -524,7 +524,7 @@ async function waitForServer() {
       const rid = sup.match(/name="SITHUB quote"[\s\S]*?r:embed="([^"]+)"/)?.[1]; const target = supRels.match(new RegExp(`Id="${rid}"[^>]*Target="\\.\\./(media/[^"]+)"`))?.[1];
       assert.ok(rid && target && dz[`ppt/${target}`]?.equals(png) && /Extension="png"/.test(dz['[Content_Types].xml'].toString()) && !/<a:t>Insert quotation/.test(sup), 'the quote on the supplier selection slide, in its box');
       await call('DELETE', `/capex/${cx.id}/ir/quote`); assert.equal((await call('GET', `/capex/${cx.id}/ir`)).quote, null, 'and removed');
-      assert.deepEqual([1, 2, 3, 4, 6, 7].map((n) => /<p:sld\b[^>]*show="0"/.test(s(n))), [false, true, false, false, true, false], 'a slide with nothing to fill in hidden, and the checklist always (not the cover, not the closing slide)');
+      assert.deepEqual([1, 2, 3, 4, 6, 7].map((n) => /<p:sld\b[^>]*show="0"/.test(s(n))), [false, false, false, false, true, false], 'a slide with nothing to fill in hidden (not the cover, the checklist or the closing slide)');
       for (const n of [1, 2, 3, 4]) assert.ok(/^<\?xml[\s\S]*<\/p:sld>$/.test(s(n)) && (s(n).match(/<p:sp>/g) || []).length === (s(n).match(/<\/p:sp>/g) || []).length, `slide ${n} is whole`);
       await call('PATCH', '/settings', { capex_ir_deck: path.join(tdir, 'gone.pptx') });
       assert.match((await get(`/capex/${cx.id}/ir/deck.pptx`)).b.toString(), /no such file/, 'a template that isn\'t there: says so');
