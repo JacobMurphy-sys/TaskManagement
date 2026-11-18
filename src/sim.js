@@ -66,17 +66,20 @@ function sim(dayIn, { settings = {}, today = new Date(), names = new Map() } = {
     return m;
   };
   const persoed = vol('perso'); const shipped = vol('shipped');
+  // how far each report has been read (the day's figures may not be in yet)
+  const readTo = (source) => { try { return db.get('SELECT MAX(day) AS d FROM kpi_rows WHERE source = ?', [source])?.d || null; } catch { return null; } };
+  const shippedTo = readTo('shipped'); const persoTo = readTo('perso');
 
   // ---- quality: customer complaints by the day opened, against cards shipped; the internal reports typed in
   const cases = db.all("SELECT day, customer, type, extra FROM kpi_rows WHERE source = 'salesforce' AND day >= ? AND day <= ? ORDER BY day, rowid", [from, day])
     .map((r) => ({ ...parseExtra(r.extra), day: r.day, customer: r.customer, severity: r.type }))
     .filter(isCustomerComplaint);
   let reports = []; try { reports = db.all('SELECT id, day, text, area, created_by, created_at FROM sim_reports WHERE day >= ? AND day <= ? ORDER BY day, id', [from, day]); } catch { reports = []; }
-  const cpmsOf = (d) => { const s = shipped.get(d) || 0; const n = cases.filter((c) => c.day === d).length; return s ? (n / s) * 1e6 : n ? null : (isWorked(d) ? 0 : null); };
+  const cpmsOf = (d) => { const s = shipped.get(d) || 0; const n = cases.filter((c) => c.day === d).length; return s ? (n / s) * 1e6 : null; }; // no cards shipped read for the day: no figure (not 0)
   const qMtdShip = days.reduce((a, d) => a + (shipped.get(d) || 0), 0);
   const quality = {
     target: target('cpms'), better: 'down', band: bandOf(settings, 'quality'), unit: 'CPMS',
-    value: cpmsOf(day), shipped: shipped.get(day) || 0,
+    value: cpmsOf(day), shipped: shipped.get(day) || 0, read_to: shippedTo,
     complaints: cases.filter((c) => c.day === day).map((c) => ({ ref: c.ref || null, customer: c.customer, severity: c.severity || null, summary: c.summary || c.defect || null })),
     internal: reports.filter((r) => r.day === day),
     mtd: { value: qMtdShip ? (cases.length / qMtdShip) * 1e6 : null, complaints: cases.length, internal: reports.length },
@@ -113,7 +116,7 @@ function sim(dayIn, { settings = {}, today = new Date(), names = new Map() } = {
   const mtdPerso = days.reduce((a, d) => a + (persoed.get(d) || 0), 0); const mtdScrap = scrapRows.reduce((a, r) => a + (r.qty || 0), 0);
   const scrap = {
     target: target('wastage'), better: 'down', band: bandOf(settings, 'scrap'), from: scrapFrom,
-    value: rateOf(day), scrap: scrapOf(day), persoed: persoed.get(day) || 0,
+    value: rateOf(day), scrap: scrapOf(day), persoed: persoed.get(day) || 0, read_to: persoTo,
     top: [...byWo.values()].sort((a, b) => b.qty - a.qty).slice(0, 5).map((e) => ({ wo: e.wo, customer: e.customer, name: names.get(String(e.customer || '').toUpperCase()) || null, qty: e.qty, item: e.item,
       cause: [...e.causes.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c).slice(0, 2).join(', ') })),
     mtd: { value: mtdPerso ? mtdScrap / mtdPerso : null, scrap: mtdScrap, persoed: mtdPerso },
@@ -139,7 +142,7 @@ function sim(dayIn, { settings = {}, today = new Date(), names = new Map() } = {
   const mtdShip = days.reduce((a, d) => a + (shipped.get(d) || 0), 0); const mtdSc = dated.filter((r) => r.internal).reduce((a, r) => a + r.qty, 0);
   const otd = {
     target: target('otd'), better: 'up', band: bandOf(settings, 'otd'),
-    value: otdOf(day), shipped: shipped.get(day) || 0, sc: scOf(day), customer: dayDelays.filter((r) => r.external).reduce((a, r) => a + r.qty, 0),
+    value: otdOf(day), shipped: shipped.get(day) || 0, read_to: shippedTo, sc: scOf(day), customer: dayDelays.filter((r) => r.external).reduce((a, r) => a + r.qty, 0),
     delays: dayDelays.sort((a, b) => b.qty - a.qty).slice(0, 5).map((r) => ({ customer: r.customer, qty: r.qty, kind: r.internal ? 'SC' : r.external ? 'C' : '?', reason: r.reason, wo: r.wo })),
     undated: { week: wk, rows: undated.length, qty: undated.reduce((a, r) => a + r.qty, 0) },
     late_wos: lateWos,

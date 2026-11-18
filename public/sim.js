@@ -16,6 +16,10 @@ async function renderSim(dayArg) {
   const fmt = { quality: (v) => simNum(v, 2), scrap: (v) => simPct(v, 2), otd: (v) => simPct(v, 1) };
   const tgt = (t, f) => (t.target === null || t.target === undefined ? '<span class="muted" title="Set it on 📊 Reporting › Operations (⚙ on its tiles)">no target set</span>'
     : `target ${t.better === 'down' ? '≤' : '≥'} ${f(t.target)}`);
+  // no figure for the day: say whether its report hasn't been read that far yet
+  const short = (dd) => new Date(`${dd}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const vol = (t, n, what) => (n || (t.read_to && t.read_to >= d.day) ? `${simNum(n)} ${what}`
+    : `<span class="pl-late" title="The day's figures come in when the report is read (📊 Reporting › Sources)">${what} not read yet${t.read_to ? ` (to ${esc(short(t.read_to))})` : ''}</span>`);
   const big = (colour, value) => `<div class="sim-big ${colour ? `sim-${colour}` : 'sim-none'}"><div class="sim-val">${value}</div></div>`;
   const facts = (lines) => `<div class="sim-facts">${lines.filter(Boolean).map((l) => `<div>${l}</div>`).join('')}</div>`;
   const mtd = (t, f) => `Month to date <b class="${t.mtd.colour ? `sim-t-${t.mtd.colour}` : ''}">${f(t.mtd.value)}</b>`;
@@ -30,7 +34,7 @@ async function renderSim(dayArg) {
   // ---- Quality
   const q = T.quality;
   const quality = panel('quality', 'Quality', 'CPMS: customer complaints per million cards shipped',
-    `${big(q.colour, fmt.quality(q.value))}${facts([`${q.complaints.length} complaint${q.complaints.length === 1 ? '' : 's'} · ${simNum(q.shipped)} cards shipped`, tgt(q, fmt.quality), mtd(q, fmt.quality), `Internal reports <b>${q.internal.length}</b> <span class="muted">(month: ${q.mtd.internal})</span>`])}`,
+    `${big(q.colour, fmt.quality(q.value))}${facts([`${q.complaints.length} complaint${q.complaints.length === 1 ? '' : 's'} · ${vol(q, q.shipped, 'cards shipped')}`, tgt(q, fmt.quality), mtd(q, fmt.quality), `Internal reports <b>${q.internal.length}</b> <span class="muted">(month: ${q.mtd.internal})</span>`])}`,
     'sim-c-quality',
     `${list('Customer complaints opened', q.complaints.map((c) => `<li><b>${esc(c.ref || '—')}</b> ${cust(c.customer)}${c.severity ? ` <span class="pill">${esc(c.severity)}</span>` : ''}${c.summary ? `<div class="small muted">${esc(c.summary)}</div>` : ''}</li>`), 'None opened that day.')}
      <div class="sim-list"><h3>Internal reports</h3>${q.internal.length ? `<ul>${q.internal.map((r) => `<li>${r.area ? `<b>${esc(r.area)}</b> · ` : ''}${esc(r.text)}<button type="button" class="icon small" data-sim-del="${r.id}" title="Remove">✕</button>${r.created_by ? `<div class="small muted">${esc(r.created_by)}</div>` : ''}</li>`).join('')}</ul>` : '<div class="small muted">None noted yet.</div>'}
@@ -46,14 +50,14 @@ async function renderSim(dayArg) {
   // ---- Scrap
   const sc = T.scrap;
   const scrap = panel('scrap', 'Scrap', 'scrap rate: scrap ÷ cards persoed',
-    `${big(sc.colour, fmt.scrap(sc.value))}${facts([`${simNum(sc.scrap)} cards scrapped · ${simNum(sc.persoed)} persoed`, tgt(sc, fmt.scrap), mtd(sc, fmt.scrap), `<span class="muted">${simNum(sc.mtd.scrap)} scrapped of ${simNum(sc.mtd.persoed)} this month</span>`])}`,
+    `${big(sc.colour, fmt.scrap(sc.value))}${facts([`${simNum(sc.scrap)} cards scrapped · ${vol(sc, sc.persoed, 'persoed')}`, tgt(sc, fmt.scrap), mtd(sc, fmt.scrap), `<span class="muted">${simNum(sc.mtd.scrap)} scrapped of ${simNum(sc.mtd.persoed)} this month</span>`])}`,
     'sim-c-scrap',
     list('Top 5 scrap that day', sc.top.map((t) => `<li><span class="sim-q">${simNum(t.qty)}</span> <b>${esc(t.wo || '—')}</b> ${cust(t.customer, t.name)}<div class="small muted">${esc(t.cause)}${t.item ? ` · ${esc(t.item)}` : ''}</div></li>`), 'No scrap that day.'));
 
   // ---- OTD
   const o = T.otd;
   const otd = panel('otd', 'OTD', 'OTD SC: 1 − SC delays ÷ cards shipped',
-    `${big(o.colour, fmt.otd(o.value))}${facts([`${simNum(o.sc)} SC delays · ${simNum(o.customer)} customer · ${simNum(o.shipped)} shipped`, tgt(o, fmt.otd), mtd(o, fmt.otd),
+    `${big(o.colour, fmt.otd(o.value))}${facts([`${simNum(o.sc)} SC delays · ${simNum(o.customer)} customer · ${vol(o, o.shipped, 'shipped')}`, tgt(o, fmt.otd), mtd(o, fmt.otd),
       o.undated.rows ? `<span class="pl-late" title="Delays of ${esc(o.undated.week)} in the OTD report with only the week typed in: they can't be put on a day">${o.undated.rows} delay${o.undated.rows === 1 ? '' : 's'} of ${esc(o.undated.week)} without a date (${simNum(o.undated.qty)} cards)</span>` : ''])}`,
     'sim-c-otd',
     `${list('Delays that day', o.delays.map((x) => `<li><span class="sim-q">${simNum(x.qty)}</span> <span class="sim-kind ${x.kind === 'SC' ? 'sim-k-ac' : 'sim-k-sc'}">${x.kind}</span> ${cust(x.customer)}${x.wo ? ` · ${esc(x.wo)}` : ''}${x.reason ? `<div class="small muted">${esc(x.reason)}</div>` : ''}</li>`), 'No dated delays that day.')}
@@ -71,7 +75,7 @@ async function renderSim(dayArg) {
   // the line charts, drawn to their boxes
   SIM_CHARTS = [
     { id: 'sim-c-quality', rows: q.by_day, series: [{ val: (r) => r.value, colour: (r) => r.colour }], target: q.target, better: 'down', f: fmt.quality },
-    { id: 'sim-c-safety', rows: s.by_day, series: [{ key: 'ac', label: 'AC', col: SIM_COL.red }, { key: 'nm', label: 'NM', col: '#d9a400' }, { key: 'sc', label: 'SC', col: '#8a90ad' }].map((x) => ({ ...x, val: (r) => r[x.key] ?? 0, colour: () => null })),
+    { id: 'sim-c-safety', rows: s.by_day, series: [{ key: 'ac', label: 'AC', col: SIM_COL.red }, { key: 'nm', label: 'NM', col: '#d9a400' }, { key: 'sc', label: 'SC', col: '#8a90ad' }].map((x) => ({ ...x, val: (r) => (r.worked || r[x.key] ? r[x.key] ?? 0 : null), colour: () => null })),
       target: 0, better: 'down', f: (v) => String(Math.round(v)), targetLabel: '0 AC', integer: true },
     { id: 'sim-c-scrap', rows: sc.by_day, series: [{ val: (r) => r.value, colour: (r) => r.colour }], target: sc.target, better: 'down', f: fmt.scrap },
     { id: 'sim-c-otd', rows: o.by_day, series: [{ val: (r) => r.value, colour: (r) => r.colour }], target: o.target, better: 'up', f: fmt.otd },
@@ -132,8 +136,9 @@ function simLineChart(el, c, day) {
   }
   // the lines and their points
   for (const s of c.series) {
-    let path = ''; let pen = false;
-    c.rows.forEach((r, i) => { const v = s.val(r); if (v === null || v === undefined) { pen = false; return; } path += `${pen ? 'L' : 'M'}${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`; pen = true; });
+    // joined up over the days without a figure (weekends, holidays, a report not read): Friday straight to Monday
+    let path = '';
+    c.rows.forEach((r, i) => { const v = s.val(r); if (v === null || v === undefined) return; path += `${path ? 'L' : 'M'}${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`; });
     if (path) parts.push(`<path d="${path}" class="sim-line" style="stroke:${s.col || 'var(--accent)'}"/>`);
     c.rows.forEach((r, i) => {
       const v = s.val(r); if (v === null || v === undefined) return;
