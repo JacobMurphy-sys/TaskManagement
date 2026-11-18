@@ -10,7 +10,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const PRIORITY = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Critical' };
-const STATUS = { todo: 'To do', in_progress: 'In progress', blocked: 'Blocked', done: 'Done' };
+const STATUS = { todo: 'To do', in_progress: 'In progress', blocked: 'Blocked', on_hold: 'On hold', done: 'Done' };
 const PSTATUS = { active: 'Active', on_hold: 'On hold', completed: 'Completed', archived: 'Archived' };
 
 const store = {
@@ -316,7 +316,7 @@ function dueChip(t) {
   return `<span class="chip ${cls}" title="Due ${esc(fmtDate(t.due_at))}${t.moved ? ` — moved ${t.moved}× (see the task)` : ''}">📅 ${esc(fmtShortDate(t.due_at))}${cls ? ` (${dueLabel(t.due_at)})` : ''}${t.moved ? ` <span class="moved">↻${t.moved}</span>` : ''}</span>`;
 }
 function statusChip(s) {
-  return s === 'in_progress' || s === 'blocked' ? `<span class="pill status-${s}">${STATUS[s]}</span>` : '';
+  return s === 'in_progress' || s === 'blocked' || s === 'on_hold' ? `<span class="pill status-${s}">${STATUS[s]}</span>` : '';
 }
 const options = (map, selected) => Object.entries(map)
   .map(([v, l]) => `<option value="${v}" ${String(v) === String(selected ?? '') ? 'selected' : ''}>${esc(l)}</option>`).join('');
@@ -580,7 +580,7 @@ async function renderDashboard() {
   const dueBit = (t) => { if (!t.due_at) return ''; const n = dayDiff(t.due_at); return `<span class="ck-due ${n < 0 ? 'bad' : n <= 1 ? 'soon' : ''}" title="Due ${esc(fmtDate(t.due_at))}">${n < 0 ? `${-n}d late` : n === 0 ? 'today' : n === 1 ? 'tomorrow' : esc(fmtShortDate(t.due_at))}</span>`; };
   const row = (t, extra = '') => `<li class="ck-row p${t.priority || 2} st-${t.status || 'todo'}">
       <input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${(t.subtask_count || 0) - (t.subtask_done || 0)}" title="Mark done">
-      ${t.status === 'blocked' ? '<span class="ck-st" title="Blocked">⛔</span>' : t.status === 'in_progress' ? '<span class="ck-st go" title="In progress">▶</span>' : ''}
+      ${t.status === 'blocked' ? '<span class="ck-st" title="Blocked">⛔</span>' : t.status === 'on_hold' ? '<span class="ck-st" title="On hold">⏸</span>' : t.status === 'in_progress' ? '<span class="ck-st go" title="In progress">▶</span>' : ''}
       <span class="ck-t" data-action="open-task" data-id="${t.id}" title="${esc(t.parent_title ? `${t.parent_title} › ${t.title}` : t.title)}">${t.parent_title ? `<span class="ck-par">↳ ${esc(t.parent_title)} ›</span> ` : ''}${esc(t.title)}</span>
       ${extra}
       ${t.project_id ? `<a class="ck-proj" href="#/project/${t.project_id}" title="${esc(t.project_name)}">${esc(t.project_name)}</a>` : ''}
@@ -692,7 +692,7 @@ function buildTree(tasks) {
 // overdue and blocked rows are tinted, a task with subtasks shows a bar of how many are done and can be
 // folded (▾). Status and priority change in place from their buttons. Columns line up between tasks and
 // subtasks: only the title moves in for a subtask.
-const STATUS_ICON = { todo: '○', in_progress: '▶', blocked: '⛔', done: '✓' };
+const STATUS_ICON = { todo: '○', in_progress: '▶', blocked: '⛔', on_hold: '⏸', done: '✓' };
 const folded = () => new Set(store.get('taskFolded', []));
 const statusBtn = (t, open = 0) => `<button type="button" class="tl-status st-${t.status}" data-task-status="${t.id}" data-subs="${open}" title="Status: ${STATUS[t.status]} — click to change">${STATUS_ICON[t.status]} <span>${STATUS[t.status]}</span></button>`;
 const prioBtn = (t) => `<button type="button" class="tl-prio pill prio-${t.priority}" data-task-prio="${t.id}" title="Priority: ${PRIORITY[t.priority]} — click to change">${PRIORITY[t.priority]}</button>`;
@@ -750,6 +750,7 @@ function taskRow(t, p, hideDone, o = {}) {
 const TASK_FOCUS = {
   overdue: ['⚠', 'Overdue', (t) => t.status !== 'done' && t.due_at && dayDiff(t.due_at) < 0, 'bad'],
   blocked: ['⛔', 'Blocked', (t) => t.status === 'blocked', 'bad'],
+  on_hold: ['⏸', 'On hold', (t) => t.status === 'on_hold', 'hold'],
   in_progress: ['▶', 'In progress', (t) => t.status === 'in_progress', 'go'],
   todo: ['○', 'To do', (t) => t.status === 'todo', ''],
   done: ['✓', 'Done', (t) => t.status === 'done', 'ok'],
@@ -777,10 +778,10 @@ const subCardsToggle = () => `<span class="tb-open"><button type="button" class=
 function taskStripHtml(flat, focus, { done = true } = {}) {
   const subs = flat.filter((t) => t.parent_id).length;
   const tile = (k) => { const [ic, label, test, tone] = TASK_FOCUS[k]; const n = flat.filter(test).length;
-    if (!n && focus !== k && (k === 'done' || k.startsWith('p'))) return '';
+    if (!n && focus !== k && (k === 'done' || k === 'on_hold' || k.startsWith('p'))) return '';
     return `<button type="button" class="ts-tile ts-${tone || 'plain'} ${focus === k ? 'on' : ''} ${n ? '' : 'zero'}" data-task-focus="${k}" title="${focus === k ? 'Show them all again' : `Only the ${label.toLowerCase()} ones`}">${ic ? `<span class="ts-ic">${ic}</span>` : '<i class="ts-dot"></i>'}<b>${n}</b><span>${label}</span></button>`; };
   return `<div class="task-strip" role="group" aria-label="Filter the tasks">
-    ${['overdue', 'blocked', 'in_progress', 'todo', ...(done ? ['done'] : [])].map(tile).join('')}
+    ${['overdue', 'blocked', 'on_hold', 'in_progress', 'todo', ...(done ? ['done'] : [])].map(tile).join('')}
     <span class="ts-sep"></span>${['p4', 'p3'].map(tile).join('')}
     <span class="spacer"></span>
     <span class="ts-info small muted">${flat.length - subs} task${flat.length - subs === 1 ? '' : 's'} · ${subs} subtask${subs === 1 ? '' : 's'}</span>
@@ -2229,7 +2230,7 @@ async function taskModal(id) {
             ${dragHandle()}
             <input type="checkbox" data-action="toggle-task" data-id="${s.id}" data-subs="${s.subtask_count - s.subtask_done}" ${s.status === 'done' ? 'checked' : ''}>
             <div class="tm-sub-main"><span class="task-title" data-action="open-task" data-id="${s.id}" data-rename title="Click to open · double-click to rename">${esc(s.title)}</span>
-              ${(() => { const meta = `${s.status === 'in_progress' || s.status === 'blocked' ? statusBtn(s, s.subtask_count - s.subtask_done) : ''}${s.priority >= 3 ? prioPill(s.priority) : ''}${s.status !== 'done' ? dueChip(s) : ''}${ownerChip(s)}`; return meta.trim() ? `<div class="tm-sub-meta">${meta}</div>` : ''; })()}</div>
+              ${(() => { const meta = `${['in_progress', 'blocked', 'on_hold'].includes(s.status) ? statusBtn(s, s.subtask_count - s.subtask_done) : ''}${s.priority >= 3 ? prioPill(s.priority) : ''}${s.status !== 'done' ? dueChip(s) : ''}${ownerChip(s)}`; return meta.trim() ? `<div class="tm-sub-meta">${meta}</div>` : ''; })()}</div>
             <span class="row-actions"><button class="icon" data-action="rename-task" title="Rename (or double-click the title)">✎</button></span></div></li>`).join('')}</ul>
           <input type="text" id="modal-add-sub" placeholder="+ Add a subtask… (Enter; !high @fri work too)" autocomplete="off">`)}
       </div>
@@ -2524,9 +2525,28 @@ async function setTaskStatus(id, status, openSubtasks = 0) {
   if (status === 'done' && openSubtasks > 0) {
     cascade = confirm(`This task has ${openSubtasks} open subtask(s). Mark them done too?`);
   }
-  const saved = await api.patch(`/tasks/${id}`, { status, cascade });
+  // ⏸ on hold: why (kept in the task's notes); cancelled, nothing changes
+  let hold_reason;
+  if (status === 'on_hold') { hold_reason = await askHoldReason(); if (!hold_reason) { if (!modal().open) await refresh(); return; } }
+  const saved = await api.patch(`/tasks/${id}`, { status, cascade, ...(hold_reason ? { hold_reason } : {}) });
   if (saved.next_occurrence) toast(`🔁 Repeating task — next one due ${fmtDate(saved.next_occurrence.due_at)}`);
   if (modal().open) { state.modalDirty = true; await taskModal($('#task-form')?.dataset.id || id); } else await refresh();
+}
+
+// ⏸ Why is it on hold? A small window over whatever is open → the reason, or null if cancelled.
+function askHoldReason() {
+  return new Promise((resolve) => {
+    const d = document.createElement('dialog'); d.className = 'cdialog hold-dialog';
+    d.innerHTML = `<form method="dialog" class="hold-form"><h3 style="margin-top:0">⏸ Put on hold</h3>
+      <label class="f"><span class="f-l">Why is it on hold? <span class="small muted">— kept in the task's notes</span></span><textarea rows="3" required maxlength="1000" placeholder="e.g. Waiting for the budget decision in March"></textarea></label>
+      <div class="row" style="margin-top:10px"><div class="spacer"></div><button type="button" value="cancel">Cancel</button><button class="primary" type="submit">Put on hold</button></div></form>`;
+    document.body.append(d);
+    const done = (v) => { d.close(); d.remove(); resolve(v); };
+    d.querySelector('form').onsubmit = (e) => { e.preventDefault(); const v = d.querySelector('textarea').value.trim(); if (v) done(v); };
+    d.querySelector('button[value=cancel]').onclick = () => done(null);
+    d.addEventListener('cancel', (e) => { e.preventDefault(); done(null); });
+    d.showModal(); d.querySelector('textarea').focus();
+  });
 }
 
 // The ⋯ menu in the top bar (Activity log, Backups, Settings, dark mode, stop server).

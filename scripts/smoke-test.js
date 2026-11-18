@@ -406,6 +406,21 @@ async function waitForServer() {
       assert.ok(/Quinn Helper/.test(pl.task_owners) && pl.next_action, 'the board knows who\'s on each project');
       await call('DELETE', `/tasks/${parent.id}`); await call('PATCH', `/projects/${np.id}`, { leader: CHARTER.leader });
     }
+    // ---- ⏸ On hold: a task status of its own, with the reason asked and kept in the task's notes
+    {
+      const t = await call('POST', '/tasks', { title: 'Hold me' });
+      await assert.rejects(call('PATCH', `/tasks/${t.id}`, { status: 'on_hold' }), /Say why it's on hold/);
+      await assert.rejects(call('PATCH', `/tasks/${t.id}`, { status: 'on_hold', hold_reason: '   ' }), /Say why/);
+      assert.equal((await call('PATCH', `/tasks/${t.id}`, { status: 'on_hold', hold_reason: 'Waiting for the budget' })).status, 'on_hold');
+      assert.equal((await call('PATCH', `/tasks/${t.id}`, { title: 'Hold me still' })).status, 'on_hold', 'other changes while on hold need no reason');
+      const notes = (await call('GET', `/tasks/${t.id}`)).notes || [];
+      assert.ok(notes.some((n) => /^⏸ Put on hold.*: Waiting for the budget$/.test(n.body)), `the reason kept in the notes (${JSON.stringify(notes.map((n) => n.body))})`);
+      await assert.rejects(call('POST', '/tasks', { title: 'Born on hold', status: 'on_hold' }), /Say why/);
+      const t2 = await call('POST', '/tasks', { title: 'Born on hold', status: 'on_hold', hold_reason: 'Parked until Q2' });
+      assert.ok(((await call('GET', `/tasks/${t2.id}`)).notes || []).some((n) => /Parked until Q2/.test(n.body)));
+      assert.equal((await call('PATCH', `/tasks/${t.id}`, { status: 'todo' })).status, 'todo', 'back off hold');
+      await call('DELETE', `/tasks/${t.id}`); await call('DELETE', `/tasks/${t2.id}`);
+    }
     // ---- 💶 CAPEX: the essentials required, a ref each, the Excel register and the one-pagers
     {
       await assert.rejects(call('POST', '/capex', { title: 'Half' }), /Needed: Category, Requested by, Estimated cost, Planned date, Business justification/);

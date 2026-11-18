@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'task-on-hold', date: '2026-11-18', area: 'projects', title: 'Tasks on hold',
+    text: 'Tasks have an On hold status of their own, with a column on the board and a count tile. Putting a task on hold asks why, and the reason is kept in the task\'s notes.',
+    points: ['Drag the card, use its status button or the task window: the reason is asked each time', 'On hold tasks are left out of today\'s focus and the next action', 'The board\'s five columns fit on one screen'] },
   { id: 'charter-sheet-name', date: '2026-11-18', area: 'projects', title: 'Charter download: named after the project',
     text: 'The downloaded charter\'s sheet is named after the project instead of the template\'s own name, and the project\'s menu gives the charter too, next to a clearly named export of all the project\'s data.' },
   { id: 'legacy-data', date: '2026-11-18', area: 'reporting', title: 'The report vault is now Legacy Data',

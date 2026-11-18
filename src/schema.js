@@ -141,7 +141,7 @@ const TABLES = {
     title        TEXT    NOT NULL,
     description  TEXT,
     status       TEXT    NOT NULL DEFAULT 'todo'
-                 CHECK (status IN ('todo', 'in_progress', 'blocked', 'done')),
+                 CHECK (status IN ('todo', 'in_progress', 'blocked', 'on_hold', 'done')),
     priority     INTEGER NOT NULL DEFAULT 2 CHECK (priority BETWEEN 1 AND 4),
     due_at       TEXT    ${isoCheck('due_at')},
     is_baseline  INTEGER NOT NULL DEFAULT 0,
@@ -1063,11 +1063,18 @@ const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');
 
 // Tables whose existing NOT NULL constraints differ from the definition (SQLite can
 // only change those by rebuilding the table).
-function tablesToRebuild(existingInfo) {
-  return Object.keys(TABLES).filter((t) => existingInfo[t]?.length && columnDefs(t).some((c) => {
+// …and tables where a column's list of allowed values (CHECK (x IN (…))) has gained a value the stored table
+// doesn't allow yet (e.g. a task's status 'on_hold'): SQLite can't change a CHECK in place either.
+const allowedLists = (sql) => Object.fromEntries([...String(sql || '').matchAll(/CHECK\s*\(\s*(\w+)\s+IN\s*\(([^)]*)\)/gi)]
+  .map((m) => [m[1].toLowerCase(), new Set([...m[2].matchAll(/'([^']*)'/g)].map((v) => v[1]))]));
+function tablesToRebuild(existingInfo, existingSql = {}) {
+  return Object.keys(TABLES).filter((t) => existingInfo[t]?.length && (columnDefs(t).some((c) => {
     const ex = existingInfo[t].find((i) => i.name === c.name);
     return ex && !!ex.notnull !== /\bNOT NULL\b/i.test(c.sql);
-  }));
+  }) || (existingSql[t] && (() => {
+    const want = allowedLists(TABLES[t]); const have = allowedLists(existingSql[t]);
+    return Object.entries(want).some(([col, vals]) => have[col] && [...vals].some((v) => !have[col].has(v)));
+  })())));
 }
 const createTableSql = (t, name = t) => `CREATE TABLE ${name} (${TABLES[t]}\n);`;
 
