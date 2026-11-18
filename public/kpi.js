@@ -744,7 +744,7 @@ function kpiTablesHtml(calc, tab, selected = null) {
 </div>
       <details class="kc-about" ${store.get('kcAbout', false) ? 'open' : ''}><summary class="small muted">ⓘ About this table</summary><p class="small muted">${tab === 'source'
         ? `Volumes in kU (thousands), scrap in units. Delays come from the OTD report (click one to see its rows). <span class="kc-manual-key">Shaded</span> columns are typed in each week with ✎ — HR (hours from Protime) and complaints (until the Salesforce export is ready). <span class="kc-adj-key">✎ Outlined</span> figures were adjusted by hand (click one to adjust it, or to put the worked-out figure back): the worked-out figure is underneath, and the totals and KPIs follow; <span class="kc-affected-key">dotted</span> ones use an adjusted figure.`
-        : 'OTD SC = 1 − internal delays ÷ cards shipped (OTD Global includes external delays) · CPMS = complaints per million cards shipped · Scrap % = scrap ÷ cards persoed · Productivity = cards persoed per working hour · Headcount = contract + temps.'}
+        : 'OTD SC = 1 − internal delays ÷ cards shipped (OTD Global includes external delays) · CPMS = complaints per million cards shipped · Scrap % = scrap ÷ cards persoed · Productivity = cards shipped per working hour · Headcount = contract + temps.'}
 </p></details>
       <div class="kc-wrap"><table class="log kc-table kc-compact ${tab === 'kpi' ? 'kc-kpi' : ''} ${store.get('kcOnlyAdj', false) && (adjShown || adjOther) ? 'kc-only-adj' : ''}" id="kc-table"><thead>
         <tr><th></th><th></th>${groups.map((g, i) => `<th colspan="${g.n}" class="kc-group${i ? ' kc-sep' : ''}">${esc(g.g)}</th>`).join('')}${tab === 'source' ? '<th></th>' : ''}</tr>
@@ -929,7 +929,7 @@ async function kpiFigureDetail(col, week, calc) {
     otd_global: () => `1 − (internal + external delays) ÷ cards shipped = 1 − (${k(w.otd_internal)} + ${k(w.otd_external)}) ÷ ${k(w.shipped_total)}`,
     cpms: () => `complaints ÷ cards shipped × 1,000,000 = ${n(w.complaints)} ÷ ${k(w.shipped_total)} × 1,000,000`,
     scrap_rate: () => `scrap ÷ cards persoed = ${n(w.scrap)} ÷ ${k(w.perso_total)}`,
-    productivity: () => `cards persoed ÷ working hours = ${k(w.perso_total)} ÷ ${n(w.hours, 2)}`,
+    productivity: () => `cards shipped ÷ working hours = ${k(w.shipped_total)} ÷ ${n(w.hours, 2)}`,
     hc: () => `contract + temps = ${n(w.contract)} + ${n(w.temps)}`,
   };
   if (formulas[col]) {

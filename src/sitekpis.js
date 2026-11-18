@@ -88,7 +88,7 @@ function weeksByMonth(years) {
     for (const w of weeks) {
       const mm = `${y}-${pad(kpiData.monthIndex(w.month) + 1)}`;
       const e = out.get(mm) || { cards: 0, hours: 0, cards_with_hours: 0, weeks: [], cc: 0, cc_typed: false };
-      const cards = (w.perso_total || 0) * 1000;
+      const cards = (w.shipped_total || 0) * 1000; // productivity: cards shipped (as CPMS; the scrap rate is on persoed)
       e.cards += cards;
       if (w.hours > 0) { e.hours += w.hours; e.cards_with_hours += cards; }
       const cc = [w.cc_critical, w.cc_major, w.cc_minor];
@@ -132,7 +132,7 @@ function siteKpis(ops) {
   values.ontime = { now: ops.tiles.on_time.daily.pct, prev: null, trend: null };
   values.openlate = { now: ops.tiles.open_late.wos, prev: null, trend: null };
 
-  // ---- productivity: cards persoed ÷ the weekly working hours; and by machine from the timing reports
+  // ---- productivity: cards shipped ÷ the weekly working hours; and by machine (its own run rate) from the timing reports
   const wk = weeksByMonth([y - 1, y]);
   const prodOf = (mm) => { const e = wk.get(mm); return e && e.hours > 0 ? e.cards_with_hours / e.hours : null; };
   values.productivity = pick(byMonth(prodOf));
