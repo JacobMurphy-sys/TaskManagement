@@ -421,6 +421,12 @@ async function waitForServer() {
       const d2 = await call('GET', `/sim?day=${day}`);
       assert.ok(d2.day === day && d2.topics.quality.internal.some((r) => r.text === 'Wrong foil on line 2' && r.area === 'Embossing') && d2.topics.quality.mtd.internal >= 1, 'the internal report on its day');
       await call('DELETE', `/sim/reports/${rep.id}`);
+      // 🎯 targets set from SIM are Operations' site KPI targets
+      await call('PUT', '/sim/targets', { quality: 0.9, scrap: 0.005, otd: 0.97 });
+      const tg = (await call('GET', `/sim?day=${day}&read=0`)).topics;
+      assert.deepStrictEqual([tg.quality.target, tg.scrap.target, tg.otd.target], [0.9, 0.005, 0.97]);
+      await call('PUT', '/sim/targets', { quality: null, scrap: null, otd: null });
+      assert.strictEqual((await call('GET', `/sim?day=${day}&read=0`)).topics.otd.target, null);
       const readRes = await call('POST', '/sim/read', {}); // ⟳ the feeding reports: only SIM's sources come back
       assert.ok(Array.isArray(readRes) && readRes.every((r) => ['shipped', 'perso', 'remakes', 'consumption', 'otd', 'salesforce', 'ehs'].includes(r.source)));
       assert.ok(!(await call('GET', `/sim?day=${day}`)).topics.quality.internal.length);

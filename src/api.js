@@ -837,6 +837,13 @@ router.get('/sim', h(async (req, res) => {
   const names = new Map(); try { for (const c of db.all('SELECT trigram, name FROM cpm_customers')) if (c.trigram && c.name) names.set(String(c.trigram).toUpperCase(), c.name); } catch { /* none */ }
   res.json(simKpis.sim(req.query.day, { settings: getSettings(), names }));
 }));
+// 🎯 the targets SIM colours against, set from SIM too (they're Operations' site KPI targets: the setup right).
+// { quality: CPMS, scrap: a share (0.004), otd: a share (0.98) }; null clears one
+router.put('/sim/targets', h((req, res) => {
+  const map = { quality: 'cpms', scrap: 'wastage', otd: 'otd' }; const kpis = {};
+  for (const [k, key] of Object.entries(map)) if (req.body && k in req.body) kpis[key] = { target: req.body[k] === null ? '' : req.body[k] };
+  siteErr(() => siteKpis.setConfig({ kpis })); res.json({ ok: true });
+}));
 router.post('/sim/read', h(async (req, res) => {
   const set = getSettings();
   const results = await bg.run('kpi', { paths: kpiPaths(set), workbook: set.kpi_workbook_path || null, splitWeekends: splitWeekends(), only: SIM_SOURCES, force: !!req.body?.force });

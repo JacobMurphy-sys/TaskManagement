@@ -14,7 +14,7 @@ async function renderSim(dayArg) {
   const d = await api.get(`/sim${day ? `?day=${day}` : ''}`);
   const T = d.topics;
   const fmt = { quality: (v) => simNum(v, 2), scrap: (v) => simPct(v, 2), otd: (v) => simPct(v, 1) };
-  const tgt = (t, f) => (t.target === null || t.target === undefined ? '<span class="muted" title="Set it on 📊 Reporting › Operations (⚙ on its tiles)">no target set</span>'
+  const tgt = (t, f) => (t.target === null || t.target === undefined ? '<button type="button" class="link small sim-set-tg" title="Without a target the result can\'t be coloured">🎯 Set a target</button>'
     : `target ${t.better === 'down' ? '≤' : '≥'} ${f(t.target)}`);
   // no figure for the day: say whether its report hasn't been read that far yet
   const short = (dd) => new Date(`${dd}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
@@ -23,11 +23,12 @@ async function renderSim(dayArg) {
   const big = (colour, value) => `<div class="sim-big ${colour ? `sim-${colour}` : 'sim-none'}"><div class="sim-val">${value}</div></div>`;
   const facts = (lines) => `<div class="sim-facts">${lines.filter(Boolean).map((l) => `<div>${l}</div>`).join('')}</div>`;
   const mtd = (t, f) => `Month to date <b class="${t.mtd.colour ? `sim-t-${t.mtd.colour}` : ''}">${f(t.mtd.value)}</b>`;
-  const panel = (key, title, unit, result, chartId, lists) => `<section class="card sim-panel" data-sim="${key}">
+  // side: the chart and the lists side by side (scrap, OTD), else the lists under the chart
+  const panel = (key, title, unit, result, chartId, lists, side = false) => `<section class="card sim-panel${side ? ' sim-side' : ''}" data-sim="${key}">
       <header class="sim-head"><h2>${title}</h2><span class="small muted">${unit}</span></header>
       <div class="sim-result">${result}</div>
-      <div class="sim-chart" id="${chartId}"></div>
-      <div class="sim-lists">${lists}</div></section>`;
+      <div class="sim-body"><div class="sim-chart" id="${chartId}"></div>
+      <div class="sim-lists">${lists}</div></div></section>`;
   const list = (title, rows, empty) => `<div class="sim-list"><h3>${title}</h3>${rows.length ? `<ul>${rows.join('')}</ul>` : `<div class="small muted">${empty}</div>`}</div>`;
   const cust = (c, name) => `${esc(c || '?')}${name ? ` <span class="muted">${esc(name)}</span>` : ''}`;
 
@@ -52,7 +53,7 @@ async function renderSim(dayArg) {
   const scrap = panel('scrap', 'Scrap', 'scrap rate: scrap ÷ cards persoed',
     `${big(sc.colour, fmt.scrap(sc.value))}${facts([`${simNum(sc.scrap)} cards scrapped · ${vol(sc, sc.persoed, 'persoed')}`, tgt(sc, fmt.scrap), mtd(sc, fmt.scrap), `<span class="muted">${simNum(sc.mtd.scrap)} scrapped of ${simNum(sc.mtd.persoed)} this month</span>`])}`,
     'sim-c-scrap',
-    list('Top 5 scrap that day', sc.top.map((t) => `<li><span class="sim-q">${simNum(t.qty)}</span> <b>${esc(t.wo || '—')}</b> ${cust(t.customer, t.name)}<div class="small muted">${esc(t.cause)}${t.item ? ` · ${esc(t.item)}` : ''}</div></li>`), 'No scrap that day.'));
+    list('Top 5 scrap that day', sc.top.map((t) => `<li><span class="sim-q">${simNum(t.qty)}</span> <b>${esc(t.wo || '—')}</b> ${cust(t.customer, t.name)}<div class="small muted">${esc(t.cause)}${t.item ? ` · ${esc(t.item)}` : ''}</div></li>`), 'No scrap that day.'), true);
 
   // ---- OTD
   const o = T.otd;
@@ -61,7 +62,7 @@ async function renderSim(dayArg) {
       o.undated.rows ? `<span class="pl-late" title="Delays of ${esc(o.undated.week)} in the OTD report with only the week typed in: they can't be put on a day">${o.undated.rows} delay${o.undated.rows === 1 ? '' : 's'} of ${esc(o.undated.week)} without a date (${simNum(o.undated.qty)} cards)</span>` : ''])}`,
     'sim-c-otd',
     `${list('Delays that day', o.delays.map((x) => `<li><span class="sim-q">${simNum(x.qty)}</span> <span class="sim-kind ${x.kind === 'SC' ? 'sim-k-ac' : 'sim-k-sc'}">${x.kind}</span> ${cust(x.customer)}${x.wo ? ` · ${esc(x.wo)}` : ''}${x.reason ? `<div class="small muted">${esc(x.reason)}</div>` : ''}</li>`), 'No dated delays that day.')}
-     ${list('Late work orders due that day', o.late_wos.map((j) => `<li><span class="sim-q">${simNum(j.qty)}</span> <b>${esc(j.wo)}</b> ${cust(j.customer, j.name)}<div class="small muted">${j.open ? `still open, ${simNum(j.late_hours, 1)} h past its deadline` : `finished ${simNum(j.late_hours, 1)} h late`}</div></li>`), 'None late (from the planner).')}`);
+     ${list('Late work orders due that day', o.late_wos.map((j) => `<li><span class="sim-q">${simNum(j.qty)}</span> <b>${esc(j.wo)}</b> ${cust(j.customer, j.name)}<div class="small muted">${j.open ? `still open, ${simNum(j.late_hours, 1)} h past its deadline` : `finished ${simNum(j.late_hours, 1)} h late`}</div></li>`), 'None late (from the planner).')}`, true);
 
   const isDefault = d.day === d.default_day;
   main().innerHTML = `
@@ -69,7 +70,7 @@ async function renderSim(dayArg) {
       <div class="seg"><button type="button" data-sim-go="${simDayAdd(d.day, -1)}" title="The day before">◀</button><button type="button" data-sim-go="${simDayAdd(d.day, 1)}" title="The day after" ${d.day >= d.today ? 'disabled' : ''}>▶</button></div>
       <input type="date" id="sim-day" value="${d.day}" max="${d.today}" style="width:auto">
       <b>${esc(d.label)}</b>${isDefault ? '<span class="pill">last working day</span>' : `<button type="button" class="link small" data-sim-go="">Back to the last working day</button>`}${d.worked ? '' : '<span class="pill" title="Not a working day in Production\'s calendar">not a working day</span>'}
-      <div class="spacer"></div><button type="button" id="sim-read" title="Read the reports SIM is fed from again (cards shipped and persoed, scrap, OTD, complaints, safety forms) — the ones that changed">⟳ Read the reports</button>${ddMenu('⋯', '<button type="button" id="sim-bands">🎨 Colour bands…</button>', { title: 'How the colours are decided' })}</div>
+      <div class="spacer"></div><button type="button" id="sim-read" title="Read the reports SIM is fed from again (cards shipped and persoed, scrap, OTD, complaints, safety forms) — the ones that changed">⟳ Read the reports</button>${ddMenu('⋯', '<button type="button" id="sim-bands">🎯 Targets and colours…</button>', { title: 'How the colours are decided' })}</div>
     <div class="sim-grid">${quality}${safety}${scrap}${otd}</div>`;
 
   // the line charts, drawn to their boxes
@@ -94,6 +95,7 @@ async function renderSim(dayArg) {
   };
   $$('[data-sim-del]').forEach((b) => { b.onclick = async () => { if (!confirm('Remove this internal report?')) return; try { await api.del(`/sim/reports/${b.dataset.simDel}`); renderSim(d.day); } catch (err) { toast(err.message, 'error'); } }; });
   $('#sim-bands').onclick = () => simBands(d);
+  $$('.sim-set-tg').forEach((b) => { b.onclick = () => simBands(d); });
   $('#sim-read').onclick = async (e) => {
     const b = e.currentTarget; b.disabled = true; b.textContent = '⏳ Reading…';
     try {
@@ -163,16 +165,22 @@ function simLineChart(el, c, day) {
   el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="The month to date, day by day">${parts.join('')}</svg>`;
 }
 
-// 🎨 the amber band of each topic: how far off its target still shows yellow
+// 🎯 each topic's target (Operations' site KPI targets, shared with it) and amber band: how far off still shows yellow
 function simBands(d) {
-  const row = (k, label) => `<label class="f">${label}<span class="row" style="gap:6px"><input type="number" name="sim_band_${k}" min="0" max="100" step="1" value="${Math.round(d.bands[k] * 100)}" style="max-width:90px"> %</span></label>`;
-  openModal(`<div class="modal-head"><h2 style="margin:0">🎨 Colour bands</h2><button class="icon" data-action="close-modal">✕</button></div>
-    <p class="small muted" style="margin-top:0">Each result is <b style="color:${SIM_COL.green}">green</b> when it meets its target (set on 📊 Reporting › Operations), <b style="color:#b38600">yellow</b> when it's within this share of the target, and <b style="color:${SIM_COL.red}">red</b> beyond. Safety is red with an accident, yellow with a near miss, green otherwise. Changing these needs the setup right.</p>
-    <form id="sim-bands-f" class="form-grid">${row('quality', 'Quality (CPMS)')}${row('scrap', 'Scrap rate')}${row('otd', 'OTD SC')}
-      <div class="full row"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button><button class="primary" type="submit">Save</button></div></form>`);
+  const T = d.topics; const pct = (v, dp) => (v === null || v === undefined ? '' : String(Math.round(v * 100 * 10 ** dp) / 10 ** dp));
+  const row = (k, label, target, hint) => `<div class="sim-tg-row"><b>${label}</b>
+      <label class="f">Target <span class="small muted">${hint}</span><input type="number" name="t_${k}" step="any" min="0" value="${target}"></label>
+      <label class="f">Yellow within<span class="row" style="gap:6px"><input type="number" name="b_${k}" min="0" max="100" step="1" value="${Math.round(d.bands[k] * 100)}" style="max-width:90px"> % of it</span></label></div>`;
+  openModal(`<div class="modal-head"><h2 style="margin:0">🎯 Targets and colours</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <p class="small muted" style="margin-top:0">Each result is <b style="color:${SIM_COL.green}">green</b> when it meets its target, <b style="color:#b38600">yellow</b> when it's off by no more than the share given, and <b style="color:${SIM_COL.red}">red</b> beyond; without a target it stays grey. The targets are the same as on 📊 Reporting › Operations. Safety is red with an accident, yellow with a near miss, green otherwise. Changing these needs the setup right.</p>
+    <form id="sim-bands-f">${row('quality', 'Quality', T.quality.target ?? '', 'CPMS, at most')}${row('scrap', 'Scrap rate', pct(T.scrap.target, 3), '%, at most')}${row('otd', 'OTD SC', pct(T.otd.target, 2), '%, at least')}
+      <div class="row" style="margin-top:10px"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button><button class="primary" type="submit">Save</button></div></form>`);
   $('#sim-bands-f').onsubmit = async (e) => {
     e.preventDefault();
-    const body = Object.fromEntries([...new FormData(e.target)].map(([k, v]) => [k, v === '' ? '' : String(Math.min(100, Math.max(0, Number(v))) / 100)]));
-    try { await api.patch('/settings', body); closeModal(); toast('Saved'); renderSim(d.day === d.default_day ? '' : d.day); } catch (err) { toast(err.message, 'error'); }
+    const f = Object.fromEntries(new FormData(e.target));
+    const num = (v) => Number(String(v).replace(',', '.'));
+    const bands = Object.fromEntries(['quality', 'scrap', 'otd'].map((k) => [`sim_band_${k}`, f[`b_${k}`] === '' ? '' : String(Math.min(100, Math.max(0, num(f[`b_${k}`]))) / 100)]));
+    const targets = { quality: f.t_quality === '' ? null : num(f.t_quality), scrap: f.t_scrap === '' ? null : num(f.t_scrap) / 100, otd: f.t_otd === '' ? null : num(f.t_otd) / 100 };
+    try { await api.put('/sim/targets', targets); await api.patch('/settings', bands); closeModal(); toast('Saved'); renderSim(d.day === d.default_day ? '' : d.day); } catch (err) { toast(err.message, 'error'); }
   };
 }

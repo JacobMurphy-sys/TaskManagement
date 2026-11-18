@@ -2787,6 +2787,10 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .sim-red { background: color-mix(in srgb, #FF0000 12%, transparent); border-color: #FF0000; } .sim-red .sim-val { color: #e00000; }
 .sim-none { background: var(--panel-2); border-color: var(--border); }
 .sim-t-green { color: #00a04a; } .sim-t-yellow { color: #b38600; } .sim-t-red { color: #e00000; }
+.sim-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.sim-side .sim-body { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(220px, 1fr); grid-template-rows: minmax(0, 1fr); gap: 12px; }
+.sim-side .sim-lists { grid-template-columns: 1fr; border-top: 0; border-left: 1px solid var(--border); padding: 0 0 0 12px; }
+.sim-tg-row { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 10px; align-items: end; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .sim-chart { flex: 1 1 42%; min-height: 110px; position: relative; }
 .sim-chart svg { position: absolute; inset: 0; display: block; }
 .sim-okzone { fill: color-mix(in srgb, #00B050 9%, transparent); }
