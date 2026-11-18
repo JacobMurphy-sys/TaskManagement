@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'productivity-shipped', date: '2026-11-18', area: 'reporting', title: 'Productivity on cards shipped',
+    text: 'Productivity is now cards shipped per working hour, like CPMS; the scrap rate stays on cards persoed. Operations, the Database\'s KPI figures and the weekly SC report all use it.' },
   { id: 'task-on-hold', date: '2026-11-18', area: 'projects', title: 'Tasks on hold',
     text: 'Tasks have an On hold status of their own, with a column on the board and a count tile. Putting a task on hold asks why, and the reason is kept in the task\'s notes.',
     points: ['Drag the card, use its status button or the task window: the reason is asked each time', 'On hold tasks are left out of today\'s focus and the next action', 'The board\'s five columns fit on one screen'] },

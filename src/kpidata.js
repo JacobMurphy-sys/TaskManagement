@@ -521,7 +521,7 @@ function derive(w, { totals = true } = {}) {
   w.otd_global = w.shipped_total ? 1 - (w.otd_internal + w.otd_external) / w.shipped_total : null;
   w.cpms = w.shipped_total ? (w.complaints / (w.shipped_total * 1000)) * 1e6 : null;
   w.scrap_rate = ratio(w.scrap / 1000, w.perso_total);
-  w.productivity = w.hours ? (w.perso_total * 1000) / w.hours : null;
+  w.productivity = w.hours ? (w.shipped_total * 1000) / w.hours : null; // cards shipped an hour worked (CPMS is on shipped too; scrap rate on persoed)
   w.hc = w.contract !== null || w.temps !== null ? (w.contract || 0) + (w.temps || 0) : null;
   return w;
 }

@@ -1729,7 +1729,7 @@ async function waitForServer() {
       await assert.rejects(call('PUT', '/kpi/manual/W2614_2', { temps: -1 }), /0 or more/);
       calc = await call('GET', '/kpi/calc?year=2026');
       const w2 = wkOf('W2614_2');
-      assert.deepEqual([w2.hours, w2.hc, w2.complaints, w2.cpms, Math.round(w2.productivity * 1e4) / 1e4], [577.5, 42, 1, 1250, 0.8658], 'HC, complaints, CPMS per million shipped, cards per hour');
+      assert.deepEqual([w2.hours, w2.hc, w2.complaints, w2.cpms, Math.round(w2.productivity * 1e4) / 1e4], [577.5, 42, 1, 1250, 1.3853], 'HC, complaints, CPMS per million shipped, cards shipped per hour (800 ÷ 577.5)');
       assert.equal(wkOf('W2615').complaints, 0, 'no complaints typed in → 0');
       await call('PUT', '/kpi/manual/W2614_2', { cc_major: '' });
       calc = await call('GET', '/kpi/calc?year=2026');
@@ -1741,7 +1741,8 @@ async function waitForServer() {
       assert.deepEqual([man.hours, man.protime], [612.5, null], 'or hours typed straight in');
       await call('PUT', '/kpi/manual/W2614_1', { hours: 100, contract: 41 });
       calc = await call('GET', '/kpi/calc?year=2026');
-      assert.deepEqual([wkOf('W2614_1').hours, wkOf('W2614_1').contract, wkOf('W2614_1').productivity], [100, 41, 10]);
+      assert.deepEqual([wkOf('W2614_1').hours, wkOf('W2614_1').contract, wkOf('W2614_1').productivity], [100, 41, (wkOf('W2614_1').shipped_total * 1000) / 100], 'productivity on cards shipped, not persoed');
+      assert.notEqual(wkOf('W2614_1').shipped_total, wkOf('W2614_1').perso_total, '(the test week ships a different number than it persoes)');
       // 👥 headcount on Operations › Productivity: direct (contract) and temps, a column a month (the average of its weeks)
       {
         await call('PUT', '/kpi/manual/W2614_1', { temps: '3' });
