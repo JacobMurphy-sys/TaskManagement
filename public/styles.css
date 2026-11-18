@@ -2807,6 +2807,8 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .sim-val small { font-size: 18px; font-weight: 700; margin-left: 6px; }
 .sim-base { stroke: var(--border); stroke-width: 1; }
 .sim-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.sim-dlabel { font-size: 10.5px; font-weight: 700; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
+.sim-dl-red { fill: #e00000; } .sim-dl-yellow { fill: #b38600; }
 .sim-dot { stroke: var(--panel); stroke-width: 1.2; } .sim-dot.sel { stroke: var(--text); stroke-width: 2; }
 .sim-legend text { font-size: 10px; fill: var(--muted); }
 .sim-hit { cursor: pointer; } .sim-hit:hover { fill: color-mix(in srgb, var(--accent) 8%, transparent); }

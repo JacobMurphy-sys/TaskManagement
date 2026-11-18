@@ -156,7 +156,9 @@ function simLineChart(el, c, day) {
     const tw = L - 6; const by = Math.min(H - B - 8, Math.max(Tp + 1, yt - 7.5));
     parts.push(`<line x1="${L}" x2="${W - R}" y1="${yt}" y2="${yt}" class="sim-target"/><rect x="2" y="${by}" width="${tw}" height="15" rx="4" class="sim-tbox"><title>Target ${esc(label)}</title></rect><text x="${2 + tw / 2}" y="${by + 11}" class="sim-tlabel">${esc(label)}</text><text x="${L - 6}" y="${by - 3 < Tp + 4 ? by + 25 : by - 3}" class="sim-tword">TARGET</text>`);
   }
-  // the lines and their points
+  // the lines and their points; the days off target (yellow or red) get their figure written by them, on the side
+  // away from the target (above for lower-is-better, below for higher-is-better), drawn last so nothing covers them
+  const labels = [];
   for (const s of c.series) {
     // joined up over the days without a figure (weekends, holidays, a report not read): Friday straight to Monday
     let path = '';
@@ -167,8 +169,16 @@ function simLineChart(el, c, day) {
       if (s.key && !v && r.day !== day) return; // a count of 0: no dot
       const col = s.col || SIM_COL[s.colour(r)] || 'var(--muted)'; const sel = r.day === day;
       parts.push(`<circle cx="${xOf(i)}" cy="${yOf(v)}" r="${sel ? 5.5 : 3.5}" fill="${col}" class="sim-dot${sel ? ' sel' : ''}"><title>${esc(fmtDate(r.day))}: ${s.label ? `${s.label} ` : ''}${c.f(v)}</title></circle>`);
+      const zone = s.key ? (v > 0 && (s.key === 'ac' ? 'red' : s.key === 'nm' ? 'yellow' : null)) : s.colour(r);
+      if (zone === 'yellow' || zone === 'red') {
+        const x = xOf(i); const y = yOf(v); const below = c.better === 'up';
+        const ly = below ? Math.min(H - B - 3, y + 15) : Math.max(Tp + 9, y - 8);
+        const anchor = x > W - R - 24 ? 'end' : x < L + 24 ? 'start' : 'middle';
+        labels.push(`<text x="${x}" y="${ly}" text-anchor="${anchor}" class="sim-dlabel sim-dl-${zone}">${esc(c.f(v))}</text>`);
+      }
     });
   }
+  parts.push(...labels);
   if (c.series.some((s) => s.label)) parts.push(`<g class="sim-legend">${c.series.map((s, i) => `<g transform="translate(${L + 6 + i * 44},${Tp + 6})"><line x1="0" x2="12" y1="0" y2="0" style="stroke:${s.col}" class="sim-line"/><text x="16" y="3">${s.label}</text></g>`).join('')}</g>`);
   // a click on a day's column opens it
   c.rows.forEach((r, i) => { const w = n === 1 ? 30 : step; parts.push(`<rect x="${xOf(i) - w / 2}" y="0" width="${w}" height="${H}" fill="transparent" class="sim-hit" data-sim-day="${r.day}"><title>${esc(fmtDate(r.day))}</title></rect>`); });
