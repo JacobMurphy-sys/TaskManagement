@@ -172,9 +172,28 @@ function simLineChart(el, c, day) {
       const zone = s.key ? (v > 0 && (s.key === 'ac' ? 'red' : s.key === 'nm' ? 'yellow' : null)) : s.colour(r);
       if (zone === 'yellow' || zone === 'red') {
         const x = xOf(i); const y = yOf(v); const below = c.better === 'up';
-        const ly = below ? Math.min(H - B - 3, y + 15) : Math.max(Tp + 9, y - 8);
-        const anchor = x > W - R - 24 ? 'end' : x < L + 24 ? 'start' : 'middle';
-        labels.push(`<text x="${x}" y="${ly}" text-anchor="${anchor}" class="sim-dlabel sim-dl-${zone}">${esc(c.f(v))}</text>`);
+        const txt = c.f(v); const tw = txt.length * 6.2 + 2;
+        // the points either side on this line: a label mustn't sit on the line running to them
+        const near = (dir) => { for (let j = i + dir; j >= 0 && j < c.rows.length; j += dir) { const w = s.val(c.rows[j]); if (w !== null && w !== undefined) return { x: xOf(j), y: yOf(w) }; } return null; };
+        const nbs = [near(-1), near(1)].filter(Boolean);
+        // does the line to a neighbour cross the box? (its part over the box's width spans a range of heights)
+        const hits = (x1, x2, y1, y2) => nbs.some((nb) => {
+          const lo = Math.max(x1, Math.min(x, nb.x)); const hi = Math.min(x2, Math.max(x, nb.x));
+          if (lo > hi) return false;
+          const at = (px) => y + ((nb.y - y) * (px - x)) / (nb.x - x);
+          const a1 = at(lo); const a2 = at(hi);
+          return Math.max(a1, a2) >= y1 - 2 && Math.min(a1, a2) <= y2 + 2;
+        });
+        // where it can go, best first: on the side away from the target, then beside the point (right, then left)
+        const vy = below ? y + 15 : y - 8; const vx1 = Math.max(L, Math.min(W - R - tw, x - tw / 2));
+        const sy = Math.min(H - B - 3, Math.max(Tp + 9, y + 3.5));
+        const spots = [
+          { ok: (below ? H - B - y >= 17 : y - Tp >= 15) && !hits(vx1, vx1 + tw, vy - 10, vy), x: vx1 + tw / 2, y: vy, anchor: 'middle' },
+          { ok: x + 8 + tw <= W - R && !hits(x + 6, x + 8 + tw, sy - 10, sy), x: x + 8, y: sy, anchor: 'start' },
+          { ok: x - 8 - tw >= L && !hits(x - 8 - tw, x - 6, sy - 10, sy), x: x - 8, y: sy, anchor: 'end' },
+        ];
+        const at = spots.find((o) => o.ok) || { x: vx1 + tw / 2, y: Math.min(H - B - 3, Math.max(Tp + 9, vy)), anchor: 'middle' };
+        labels.push(`<text x="${at.x}" y="${at.y}" text-anchor="${at.anchor}" class="sim-dlabel sim-dl-${zone}">${esc(txt)}</text>`);
       }
     });
   }
