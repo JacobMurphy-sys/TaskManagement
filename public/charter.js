@@ -46,7 +46,7 @@ const CHARTER_FORM_KEYS = ['name', 'problem', 'goals', 'sponsor', 'leader', 'pro
 function ragStatus(t) {
   if (t.status === 'done') return 'Green';
   if (t.due_at && dayDiff(t.due_at) < 0) return 'Red';
-  if (t.status === 'blocked' || (t.status === 'todo' && t.due_at && dayDiff(t.due_at) <= 7)) return 'Yellow';
+  if (t.status === 'blocked' || t.status === 'on_hold' || (t.status === 'todo' && t.due_at && dayDiff(t.due_at) <= 7)) return 'Yellow';
   return 'Green';
 }
 const RAG_ICON = { Green: '🟢', Yellow: '🟡', Red: '🔴' };
@@ -320,7 +320,7 @@ async function renderAllTasks() {
   if (board) {
     // the cards in each column: the most pressing first
     const cardSort = (a, b) => String(a.due_at || '9').localeCompare(String(b.due_at || '9')) || b.priority - a.priority;
-    body = taskBoardHtml(list, { project: lanes !== 'project', cols: ['todo', 'in_progress', 'blocked'], lanes, focus, sort: cardSort, subCards: store.get('boardSubCards', false), add: false });
+    body = taskBoardHtml(list, { project: lanes !== 'project', cols: ['todo', 'in_progress', 'blocked', 'on_hold'], lanes, focus, sort: cardSort, subCards: store.get('boardSubCards', false), add: false });
   } else if (groupKey) {
     const groups = new Map(); for (const t of sorted) { const k = groupKey(t); (groups.get(k) || groups.set(k, []).get(k)).push(t); }
     body = [...groups].map(([k, ts]) => `<h3 class="tasks-group">${sort === 'owner' ? (k ? personChip(k) : '<span class="muted">No owner</span>') : esc(k || '✅ Standalone tasks')} <span class="small muted">${fam({ children: ts }).length - 1}</span></h3>${taskListHtml(ts, pseudo, false, opts)}`).join('');

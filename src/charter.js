@@ -66,7 +66,7 @@ function ragStatus(t, today = localKey(new Date())) {
   const due = dayKey(t.due_at);
   if (due && due < today) return 'Red';
   const week = new Date(`${today}T12:00`); week.setDate(week.getDate() + 7);
-  if (t.status === 'blocked' || (t.status === 'todo' && due && due <= localKey(week))) return 'Yellow';
+  if (t.status === 'blocked' || t.status === 'on_hold' || (t.status === 'todo' && due && due <= localKey(week))) return 'Yellow';
   return 'Green';
 }
 

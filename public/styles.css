@@ -1883,6 +1883,12 @@ button.tl-fold { cursor: pointer; } button.tl-fold:hover { background: var(--bor
 .tl-status.st-todo { color: var(--muted); background: var(--panel); border-color: var(--border); }
 .tl-status.st-in_progress { color: var(--accent); background: var(--accent-soft); }
 .tl-status.st-blocked { color: var(--danger); background: var(--danger-soft); }
+/* ⏸ on hold */
+.status-on_hold { color: #b86e00; }
+.tl-status.st-on_hold, .tc-sub-st.st-on_hold { color: #b86e00; background: color-mix(in srgb, #b86e00 14%, transparent); }
+.tcol.st-on_hold .tcol-head { border-bottom-color: #b86e00; color: #b86e00; }
+.tl-list li.task.st-on_hold > .task-line .task-title::after { content: ' ⏸'; font-size: 12px; }
+dialog.hold-dialog { width: min(460px, calc(100vw - 32px)); padding: 16px 18px; }
 .tl-status.st-done { color: var(--ok); background: var(--ok-soft); }
 .tl-status:hover, .tl-prio:hover { filter: brightness(.96); box-shadow: 0 0 0 2px var(--border); }
 .tl-prio { flex: none; width: 66px; text-align: center; cursor: pointer; font-family: inherit; background: var(--panel); }
@@ -1909,6 +1915,7 @@ button.tl-fold { cursor: pointer; } button.tl-fold:hover { background: var(--bor
 .ts-tile.on { background: var(--accent-soft); border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .ts-tile.zero { opacity: .5; }
 .ts-bad { box-shadow: inset 4px 0 0 var(--danger); } .ts-bad b { color: var(--danger); }
+.ts-hold { box-shadow: inset 4px 0 0 #b86e00; } .ts-hold b { color: #b86e00; } .ts-tile.on.ts-hold { box-shadow: 0 0 0 1px var(--accent); }
 .ts-go { box-shadow: inset 4px 0 0 var(--accent); } .ts-go b { color: var(--accent); }
 .ts-ok { box-shadow: inset 4px 0 0 var(--ok); } .ts-ok b { color: var(--ok); }
 .ts-tile.on.ts-bad, .ts-tile.on.ts-go, .ts-tile.on.ts-ok { box-shadow: 0 0 0 1px var(--accent); }
@@ -1940,7 +1947,7 @@ ul.tl-list { container: tl / inline-size; }
 /* ======================================================================
    ▦ The task board: a column per status, a card per task (its subtasks a checklist on it)
    ====================================================================== */
-.tboard { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(250px, 1fr)); gap: 12px; align-items: start; overflow-x: auto; padding-bottom: 4px; }
+.tboard { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(200px, 1fr)); gap: 12px; align-items: start; overflow-x: auto; padding-bottom: 4px; }
 .tcol { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 0 8px 8px; min-height: 160px; }
 .tcol-head { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; align-items: center; margin: 0 -8px 8px; padding: 9px 12px;
   border-radius: 12px 12px 0 0; font-size: 13.5px; background: var(--panel-2); border-bottom: 3px solid var(--border); }

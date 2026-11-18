@@ -20,7 +20,7 @@ function focus({ tasks = [], projects = [], now = new Date() }) {
   // ---- today: what's late or due, what's been started, who to chase
   const dayList = [];
   for (const t of open) {
-    if (t.status === 'blocked') continue; // can't be done today — it's a topic for the week
+    if (t.status === 'blocked' || t.status === 'on_hold') continue; // can't be done today — it's a topic for the week
     let s = 0; const why = [];
     const due = t.due_at ? days(t.due_at, now) : null;
     if (due !== null && due < 0) { s += 100 + Math.min(-due, 30) * 2; why.push(`overdue ${-due} d`); }

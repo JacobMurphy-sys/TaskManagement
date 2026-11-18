@@ -84,7 +84,8 @@ const ownsTask = (owner, name) => splitOwners(owner).some((o) => o.toLowerCase()
 // ▶ the next action when none is typed: the most pressing open item — the earliest due (overdue first),
 // else one in progress, else the highest priority and oldest. items: tasks and/or CAPEX investments.
 function autoNext(items) {
-  const open = items.filter((x) => x && x.status !== 'done' && x.status !== 'closed');
+  const all = items.filter((x) => x && x.status !== 'done' && x.status !== 'closed');
+  const open = all.some((x) => x.status !== 'on_hold') ? all.filter((x) => x.status !== 'on_hold') : all; // ⏸ on hold: only when nothing else is open
   if (!open.length) return null;
   const rank = (x) => [x.due_at ? 0 : 1, x.due_at || '', x.status === 'in_progress' ? 0 : 1, -(x.priority || 2), x.created_at || ''];
   const best = open.slice().sort((a, b) => { const ra = rank(a); const rb = rank(b); for (let i = 0; i < ra.length; i++) { if (ra[i] < rb[i]) return -1; if (ra[i] > rb[i]) return 1; } return 0; })[0];
@@ -1041,7 +1042,9 @@ router.post('/tasks', h((req, res) => {
   if (projectId && !db.get('SELECT 1 FROM projects WHERE id = ?', [projectId])) throw notFound('Project');
   checkPhase(fields.phase_id, projectId);
   if (fields.sort_order === undefined) fields.sort_order = nextSortOrder(projectId);
+  const toHold = fields.status === 'on_hold' ? holdReason(req.body) : null;
   const task = fresh('tasks', insertRow('tasks', { ...fields, project_id: projectId }));
+  if (toHold) holdNote(req, task, toHold);
   res.status(201).json(normTask(task));
 }));
 
@@ -1067,12 +1070,17 @@ router.get('/tasks/:id', h((req, res) => {
   });
 }));
 
+// ⏸ putting a task on hold takes a reason (hold_reason), kept in the task's notes
+const holdReason = (body) => { const r = String(body?.hold_reason || '').trim().slice(0, 1000); if (!r) throw new HttpError(400, 'Say why it\'s on hold (the reason is kept in the task\'s notes)'); return r; };
+const holdNote = (req, task, reason) => insertRow('notes', { task_id: task.id, project_id: task.project_id || null, body: `⏸ Put on hold${whoIs(req) ? ` by ${whoIs(req)}` : ''}: ${reason}`, created_by: req.account?.id || null });
 router.patch('/tasks/:id', h((req, res) => {
   const fields = pick(req.body, TASK_FIELDS);
   let nextOcc = null;
   const task = db.tx(() => {
     const current = db.get('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
     if (!current) throw notFound('Task');
+    const toHold = fields.status === 'on_hold' && current.status !== 'on_hold' ? holdReason(req.body) : null;
+    if (toHold) holdNote(req, current, toHold);
     applyTaskRules(current, fields);
     if ('project_id' in req.body) moveTask(current.id, req.body.project_id || null);
     const projectId = db.get('SELECT project_id FROM tasks WHERE id = ?', [current.id]).project_id;

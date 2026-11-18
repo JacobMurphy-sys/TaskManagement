@@ -300,14 +300,15 @@ const DATA_MIGRATIONS = {
   },
 };
 
-// Rebuilds tables whose NOT NULL constraints changed (e.g. tasks.project_id became
+// Rebuilds tables whose NOT NULL constraints or allowed values (CHECK … IN) changed (e.g. tasks.project_id became
 // optional for standalone tasks), following SQLite's documented procedure:
 // foreign keys off, copy into a new table, swap, then verify every reference.
 // A copy of the database is saved first.
 function rebuildTables() {
   const conn = cur();
   const info = Object.fromEntries(TABLE_NAMES.map((t) => [t, all(`PRAGMA table_info(${t})`)]));
-  const tables = tablesToRebuild(info);
+  const sqlOf = Object.fromEntries(all("SELECT name, sql FROM sqlite_master WHERE type = 'table'").map((r) => [r.name, r.sql]));
+  const tables = tablesToRebuild(info, sqlOf);
   if (!tables.length) return;
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
   const safety = path.join(config.backup.dir, 'db', `pre-upgrade-${stamp}.db`);
