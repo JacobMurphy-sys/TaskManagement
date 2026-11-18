@@ -406,6 +406,24 @@ async function waitForServer() {
       assert.ok(/Quinn Helper/.test(pl.task_owners) && pl.next_action, 'the board knows who\'s on each project');
       await call('DELETE', `/tasks/${parent.id}`); await call('PATCH', `/projects/${np.id}`, { leader: CHARTER.leader });
     }
+    // ---- 📣 SIM: the last working day's KPIs by default, coloured against their targets; internal reports typed in
+    {
+      const { sim, colourOf, lastWorkingDay, calendarOf } = require('../src/sim');
+      const cal = calendarOf({ plan_days: '1,2,3,4,5', cpm_holidays: '2026-11-13' });
+      assert.deepEqual([lastWorkingDay(cal, '2026-11-16'), lastWorkingDay(cal, '2026-11-18'), lastWorkingDay(cal, '2026-11-14')], ['2026-11-12', '2026-11-17', '2026-11-12'], 'Monday → Friday (unless a holiday), Wednesday → Tuesday');
+      assert.deepEqual([colourOf(0.004, 0.005, 'down', 0.1), colourOf(0.0054, 0.005, 'down', 0.1), colourOf(0.006, 0.005, 'down', 0.1), colourOf(0.97, 0.98, 'up', 0.1), colourOf(0.85, 0.98, 'up', 0.1), colourOf(0.5, null, 'up', 0.1)],
+        ['green', 'yellow', 'red', 'yellow', 'red', null], 'green meets the target, yellow within the band, red beyond; none without a target');
+      const d = await call('GET', '/sim');
+      assert.ok(d.day === d.default_day && d.day < d.today && Object.keys(d.topics).join() === 'quality,safety,scrap,otd' && d.topics.scrap.by_day.at(-1).day === d.day && d.topics.scrap.by_day[0].day.endsWith('-01'), 'four topics, the month up to the day');
+      const day = '2026-03-04';
+      await assert.rejects(call('POST', '/sim/reports', { day, text: ' ' }), /Say what/);
+      const rep = await call('POST', '/sim/reports', { day, text: 'Wrong foil on line 2', area: 'Embossing' });
+      const d2 = await call('GET', `/sim?day=${day}`);
+      assert.ok(d2.day === day && d2.topics.quality.internal.some((r) => r.text === 'Wrong foil on line 2' && r.area === 'Embossing') && d2.topics.quality.mtd.internal >= 1, 'the internal report on its day');
+      await call('DELETE', `/sim/reports/${rep.id}`);
+      assert.ok(!(await call('GET', `/sim?day=${day}`)).topics.quality.internal.length);
+      assert.deepEqual(Object.keys(sim('2026-03-04', { settings: {}, today: new Date('2026-03-10T08:00:00Z') }).bands), ['quality', 'safety', 'scrap', 'otd']);
+    }
     // ---- ⏸ On hold: a task status of its own, with the reason asked and kept in the task's notes
     {
       const t = await call('POST', '/tasks', { title: 'Hold me' });
@@ -3429,7 +3447,7 @@ async function waitForServer() {
       assert.ok((await sam('GET', '/auth/me')).data.account.areas.includes('kpi'), 'no modules set: all');
       const samId = (await admin('GET', '/accounts')).data.find((a) => a.username === 'sam').id;
       r = await admin('PATCH', `/accounts/${samId}`, { modules: ['production', 'nonsense'] });
-      assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'production'], ['planning', 'cpm', 'kpi']], 'the basic pack always, unknown ones dropped; Prod Management includes 📐 Capacity planning and the Weekly SC Report');
+      assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'production'], ['planning', 'cpm', 'kpi', 'sim']], 'the basic pack always, unknown ones dropped; Prod Management includes 📐 Capacity planning, the Weekly SC Report and 📣 SIM');
       assert.equal((await sam('GET', '/kpi/snapshots')).status, 200, 'the Weekly SC Report is Prod Management\'s');
       assert.equal((await sam('GET', '/kpi/operations')).status, 200, '🏭 Operations too');
       assert.deepEqual([(await sam('PUT', '/kpi/operations/config', { kpis: { otd: { target: 99 } } })).status, (await sam('PUT', '/kpi/operations/value', { kpi: 'gci', month: '2026-01', value: 70 })).status],
@@ -3474,7 +3492,7 @@ async function waitForServer() {
       }
       assert.equal((await admin('GET', '/kpi/snapshots')).status, 200, 'admins have them all');
       r = await admin('POST', '/accounts', { username: 'mgr', person: 'Max Manager', password: 'mgr-pass-1', modules: ['projects', 'kpi', 'report'] });
-      assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'management', 'production', 'archive'], ['projects', 'team', 'capex', 'planning', 'cpm', 'kpi', 'report']],
+      assert.deepEqual([r.data.modules, r.data.areas], [['basic', 'management', 'production', 'archive'], ['projects', 'team', 'capex', 'planning', 'cpm', 'kpi', 'sim', 'report']],
         'modules from the start; the old ones (projects, kpi, report) carried over — Reporting\'s A3 is Prod Management\'s now');
       // 🔒 the setup is for admins; your own appearance is yours
       assert.equal((await sam('PATCH', '/settings', { currency: '$' })).status, 403, 'settings are for admins');

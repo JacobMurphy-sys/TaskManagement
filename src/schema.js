@@ -608,6 +608,16 @@ const TABLES = {
     reason      TEXT`,
   // 📈 Forecasts sent in (the Forecast tab, or its upload link with no sign-in): the workbook itself, who sent it and
   // what it held. The newest of a kind (benelux / amex) newer than the linked file is what 📐 Capacity reads.
+  // 📣 SIM: the internal (quality) reports typed in at the daily briefing, by the day they're about
+  sim_reports: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    day         TEXT    NOT NULL CHECK (day GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+    text        TEXT    NOT NULL,
+    area        TEXT,
+    created_by  TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
   // 📑 a file kept with an investment for its IR pack (the chosen supplier's quote, as a picture). Not audited: a picture.
   capex_files: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1056,7 +1066,7 @@ function triggerSql(table) {
 }
 
 const DATA_TABLES = ['projects', 'tasks', 'notes', 'reminders', 'areas', 'ideas', 'idea_notes', 'settings',
-  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_overrides', 'kpi_rows_added', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags', 'plan_disp_delays', 'plan_disp_delay_jobs', 'plan_volume_rules', 'plan_volume_ext', 'cpm_customers', 'cpm_scenarios', 'people_focus', 'capex', 'tickets', 'otd_entries'];
+  'task_links', 'project_costs', 'project_team', 'project_kpis', 'lookups', 'project_phases', 'meetings', 'name_lists', 'name_list_items', 'attachments', 'kpi_manual', 'kpi_overrides', 'kpi_rows_added', 'kpi_edits', 'kpi_notes', 'plan_speeds', 'plan_machines', 'plan_pins', 'plan_oee', 'plan_otto_machines', 'plan_otto_speeds', 'plan_modifiers', 'plan_mod_shifts', 'plan_card_tags', 'plan_disp_delays', 'plan_disp_delay_jobs', 'plan_volume_rules', 'plan_volume_ext', 'cpm_customers', 'cpm_scenarios', 'people_focus', 'capex', 'tickets', 'otd_entries', 'sim_reports'];
 
 const tablesSql = () => Object.entries(TABLES).map(([t, body]) => `CREATE TABLE IF NOT EXISTS ${t} (${body}\n);`).join('\n');
 const triggersSql = () => [...DATA_TABLES.map(triggerSql), INDEXES].join('\n');

@@ -311,6 +311,14 @@ A one-screen dashboard of the chosen **month**, like Quality and EHS (the same m
 - **Below** (mini-tabs): **on time by customer**, dailies and renewals side by side, with the delays the OTD report gives them; the **OTD report** per customer (cards shipped, internal and external delays, OTD SC and C, the main reasons); the month's **late work orders** (finished late, or past their deadline and not finished); and **scrap by cause**, with the customers and cards behind each.
 - **Dailies and renewals:** a renewal is a planner work order with **Low** priority, a daily is any other. A work order counts in the month of its **deadline**; **on time** means finished by the deadline, of those finished. One that left the planner without a finish time counts as neither.
 
+### 📣 SIM (Prod Management)
+
+The KPI part of SIM (Short Interval Management), the briefing between shifts and departments. It shows **one day — the last working day before today** by default (Production's working days and holidays: on a Monday, the Friday before), with ◀ ▶ and a date picker for any other day, and **Back to the last working day**. Four panels, each with the day's result **large and coloured like the weekly report's arrows** — green when it meets its target (the targets set on 🏭 Operations), yellow within a band of it (10% unless set in **⋯ › 🎨 Colour bands**, the setup right), red beyond — the month to date by day underneath (a bar a day in the same colours, the target dashed; click a bar for that day), and what made the result:
+- **🧪 Quality:** CPMS that day — customer complaints opened (Salesforce) per million cards shipped — and the month to date; the complaints opened, and the **internal reports**, typed in at the SIM (area and what happened; ✕ removes one; they're kept by day and counted for the month).
+- **⛑ Safety:** the safety concern forms by incident date — accidents (AC) large, near misses (NM) and safety concerns (SC) — red with an accident, yellow with a near miss, green otherwise; the month by day as stacked bars, and the day's forms.
+- **♻ Scrap:** the scrap rate (scrap ÷ cards persoed, from the source the A3 uses) with the cards scrapped and persoed, and the **top 5 work orders** scrapped that day with their causes.
+- **🚚 OTD:** OTD SC that day — 1 − SC delays dated that day in the OTD report ÷ cards shipped that day — with the SC and customer delays, the day's delays (top 5) and the **late work orders due that day** from the planner (top 5 by cards). Delays with only the week typed in can't be put on a day: how many there are for the day's week is shown.
+
 ### 🚚 OTD: logging late deliveries (Reporting, the Despatch module)
 
 Where the logistics team logs each late delivery instead of typing it into the Excel OTD report.

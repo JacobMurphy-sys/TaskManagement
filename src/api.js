@@ -828,6 +828,23 @@ router.get('/capex/:id/ir/deck.pptx', h(async (req, res) => {
   sendFile(res, r.buf, 'application/vnd.openxmlformats-officedocument.presentationml.presentation', irName(x, 'IR deck', 'pptx'));
 }));
 
+// ---- 📣 SIM: the day's KPIs for the briefing (sim.js), and the internal reports typed in at it ------------
+const simKpis = require('./sim');
+router.get('/sim', h((req, res) => {
+  const names = new Map(); try { for (const c of db.all('SELECT trigram, name FROM cpm_customers')) if (c.trigram && c.name) names.set(String(c.trigram).toUpperCase(), c.name); } catch { /* none */ }
+  res.json(simKpis.sim(req.query.day, { settings: getSettings(), names }));
+}));
+router.post('/sim/reports', h((req, res) => {
+  const day = String(req.body?.day || ''); const text = String(req.body?.text || '').trim().slice(0, 1000);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new HttpError(400, 'Which day is it about?');
+  if (!text) throw new HttpError(400, 'Say what the internal report is');
+  res.status(201).json(insertRow('sim_reports', { day, text, area: String(req.body?.area || '').trim().slice(0, 120) || null, created_by: whoIs(req) || null }));
+}));
+router.delete('/sim/reports/:id', h((req, res) => {
+  const { changes } = db.run('DELETE FROM sim_reports WHERE id = ?', [req.params.id]); if (!changes) throw notFound('Report');
+  res.status(204).end();
+}));
+
 // ---- 👥 People: each person's open work, their next action and colour --------------------------------
 
 // everyone who has open work or a part in a live project, plus the People contacts list
@@ -3679,6 +3696,8 @@ const SETTING_DEFAULTS = {
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
   // 📑 💶 CAPEX's IR pack: where the corporate templates are saved, and the business unit and site they're filled in with
+  // 📣 SIM: the amber band of each topic, a share of its target (blank: 0.1, 10%)
+  sim_band_quality: '', sim_band_scrap: '', sim_band_otd: '',
   capex_ir_model: '', capex_ir_deck: '', capex_ir_bu: '', capex_ir_site: '', capex_ir_name: 'InvestCo {project} {ref}',
   plan_src: '', planner_url: '', plan_db: '', plan_db_table: 'Cards', plan_rate: '', plan_lines: '1', plan_buffer: '0', plan_changeover: '0', plan_learned_times: '0', plan_oee_default: '', plan_otto_src: '', plan_disp_src: '', plan_max_age: '30', plan_miti_days: '5', plan_mod_off: '', plan_shift_night: '21:45', plan_shift_morning: '05:45', plan_shift_afternoon: '13:45', plan_dl_base: '100', plan_dl_per_day: '20', plan_dl_max: '100', plan_dl_lead: '10', plan_day_start: '06:00', plan_day_end: '22:00', plan_days: '1,2,3,4,5',
 };

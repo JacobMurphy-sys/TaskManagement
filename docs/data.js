@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'sim', date: '2026-11-18', area: 'production', title: 'SIM: the daily briefing\'s KPIs',
+    text: 'A SIM page in Prod Management for the briefings between shifts and departments: the last working day\'s quality, safety, scrap and OTD, each large and coloured against its target, with the month to date and what made the result.',
+    points: ['Green, yellow or red like the weekly report\'s arrows, with an amber band per topic', 'The month to date a bar a day; a click opens that day', 'Complaints and internal reports typed in at the SIM, safety forms, top 5 scrap, the day\'s delays and late work orders'] },
   { id: 'productivity-shipped', date: '2026-11-18', area: 'reporting', title: 'Productivity on cards shipped',
     text: 'Productivity is now cards shipped per working hour, like CPMS; the scrap rate stays on cards persoed. Operations, the Database\'s KPI figures and the weekly SC report all use it.' },
   { id: 'task-on-hold', date: '2026-11-18', area: 'projects', title: 'Tasks on hold',

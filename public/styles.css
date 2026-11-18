@@ -2769,3 +2769,34 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .cd-ans td { vertical-align: top; }
 .cd-vals { max-width: 640px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vt-up-replace td:last-child { font-weight: 600; }
+
+/* 📣 SIM: four panels, the day's result large, the month by day, what made it */
+.sim-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+@media (max-width: 1100px) { .sim-grid { grid-template-columns: 1fr; } }
+.sim-panel { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.sim-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.sim-head h2 { margin: 0; font-size: 18px; }
+.sim-big { border-radius: 12px; padding: 12px 16px; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; border: 2px solid transparent; }
+.sim-val { font-size: 44px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.sim-sub { font-size: 13px; color: var(--muted); }
+.sim-green { background: color-mix(in srgb, #00B050 14%, transparent); border-color: #00B050; } .sim-green .sim-val { color: #00a04a; }
+.sim-yellow { background: color-mix(in srgb, #FFC000 18%, transparent); border-color: #FFC000; } .sim-yellow .sim-val { color: #b38600; }
+.sim-red { background: color-mix(in srgb, #FF0000 12%, transparent); border-color: #FF0000; } .sim-red .sim-val { color: #e00000; }
+.sim-none { background: var(--panel-2); border-color: var(--border); }
+.sim-t-green { color: #00a04a; } .sim-t-yellow { color: #b38600; } .sim-t-red { color: #e00000; }
+.sim-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: baseline; font-size: 13px; }
+.sim-chart { width: 100%; height: 120px; display: block; }
+.sim-bar { cursor: pointer; } .sim-bar:hover rect:last-of-type { opacity: .85; }
+.sim-selbg { fill: var(--accent-soft); }
+.sim-ax { font-size: 9px; text-anchor: middle; fill: var(--muted); } .sim-ax.off { opacity: .45; } .sim-ax.sel { fill: var(--accent); font-weight: 700; }
+.sim-target { stroke: var(--text); stroke-dasharray: 4 3; stroke-width: 1; opacity: .55; }
+.sim-tlabel { font-size: 9px; text-anchor: start; fill: var(--muted); }
+.sim-base { stroke: var(--border); stroke-width: 1; }
+.sim-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.sim-list h3 { margin: 4px 0 4px; font-size: 13px; color: var(--accent); }
+.sim-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.sim-list li { border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.sim-q { display: inline-block; min-width: 46px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sim-kind { display: inline-block; font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 4px; color: #fff; background: #9aa0b8; }
+.sim-k-ac { background: #e00000; } .sim-k-nm { background: #d9a400; } .sim-k-sc { background: #7d84a3; }
+.sim-add { display: flex; gap: 6px; margin-top: 6px; } .sim-add input[name=area] { max-width: 130px; }

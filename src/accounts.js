@@ -39,7 +39,7 @@ const MODULES = [
   { key: 'basic', label: 'Basic pack', icon: '📋', what: 'Home, Tasks, Calendar, Library, 📥 My work, quick notes and search', always: true, areas: [] },
   { key: 'management', label: 'Management', icon: '🗂', what: 'Projects (the board, project pages and charters, the projects list in the sidebar), 👥 People (each person\'s open work and next action) and 💶 CAPEX (planned investments)', areas: ['projects', 'team', 'capex'] },
   { key: 'ci', label: 'Continuous Improvement', icon: '💡', what: 'Ideas: the ideas, their notes and the pipeline', areas: ['ideas'] },
-  { key: 'production', label: 'Prod Management', icon: '🏭', what: 'Production: perso, Matching, Insights (🔬 Learned, 📆 D+ due out, ⏱ Timing) and 🔍 search; 📐 Capacity planning (forecasts, flex, scenarios); 📊 Reporting\'s Weekly SC Report (the A3), its Database, 🏭 Operations and ▶ Prepare this week', areas: ['planning', 'cpm', 'kpi'] },
+  { key: 'production', label: 'Prod Management', icon: '🏭', what: '📣 SIM (the daily briefing\'s KPIs); Production: perso, Matching, Insights (🔬 Learned, 📆 D+ due out, ⏱ Timing) and 🔍 search; 📐 Capacity planning (forecasts, flex, scenarios); 📊 Reporting\'s Weekly SC Report (the A3), its Database, 🏭 Operations and ▶ Prepare this week', areas: ['planning', 'cpm', 'kpi', 'sim'] },
   { key: 'quality', label: 'Quality', icon: '🛡', what: '📊 Reporting\'s 🧪 Quality (customer complaints, from the Salesforce export) and ⛑ EHS (safety concern forms), month by month', areas: ['quality'] },
   { key: 'despatch', label: 'Despatch', icon: '🚚', what: '📊 Reporting\'s 🚚 OTD: logging late deliveries against the planner\'s work orders (internal or external, and why)', areas: ['otd'] },
   { key: 'forecast', label: 'Forecast', icon: '📈', what: '📈 Forecast: the customer forecasts sent in (who sent which, when), uploading one, and the upload link for the people who send them without an account; what\'s sent in goes into 📐 Capacity planning', areas: ['forecast'] },
@@ -61,7 +61,7 @@ const MODULE_API = [
 [/^\/vault(\/|$)/, ['kpi', 'quality', 'otd', 'kpi_sources']], // 🗄 the report vault: anyone with a Reporting tab
   [/^\/kpi(\/|$)/, ['kpi']], // the Weekly SC Report, its Database, Operations and Prepare
   [/^\/people\/(overview|focus)(\/|$)/, ['team']], [/^\/capex(\/|$)/, ['capex']], [/^\/(ideas|idea-notes)(\/|$)/, ['ideas']],
-  [/^\/(plan|prod)(\/|$)/, ['planning']], [/^\/cpm(\/|$)/, ['cpm']], [/^\/forecasts(\/|$)/, ['forecast']], [/^\/report(\/|$)/, ['report']], [/^\/contacts(\/|$)/, ['contacts']],
+  [/^\/(plan|prod)(\/|$)/, ['planning']], [/^\/cpm(\/|$)/, ['cpm']], [/^\/sim(\/|$)/, ['sim']], [/^\/forecasts(\/|$)/, ['forecast']], [/^\/report(\/|$)/, ['report']], [/^\/contacts(\/|$)/, ['contacts']],
 ];
 function modulesOf(a) {
   // 🎓 a training account shows the department view picked for the session (none picked: everything)
