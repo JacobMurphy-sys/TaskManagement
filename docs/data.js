@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'legacy-data', date: '2026-11-18', area: 'reporting', title: 'The report vault is now Legacy Data',
+    text: 'Reporting\'s Vault tab, where each month of the source reports is kept so a new year doesn\'t lose the last one, is now called Legacy Data. Nothing it holds has changed.' },
   { id: 'ops-delay-bars', date: '2026-11-17', area: 'reporting', title: 'Operations: delays by customer, SC and all',
     text: 'The delays by customer showed one total twice. They now show the SC delays, which count against OTD SC, next to all delays, with the columns labelled; lists for the year to date show their figure once.' },
   { id: 'capex-ir-pack', date: '2026-11-17', area: 'projects', title: 'CAPEX: the investment request pack',
