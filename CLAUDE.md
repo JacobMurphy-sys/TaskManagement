@@ -46,3 +46,7 @@ expense, nothing company-internal.
 - Display name is SITHUB; internal names (the `CIManager` folder, `cimanager-*.json`,
   `CIManager-Setup.bat`) are kept so existing installs keep working.
 - Keep the README in step with user-visible changes.
+- When telling the user about a change you pushed, end with how it takes effect:
+  **🔄 Refresh fix** — only browser files changed (`public/`): once the code is pulled, Ctrl+F5 shows it, no restart;
+  **🔁 Full update fix** — server code, the database, settings or packages changed (`src/`, `package.json`, …):
+  the server must take the update and restart (`update.bat`, or the shared server's nightly update).
