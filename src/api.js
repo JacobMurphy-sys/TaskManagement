@@ -4491,9 +4491,9 @@ router.get('/projects/:id/charter.xlsx', h((req, res) => {
   if (!p) throw notFound('Project');
   const values = charter.values(p, charterExtras(p.id), getSettings().currency);
   const mapping = parseJson(getSetting('charter_map')) || {};
-  const buf = fs.existsSync(TEMPLATE_FILE)
-    ? charter.fillTemplate(fs.readFileSync(TEMPLATE_FILE), mapping, values)
-    : charter.plainWorkbook(values);
+  const buf = fs.existsSync(TEMPLATE_FILE) // the charter's sheet named after the project
+    ? charter.fillTemplate(fs.readFileSync(TEMPLATE_FILE), mapping, values, { sheetName: p.name })
+    : charter.plainWorkbook(values, { sheetName: p.name });
   const file = `Charter - ${(p.project_code ? `${p.project_code} ` : '') + p.name}`.replace(/[^\w -]+/g, '').trim().slice(0, 80);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${file}.xlsx"; filename*=UTF-8''${encodeURIComponent(`${file}.xlsx`)}`);

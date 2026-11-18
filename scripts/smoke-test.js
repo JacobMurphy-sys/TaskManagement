@@ -1093,7 +1093,8 @@ async function waitForServer() {
     let cx = await fetch(`${BASE}/projects/${cp.id}/charter.xlsx`);
     assert.equal(cx.status, 200);
     const plain = readZip(Buffer.from(await cx.arrayBuffer()));
-    assert.match(plain['xl/workbook.xml'].toString(), /name="Charter"/, 'plain charter workbook');
+    const xmlName = (n) => require('../src/charter').safeSheetName(n, ['Sub projects', 'Actions agreed']).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    assert.ok(plain['xl/workbook.xml'].toString().includes(`name="${xmlName(cp.name)}"`), 'plain charter workbook, its sheet named after the project');
     assert.match(plain['xl/worksheets/sheet1.xml'].toString(), /Supplier costs rising/);
     const tpl = buildXlsx([{ name: 'Form', columns: [{ header: 'Problem definition:' }, { header: 'Management Sponsor:' }, { header: 'Project ID' }], rows: [] },
       { name: 'Risk analysis', columns: [{ header: 'Risk' }, { header: 'Likelihood' }], rows: [['Late delivery', 3]] },
@@ -1111,7 +1112,7 @@ async function waitForServer() {
     cx = await fetch(`${BASE}/projects/${cp.id}/charter.xlsx`);
     const filled = readZip(Buffer.from(await cx.arrayBuffer()));
     const sheet = filled['xl/worksheets/sheet1.xml'].toString();
-    assert.deepEqual([...filled['xl/workbook.xml'].toString().matchAll(/<sheet\b[^>]*name="([^"]+)"/g)].map((m) => m[1]), ['Form'], 'other sheets left out');
+    assert.deepEqual([...filled['xl/workbook.xml'].toString().matchAll(/<sheet\b[^>]*name="([^"]+)"/g)].map((m) => m[1]), [xmlName(cp.name)], 'other sheets left out, the charter\'s named after the project');
     assert.ok(!filled['xl/worksheets/sheet2.xml'] && !filled['xl/worksheets/sheet3.xml'], 'dropped sheet parts removed');
     assert.doesNotMatch(filled['[Content_Types].xml'].toString(), /sheet[23]\.xml/);
     assert.doesNotMatch(filled['xl/_rels/workbook.xml.rels'].toString(), /sheet[23]\.xml/);

@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'charter-sheet-name', date: '2026-11-18', area: 'projects', title: 'Charter download: named after the project',
+    text: 'The downloaded charter\'s sheet is named after the project instead of the template\'s own name, and the project\'s menu gives the charter too, next to a clearly named export of all the project\'s data.' },
   { id: 'legacy-data', date: '2026-11-18', area: 'reporting', title: 'The report vault is now Legacy Data',
     text: 'Reporting\'s Vault tab, where each month of the source reports is kept so a new year doesn\'t lose the last one, is now called Legacy Data. Nothing it holds has changed.' },
   { id: 'ops-delay-bars', date: '2026-11-17', area: 'reporting', title: 'Operations: delays by customer, SC and all',
