@@ -124,14 +124,17 @@ const qTrendTable = (trend, series) => `<details class="q-table-toggle"><summary
 // Bars with two figures each: `month` (bold, the dark bar) and `ytd` (grey, the light bar) — the month and the year to date,
 // or what heads names ([bold, grey]). single: one figure (the period is the year already, so the two would be the same).
 // x.alt: a different grey figure than the bar's length (e.g. customer delays, the bar being SC + customer); blank when 0.
+// x.cols: the figures to show instead, one per heads entry (e.g. SC, C and all delays; a 0 after the first is left blank).
 function qBarsList(list, monthLabel, fmt, { single = false, heads = null } = {}) {
   if (!list?.length) return '<div class="empty small">Nothing this year yet.</div>';
   const max = Math.max(1, ...list.map((x) => (single ? x.month : x.ytd))); const f = fmt || ((v) => v);
   const tip = (x) => (single ? `${esc(x.name)}: ${x.month.toLocaleString('en-GB')} in ${esc(monthLabel)}` : heads ? `${esc(x.name)}: ${x.month.toLocaleString('en-GB')} ${esc(heads[0])}, ${('alt' in x ? x.alt : x.ytd).toLocaleString('en-GB')} ${esc(heads[1])}` : `${esc(x.name)}: ${x.month.toLocaleString('en-GB')} in ${esc(monthLabel)}, ${x.ytd.toLocaleString('en-GB')} this year`);
-  return `<div class="q-bars${fmt ? ' wide' : ''}${single ? ' single' : ''}">${heads && !single ? `<div class="q-bar-row q-bar-head small muted"><span></span><span></span><span class="q-bar-n">${esc(heads[0])}</span><span class="q-bar-n">${esc(heads[1])}</span></div>` : ''}${list.map((x) => `<div class="q-bar-row${x.other ? ' other' : ''}" title="${tip(x)}">
+  const three = list.some((x) => Array.isArray(x.cols)) && heads?.length === 3;
+  const nums = (x) => (three ? x.cols.map((v, i) => `<span class="q-bar-n${i ? ' muted' : ''}">${i === 0 ? `<b>${v ? f(v) : ''}</b>` : v ? f(v) : ''}</span>`).join('') : null);
+  return `<div class="q-bars${fmt ? ' wide' : ''}${single ? ' single' : ''}${three ? ' three' : ''}">${heads && !single ? `<div class="q-bar-row q-bar-head small muted"><span></span><span></span>${heads.map((h) => `<span class="q-bar-n">${esc(h)}</span>`).join('')}</div>` : ''}${list.map((x) => `<div class="q-bar-row${x.other ? ' other' : ''}" title="${three ? `${esc(x.name)}: ${x.cols.map((v, i) => `${v.toLocaleString('en-GB')} ${esc(heads[i])}`).join(', ')}` : tip(x)}">
       <span class="q-bar-name">${esc(x.name)}</span>
       <span class="q-bar">${single ? '' : `<i class="ytd" style="width:${(x.ytd / max) * 100}%"></i>`}<i class="mon" style="width:${(x.month / max) * 100}%"></i></span>
-      <span class="q-bar-n"><b>${x.month ? f(x.month) : ''}</b></span>${single ? '' : `<span class="q-bar-n muted">${'alt' in x ? (x.alt ? f(x.alt) : '') : f(x.ytd)}</span>`}</div>`).join('')}</div>`;
+      ${three ? nums(x) : `<span class="q-bar-n"><b>${x.month ? f(x.month) : ''}</b></span>${single ? '' : `<span class="q-bar-n muted">${'alt' in x ? (x.alt ? f(x.alt) : '') : f(x.ytd)}</span>`}`}</div>`).join('')}</div>`;
 }
 function qBars(title, list, monthLabel) {
   if (!list?.length) return `<div class="card q-card"><h3>${title}</h3><div class="empty small">Nothing this year yet.</div></div>`;
