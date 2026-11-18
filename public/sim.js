@@ -23,12 +23,14 @@ async function renderSim(dayArg) {
   const big = (colour, value) => `<div class="sim-big ${colour ? `sim-${colour}` : 'sim-none'}"><div class="sim-val">${value}</div></div>`;
   const facts = (lines) => `<div class="sim-facts">${lines.filter(Boolean).map((l) => `<div>${l}</div>`).join('')}</div>`;
   const mtd = (t, f) => `Month to date <b class="${t.mtd.colour ? `sim-t-${t.mtd.colour}` : ''}">${f(t.mtd.value)}</b>`;
-  // side: the chart and the lists side by side (scrap, OTD), else the lists under the chart
-  const panel = (key, title, unit, result, chartId, lists, side = false) => `<section class="card sim-panel${side ? ' sim-side' : ''}" data-sim="${key}">
-      <header class="sim-head"><h2>${title}</h2><span class="small muted">${unit}</span></header>
-      <div class="sim-result">${result}</div>
-      <div class="sim-body"><div class="sim-chart" id="${chartId}"></div>
-      <div class="sim-lists">${lists}</div></div></section>`;
+  // side: the lists in a column of their own down the panel's right (scrap, OTD: their top 5s use the full height);
+  // else the chart takes the room and a small strip under it lists what there is (quality, safety)
+  const panel = (key, title, unit, result, chartId, lists, { side = false, action = '' } = {}) => {
+    const head = `<header class="sim-head"><h2>${title}</h2><span class="small muted">${unit}</span>${action ? `<span class="spacer"></span>${action}` : ''}</header>`;
+    return side
+      ? `<section class="card sim-panel sim-side" data-sim="${key}"><div class="sim-main">${head}<div class="sim-result">${result}</div><div class="sim-chart" id="${chartId}"></div></div><div class="sim-lists">${lists}</div></section>`
+      : `<section class="card sim-panel" data-sim="${key}">${head}<div class="sim-result">${result}</div><div class="sim-chart" id="${chartId}"></div><div class="sim-lists sim-lists-low">${lists}</div></section>`;
+  };
   const list = (title, rows, empty) => `<div class="sim-list"><h3>${title}</h3>${rows.length ? `<ul>${rows.join('')}</ul>` : `<div class="small muted">${empty}</div>`}</div>`;
   const cust = (c, name) => `${esc(c || '?')}${name ? ` <span class="muted">${esc(name)}</span>` : ''}`;
 
@@ -38,8 +40,8 @@ async function renderSim(dayArg) {
     `${big(q.colour, fmt.quality(q.value))}${facts([`${q.complaints.length} complaint${q.complaints.length === 1 ? '' : 's'} · ${vol(q, q.shipped, 'cards shipped')}`, tgt(q, fmt.quality), mtd(q, fmt.quality), `Internal reports <b>${q.internal.length}</b> <span class="muted">(month: ${q.mtd.internal})</span>`])}`,
     'sim-c-quality',
     `${list('Customer complaints opened', q.complaints.map((c) => `<li><b>${esc(c.ref || '—')}</b> ${cust(c.customer)}${c.severity ? ` <span class="pill">${esc(c.severity)}</span>` : ''}${c.summary ? `<div class="small muted">${esc(c.summary)}</div>` : ''}</li>`), 'None opened that day.')}
-     <div class="sim-list"><h3>Internal reports</h3>${q.internal.length ? `<ul>${q.internal.map((r) => `<li>${r.area ? `<b>${esc(r.area)}</b> · ` : ''}${esc(r.text)}<button type="button" class="icon small" data-sim-del="${r.id}" title="Remove">✕</button>${r.created_by ? `<div class="small muted">${esc(r.created_by)}</div>` : ''}</li>`).join('')}</ul>` : '<div class="small muted">None noted yet.</div>'}
-       <form class="sim-add" id="sim-add"><input type="text" name="area" placeholder="Area" maxlength="120"><input type="text" name="text" placeholder="＋ An internal report for this day… (Enter)" maxlength="1000" required></form></div>`);
+     <div class="sim-list"><h3>Internal reports</h3>${q.internal.length ? `<ul>${q.internal.map((r) => `<li>${r.area ? `<b>${esc(r.area)}</b> · ` : ''}${esc(r.text)}<button type="button" class="icon small" data-sim-del="${r.id}" title="Remove">✕</button>${r.created_by ? ` <span class="small muted">${esc(r.created_by)}</span>` : ''}</li>`).join('')}</ul>` : '<div class="small muted">None noted yet (＋ adds one).</div>'}</div>`,
+    { action: '<button type="button" class="sim-plus" id="sim-add-btn" title="Note an internal report for this day">＋ Internal report</button>' });
 
   // ---- Safety
   const s = T.safety;
@@ -53,7 +55,7 @@ async function renderSim(dayArg) {
   const scrap = panel('scrap', 'Scrap', 'scrap rate: scrap ÷ cards persoed',
     `${big(sc.colour, fmt.scrap(sc.value))}${facts([`${simNum(sc.scrap)} cards scrapped · ${vol(sc, sc.persoed, 'persoed')}`, tgt(sc, fmt.scrap), mtd(sc, fmt.scrap), `<span class="muted">${simNum(sc.mtd.scrap)} scrapped of ${simNum(sc.mtd.persoed)} this month</span>`])}`,
     'sim-c-scrap',
-    list('Top 5 scrap that day', sc.top.map((t) => `<li><span class="sim-q">${simNum(t.qty)}</span> <b>${esc(t.wo || '—')}</b> ${cust(t.customer, t.name)}<div class="small muted">${esc(t.cause)}${t.item ? ` · ${esc(t.item)}` : ''}</div></li>`), 'No scrap that day.'), true);
+    list('Top 5 scrap that day', sc.top.map((t) => `<li><span class="sim-q">${simNum(t.qty)}</span> <b>${esc(t.wo || '—')}</b> ${cust(t.customer, t.name)}<div class="small muted">${esc(t.cause)}${t.item ? ` · ${esc(t.item)}` : ''}</div></li>`), 'No scrap that day.'), { side: true });
 
   // ---- OTD
   const o = T.otd;
@@ -62,7 +64,7 @@ async function renderSim(dayArg) {
       o.undated.rows ? `<span class="pl-late" title="Delays of ${esc(o.undated.week)} in the OTD report with only the week typed in: they can't be put on a day">${o.undated.rows} delay${o.undated.rows === 1 ? '' : 's'} of ${esc(o.undated.week)} without a date (${simNum(o.undated.qty)} cards)</span>` : ''])}`,
     'sim-c-otd',
     `${list('Delays that day', o.delays.map((x) => `<li><span class="sim-q">${simNum(x.qty)}</span> <span class="sim-kind ${x.kind === 'SC' ? 'sim-k-ac' : 'sim-k-sc'}">${x.kind}</span> ${cust(x.customer)}${x.wo ? ` · ${esc(x.wo)}` : ''}${x.reason ? `<div class="small muted">${esc(x.reason)}</div>` : ''}</li>`), 'No dated delays that day.')}
-     ${list('Late work orders due that day', o.late_wos.map((j) => `<li><span class="sim-q">${simNum(j.qty)}</span> <b>${esc(j.wo)}</b> ${cust(j.customer, j.name)}<div class="small muted">${j.open ? `still open, ${simNum(j.late_hours, 1)} h past its deadline` : `finished ${simNum(j.late_hours, 1)} h late`}</div></li>`), 'None late (from the planner).')}`, true);
+     ${list('Late work orders due that day', o.late_wos.map((j) => `<li><span class="sim-q">${simNum(j.qty)}</span> <b>${esc(j.wo)}</b> ${cust(j.customer, j.name)}<div class="small muted">${j.open ? `still open, ${simNum(j.late_hours, 1)} h past its deadline` : `finished ${simNum(j.late_hours, 1)} h late`}</div></li>`), 'None late (from the planner).')}`, { side: true });
 
   const isDefault = d.day === d.default_day;
   main().innerHTML = `
@@ -89,9 +91,17 @@ async function renderSim(dayArg) {
   $$('[data-sim-go]').forEach((b) => { b.onclick = () => go(b.dataset.simGo); });
   $('#sim-day').onchange = (e) => { if (e.target.value) go(e.target.value); };
   main().addEventListener('click', (e) => { const c = e.target.closest('[data-sim-day]'); if (c && main().contains(c)) go(c.dataset.simDay); });
-  $('#sim-add').onsubmit = async (e) => {
-    e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
-    try { await api.post('/sim/reports', { day: d.day, text: f.text, area: f.area }); toast('Internal report noted'); renderSim(d.day); } catch (err) { toast(err.message, 'error'); }
+  $('#sim-add-btn').onclick = () => {
+    openModal(`<div class="modal-head"><h2 style="margin:0">＋ Internal report</h2><button class="icon" data-action="close-modal">✕</button></div>
+      <p class="small muted" style="margin-top:0">For ${esc(d.label)}.</p>
+      <form id="sim-add" class="form-grid"><label class="f full">Area<input type="text" name="area" maxlength="120" placeholder="e.g. Embossing"></label>
+        <label class="f full">What happened<textarea name="text" rows="3" maxlength="1000" required></textarea></label>
+        <div class="full row"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button><button class="primary" type="submit">Add</button></div></form>`);
+    $('#sim-add [name=area]').focus();
+    $('#sim-add').onsubmit = async (e) => {
+      e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
+      try { await api.post('/sim/reports', { day: d.day, text: f.text, area: f.area }); closeModal(); toast('Internal report noted'); renderSim(d.day === d.default_day ? '' : d.day); } catch (err) { toast(err.message, 'error'); }
+    };
   };
   $$('[data-sim-del]').forEach((b) => { b.onclick = async () => { if (!confirm('Remove this internal report?')) return; try { await api.del(`/sim/reports/${b.dataset.simDel}`); renderSim(d.day); } catch (err) { toast(err.message, 'error'); } }; });
   $('#sim-bands').onclick = () => simBands(d);
