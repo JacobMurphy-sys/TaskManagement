@@ -149,7 +149,11 @@
     panels.forEach((p, k) => {
       const x0 = pad + (k % 2) * (pw + gap); const y0 = headH + Math.floor(k / 2) * (ph + gap);
       out.push(`<rect x="${x0}" y="${y0}" width="${pw}" height="${ph}" rx="12" fill="${P.panel}" stroke="${P.border}"/>`);
-      const listX = x0 + pw * 0.64; const leftW = listX - x0 - 18;
+      // as on the page: Scrap and OTD keep their lists in a column down the right; Quality and Safety give the chart
+      // the full width with a strip of their lists along the bottom
+      const side = p.key === 'scrap' || p.key === 'otd';
+      const listX = side ? x0 + pw * 0.64 : x0 + pw - 8; const leftW = listX - x0 - 18;
+      const stripH = side ? 0 : Math.round(ph * 0.24);
       out.push(text(x0 + 18, y0 + 34, p.title, { size: 24, weight: 800 }));
       out.push(text(x0 + 18 + p.title.length * 14 + 14, y0 + 33, p.unit, { size: 13, fill: P.muted, w: leftW - p.title.length * 14 - 30 }));
       // the result: big, in its colour
@@ -167,29 +171,41 @@
         fy += 22;
       }
       // the chart, scaled up a little from the page's (its lettering stays readable on a big screen)
-      const cx = x0 + 8; const cy = by + bh + 14; const cw = listX - cx - 14; const ch = y0 + ph - cy - 12; const zoom = 1.3;
+      const cx = x0 + 8; const cy = by + bh + 14; const cw = listX - cx - (side ? 14 : 10); const ch = y0 + ph - stripH - cy - 12; const zoom = 1.3;
       out.push(simChartSvg(specs[k], d.day, Math.round(cw / zoom), Math.round(ch / zoom), { accent: P.accent, muted: P.muted, picture: true })
         .replace('<svg ', `<svg x="${cx}" y="${cy}" preserveAspectRatio="none" `).replace(/width="(\d+)" height="(\d+)"/, `width="${cw}" height="${ch}"`));
-      // the lists down the right
-      out.push(`<line x1="${listX - 10}" x2="${listX - 10}" y1="${y0 + 16}" y2="${y0 + ph - 16}" stroke="${P.border}"/>`);
-      const lw = x0 + pw - listX - 16; const bottom = y0 + ph - 14;
-      let ly = y0 + 34;
-      p.lists.forEach(([title, rows, empty], li) => {
-        if (ly > bottom - 30) return;
-        if (li) ly += 10;
-        out.push(text(listX, ly, title, { size: 15, weight: 700, fill: P.accent, w: lw })); ly += 22;
-        if (!rows.length) { out.push(text(listX, ly, empty, { size: 13, fill: P.muted, w: lw })); ly += 20; return; }
-        const room = li < p.lists.length - 1 ? Math.max(1, Math.floor((bottom - ly) / 2 / 40)) : 99;
+      // a list: its title, then its rows (a line and one under it) while they fit, then how many more
+      const drawList = (lx, ly, lw, bottom, [title, rows, empty], room = 99) => {
+        out.push(text(lx, ly, title, { size: 15, weight: 700, fill: P.accent, w: lw })); ly += 22;
+        if (!rows.length) { out.push(text(lx, ly, empty, { size: 13, fill: P.muted, w: lw })); return ly + 20; }
         let shown = 0;
         for (const [line, under] of rows) {
           if (shown >= room || ly + (under ? 38 : 20) > bottom) break;
-          out.push(text(listX, ly, line, { size: 14, weight: 600, w: lw })); ly += 18;
-          if (under) { out.push(text(listX, ly, under, { size: 12, fill: P.muted, w: lw })); ly += 18; }
-          out.push(`<line x1="${listX}" x2="${listX + lw}" y1="${ly - 9}" y2="${ly - 9}" stroke="${P.border}" stroke-width="0.8"/>`); ly += 6;
+          out.push(text(lx, ly, line, { size: 14, weight: 600, w: lw })); ly += 18;
+          if (under) { out.push(text(lx, ly, under, { size: 12, fill: P.muted, w: lw })); ly += 18; }
+          out.push(`<line x1="${lx}" x2="${lx + lw}" y1="${ly - 9}" y2="${ly - 9}" stroke="${P.border}" stroke-width="0.8"/>`); ly += 6;
           shown += 1;
         }
-        if (shown < rows.length) { out.push(text(listX, ly, `+ ${rows.length - shown} more`, { size: 12, fill: P.muted })); ly += 18; }
-      });
+        if (shown < rows.length) { out.push(text(lx, Math.min(ly, bottom), `+ ${rows.length - shown} more`, { size: 12, fill: P.muted })); ly += 18; }
+        return ly;
+      };
+      const bottom = y0 + ph - 14;
+      if (side) {
+        // down the right: the lists one under the other (the first leaves room for the next)
+        out.push(`<line x1="${listX - 10}" x2="${listX - 10}" y1="${y0 + 16}" y2="${y0 + ph - 16}" stroke="${P.border}"/>`);
+        const lw = x0 + pw - listX - 16; let ly = y0 + 34;
+        p.lists.forEach((l, li) => {
+          if (ly > bottom - 30) return;
+          if (li) ly += 10;
+          ly = drawList(listX, ly, lw, bottom, l, li < p.lists.length - 1 ? Math.max(1, Math.floor((bottom - ly) / 2 / 40)) : 99);
+        });
+      } else {
+        // the strip along the bottom: the lists side by side
+        const sy = y0 + ph - stripH; const n = p.lists.length; const sx = x0 + 18; const sw = pw - 36; const cg = 24;
+        out.push(`<line x1="${sx}" x2="${sx + sw}" y1="${sy}" y2="${sy}" stroke="${P.border}"/>`);
+        const colW = (sw - cg * (n - 1)) / n;
+        p.lists.forEach((l, li) => drawList(sx + li * (colW + cg), sy + 22, colW, bottom, l));
+      }
     });
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${FONT}"><style>${CHART_CSS}</style>${out.join('')}</svg>`;
   }
