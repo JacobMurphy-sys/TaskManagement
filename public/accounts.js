@@ -33,7 +33,7 @@ const modOk = (area) => !ACCT.account || (ACCT.account.areas || []).includes(are
 // 📊 Reporting's tabs, each with the area (module) it needs: the Weekly SC Report, Database and Operations (Prod
 // Management), Quality and EHS (Quality), Sources (Admin). Reporting is in the top bar for any of them.
 const KPI_TABS = [['a3', 'Weekly SC Report', 'kpi', '#/kpi'], ['database', 'Database', 'kpi', '#/kpi/0/database'], ['operations', '🏭 Operations', 'kpi', '#/kpi/operations'], ['otd', '🚚 OTD', 'otd', '#/kpi/otd'], ['quality', '🧪 Quality', 'quality', '#/kpi/quality'],
-  ['ehs', '⛑ EHS', 'quality', '#/kpi/ehs'], ['sources', 'Sources', 'kpi_sources', '#/kpi/sources'], ['vault', '🗄 Vault', 'kpi', '#/kpi/vault']];
+  ['ehs', '⛑ EHS', 'quality', '#/kpi/ehs'], ['sources', 'Sources', 'kpi_sources', '#/kpi/sources'], ['vault', '🗄 Legacy Data', 'kpi', '#/kpi/vault']];
 const kpiTabOk = (tab) => modOk(KPI_TABS.find((t) => t[0] === tab)?.[2] || 'kpi');
 const reportingOk = () => KPI_TABS.some(([k]) => kpiTabOk(k));
 // the Reporting tab an address is on (#/kpi/12/database → database)
