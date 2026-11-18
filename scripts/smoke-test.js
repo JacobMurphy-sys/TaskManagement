@@ -421,6 +421,8 @@ async function waitForServer() {
       const d2 = await call('GET', `/sim?day=${day}`);
       assert.ok(d2.day === day && d2.topics.quality.internal.some((r) => r.text === 'Wrong foil on line 2' && r.area === 'Embossing') && d2.topics.quality.mtd.internal >= 1, 'the internal report on its day');
       await call('DELETE', `/sim/reports/${rep.id}`);
+      const readRes = await call('POST', '/sim/read', {}); // ⟳ the feeding reports: only SIM's sources come back
+      assert.ok(Array.isArray(readRes) && readRes.every((r) => ['shipped', 'perso', 'remakes', 'consumption', 'otd', 'salesforce', 'ehs'].includes(r.source)));
       assert.ok(!(await call('GET', `/sim?day=${day}`)).topics.quality.internal.length);
       assert.deepEqual(Object.keys(sim('2026-03-04', { settings: {}, today: new Date('2026-03-10T08:00:00Z') }).bands), ['quality', 'safety', 'scrap', 'otd']);
     }

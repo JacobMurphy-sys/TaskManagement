@@ -830,9 +830,18 @@ router.get('/capex/:id/ir/deck.pptx', h(async (req, res) => {
 
 // ---- 📣 SIM: the day's KPIs for the briefing (sim.js), and the internal reports typed in at it ------------
 const simKpis = require('./sim');
-router.get('/sim', h((req, res) => {
+// the reports SIM is fed from: read again when they've changed (on opening, and with its ⟳ button)
+const SIM_SOURCES = ['shipped', 'perso', 'remakes', 'consumption', 'otd', 'salesforce', 'ehs'];
+router.get('/sim', h(async (req, res) => {
+  if (req.query.read !== '0') await refreshSource('shipped', SIM_SOURCES.slice(1));
   const names = new Map(); try { for (const c of db.all('SELECT trigram, name FROM cpm_customers')) if (c.trigram && c.name) names.set(String(c.trigram).toUpperCase(), c.name); } catch { /* none */ }
   res.json(simKpis.sim(req.query.day, { settings: getSettings(), names }));
+}));
+router.post('/sim/read', h(async (req, res) => {
+  const set = getSettings();
+  const results = await bg.run('kpi', { paths: kpiPaths(set), workbook: set.kpi_workbook_path || null, splitWeekends: splitWeekends(), only: SIM_SOURCES, force: !!req.body?.force });
+  log.info('SIM: reports read', (Array.isArray(results) ? results : []).map((r) => `${r.source}: ${r.status}${r.rows !== undefined ? ` (${r.rows})` : ''}`).join(', '));
+  res.json(Array.isArray(results) ? results.filter((r) => SIM_SOURCES.includes(r.source)) : []);
 }));
 router.post('/sim/reports', h((req, res) => {
   const day = String(req.body?.day || ''); const text = String(req.body?.text || '').trim().slice(0, 1000);

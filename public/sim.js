@@ -69,7 +69,7 @@ async function renderSim(dayArg) {
       <div class="seg"><button type="button" data-sim-go="${simDayAdd(d.day, -1)}" title="The day before">◀</button><button type="button" data-sim-go="${simDayAdd(d.day, 1)}" title="The day after" ${d.day >= d.today ? 'disabled' : ''}>▶</button></div>
       <input type="date" id="sim-day" value="${d.day}" max="${d.today}" style="width:auto">
       <b>${esc(d.label)}</b>${isDefault ? '<span class="pill">last working day</span>' : `<button type="button" class="link small" data-sim-go="">Back to the last working day</button>`}${d.worked ? '' : '<span class="pill" title="Not a working day in Production\'s calendar">not a working day</span>'}
-      <div class="spacer"></div>${ddMenu('⋯', '<button type="button" id="sim-bands">🎨 Colour bands…</button>', { title: 'How the colours are decided' })}</div>
+      <div class="spacer"></div><button type="button" id="sim-read" title="Read the reports SIM is fed from again (cards shipped and persoed, scrap, OTD, complaints, safety forms) — the ones that changed">⟳ Read the reports</button>${ddMenu('⋯', '<button type="button" id="sim-bands">🎨 Colour bands…</button>', { title: 'How the colours are decided' })}</div>
     <div class="sim-grid">${quality}${safety}${scrap}${otd}</div>`;
 
   // the line charts, drawn to their boxes
@@ -94,6 +94,16 @@ async function renderSim(dayArg) {
   };
   $$('[data-sim-del]').forEach((b) => { b.onclick = async () => { if (!confirm('Remove this internal report?')) return; try { await api.del(`/sim/reports/${b.dataset.simDel}`); renderSim(d.day); } catch (err) { toast(err.message, 'error'); } }; });
   $('#sim-bands').onclick = () => simBands(d);
+  $('#sim-read').onclick = async (e) => {
+    const b = e.currentTarget; b.disabled = true; b.textContent = '⏳ Reading…';
+    try {
+      const res = await api.post('/sim/read', {});
+      const bad = res.filter((r) => r.status === 'error' || r.status === 'missing'); const done = res.filter((r) => r.status === 'imported');
+      if (bad.length) toast(bad.map((r) => `${r.source}: ${r.error || `can't find ${r.file}`}`).join(' · '), 'error');
+      else toast(done.length ? `Read ${done.map((r) => r.source).join(', ')}` : 'The reports haven\'t changed since they were last read');
+      renderSim(d.day === d.default_day ? '' : d.day);
+    } catch (err) { toast(err.message, 'error'); b.disabled = false; b.textContent = '⟳ Read the reports'; }
+  };
 }
 
 // The month to date as a line chart in a box (drawn at the box's own size): a line per series through the days with
