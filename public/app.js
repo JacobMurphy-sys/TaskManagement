@@ -1139,7 +1139,7 @@ async function renderProject(id, tab) {
           <button data-action="set-baseline">📌 ${p.baseline_set_at ? 'Re-baseline' : 'Set the baseline'}</button>
           <hr>
           <a href="#/report/${p.id}">📰 Status report</a>
-          <a href="/api/export.xlsx?scope=project&id=${p.id}">⬇ Download as Excel</a>`, { title: 'More: history, reminder, costs, phases, baseline, report, Excel' })}
+          <a href="/api/projects/${p.id}/charter.xlsx" title="The charter: your standard template filled in (set it up under Settings)">⬇ Charter (Excel)</a><a href="/api/export.xlsx?scope=project&id=${p.id}" title="Everything in the project: tasks, notes, costs, phases, team…">⬇ All the project's data (Excel)</a>`, { title: 'More: history, reminder, costs, phases, baseline, report, Excel' })}
       </div>
     </div>
     <label class="na-line" title="The talking point for this project's next review — one line, shown on Home, the board and 👥 People. Empty: its most pressing open task, worked out (type to set your own)">▶ <input type="text" id="proj-next" maxlength="300" value="${esc(p.next_action || '')}" placeholder="${esc(autoPlaceholder(p.next_auto, 'Next action — the talking point for the next review'))}"></label>

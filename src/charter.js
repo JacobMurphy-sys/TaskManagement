@@ -144,14 +144,14 @@ function values(p, extras) {
 }
 
 // A simple workbook with the charter, used until a template is uploaded.
-function plainWorkbook(v) {
+function plainWorkbook(v, { sheetName = '' } = {}) {
   const rows = FIELD_LIST.map((f) => [f.label, v[f.key]]);
   const plan = (list) => list.map((t) => [t.title, t.owner, t.start, t.due, t.actual_start, t.completed, t.status]);
   const planCols = [{ header: 'Task', width: 40 }, { header: 'Owner', width: 18 }, { header: 'Planned start', type: 'date', width: 13 },
     { header: 'Planned complete', type: 'date', width: 15 }, { header: 'Actual start', type: 'date', width: 13 },
     { header: 'Completed', type: 'date', width: 12 }, { header: 'Status', width: 9 }];
   return buildXlsx([
-    { name: 'Charter', columns: [{ header: 'Field', width: 30 }, { header: 'Value', type: 'wrap', width: 100 }], rows },
+    { name: safeSheetName(sheetName, ['Sub projects', 'Actions agreed']) || 'Charter', columns: [{ header: 'Field', width: 30 }, { header: 'Value', type: 'wrap', width: 100 }], rows },
     { name: 'Sub projects', columns: planCols, rows: plan(v.timeline.sub) },
     { name: 'Actions agreed', columns: planCols, rows: plan(v.timeline.actions) },
   ]);
@@ -531,7 +531,33 @@ function outputSheets(template, mapping) {
   return names;
 }
 
-function fillTemplate(buf, mapping, vals) {
+// A sheet name Excel accepts: no : \\ / ? * [ ], not starting or ending with ', at most 31 characters, not one of `taken`
+function safeSheetName(name, taken = []) {
+  let n = String(name || '').replace(/[:\\/?*[\]]/g, ' ').replace(/\s+/g, ' ').trim().replace(/^'+|'+$/g, '').slice(0, 31).trim();
+  if (!n || /^history$/i.test(n)) return '';
+  const used = new Set(taken.map((t) => t.toLowerCase()));
+  for (let k = 2; used.has(n.toLowerCase()); k++) n = `${n.slice(0, 31 - String(k).length - 1)} ${k}`;
+  return n;
+}
+// rename a sheet in a workbook's files, with every reference to it (formulas, defined names, charts)
+function renameSheet(files, oldName, newName) {
+  if (!newName || oldName === newName) return;
+  const xmlE = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const reE = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const quotedOld = `'${oldName.replace(/'/g, "''")}'!`; const ref = `'${newName.replace(/'/g, "''")}'!`;
+  const bareOld = /^[A-Za-z_][A-Za-z0-9_.]*$/.test(oldName) ? new RegExp(`(^|[^A-Za-z0-9_.'!])${reE(oldName)}!`, 'g') : null;
+  const fix = (formula) => { let f = formula.split(xmlE(quotedOld)).join(xmlE(ref)).split(quotedOld).join(xmlE(ref)); if (bareOld) f = f.replace(bareOld, (w, pre) => `${pre}${xmlE(ref)}`); return f; };
+  let wb = files['xl/workbook.xml'].toString('utf8');
+  wb = wb.replace(new RegExp(`(<sheet\\b[^>]*\\bname=")${reE(xmlE(oldName))}(")`), `$1${xmlE(newName)}$2`);
+  wb = wb.replace(/(<definedName\b[^>]*>)([\s\S]*?)(<\/definedName>)/g, (w, a, body, c) => `${a}${fix(body)}${c}`);
+  files['xl/workbook.xml'] = Buffer.from(wb, 'utf8');
+  for (const p of Object.keys(files)) {
+    if (/^xl\/worksheets\/[^/]+\.xml$/.test(p)) files[p] = Buffer.from(files[p].toString('utf8').replace(/(<f\b[^>]*>)([\s\S]*?)(<\/f>)/g, (w, a, body, c) => `${a}${fix(body)}${c}`), 'utf8');
+    else if (/^xl\/charts\/[^/]+\.xml$/.test(p)) files[p] = Buffer.from(files[p].toString('utf8').replace(/(<c:f>)([\s\S]*?)(<\/c:f>)/g, (w, a, body, c) => `${a}${fix(body)}${c}`), 'utf8');
+  }
+}
+
+function fillTemplate(buf, mapping, vals, { sheetName = '' } = {}) {
   const t = readTemplate(buf);
   const files = { ...t.files };
   const sheetXml = Object.fromEntries(t.sheets.map((sh) => [sh.name, files[sh.file].toString('utf8')]));
@@ -565,11 +591,15 @@ function fillTemplate(buf, mapping, vals) {
     files['[Content_Types].xml'] = Buffer.from(files['[Content_Types].xml'].toString('utf8').replace(/<Override[^>]*calcChain[^>]*\/>/, ''), 'utf8');
     files['xl/_rels/workbook.xml.rels'] = Buffer.from(files['xl/_rels/workbook.xml.rels'].toString('utf8').replace(/<Relationship[^>]*calcChain[^>]*\/>/, ''), 'utf8');
   }
-  keepSheets(files, t.sheets, new Set(outputSheets(t, mapping)));
+  const kept = outputSheets(t, mapping);
+  keepSheets(files, t.sheets, new Set(kept));
+  // the charter's own sheet (where the project's name goes, else the first one kept) named after the project
+  const main = kept.includes(mapping?.name?.sheet) ? mapping.name.sheet : kept[0];
+  if (main && sheetName) renameSheet(files, main, safeSheetName(sheetName, (kept.length === t.sheets.length ? t.sheets.map((sh) => sh.name) : kept).filter((n) => n !== main)));
   return zip(files);
 }
 
 module.exports = {
   FIELDS, FIELD_LIST, REQUIRED, completeness, values, plainWorkbook, readTemplate, detectMapping, detectTimelines,
-  validationList, fillTemplate, outputSheets, ragStatus, phaseRag,
+  validationList, fillTemplate, outputSheets, safeSheetName, renameSheet, ragStatus, phaseRag,
 };
