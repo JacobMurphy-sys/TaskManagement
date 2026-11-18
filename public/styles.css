@@ -2770,33 +2770,44 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .cd-vals { max-width: 640px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vt-up-replace td:last-child { font-weight: 600; }
 
-/* 📣 SIM: four panels, the day's result large, the month by day, what made it */
-.sim-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
-@media (max-width: 1100px) { .sim-grid { grid-template-columns: 1fr; } }
-.sim-panel { margin: 0; display: flex; flex-direction: column; gap: 8px; }
-.sim-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.sim-head h2 { margin: 0; font-size: 18px; }
-.sim-big { border-radius: 12px; padding: 12px 16px; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; border: 2px solid transparent; }
-.sim-val { font-size: 44px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
-.sim-sub { font-size: 13px; color: var(--muted); }
+/* 📣 SIM: one page, four equal panels — the day's result, the month as a line chart with the target, what made it */
+.sim-tools { margin-bottom: 8px; }
+.sim-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 12px; height: calc(100vh - 150px); min-height: 620px; }
+@media (max-width: 1100px) { .sim-grid { grid-template-columns: 1fr; grid-template-rows: none; height: auto; } .sim-panel { min-height: 520px; } }
+.sim-grid > .sim-panel { margin: 0; }
+.sim-panel { margin: 0; display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: hidden; padding: 12px 14px; }
+.sim-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; flex: none; }
+.sim-head h2 { margin: 0; font-size: 19px; letter-spacing: .2px; }
+.sim-result { display: flex; gap: 14px; align-items: stretch; flex: none; height: 84px; }
+.sim-big { border-radius: 12px; padding: 6px 16px; display: flex; align-items: center; border: 2px solid transparent; min-width: 190px; justify-content: center; }
+.sim-val { font-size: 40px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sim-facts { display: flex; flex-direction: column; justify-content: center; gap: 2px; font-size: 12.5px; min-width: 0; }
 .sim-green { background: color-mix(in srgb, #00B050 14%, transparent); border-color: #00B050; } .sim-green .sim-val { color: #00a04a; }
 .sim-yellow { background: color-mix(in srgb, #FFC000 18%, transparent); border-color: #FFC000; } .sim-yellow .sim-val { color: #b38600; }
 .sim-red { background: color-mix(in srgb, #FF0000 12%, transparent); border-color: #FF0000; } .sim-red .sim-val { color: #e00000; }
 .sim-none { background: var(--panel-2); border-color: var(--border); }
 .sim-t-green { color: #00a04a; } .sim-t-yellow { color: #b38600; } .sim-t-red { color: #e00000; }
-.sim-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: baseline; font-size: 13px; }
-.sim-chart { width: 100%; height: 120px; display: block; }
-.sim-bar { cursor: pointer; } .sim-bar:hover rect:last-of-type { opacity: .85; }
+.sim-chart { flex: 1 1 42%; min-height: 110px; position: relative; }
+.sim-chart svg { position: absolute; inset: 0; display: block; }
+.sim-okzone { fill: color-mix(in srgb, #00B050 9%, transparent); }
 .sim-selbg { fill: var(--accent-soft); }
-.sim-ax { font-size: 9px; text-anchor: middle; fill: var(--muted); } .sim-ax.off { opacity: .45; } .sim-ax.sel { fill: var(--accent); font-weight: 700; }
-.sim-target { stroke: var(--text); stroke-dasharray: 4 3; stroke-width: 1; opacity: .55; }
-.sim-tlabel { font-size: 9px; text-anchor: start; fill: var(--muted); }
+.sim-ax { font-size: 10px; text-anchor: middle; fill: var(--muted); } .sim-ax.off { opacity: .45; } .sim-ax.sel { fill: var(--accent); font-weight: 700; }
+.sim-yax { font-size: 10px; text-anchor: end; fill: var(--muted); }
+.sim-target { stroke: var(--text); stroke-dasharray: 6 4; stroke-width: 1.6; }
+.sim-tbox { fill: var(--text); }
+.sim-tlabel { font-size: 10.5px; font-weight: 700; text-anchor: middle; fill: var(--panel); }
+.sim-tword { font-size: 9px; font-weight: 700; text-anchor: end; fill: var(--text); letter-spacing: .4px; }
+.sim-val small { font-size: 18px; font-weight: 700; margin-left: 6px; }
 .sim-base { stroke: var(--border); stroke-width: 1; }
-.sim-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
-.sim-list h3 { margin: 4px 0 4px; font-size: 13px; color: var(--accent); }
-.sim-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-.sim-list li { border-bottom: 1px solid var(--border); padding-bottom: 4px; }
-.sim-q { display: inline-block; min-width: 46px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sim-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.sim-dot { stroke: var(--panel); stroke-width: 1.2; } .sim-dot.sel { stroke: var(--text); stroke-width: 2; }
+.sim-legend text { font-size: 10px; fill: var(--muted); }
+.sim-hit { cursor: pointer; } .sim-hit:hover { fill: color-mix(in srgb, var(--accent) 8%, transparent); }
+.sim-lists { flex: 1 1 38%; min-height: 0; overflow: auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; align-content: start; border-top: 1px solid var(--border); padding-top: 6px; }
+.sim-list h3 { margin: 2px 0 4px; font-size: 12.5px; color: var(--accent); }
+.sim-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
+.sim-list li { border-bottom: 1px solid var(--border); padding-bottom: 3px; }
+.sim-q { display: inline-block; min-width: 44px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .sim-kind { display: inline-block; font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 4px; color: #fff; background: #9aa0b8; }
 .sim-k-ac { background: #e00000; } .sim-k-nm { background: #d9a400; } .sim-k-sc { background: #7d84a3; }
-.sim-add { display: flex; gap: 6px; margin-top: 6px; } .sim-add input[name=area] { max-width: 130px; }
+.sim-add { display: flex; gap: 6px; margin-top: 6px; } .sim-add input[name=area] { max-width: 110px; }
