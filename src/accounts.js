@@ -125,7 +125,7 @@ function ensureOwner() {
 const SETUP_API = [
   /^\/settings(\/|$)/, /^\/(areas|lookups|charter-template|team-pack)(\/|$)/,
   /^\/plan\/(machines|speeds|oee|otto\/speeds|otto\/machines|modifiers|mod-shifts|card-tags|setup|volume-rules|auto)(\/|$)/,
-  /^\/kpi\/calc\/weekends$/, /^\/kpi\/history$/, /^\/kpi\/operations\/config$/, /^\/sim\/targets$/, /^\/library(\/import|\/folder|\/excluded|\/docs\/\d+$|$)/,
+  /^\/kpi\/calc\/weekends$/, /^\/kpi\/history$/, /^\/kpi\/operations\/config$/, /^\/sim\/(targets|auto)(\/|$)/, /^\/library(\/import|\/folder|\/excluded|\/docs\/\d+$|$)/,
 ];
 // settings anyone may write: when the report was last sent
 const OPEN_SETTINGS = new Set(['report_last_sent']);

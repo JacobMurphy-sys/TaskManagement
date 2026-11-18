@@ -3,17 +3,14 @@
 // day's result large, coloured as the weekly report's arrows (green / yellow / red against the target), the month
 // to date as a line chart with the target marked, and what made the result.
 
-const SIM_COL = { green: '#00B050', yellow: '#FFC000', red: '#FF0000' }; // the A3's arrow colours
 const simDayAdd = (day, n) => { const d = new Date(`${day}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-const simPct = (v, dp = 1) => (v === null || v === undefined ? '–' : `${(v * 100).toLocaleString('en-GB', { minimumFractionDigits: dp, maximumFractionDigits: dp })}%`);
-const simNum = (v, dp = 0) => (v === null || v === undefined ? '–' : Number(v).toLocaleString('en-GB', { minimumFractionDigits: dp, maximumFractionDigits: dp }));
 let SIM_CHARTS = []; // the charts on the page, drawn to their boxes (again when the window is resized)
 
 async function renderSim(dayArg) {
   const day = /^\d{4}-\d{2}-\d{2}$/.test(dayArg || '') ? dayArg : '';
   const d = await api.get(`/sim${day ? `?day=${day}` : ''}`);
   const T = d.topics;
-  const fmt = { quality: (v) => simNum(v, 2), scrap: (v) => simPct(v, 2), otd: (v) => simPct(v, 1) };
+  const fmt = simFmt; // simsvg.js
   const tgt = (t, f) => (t.target === null || t.target === undefined ? '<button type="button" class="link small sim-set-tg" title="Without a target the result can\'t be coloured">🎯 Set a target</button>'
     : `target ${t.better === 'down' ? '≤' : '≥'} ${f(t.target)}`);
   // no figure for the day: say whether its report hasn't been read that far yet
@@ -72,17 +69,11 @@ async function renderSim(dayArg) {
       <div class="seg"><button type="button" data-sim-go="${simDayAdd(d.day, -1)}" title="The day before">◀</button><button type="button" data-sim-go="${simDayAdd(d.day, 1)}" title="The day after" ${d.day >= d.today ? 'disabled' : ''}>▶</button></div>
       <input type="date" id="sim-day" value="${d.day}" max="${d.today}" style="width:auto">
       <b>${esc(d.label)}</b>${isDefault ? '<span class="pill">last working day</span>' : `<button type="button" class="link small" data-sim-go="">Back to the last working day</button>`}${d.worked ? '' : '<span class="pill" title="Not a working day in Production\'s calendar">not a working day</span>'}
-      <div class="spacer"></div><button type="button" id="sim-read" title="Read the reports SIM is fed from again (cards shipped and persoed, scrap, OTD, complaints, safety forms) — the ones that changed">⟳ Read the reports</button>${ddMenu('⋯', '<button type="button" id="sim-bands">🎯 Targets and colours…</button>', { title: 'How the colours are decided' })}</div>
+      <div class="spacer"></div><button type="button" id="sim-read" title="Read the reports SIM is fed from again (cards shipped and persoed, scrap, OTD, complaints, safety forms) — the ones that changed">⟳ Read the reports</button>${ddMenu('⋯', `<button type="button" id="sim-bands">🎯 Targets and colours…</button><a href="/api/sim/picture.png?day=${d.day}&download=1" download>🖼 Download as a picture</a><button type="button" id="sim-auto">⏱ Automatic picture…</button>`, { title: 'Targets, colours and the picture' })}</div>
     <div class="sim-grid">${quality}${safety}${scrap}${otd}</div>`;
 
   // the line charts, drawn to their boxes
-  SIM_CHARTS = [
-    { id: 'sim-c-quality', rows: q.by_day, series: [{ val: (r) => r.value, colour: (r) => r.colour }], target: q.target, better: 'down', f: fmt.quality },
-    { id: 'sim-c-safety', rows: s.by_day, series: [{ key: 'ac', label: 'AC', col: SIM_COL.red }, { key: 'nm', label: 'NM', col: '#d9a400' }, { key: 'sc', label: 'SC', col: '#8a90ad' }].map((x) => ({ ...x, val: (r) => (r.worked || r[x.key] ? r[x.key] ?? 0 : null), colour: () => null })),
-      target: 0, better: 'down', f: (v) => String(Math.round(v)), targetLabel: '0 AC', integer: true },
-    { id: 'sim-c-scrap', rows: sc.by_day, series: [{ val: (r) => r.value, colour: (r) => r.colour }], target: sc.target, better: 'down', f: fmt.scrap },
-    { id: 'sim-c-otd', rows: o.by_day, series: [{ val: (r) => r.value, colour: (r) => r.colour }], target: o.target, better: 'up', f: fmt.otd },
-  ];
+  SIM_CHARTS = simChartSpecs(d); // simsvg.js
   const drawAll = () => SIM_CHARTS.forEach((c) => { const el = document.getElementById(c.id); if (el) simLineChart(el, c, d.day); });
   drawAll();
   if (!window.__simResize) { window.__simResize = true; let t = null; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(() => SIM_CHARTS.forEach((c) => { const el = document.getElementById(c.id); if (el) simLineChart(el, c, el.dataset.day); }), 120); }); }
@@ -105,6 +96,7 @@ async function renderSim(dayArg) {
   };
   $$('[data-sim-del]').forEach((b) => { b.onclick = async () => { if (!confirm('Remove this internal report?')) return; try { await api.del(`/sim/reports/${b.dataset.simDel}`); renderSim(d.day); } catch (err) { toast(err.message, 'error'); } }; });
   $('#sim-bands').onclick = () => simBands(d);
+  $('#sim-auto').onclick = () => simAutoDialog();
   $$('.sim-set-tg').forEach((b) => { b.onclick = () => simBands(d); });
   $('#sim-read').onclick = async (e) => {
     const b = e.currentTarget; b.disabled = true; b.textContent = '⏳ Reading…';
@@ -118,90 +110,10 @@ async function renderSim(dayArg) {
   };
 }
 
-// The month to date as a line chart in a box (drawn at the box's own size): a line per series through the days with
-// a figure, each day's point in its result's colour, the target as a dashed line with its label and the side that
-// meets it shaded, the day shown highlighted; a click on a day opens it.
+// The month to date as a line chart, drawn to its box (simsvg.js draws it)
 function simLineChart(el, c, day) {
   el.dataset.day = day;
-  const W = Math.max(200, el.clientWidth); const H = Math.max(90, el.clientHeight);
-  const L = 70; const R = 10; const Tp = 8; const B = 18; const n = c.rows.length || 1;
-  const step = (W - L - R) / Math.max(1, n - 1 || 1); const xOf = (i) => (n === 1 ? L + (W - L - R) / 2 : L + i * step);
-  const vals = c.rows.flatMap((r) => c.series.map((s) => s.val(r))).filter((v) => v !== null && v !== undefined);
-  const tg = c.target;
-  let lo = 0; let hi = Math.max(...vals, tg ?? 0, c.integer ? 2 : 0);
-  if (c.better === 'up') { lo = Math.max(0, Math.min(Math.min(...(vals.length ? vals : [tg ?? 0.9]), tg ?? 1) - 0.02, 0.98)); hi = 1; }
-  if (hi <= lo) hi = lo + (c.integer ? 2 : 1);
-  const top = hi; hi += (hi - lo) * (c.better === 'up' ? 0.06 : 0.1); // headroom (a share can't pass 100%: its top label stays at it)
-  const yOf = (v) => Tp + (1 - (v - lo) / (hi - lo)) * (H - Tp - B);
-  const parts = [];
-  // the side that meets the target, shaded
-  if (tg !== null && tg !== undefined) {
-    const yt = yOf(tg);
-    parts.push(c.better === 'down' ? `<rect x="${L}" y="${yt}" width="${W - L - R}" height="${H - B - yt}" class="sim-okzone"/>` : `<rect x="${L}" y="${Tp}" width="${W - L - R}" height="${yt - Tp}" class="sim-okzone"/>`);
-  }
-  // the day shown, and the clickable days (weekends and holidays paler)
-  c.rows.forEach((r, i) => {
-    const x = xOf(i); const w = n === 1 ? 30 : step;
-    if (r.day === day) parts.push(`<rect x="${x - w / 2}" y="${Tp}" width="${w}" height="${H - Tp - B}" class="sim-selbg"/>`);
-    const every = step < 16 ? 2 : 1;
-    if (i % every === 0 || r.day === day) parts.push(`<text x="${x}" y="${H - 5}" class="sim-ax${r.worked ? '' : ' off'}${r.day === day ? ' sel' : ''}">${Number(r.day.slice(8))}</text>`);
-  });
-  // y axis: bottom, top (left out where the target's tag sits)
-  const clear = (v) => tg === null || tg === undefined || Math.abs(yOf(v) - yOf(tg)) > 30;
-  parts.push(`${clear(lo) ? `<text x="${L - 6}" y="${yOf(lo) + 3}" class="sim-yax">${c.f(lo)}</text>` : ''}${clear(top) ? `<text x="${L - 6}" y="${yOf(top) + 3}" class="sim-yax">${c.f(top)}</text>` : ''}<line x1="${L}" x2="${W - R}" y1="${H - B}" y2="${H - B}" class="sim-base"/>`);
-  // the target
-  if (tg !== null && tg !== undefined) {
-    // in the left margin, on the line: it never covers a day's point
-    const yt = yOf(tg); const label = c.targetLabel || `${c.better === 'down' ? '≤' : '≥'} ${c.f(tg)}`;
-    const tw = L - 6; const by = Math.min(H - B - 8, Math.max(Tp + 1, yt - 7.5));
-    parts.push(`<line x1="${L}" x2="${W - R}" y1="${yt}" y2="${yt}" class="sim-target"/><rect x="2" y="${by}" width="${tw}" height="15" rx="4" class="sim-tbox"><title>Target ${esc(label)}</title></rect><text x="${2 + tw / 2}" y="${by + 11}" class="sim-tlabel">${esc(label)}</text><text x="${L - 6}" y="${by - 3 < Tp + 4 ? by + 25 : by - 3}" class="sim-tword">TARGET</text>`);
-  }
-  // the lines and their points; the days off target (yellow or red) get their figure written by them, on the side
-  // away from the target (above for lower-is-better, below for higher-is-better), drawn last so nothing covers them
-  const labels = [];
-  for (const s of c.series) {
-    // joined up over the days without a figure (weekends, holidays, a report not read): Friday straight to Monday
-    let path = '';
-    c.rows.forEach((r, i) => { const v = s.val(r); if (v === null || v === undefined) return; path += `${path ? 'L' : 'M'}${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`; });
-    if (path) parts.push(`<path d="${path}" class="sim-line" style="stroke:${s.col || 'var(--accent)'}"/>`);
-    c.rows.forEach((r, i) => {
-      const v = s.val(r); if (v === null || v === undefined) return;
-      if (s.key && !v && r.day !== day) return; // a count of 0: no dot
-      const col = s.col || SIM_COL[s.colour(r)] || 'var(--muted)'; const sel = r.day === day;
-      parts.push(`<circle cx="${xOf(i)}" cy="${yOf(v)}" r="${sel ? 5.5 : 3.5}" fill="${col}" class="sim-dot${sel ? ' sel' : ''}"><title>${esc(fmtDate(r.day))}: ${s.label ? `${s.label} ` : ''}${c.f(v)}</title></circle>`);
-      const zone = s.key ? (v > 0 && (s.key === 'ac' ? 'red' : s.key === 'nm' ? 'yellow' : null)) : s.colour(r);
-      if (zone === 'yellow' || zone === 'red') {
-        const x = xOf(i); const y = yOf(v); const below = c.better === 'up';
-        const txt = c.f(v); const tw = txt.length * 6.2 + 2;
-        // the points either side on this line: a label mustn't sit on the line running to them
-        const near = (dir) => { for (let j = i + dir; j >= 0 && j < c.rows.length; j += dir) { const w = s.val(c.rows[j]); if (w !== null && w !== undefined) return { x: xOf(j), y: yOf(w) }; } return null; };
-        const nbs = [near(-1), near(1)].filter(Boolean);
-        // does the line to a neighbour cross the box? (its part over the box's width spans a range of heights)
-        const hits = (x1, x2, y1, y2) => nbs.some((nb) => {
-          const lo = Math.max(x1, Math.min(x, nb.x)); const hi = Math.min(x2, Math.max(x, nb.x));
-          if (lo > hi) return false;
-          const at = (px) => y + ((nb.y - y) * (px - x)) / (nb.x - x);
-          const a1 = at(lo); const a2 = at(hi);
-          return Math.max(a1, a2) >= y1 - 2 && Math.min(a1, a2) <= y2 + 2;
-        });
-        // where it can go, best first: on the side away from the target, then beside the point (right, then left)
-        const vy = below ? y + 15 : y - 8; const vx1 = Math.max(L, Math.min(W - R - tw, x - tw / 2));
-        const sy = Math.min(H - B - 3, Math.max(Tp + 9, y + 3.5));
-        const spots = [
-          { ok: (below ? H - B - y >= 17 : y - Tp >= 15) && !hits(vx1, vx1 + tw, vy - 10, vy), x: vx1 + tw / 2, y: vy, anchor: 'middle' },
-          { ok: x + 8 + tw <= W - R && !hits(x + 6, x + 8 + tw, sy - 10, sy), x: x + 8, y: sy, anchor: 'start' },
-          { ok: x - 8 - tw >= L && !hits(x - 8 - tw, x - 6, sy - 10, sy), x: x - 8, y: sy, anchor: 'end' },
-        ];
-        const at = spots.find((o) => o.ok) || { x: vx1 + tw / 2, y: Math.min(H - B - 3, Math.max(Tp + 9, vy)), anchor: 'middle' };
-        labels.push(`<text x="${at.x}" y="${at.y}" text-anchor="${at.anchor}" class="sim-dlabel sim-dl-${zone}">${esc(txt)}</text>`);
-      }
-    });
-  }
-  parts.push(...labels);
-  if (c.series.some((s) => s.label)) parts.push(`<g class="sim-legend">${c.series.map((s, i) => `<g transform="translate(${L + 6 + i * 44},${Tp + 6})"><line x1="0" x2="12" y1="0" y2="0" style="stroke:${s.col}" class="sim-line"/><text x="16" y="3">${s.label}</text></g>`).join('')}</g>`);
-  // a click on a day's column opens it
-  c.rows.forEach((r, i) => { const w = n === 1 ? 30 : step; parts.push(`<rect x="${xOf(i) - w / 2}" y="0" width="${w}" height="${H}" fill="transparent" class="sim-hit" data-sim-day="${r.day}"><title>${esc(fmtDate(r.day))}</title></rect>`); });
-  el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="The month to date, day by day">${parts.join('')}</svg>`;
+  el.innerHTML = simChartSvg(c, day, Math.max(200, el.clientWidth), Math.max(90, el.clientHeight));
 }
 
 // 🎯 each topic's target (Operations' site KPI targets, shared with it) and amber band: how far off still shows yellow
@@ -221,5 +133,38 @@ function simBands(d) {
     const bands = Object.fromEntries(['quality', 'scrap', 'otd'].map((k) => [`sim_band_${k}`, f[`b_${k}`] === '' ? '' : String(Math.min(100, Math.max(0, num(f[`b_${k}`]))) / 100)]));
     const targets = { quality: f.t_quality === '' ? null : num(f.t_quality), scrap: f.t_scrap === '' ? null : num(f.t_scrap) / 100, otd: f.t_otd === '' ? null : num(f.t_otd) / 100 };
     try { await api.put('/sim/targets', targets); await api.patch('/settings', bands); closeModal(); toast('Saved'); renderSim(d.day === d.default_day ? '' : d.day); } catch (err) { toast(err.message, 'error'); }
+  };
+}
+
+// ⏱ the automatic picture: the SIM of the last working day saved as a PNG in a folder at set times (each run
+// overwrites the same file, e.g. for a screen at the briefing board), like Production's automatic plans
+async function simAutoDialog() {
+  let a; try { a = await api.get('/sim/auto'); } catch (err) { toast(err.message, 'error'); return; }
+  const DAYS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']];
+  const when = (iso) => new Date(iso).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const lastLine = (x) => (!x.last ? '<span class="muted">Not made yet.</span>'
+    : x.last.ok ? `<span class="pa-ok">✔ Made ${esc(when(x.last.at))}</span> (the SIM of ${esc(fmtDate(x.last.day))})` : `<span class="pl-late">✖ ${esc(when(x.last.at))}: ${esc(x.last.error)}</span>`);
+  const nextLine = (x) => (x.next ? `Next: ${esc(when(x.next))}` : x.enabled ? '' : 'Switched off.');
+  openModal(`<div class="modal-head"><h2 style="margin:0">⏱ Automatic picture</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <p class="small muted" style="margin-top:0">At the times below SIM reads its reports and saves the last working day's SIM as a picture (PNG) in the folder, over the one before — so a screen or a shortcut always shows the latest. Changing this needs the setup right.</p>
+    <form id="sim-auto-f" class="form-grid">
+      <label class="full row" style="gap:8px"><input type="checkbox" name="enabled" ${a.enabled ? 'checked' : ''} style="width:auto"> Make the picture automatically</label>
+      <label class="f">Times <span class="small muted">e.g. 06:00, 13:45</span><input type="text" name="times" value="${esc(a.times.join(', '))}"></label>
+      <div class="f"><span>Days</span><div class="row" style="gap:10px;flex-wrap:wrap">${DAYS.map(([n, l]) => `<label class="row" style="gap:4px"><input type="checkbox" name="day" value="${n}" ${a.days.includes(n) ? 'checked' : ''} style="width:auto">${l}</label>`).join('')}</div></div>
+      <label class="f full">Folder <span class="small muted">a full path the server can write to, e.g. S:\\Production\\SIM or \\\\server\\share\\SIM</span><input type="text" name="folder" value="${esc(a.folder)}"></label>
+      <label class="f">File name <span class="small muted">(saved as .png)</span><input type="text" name="file" value="${esc(a.file)}"></label>
+      <div class="f small" id="sim-auto-st"><span>${lastLine(a)}</span><span class="muted">${nextLine(a)}</span></div>
+      <div class="full row"><button type="button" id="sim-auto-now" title="Save it now and make the picture">▶ Make it now</button><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button><button class="primary" type="submit">Save</button></div></form>`);
+  const body = () => { const f = $('#sim-auto-f'); return { enabled: f.enabled.checked, times: f.times.value, days: $$('#sim-auto-f [name=day]:checked').map((c) => Number(c.value)), folder: f.folder.value, file: f.file.value }; };
+  $('#sim-auto-f').onsubmit = async (e) => { e.preventDefault(); try { await api.put('/sim/auto', body()); closeModal(); toast('Saved'); } catch (err) { toast(err.message, 'error'); } };
+  $('#sim-auto-now').onclick = async (e) => {
+    const b = e.currentTarget; b.disabled = true; b.textContent = '⏳ Making it…';
+    try {
+      await api.put('/sim/auto', body());
+      const r = await fetch('/api/sim/auto/run', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' }, body: '{}' }).then((x) => x.json());
+      $('#sim-auto-st').innerHTML = `<span>${lastLine(r)}</span><span class="muted">${nextLine(r)}</span>`;
+      if (r.error) toast(r.error, 'error'); else toast(`Saved ${r.last.file}`);
+    } catch (err) { toast(err.message, 'error'); }
+    b.disabled = false; b.textContent = '▶ Make it now';
   };
 }

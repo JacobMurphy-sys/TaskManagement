@@ -832,11 +832,27 @@ router.get('/capex/:id/ir/deck.pptx', h(async (req, res) => {
 const simKpis = require('./sim');
 // the reports SIM is fed from: read again when they've changed (on opening, and with its ⟳ button)
 const SIM_SOURCES = ['shipped', 'perso', 'remakes', 'consumption', 'otd', 'salesforce', 'ehs'];
+const simData = (day) => {
+  const names = new Map(); try { for (const c of db.all('SELECT trigram, name FROM cpm_customers')) if (c.trigram && c.name) names.set(String(c.trigram).toUpperCase(), c.name); } catch { /* none */ }
+  return simKpis.sim(day, { settings: getSettings(), names });
+};
 router.get('/sim', h(async (req, res) => {
   if (req.query.read !== '0') await refreshSource('shipped', SIM_SOURCES.slice(1));
-  const names = new Map(); try { for (const c of db.all('SELECT trigram, name FROM cpm_customers')) if (c.trigram && c.name) names.set(String(c.trigram).toUpperCase(), c.name); } catch { /* none */ }
-  res.json(simKpis.sim(req.query.day, { settings: getSettings(), names }));
+  res.json(simData(req.query.day));
 }));
+// 🖼 the SIM as a picture: on demand (a day, or the last working day), and on a schedule into a folder (simauto.js)
+const simAuto = require('./simauto');
+simAuto.useDeps({ simData, refresh: () => refreshSource('shipped', SIM_SOURCES.slice(1)), log });
+simAuto.start();
+router.get('/sim/picture.png', h((req, res) => {
+  const { png, day } = simAuto.picture(req.query.day || null);
+  res.set('Content-Type', 'image/png');
+  if (req.query.download) res.set('Content-Disposition', `attachment; filename="SIM ${day}.png"`);
+  res.send(png);
+}));
+router.get('/sim/auto', h((req, res) => res.json(simAuto.overview())));
+router.put('/sim/auto', h((req, res) => { siteErr(() => simAuto.save(req.body || {})); res.json(simAuto.overview()); }));
+router.post('/sim/auto/run', h(async (req, res) => { const r = await simAuto.run(); res.status(r.ok ? 200 : 502).json({ ...simAuto.overview(), error: r.ok ? undefined : r.error }); }));
 // 🎯 the targets SIM colours against, set from SIM too (they're Operations' site KPI targets: the setup right).
 // { quality: CPMS, scrap: a share (0.004), otd: a share (0.98) }; null clears one
 router.put('/sim/targets', h((req, res) => {

@@ -427,6 +427,21 @@ async function waitForServer() {
       assert.deepStrictEqual([tg.quality.target, tg.scrap.target, tg.otd.target], [0.9, 0.005, 0.97]);
       await call('PUT', '/sim/targets', { quality: null, scrap: null, otd: null });
       assert.strictEqual((await call('GET', `/sim?day=${day}&read=0`)).topics.otd.target, null);
+      // 🖼 the SIM as a picture: on demand, and the automatic one into a folder (each run overwrites the same file)
+      const pic = await fetch(`${BASE}/sim/picture.png?day=${day}`); assert.equal(pic.status, 200); assert.equal(pic.headers.get('content-type'), 'image/png');
+      const picBuf = Buffer.from(await pic.arrayBuffer()); assert.ok(picBuf.slice(1, 4).toString() === 'PNG' && picBuf.length > 20000, 'a PNG of the SIM');
+      await assert.rejects(call('PUT', '/sim/auto', { enabled: true, times: '25:00', folder: 'C:\\x' }), /isn't a time/);
+      await assert.rejects(call('PUT', '/sim/auto', { enabled: true, times: '06:00', folder: '' }), /which folder/);
+      await assert.rejects(call('PUT', '/sim/auto', { enabled: true, times: '06:00', folder: 'relative/dir' }), /full path/);
+      const simDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sim-pic-'));
+      const auto = await call('PUT', '/sim/auto', { enabled: true, times: '6:00, 13.45', days: [1, 2, 3, 4, 5], folder: simDir, file: 'Board.png' });
+      assert.deepStrictEqual([auto.times, auto.file, path.basename(auto.path)], [['06:00', '13:45'], 'Board', 'Board.png']);
+      assert.ok(auto.next, 'when it runs next');
+      const ran = await call('POST', '/sim/auto/run', {});
+      assert.ok(ran.last.ok && fs.readFileSync(path.join(simDir, 'Board.png')).slice(1, 4).toString() === 'PNG', 'the picture saved in the folder');
+      const { nextRun } = require('../src/simauto');
+      assert.equal(nextRun({ enabled: true, times: ['06:00'], days: [1] }, new Date(2026, 10, 17, 9, 0)), '2026-11-23T06:00'); // Tue → next Monday
+      await call('PUT', '/sim/auto', { enabled: false, times: '06:00', folder: '' });
       const readRes = await call('POST', '/sim/read', {}); // ⟳ the feeding reports: only SIM's sources come back
       assert.ok(Array.isArray(readRes) && readRes.every((r) => ['shipped', 'perso', 'remakes', 'consumption', 'otd', 'salesforce', 'ehs'].includes(r.source)));
       assert.ok(!(await call('GET', `/sim?day=${day}`)).topics.quality.internal.length);
