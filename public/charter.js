@@ -491,6 +491,17 @@ async function renderMyLists() {
       try { await api.put(`/task-lists/task/${id}`, { list: to }); route(); } catch (err) { toast(err.message, 'error'); }
     });
   });
+  // ＋ a new task straight into a list (a standalone task, yours; filed in the list unless it's 📥 Not in a list)
+  $$('[data-list-add]').forEach((inp) => inp.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter') return;
+    const q = parseQuick(e.target.value); if (!q.title) return;
+    const key = inp.dataset.listAdd;
+    try {
+      const t = await api.post('/tasks', { ...q, ...(me ? { owner: me } : {}) });
+      if (key !== 'none') await api.put(`/task-lists/task/${t.id}`, { list: Number(key) });
+      await route(); $(`[data-list-add="${key}"]`)?.focus();
+    } catch (err) { toast(err.message, 'error'); }
+  }));
   $('#new-list')?.addEventListener('keydown', async (e) => {
     if (e.key !== 'Enter' || !e.target.value.trim()) return;
     try { await api.post('/task-lists', { name: e.target.value.trim() }); await route(); $('#new-list')?.focus(); } catch (err) { toast(err.message, 'error'); }
