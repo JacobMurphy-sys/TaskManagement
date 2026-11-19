@@ -271,9 +271,9 @@ async function renderTasks() {
       if (e.key !== 'Enter') return;
       const q = parseQuick(e.target.value);
       if (!q.title) return;
-      await api.post('/tasks', q);
+      const t = await api.post('/tasks', q);
       await refresh();
-      $(id)?.focus();
+      taskModal(t.id); // the new task open, to fill in the rest
     });
   }
   if (board) {
@@ -499,7 +499,7 @@ async function renderMyLists() {
     try {
       const t = await api.post('/tasks', { ...q, ...(me ? { owner: me } : {}) });
       if (key !== 'none') await api.put(`/task-lists/task/${t.id}`, { list: Number(key) });
-      await route(); $(`[data-list-add="${key}"]`)?.focus();
+      await route(); taskModal(t.id); // the new task open, to fill in the rest
     } catch (err) { toast(err.message, 'error'); }
   }));
   $('#new-list')?.addEventListener('keydown', async (e) => {

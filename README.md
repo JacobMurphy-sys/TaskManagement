@@ -142,7 +142,7 @@ When an update changes how data is stored, the app upgrades your database automa
 
 - **New project:** click **+ New** in the sidebar. List the baseline tasks one per line. The baseline is set automatically.
 - **Add a note as you go:** type in the bar at the top of the project and press **Enter**. Notes are time-stamped. To attach a note to a specific task, pick the task in the drop-down first.
-- **Add a task:** type in the *Add a task…* box and press **Enter**. Shortcuts you can include in the text:
+- **Add a task:** type in the *Add a task…* box and press **Enter**: the task is made and opens straight away, to fill in the rest (owner, description, subtasks…) — **Done** or Esc closes it. Shortcuts you can include in the text:
   - `!low` `!high` `!crit` sets the priority
   - `@today` `@tomorrow` `@fri` `@2026-10-31` sets the due date
 
