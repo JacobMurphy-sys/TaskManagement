@@ -2044,9 +2044,9 @@ ul.tl-list { container: tl / inline-size; }
 .ck-legend { font-size: 11px; color: var(--muted); letter-spacing: 2px; cursor: help; margin-left: auto; }
 .ck-ph .ck-legend + a { margin-left: 4px; }
 /* how tall each panel is in its column */
-.ck-col1 > .ck-focus { flex: 1 1 42%; } .ck-col1 > .ck-tasks { flex: 1 1 58%; }
-.ck-col2 > .ck-projects { flex: 1 1 66%; } .ck-col2 > #ck-meetings { flex: 1 1 34%; }
-.ck-col3 > #dash-quick-notes.has-qn { flex: 1 1 40%; } .ck-col3 > #dash-quick-notes.no-qn, .ck-col3 > .ck-small { flex: 0 0 auto; }
+.ck-col1 > .ck-focus2 { flex: 1 1 100%; }
+.ck-col2 > .ck-projects { flex: 1 1 38%; } .ck-col2 > .ck-tasks { flex: 1 1 62%; }
+.ck-col3 > #dash-quick-notes.has-qn { flex: 1 1 26%; } .ck-col3 > #dash-quick-notes.no-qn, .ck-col3 > .ck-small { flex: 0 0 auto; }
 .ck-col3 > #ck-reminders:not(.ck-small) { flex: 1 1 22%; } .ck-col3 > #ck-notes { flex: 1 1 38%; }
 /* one line per item */
 .ck-list { list-style: none; margin: 0; padding: 0; }
@@ -2769,3 +2769,36 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .cd-ans td { vertical-align: top; }
 .cd-vals { max-width: 640px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vt-up-replace td:last-child { font-weight: 600; }
+
+/* 🎯 Home's focus: one full-height panel, Today above This week, each with its focus, suggestions and meetings */
+.ck-focus2 { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.fx-sec { flex: 1 1 50%; min-height: 0; display: flex; flex-direction: column; }
+.fx-sec + .fx-sec { border-top: 1px solid var(--border); }
+.fx-head { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px 10px; flex: none; }
+.fx-head > div { flex: 1; min-width: 0; }
+.fx-day .fx-head { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.fx-week .fx-head { background: color-mix(in srgb, #2aa198 12%, transparent); }
+.fx-kicker { font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.fx-head h3 { margin: 2px 0 0; font-size: 18px; }
+.fx-add { flex: none; padding: 2px 10px; font-size: 16px; line-height: 1.4; border-radius: 8px; }
+.fx-body { flex: 1; min-height: 0; overflow: auto; padding: 6px 14px 10px; display: flex; flex-direction: column; gap: 8px; }
+.fx-new input { width: 100%; }
+.fx-list, .fx-slist, .fx-mlist { list-style: none; margin: 0; padding: 0; }
+.fx-item { display: flex; align-items: center; gap: 8px; padding: 7px 2px; border-bottom: 1px solid var(--border); }
+.fx-item input[type=checkbox] { width: 18px; height: 18px; flex: none; }
+.fx-text { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-text[data-action] { cursor: pointer; } .fx-text[data-action]:hover { color: var(--accent); }
+.fx-item.done .fx-text { text-decoration: line-through; color: var(--muted); font-weight: 400; }
+.fx-carry { font-size: 11px; color: #b38600; white-space: nowrap; }
+.fx-item .icon { opacity: 0; } .fx-item:hover .icon, .fx-item:focus-within .icon { opacity: 1; }
+.fx-none { color: var(--muted); font-size: 13px; padding: 6px 0; }
+.fx-sugg summary { cursor: pointer; font-size: 12.5px; color: var(--accent); }
+.fx-srow { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 13px; }
+.fx-stitle { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fx-meet { margin-top: auto; border-top: 1px dashed var(--border); padding-top: 6px; }
+.fx-meet h4 { margin: 0 0 4px; font-size: 13px; color: var(--accent); }
+.fx-mrow { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; font-size: 13px; }
+.fx-mrow.past { opacity: .55; }
+.fx-mwhen { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; min-width: 44px; }
+.fx-mt { cursor: pointer; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; } .fx-mt:hover { color: var(--accent); }
+@media (max-width: 1100px) { .ck-focus2 { min-height: 640px; } }
