@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'backups-321', date: '2026-11-19', area: 'platform', title: '3-2-1 backups',
+    text: 'Backups now follow the 3-2-1 rule: besides the usual backups, a copy at the end of each day goes to a second place and one at the end of each week to a third, kept in the cloud.',
+    points: ['Each copy is a fresh backup, checked byte for byte where it lands', 'Missed copies are made as soon as the server is back or the folder can be reached', 'Folders, times and how many to keep set on the Backups page', 'Copy now, and the last and next run shown for each'] },
   { id: 'sim', date: '2026-11-18', area: 'production', title: 'SIM: the daily briefing\'s KPIs',
     text: 'A SIM page in Prod Management for the briefings between shifts and departments: the last working day\'s quality, safety, scrap and OTD, each large and coloured against its target, with the month to date and what made the result.',
     points: ['Green, yellow or red like the weekly report\'s arrows, with an amber band per topic', 'One clean page: four equal panels, two by two', 'The month to date as a line chart with the target clearly marked, joined up over weekends; a click opens that day', 'A day whose report isn\'t read yet says so, rather than showing zero', 'A Read the reports button brings in the latest figures on the spot', 'Targets and colour bands set right on the page; Scrap and OTD show their chart beside their lists', 'No dead space: lists use the full height, charts grow, internal reports added from a ＋ in the corner', 'Days off target carry their figure on the chart', 'Saved as a picture: on demand, or automatically at set times into a folder for the briefing screen', 'Complaints and internal reports typed in at the SIM, safety forms, top 5 scrap, the day\'s delays and late work orders'] },

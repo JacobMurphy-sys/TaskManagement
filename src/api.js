@@ -4978,6 +4978,15 @@ router.get('/info', h((req, res) => res.json({
     keep_all_hours: config.backup.keepDays > 0 ? (config.backup.keepAllHours || config.backup.keepDays * 24) : null, compress: config.backup.compress, disk: backup.freeSpace() },
 })));
 router.get('/backups', h((req, res) => res.json(backup.listBackups())));
+// 🛡 the 3-2-1 copies (offsite.js): a daily one to one folder and a weekly one to another (the Backups right to change)
+const offsite = require('./offsite');
+router.get('/backups/offsite', h((req, res) => res.json(offsite.overview())));
+router.put('/backups/offsite', h((req, res) => { try { offsite.save(req.body || {}); } catch (err) { throw err.status ? new HttpError(err.status, err.message) : err; } res.json(offsite.overview()); }));
+router.post('/backups/offsite/:kind/run', h(async (req, res) => {
+  if (!['daily', 'weekly'].includes(req.params.kind)) throw notFound('Copy');
+  const r = await offsite.run(req.params.kind);
+  res.status(r.ok ? 200 : 502).json({ ...offsite.overview(), error: r.ok ? undefined : r.error });
+}));
 router.post('/backups', h((req, res) => {
   try { res.status(201).json(backup.runBackup('manual (UI)')); } catch (err) { throw new HttpError(err.status || 500, err.message); }
 }));

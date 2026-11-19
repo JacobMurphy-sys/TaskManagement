@@ -231,6 +231,33 @@ async function waitForServer() {
     for (let i = 0; i < 50 && !fs.existsSync(`${b.json}.gz`); i++) await new Promise((r) => setTimeout(r, 100));
     assert.ok(b.json.endsWith('.json') && fs.existsSync(`${b.json}.gz`), 'JSON backup written');
 
+    // 🛡 the 3-2-1 copies: a daily and a weekly copy of a fresh backup into other folders, checked there
+    {
+      const off0 = await call('GET', '/backups/offsite');
+      assert.deepStrictEqual([off0.daily.dir, off0.daily.time, off0.weekly.day, off0.daily.next], ['', '22:00', 5, null], 'off until a folder is set');
+      await assert.rejects(call('PUT', '/backups/offsite', { daily: { dir: 'relative\\x' } }), /full path/);
+      await assert.rejects(call('PUT', '/backups/offsite', { weekly: { dir: '', time: '25:00' } }), /isn't a time/);
+      const dDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offsite-d-'));
+      const off = await call('PUT', '/backups/offsite', { daily: { dir: dDir, time: '21:30', keep: 1 } });
+      assert.ok(off.daily.next && off.daily.next.endsWith('21:30'));
+      const r1 = await call('POST', '/backups/offsite/daily/run', {});
+      assert.ok(r1.daily.last.ok, 'copied');
+      const inDir = () => fs.readdirSync(dDir).filter((f) => /^taskmgr-.*\.(db|json)(\.gz)?$/.test(f));
+      assert.ok(inDir().some((f) => /\.db(\.gz)?$/.test(f)) && inDir().some((f) => /\.json(\.gz)?$/.test(f)), 'the .db and the JSON export copied');
+      assert.ok(!fs.readdirSync(dDir).some((f) => f.endsWith('.part')), 'no half-copied files left');
+      await new Promise((r) => setTimeout(r, 1100)); // a new backup name
+      await call('POST', '/backups/offsite/daily/run', {});
+      assert.equal(new Set(inDir().map((f) => f.replace(/\.(db|json)(\.gz)?$/, ''))).size, 1, 'keep 1: the older copy pruned');
+      const bad = await fetch(`${BASE}/backups/offsite/weekly/run`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' }, body: '{}' });
+      assert.equal(bad.status, 502, 'no weekly folder: not made');
+      const { lastSlot, nextSlot } = require('../src/offsite');
+      const wk = { time: '22:30', day: 5 };
+      assert.equal(lastSlot('weekly', wk, new Date(2026, 10, 19, 9, 0)), '2026-11-13T22:30'); // Thu: last Friday
+      assert.equal(nextSlot('weekly', wk, new Date(2026, 10, 19, 9, 0)), '2026-11-20T22:30');
+      assert.equal(lastSlot('daily', { time: '22:00' }, new Date(2026, 10, 19, 9, 0)), '2026-11-18T22:00');
+      await call('PUT', '/backups/offsite', { daily: { dir: '' } });
+    }
+
     // ---- Ideation
     const areas = await call('GET', '/areas');
     assert.deepEqual(areas.map((a) => a.name), ['General'], 'default area seeded');

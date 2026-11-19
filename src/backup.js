@@ -211,4 +211,4 @@ function schedule() {
   setInterval(check, Math.min(intervalMs, 15 * 60 * 1000)).unref();
 }
 
-module.exports = { runBackup, listBackups, schedule, exportTables, writeJson, syncAttachmentFiles, keepSet, prune, compressFile, freeSpace, sweep, JSON_DIR, DB_DIR, FILES_DIR };
+module.exports = { runBackup, listBackups, schedule, exportTables, writeJson, syncAttachmentFiles, keepSet, prune, compressFile, freeSpace, sweep, JSON_DIR, DB_DIR, FILES_DIR, BACKUP_RE, baseOf };

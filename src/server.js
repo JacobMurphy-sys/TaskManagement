@@ -214,6 +214,7 @@ server.on('error', (err) => {
 });
 
 backup.schedule();
+require('./offsite').start(); // 🛡 the daily and weekly 3-2-1 copies to other folders
 
 // Run by server-run.bat (the shared server): each night at UPDATE_HOUR (default 3) it checks for a
 // newer version and, when nobody has the app open, stops with code 75 for server-run.bat to update

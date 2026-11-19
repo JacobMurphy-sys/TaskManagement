@@ -1950,7 +1950,7 @@ async function renderLog() {
 }
 
 async function renderBackups() {
-  const [list, info] = await Promise.all([api.get('/backups'), api.get('/info')]);
+  const [list, info, off] = await Promise.all([api.get('/backups'), api.get('/info'), api.get('/backups/offsite').catch(() => null)]);
   const size = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
   main().innerHTML = `
     <div class="kanban-tools"><h1 style="margin:0">Backups</h1><div class="spacer"></div>
@@ -1974,6 +1974,7 @@ async function renderBackups() {
         <b>Restore from file…</b> for a backup kept somewhere else (e.g. a copy on OneDrive). You'll see what's in the backup
         and confirm first, and a safety backup of the current data is always taken, so a restore can itself be undone.</p>
     </div>
+    ${off ? offsiteCard(off) : ''}
     <div class="card" style="margin-top:16px"><table class="log">
       <thead><tr><th>Created</th><th>Type</th><th>File</th><th>Size</th><th></th></tr></thead>
       <tbody>${list.map((b) => `<tr><td class="nowrap">${esc(fmtDateTime(b.created_at))}</td><td>${b.kind}${b.compressed ? ' <span class="muted small" title="Compressed; ⬇ gives the plain file">🗜</span>' : ''}</td>
@@ -1982,6 +1983,45 @@ async function renderBackups() {
           <button class="small" data-action="restore-listed" data-kind="${esc(b.kind)}" data-file="${esc(b.file)}">⤺ Restore</button></td></tr>`).join('')}</tbody></table>
       ${list.length ? '' : '<div class="empty">No backups yet.</div>'}</div>`;
 }
+
+// 🛡 the 3-2-1 copies: the local backups above, a daily copy to one folder (e.g. a share on another server) and a
+// weekly one to another (e.g. OneDrive), each a fresh backup copied and checked there
+const OFF_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+function offsiteCard(off) {
+  const when = (iso) => new Date(iso).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const whenKey = (k) => (k ? when(`${k}:00`) : '');
+  const row = (kind, title, hint) => { const c = off[kind]; const l = c.last;
+    return `<form class="off-row" data-off="${kind}">
+      <div class="off-head"><b>${title}</b> <span class="small muted">${hint}</span></div>
+      <div class="off-fields">
+        <label class="f off-dir">Folder<input type="text" name="dir" value="${esc(c.dir)}" placeholder="A full path, e.g. \\\\server\\share\\Backups — empty: off"></label>
+        ${kind === 'weekly' ? `<label class="f">On<select name="day">${OFF_DAYS.map((dn, i) => `<option value="${i}" ${c.day === i ? 'selected' : ''}>${dn}</option>`).join('')}</select></label>` : ''}
+        <label class="f">At<input type="time" name="time" value="${esc(c.time)}"></label>
+        <label class="f">Keep<span class="row" style="gap:6px"><input type="number" name="keep" min="1" max="365" value="${c.keep}" style="max-width:80px"> copies</span></label>
+        <div class="off-btns"><button type="submit">Save</button><button type="button" data-off-run="${kind}" ${c.dir ? '' : 'disabled'} title="Make a copy there now">▶ Copy now</button></div>
+      </div>
+      <div class="small off-st">${!c.dir ? '<span class="muted">Off: no folder set.</span>' : !l ? '<span class="muted">No copy yet.</span>'
+        : l.ok ? `<span class="pa-ok">✔ Copied ${esc(when(l.at))}</span> <span class="muted">(${esc((l.files || []).join(', '))})</span>` : `<span class="pa-bad">✖ ${esc(when(l.at))}: ${esc(l.error)}</span> <span class="muted">— tried again in an hour</span>`}
+        ${c.next ? ` · <span class="muted">Next: ${esc(whenKey(c.next))}</span>` : ''}</div></form>`; };
+  return `<div class="card stack" style="margin-top:16px"><h3 style="margin:0">🛡 3-2-1 copies</h3>
+    <p class="small muted" style="margin:0">Three copies of the data, on two kinds of storage, one of them away from here: the backups above, a <b>daily</b> copy to one folder (e.g. a share on another server) and a <b>weekly</b> copy to another (e.g. a OneDrive folder, synced to the cloud). Each is a fresh backup, copied and checked byte for byte there, with the attachment files. If the server was off at the time, or the folder couldn't be reached, it's made as soon as it can be. The folders must be reachable from the server, by the account it runs as.</p>
+    ${row('daily', '📅 Daily copy', 'at the end of each day')}${row('weekly', '🗓 Weekly copy', 'at the end of each week')}</div>`;
+}
+document.addEventListener('submit', async (e) => {
+  const f = e.target.closest('form[data-off]'); if (!f) return;
+  e.preventDefault();
+  const v = Object.fromEntries(new FormData(f)); const kind = f.dataset.off;
+  try { await api.put('/backups/offsite', { [kind]: { dir: v.dir, time: v.time, keep: Number(v.keep), ...(v.day !== undefined ? { day: Number(v.day) } : {}) } }); toast('Saved'); renderBackups(); } catch (err) { toast(err.message, 'error'); }
+});
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-off-run]'); if (!b) return;
+  b.disabled = true; b.textContent = '⏳ Copying…';
+  try {
+    const res = await fetch(`/api/backups/offsite/${b.dataset.offRun}/run`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' }, body: '{}' });
+    const r = await res.json(); if (r.error) toast(r.error, 'error'); else toast('Copied and checked');
+  } catch (err) { toast(err.message, 'error'); }
+  renderBackups();
+});
 
 // Restore: read the backup first (?check=1), show what's in it, and only replace
 // the data once confirmed. `send(check)` posts the file or names the listed backup.
