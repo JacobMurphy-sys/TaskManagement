@@ -1273,9 +1273,9 @@ async function renderProject(id, tab) {
       const phaseId = $('#add-phase') ? Number($('#add-phase').value) || null
         : p.charter.phases.find((ph) => ph.status !== 'done')?.id ?? null;
       if ($('#add-phase')) store.set(`addPhase:${p.id}`, phaseId);
-      await api.post('/tasks', { project_id: p.id, ...q, phase_id: phaseId });
+      const t = await api.post('/tasks', { project_id: p.id, ...q, phase_id: phaseId });
       await refresh();
-      $(id)?.focus();
+      taskModal(t.id); // the new task open, to fill in the rest
     });
   }
   if (gantt) renderProjectGantt($('#gantt-root'), p, hideDone);
