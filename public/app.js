@@ -1484,7 +1484,8 @@ function taskBoardHtml(tasks, o = {}) {
       const inCol = g.ids.map((id) => byId.get(id)).filter(Boolean);
       return `<div class="column tcol more-scope tlist${g.key === 'none' ? ' tlist-none' : ''}" data-list="${g.key}">
         <h3 class="tcol-head">${g.title}<span class="tcol-n">${inCol.length}</span></h3>
-        <div class="tcol-cards">${inCol.map(card).join('') || `<div class="tcol-empty">${g.key === 'none' ? 'Nothing left to file' : 'Drop a task here'}</div>`}</div>${g.foot || ''}</div>`;
+        <div class="tcol-cards">${inCol.map(card).join('') || `<div class="tcol-empty">${g.key === 'none' ? 'Nothing left to file' : 'Drop a task here'}</div>`}</div>
+        ${o.add !== false ? `<input type="text" class="tcol-add" data-list-add="${g.key}" placeholder="＋ Add a task… (Enter)" autocomplete="off" title="A new task, filed in this list (e.g. Send report !high @fri)">` : ''}${g.foot || ''}</div>`;
     }).join('')}${o.extra || ''}</div>`;
   }
   if (!o.lanes) return board(cards);

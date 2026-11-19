@@ -98,7 +98,7 @@ window.TIMELINE = {
       points: ['Work orders not run yet still come from the open work orders export', 'Late means done after its due date', 'Matching and Dispatch still count from when they first appear in their exports'] },
     { id: 'my-lists', date: '2026-11-11', area: 'projects', title: 'My lists: your own task boards',
       text: 'Tasks has a new My lists view: your own kanban lists, such as This week or Waiting on suppliers, that any open task can be dragged into, separate from the usual status board.',
-      points: ['Make, rename, reorder and remove lists in a click', 'Filing a task doesn\'t change its status, owner or project', 'Not in a list shows your open tasks (or all of them) still to file', 'Each person\'s lists are their own'] },
+      points: ['Make, rename, reorder and remove lists in a click', 'Filing a task doesn\'t change its status, owner or project', 'Not in a list shows your open tasks (or all of them) still to file', 'Each person\'s lists are their own', 'Add a new task straight into any list from the box at its foot'] },
     { id: 'training', date: '2026-11-11', area: 'platform', title: 'A training copy',
       text: 'A practice copy of SITHUB for leading training: a training account works in a copy of the site\'s data, shown as any department sees it, and changes nothing real.',
       points: ['One click makes a fresh copy from the real data before each session', 'The copy keeps the site\'s planning and reporting data but none of anyone\'s tasks, projects, notes or messages', 'Viewing as: switch between departments to show exactly what each team sees', 'Anything that would change something real, such as backups or files on the share, isn\'t done in training'] },
