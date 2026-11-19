@@ -222,6 +222,31 @@ async function waitForServer() {
     assert.ok(!dash2.overdue.some((t) => t.id === dated.id));
     await call('DELETE', `/tasks/${dated.id}`);
 
+    // 🎯 Home's focus items: typed in for today or this week, ticked, changed, removed; one not done carries on
+    {
+      await assert.rejects(call('POST', '/focus-items', { scope: 'day', text: '  ' }), /what to focus on/);
+      const f1 = await call('POST', '/focus-items', { scope: 'day', text: 'Call the supplier' });
+      const ft = await call('POST', '/tasks', { title: 'A task to focus on' });
+      const f2 = await call('POST', '/focus-items', { scope: 'week', task_id: ft.id });
+      assert.equal(f2.text, ft.title, 'a task picked: its title');
+      const dsh = await call('GET', '/dashboard');
+      assert.ok(dsh.focus_items.day.some((f) => f.id === f1.id) && dsh.focus_items.week.some((f) => f.id === f2.id && f.task_status));
+      assert.ok(Array.isArray(dsh.meetings_week));
+      await call('PATCH', `/focus-items/${f1.id}`, { done: true, text: 'Call the supplier back' });
+      const after = (await call('GET', '/focus-items')).day.find((f) => f.id === f1.id);
+      assert.ok(after.done_at && after.text === 'Call the supplier back', 'ticked and changed: still shown for its day');
+      // one from an earlier day, not done, carries on; done, it doesn't
+      const { DatabaseSync } = require('node:sqlite'); const raw = new DatabaseSync(path.join(tmp, 'test.db'));
+      raw.prepare("INSERT INTO focus_items (person, scope, period, text) VALUES ('', 'day', '2020-01-06', 'Old and open'), ('', 'day', '2020-01-06', 'Old and done')").run();
+      raw.prepare("UPDATE focus_items SET done_at = '2020-01-06T10:00:00.000Z' WHERE text = 'Old and done'").run(); raw.close();
+      const day = (await call('GET', '/focus-items')).day;
+      assert.ok(day.some((f) => f.text === 'Old and open' && f.carried) && !day.some((f) => f.text === 'Old and done'), 'not done carries on');
+      assert.equal((await call('GET', '/focus-items?person=Someone%20else')).day.length, 0, 'each person their own');
+      for (const f of [...day, ...(await call('GET', '/focus-items')).week]) await call('DELETE', `/focus-items/${f.id}`);
+      assert.equal((await call('GET', '/focus-items')).day.length, 0);
+      await call('DELETE', `/tasks/${ft.id}`);
+    }
+
     // Search treats % and _ literally.
     assert.equal((await call('GET', '/search?q=%25')).tasks.length, 0);
 

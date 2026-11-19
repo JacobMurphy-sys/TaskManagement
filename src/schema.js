@@ -209,6 +209,22 @@ const TABLES = {
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
     UNIQUE (list_id, task_id)`,
 
+  // 🎯 Home's focus: what someone sets out to do today or this week, typed in (or a suggestion picked). person: whose
+  // focus it is (their name; '' with accounts off); scope 'day' (period: the date) or 'week' (period: its Monday).
+  // One not done carries on into the next day or week until it's ticked or removed.
+  focus_items: `
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    person      TEXT    NOT NULL DEFAULT '',
+    scope       TEXT    NOT NULL CHECK (scope IN ('day', 'week')),
+    period      TEXT    NOT NULL CHECK (period GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+    text        TEXT    NOT NULL,
+    task_id     INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+    project_id  INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+    done_at     TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (${NOW}),
+    updated_at  TEXT    NOT NULL DEFAULT (${NOW})`,
+
   // Actual spend against a project's budget.
   project_costs: `
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

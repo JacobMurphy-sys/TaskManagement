@@ -429,6 +429,46 @@ router.delete('/phases/:id', h((req, res) => {
 // 🗂 My lists: a person's own kanban lists of tasks (the Tasks page), apart from status, owner and project
 const listOwner = (req) => (req.account ? String(req.account.id) : 'local');
 const myList = (req, id) => { const l = db.get('SELECT * FROM task_lists WHERE id = ? AND owner = ?', [Number(id), listOwner(req)]); if (!l) throw notFound('List'); return l; };
+// ---- 🎯 Home's focus items: today's and this week's, typed in or picked from the suggestions ------------------------
+// Periods in the server's local time: a day is its date, a week its Monday. An item not done carries on until it's
+// ticked or removed; one ticked shows (crossed out) for the rest of its day or week.
+const pad2 = (n) => String(n).padStart(2, '0');
+const localDay = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const mondayOf = (d = new Date()) => { const m = new Date(d); m.setHours(12, 0, 0, 0); m.setDate(m.getDate() - ((m.getDay() + 6) % 7)); return localDay(m); };
+const focusPerson = (req, given) => String(given ?? req.account?.person ?? '').trim().slice(0, 120);
+function focusItems(person, now = new Date()) {
+  const today = localDay(now); const monday = mondayOf(now);
+  const q = (scope, period) => db.all(`SELECT f.*, t.status AS task_status, t.title AS task_title, p.name AS project_name FROM focus_items f
+      LEFT JOIN tasks t ON t.id = f.task_id LEFT JOIN projects p ON p.id = f.project_id
+      WHERE f.person = ? COLLATE NOCASE AND f.scope = ? AND (f.period = ? OR (f.period < ? AND f.done_at IS NULL))
+      ORDER BY f.done_at IS NOT NULL, f.period, f.sort_order, f.id`, [person, scope, period, period])
+    .map((f) => ({ ...f, carried: f.period < period }));
+  return { person, today, monday, day: q('day', today), week: q('week', monday) };
+}
+router.get('/focus-items', h((req, res) => res.json(focusItems(focusPerson(req, req.query.person)))));
+router.post('/focus-items', h((req, res) => {
+  const scope = req.body?.scope === 'week' ? 'week' : 'day';
+  const task = req.body?.task_id ? db.get('SELECT id, title, project_id FROM tasks WHERE id = ?', [Number(req.body.task_id)]) : null;
+  const project = !task && req.body?.project_id ? db.get('SELECT id, name FROM projects WHERE id = ?', [Number(req.body.project_id)]) : null;
+  const text = String(req.body?.text || task?.title || project?.name || '').trim().slice(0, 300);
+  if (!text) throw new HttpError(400, 'Say what to focus on');
+  const person = focusPerson(req, req.body?.person);
+  const period = scope === 'week' ? mondayOf() : localDay();
+  const next = (db.get('SELECT MAX(sort_order) AS m FROM focus_items WHERE person = ? AND scope = ? AND period = ?', [person, scope, period]).m ?? -1) + 1;
+  res.status(201).json(insertRow('focus_items', { person, scope, period, text, task_id: task?.id || null, project_id: task?.project_id || project?.id || null, sort_order: next }));
+}));
+router.patch('/focus-items/:id', h((req, res) => {
+  const f = db.get('SELECT * FROM focus_items WHERE id = ?', [Number(req.params.id)]); if (!f) throw notFound('Focus item');
+  const ch = {};
+  if ('text' in (req.body || {})) { const t = String(req.body.text || '').trim().slice(0, 300); if (!t) throw new HttpError(400, 'Say what to focus on'); ch.text = t; }
+  if ('done' in (req.body || {})) ch.done_at = req.body.done ? nowIso() : null;
+  res.json(Object.keys(ch).length ? updateRow('focus_items', f.id, ch) : f);
+}));
+router.delete('/focus-items/:id', h((req, res) => {
+  const { changes } = db.run('DELETE FROM focus_items WHERE id = ?', [Number(req.params.id)]); if (!changes) throw notFound('Focus item');
+  res.status(204).end();
+}));
+
 router.get('/task-lists', h((req, res) => {
   const lists = db.all('SELECT id, name, sort_order FROM task_lists WHERE owner = ? ORDER BY sort_order, id', [listOwner(req)]);
   const items = lists.length ? db.all(`SELECT i.list_id, i.task_id, i.sort_order FROM task_list_items i WHERE i.list_id IN (${lists.map(() => '?').join(',')}) ORDER BY i.sort_order, i.id`, lists.map((l) => l.id)) : [];
@@ -1753,6 +1793,11 @@ router.get('/dashboard', h((req, res) => {
       WHERE status IN ('new', 'reviewing', 'approved')`),
     meetings: meetingList(`m.held_at >= ? AND m.held_at < ? AND (p.id IS NULL OR p.status <> 'archived')`,
       [dayStart(0), dayStart(8)], 'm.held_at, m.id'),
+    // 🗓 this week's meetings, Monday to Sunday (Home's focus shows today's and the rest of the week's)
+    meetings_week: (() => { const mon = new Date(`${mondayOf()}T00:00:00`); const sun = new Date(mon); sun.setDate(sun.getDate() + 7);
+      return meetingList(`m.held_at >= ? AND m.held_at < ? AND (p.id IS NULL OR p.status <> 'archived')`, [mon.toISOString(), sun.toISOString()], 'm.held_at, m.id'); })(),
+    // 🎯 the focus typed in: the person shown (or the account's own)
+    focus_items: focusItems(focusPerson(req, req.query.focus_person || undefined)),
     recent_notes: db.all(`SELECT n.*, p.name AS project_name, t.title AS task_title FROM notes n
       LEFT JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id
       WHERE n.project_id IS NOT NULL OR n.task_id IS NOT NULL ORDER BY n.created_at DESC LIMIT 15`),

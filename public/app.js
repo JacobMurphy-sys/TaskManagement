@@ -573,7 +573,6 @@ async function renderDashboard() {
     ['waiting', '⏳', 'Waiting', d.waiting, 'Not waiting on anyone'], ['high', '🔥', 'High', d.high_priority, 'No open high-priority tasks']];
   let tab = store.get('homeTaskTab', '');
   if (!TABS.some(([k]) => k === tab)) tab = (TABS.find(([, , , l]) => l.length) || TABS[0])[0];
-  const fTab = store.get('focusTab', 'day') === 'week' ? 'week' : 'day';
   const chip = (tone, ico, n, label, jump, title) => `<button type="button" class="ck-kpi ${tone} ${n ? '' : 'zero'}" data-ck-jump="${jump}" title="${esc(title || label)}">${ico} <b>${n.toLocaleString()}</b> ${label}</button>`;
   const panel = (id, title, body, { count = null, tools = '', cls = '' } = {}) => `<section class="ck-panel ${cls}" id="${id}"><header class="ck-ph"><h3>${title}${count !== null ? ` <span class="ck-n">${count}</span>` : ''}</h3>${tools}</header><div class="ck-pb">${body}</div></section>`;
   const empty = (t) => `<div class="ck-empty">${t}</div>`;
@@ -593,10 +592,45 @@ async function renderDashboard() {
   const focusRow = (x) => (x.kind === 'project'
     ? `<li class="ck-row ck-projrow"><span class="ck-st">🗂</span><a class="ck-t" href="#/project/${x.id}" title="A project to talk about">${esc(x.title)}</a>${why(x)}</li>`
     : row({ ...x, status: x.status || 'todo' }, why(x)));
-  const focusList = (k, items, msg) => `<ul class="ck-list" data-focus-list="${k}" ${fTab === k ? '' : 'hidden'}>${items.length ? items.map(focusRow).join('') : `<li>${empty(msg)}</li>`}${k === 'day' && d.focus?.more_overdue ? `<li class="ck-more"><button type="button" class="link small" data-ck-jump="overdue">… and ${d.focus.more_overdue} more overdue</button></li>` : ''}</ul>`;
-  const focusPanel = d.focus ? panel('ck-focus', `🎯 Focus${who ? ` <span class="ck-sub">${esc(who)}</span>` : ''}`,
-    `${focusList('day', d.focus.day, 'Nothing pressing today — a good day to get ahead.')}${focusList('week', d.focus.week, 'Nothing stands out this week.')}`,
-    { tools: `<div class="seg ck-seg"><button type="button" data-focus-tab="day" class="${fTab === 'day' ? 'on' : ''}">Today <b>${d.focus.day.length}</b></button><button type="button" data-focus-tab="week" class="${fTab === 'week' ? 'on' : ''}">This week <b>${d.focus.week.length}</b></button></div>`, cls: 'ck-focus' }) : '';
+  // 🎯 Focus, full height: Today and This week, each with what's been set out to do (＋ adds to it; not done carries
+  // on), the suggestions worked out from the tasks and projects (＋ takes one in), and the meetings planned
+  const fi = d.focus_items || { day: [], week: [] };
+  const todayKey = fi.today || new Date().toISOString().slice(0, 10);
+  const isoWeek = (iso) => { const t = new Date(`${iso}T12:00:00`); t.setDate(t.getDate() + 3 - ((t.getDay() + 6) % 7)); const w1 = new Date(t.getFullYear(), 0, 4); return 1 + Math.round(((t - w1) / 86400000 - 3 + ((w1.getDay() + 6) % 7)) / 7); };
+  const mon = new Date(`${fi.monday || todayKey}T12:00:00`); const sun = new Date(mon); sun.setDate(sun.getDate() + 6);
+  const dShort = (x) => x.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const localDayOf = (iso) => { const x = new Date(iso); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+  const fxItem = (f) => `<li class="fx-item ${f.done_at ? 'done' : ''}" data-fx-id="${f.id}">
+      <input type="checkbox" data-fx-done="${f.id}" ${f.done_at ? 'checked' : ''} title="${f.done_at ? 'Not done after all' : 'Done'}">
+      <span class="fx-text" ${f.task_id ? `data-action="open-task" data-id="${f.task_id}" title="Open the task"` : f.project_id ? `data-action="open-project" data-id="${f.project_id}" title="Open the project"` : 'title="Double-click to change"'}>${esc(f.text)}</span>
+      ${f.carried ? `<span class="fx-carry" title="Set for ${esc(f.scope === 'week' ? `the week of ${fmtShortDate(f.period)}` : fmtDate(f.period))}, not done yet">↻ ${esc(f.scope === 'week' ? `W${isoWeek(f.period)}` : fmtShortDate(f.period))}</span>` : ''}
+      ${f.project_name && !f.task_id ? '' : f.project_name ? `<span class="ck-proj">${esc(f.project_name)}</span>` : ''}
+      ${f.task_status && f.task_status !== 'done' && f.task_status !== 'todo' ? `<span class="ck-st" title="${esc(STATUS[f.task_status] || f.task_status)}">${STATUS_ICON[f.task_status] || ''}</span>` : ''}
+      <button type="button" class="icon fx-edit" data-fx-edit="${f.id}" title="Change">✎</button><button type="button" class="icon fx-del" data-fx-del="${f.id}" title="Remove from the focus">✕</button></li>`;
+  const picked = new Set([...fi.day, ...fi.week].filter((f) => !f.done_at).map((f) => (f.task_id ? `t${f.task_id}` : f.project_id ? `p${f.project_id}` : '')));
+  const sugg = (k, items) => { const left = (items || []).filter((x) => !picked.has(`${x.kind === 'project' ? 'p' : 't'}${x.id}`));
+    return left.length ? `<details class="fx-sugg" ${store.get(`fxSugg:${k}`, false) ? 'open' : ''} data-fx-sugg="${k}"><summary>💡 Suggested <b>${left.length}</b> <span class="muted small">— worked out from due dates, blockers and projects</span></summary><ul class="fx-slist">${left.map((x) => `<li class="fx-srow">
+        <button type="button" class="icon fx-pick" data-fx-pick="${k}" data-kind="${x.kind === 'project' ? 'project' : 'task'}" data-id="${x.id}" title="Add to the focus">＋</button>
+        <span class="fx-stitle" data-action="${x.kind === 'project' ? 'open-project' : 'open-task'}" data-id="${x.id}">${x.kind === 'project' ? '🗂 ' : ''}${esc(x.title)}</span>${why(x)}</li>`).join('')}</ul></details>` : ''; };
+  const meetRow = (m, withDay) => { const past = new Date(m.held_at) < new Date(); return `<li class="fx-mrow ${past ? 'past' : ''}">
+      <span class="fx-mwhen">${withDay ? `${esc(new Date(m.held_at).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' }))} · ` : ''}${esc(new Date(m.held_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }))}</span>
+      <span class="fx-mt" data-action="open-meeting" data-id="${m.id}" title="Open the meeting">${esc(m.title)}</span>${m.project_name ? `<a class="ck-proj" href="#/project/${m.project_id}">${esc(m.project_name)}</a>` : ''}</li>`; };
+  const mWeek = d.meetings_week || [];
+  const mToday = mWeek.filter((m) => localDayOf(m.held_at) === todayKey);
+  const mRest = mWeek.filter((m) => localDayOf(m.held_at) !== todayKey);
+  const fxSec = (k, kicker, title, items, suggItems, meetTitle, meets, withDay, emptyMsg) => `<div class="fx-sec fx-${k}">
+      <header class="fx-head"><div><div class="fx-kicker">${kicker}</div><h3>${title}${who ? ` <span class="ck-sub">${esc(who)}</span>` : ''}</h3></div>
+        <button type="button" class="fx-add" data-fx-add="${k}" title="Add to ${k === 'day' ? 'today' : 'this week'}'s focus">＋</button></header>
+      <div class="fx-body">
+        <form class="fx-new" data-fx-new="${k}" hidden><input type="text" maxlength="300" placeholder="What ${k === 'day' ? 'needs doing today' : 'matters this week'}? (Enter · Esc)" autocomplete="off"></form>
+        <ul class="fx-list">${items.length ? items.map(fxItem).join('') : `<li class="fx-none">${emptyMsg}</li>`}</ul>
+        ${sugg(k, suggItems)}
+        <div class="fx-meet"><h4>🗓 ${meetTitle} <span class="ck-n">${meets.length}</span></h4>${meets.length ? `<ul class="fx-mlist">${meets.map((m) => meetRow(m, withDay)).join('')}</ul>` : '<div class="ck-empty">No meetings planned.</div>'}</div>
+      </div></div>`;
+  const focusPanel = `<section class="ck-panel ck-focus2" id="ck-focus">
+      ${fxSec('day', `Make today count · ${esc(new Date(`${todayKey}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }))}`, 'Today’s focus', fi.day, d.focus?.day, 'Meetings today', mToday, false, 'Nothing set yet — ＋ adds what today is for.')}
+      ${fxSec('week', `${mon.getFullYear()}-W${String(isoWeek(fi.monday || todayKey)).padStart(2, '0')} · ${dShort(mon)} – ${dShort(sun)}`, 'This week’s focus', fi.week, d.focus?.week, 'Meetings this week', mRest, true, 'Nothing set yet — ＋ adds what this week is for.')}
+    </section>`;
   const tasksPanel = panel('ck-tasks', '✅ Tasks', TABS.map(([k, , , l, msg]) => `<ul class="ck-list" data-ck-list="${k}" ${tab === k ? '' : 'hidden'}>${l.length ? l.map((t) => row(t)).join('') : `<li>${empty(msg)}</li>`}</ul>`).join(''),
     { tools: `<div class="ck-tabs" role="tablist">${TABS.map(([k, ic, label, l]) => `<button type="button" role="tab" data-ck-tab="${k}" class="${tab === k ? 'on' : ''} ${l.length ? '' : 'zero'} ${k === 'overdue' || k === 'blocked' ? 'bad' : ''}" aria-selected="${tab === k}">${ic} ${label} <b>${l.length}</b></button>`).join('')}</div>`, cls: 'ck-tasks' });
   // 🗂 projects: two lines each — health, name, leader, progress, issues, due; then the next action
@@ -613,11 +647,6 @@ async function renderDashboard() {
   const projPanel = !modOk('projects') ? '' : panel('ck-projects', `🗂 Projects${who ? ` <span class="ck-sub">${esc(who)}</span>` : ''}`,
     ongoing.length ? `<ul class="ck-plist">${ongoing.map(projRow).join('')}</ul>` : empty('No ongoing projects. <button class="link" data-action="new-project">Create one</button>'),
     { count: ongoing.length, tools: '<a class="small" href="#/kanban" title="Health: ⚠ at risk (overdue tasks or past its due date) · ◐ watch (blocked, or due within 7 days) · ✓ on track">Board →</a>', cls: 'ck-projects' });
-  const meetPanel = panel('ck-meetings', '🗓 Meetings', d.meetings.length ? `<ul class="ck-list">${d.meetings.map((m) => `<li class="ck-row ck-mrow">
-      <span class="ck-when">${esc(fmtDateTime(m.held_at, { weekday: true }))}</span>
-      <span class="ck-t" data-action="open-meeting" data-id="${m.id}">${esc(m.title)}</span>
-      ${m.project_name ? `<a class="ck-proj" href="#/project/${m.project_id}">${esc(m.project_name)}</a>` : ''}</li>`).join('')}</ul>` : empty('No meetings in the next 7 days'),
-    { count: d.meetings.length, tools: '<a class="small" href="#/calendar">Calendar →</a>' });
   const qn = d.quick_notes || [];
   const qnPanel = panel('dash-quick-notes', '📝 Quick notes', qn.length ? `<ul class="ck-list ck-qn">${qn.map((n) => `<li class="ck-qrow">
       <div class="ck-qtext"><b title="Written ${esc(fmtDateTime(n.created_at))}">${esc(n.title || 'Quick note')}</b><span>${esc(n.body)}</span></div>
@@ -651,12 +680,27 @@ async function renderDashboard() {
       ${modOk('report') || modOk('projects') ? ddMenu('⋯', `${modOk('report') ? '<a href="#/report">📰 Status report</a>' : ''}${modOk('projects') ? '<a href="/api/export.xlsx">⬇ Everything as an Excel workbook</a>' : ''}`, { title: 'Status report, Excel export', right: true }) : ''}
     </div>
     <div class="ck-grid">
-      <div class="ck-col ck-col1">${focusPanel}${tasksPanel}</div>
-      <div class="ck-col ck-col2">${projPanel}${meetPanel}</div>
+      <div class="ck-col ck-col1">${focusPanel}</div>
+      <div class="ck-col ck-col2">${projPanel}${tasksPanel}</div>
       <div class="ck-col ck-col3">${qnPanel}${remPanel}${notesPanel}</div>
     </div></div>`;
   $('#home-person').onchange = (e) => { store.set('homePerson', e.target.value); route(); };
-  $$('[data-focus-tab]').forEach((b) => { b.onclick = () => { store.set('focusTab', b.dataset.focusTab); $$('[data-focus-tab]').forEach((x) => x.classList.toggle('on', x === b)); $$('[data-focus-list]').forEach((l) => { l.hidden = l.dataset.focusList !== b.dataset.focusTab; }); }; });
+  // 🎯 the focus: ＋ opens the box (Enter adds, Esc closes), tick, ✎ or double-click to change, ✕ to remove, ＋ on a suggestion
+  const fxPerson = who || undefined;
+  const fxDo = async (fn) => { try { await fn(); route(); } catch (err) { toast(err.message, 'error'); } };
+  $$('[data-fx-add]').forEach((b) => { b.onclick = () => { const f = $(`[data-fx-new="${b.dataset.fxAdd}"]`); f.hidden = !f.hidden; if (!f.hidden) f.querySelector('input').focus(); }; });
+  $$('[data-fx-new]').forEach((f) => {
+    const inp = f.querySelector('input');
+    f.onsubmit = (e) => { e.preventDefault(); const text = inp.value.trim(); if (!text) return; fxDo(() => api.post('/focus-items', { scope: f.dataset.fxNew, text, person: fxPerson })); };
+    inp.onkeydown = (e) => { if (e.key === 'Escape') { inp.value = ''; f.hidden = true; } };
+  });
+  $$('[data-fx-done]').forEach((c) => { c.onchange = () => fxDo(() => api.patch(`/focus-items/${c.dataset.fxDone}`, { done: c.checked })); });
+  const fxEdit = (id) => { const el = $(`[data-fx-id="${id}"] .fx-text`); const text = prompt('Focus on', el?.textContent || ''); if (text && text.trim()) fxDo(() => api.patch(`/focus-items/${id}`, { text: text.trim() })); };
+  $$('[data-fx-edit]').forEach((b) => { b.onclick = () => fxEdit(b.dataset.fxEdit); });
+  $$('.fx-item .fx-text:not([data-action])').forEach((t) => { t.ondblclick = () => fxEdit(t.closest('[data-fx-id]').dataset.fxId); });
+  $$('[data-fx-del]').forEach((b) => { b.onclick = () => fxDo(() => api.del(`/focus-items/${b.dataset.fxDel}`)); });
+  $$('[data-fx-pick]').forEach((b) => { b.onclick = () => fxDo(() => api.post('/focus-items', { scope: b.dataset.fxPick, [b.dataset.kind === 'project' ? 'project_id' : 'task_id']: Number(b.dataset.id), person: fxPerson })); });
+  $$('[data-fx-sugg]').forEach((x) => { x.ontoggle = () => store.set(`fxSugg:${x.dataset.fxSugg}`, x.open); });
   const showTab = (k) => { store.set('homeTaskTab', k); $$('[data-ck-tab]').forEach((x) => { x.classList.toggle('on', x.dataset.ckTab === k); x.setAttribute('aria-selected', String(x.dataset.ckTab === k)); }); $$('[data-ck-list]').forEach((l) => { l.hidden = l.dataset.ckList !== k; }); };
   $$('[data-ck-tab]').forEach((b) => { b.onclick = () => showTab(b.dataset.ckTab); });
   $$('[data-ck-jump]').forEach((b) => { b.onclick = () => {
