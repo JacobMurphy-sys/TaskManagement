@@ -877,7 +877,7 @@ async function cpmHeadcount(body) {
   };
   // ---- month by month: the hours, the people (typed in), and the gap
   const totRow = (label, f, fmt = h1, o = {}) => `<tr class="${o.cls || ''}"><th title="${esc(o.tip || '')}">${o.strong ? `<b>${label}</b>` : label}</th>${M.map((m) => `<td class="num">${o.strong ? `<b>${fmt(f(m))}</b>` : fmt(f(m))}</td>`).join('')}<td class="num"><b>${o.noTotal ? '' : fmt(sum(f))}</b></td></tr>`;
-  const staffIn = (k) => `<tr class="cpm-hc-staff"><th>${{ perm: 'Permanent', agency: 'Agency', temp: 'Temporary', sick: 'Long-term sick (−)' }[k]}</th>${M.map((m) => { const st = m.staff;
+  const staffIn = (k) => `<tr class="cpm-hc-staff"><th>${{ perm: 'Permanent', agency: 'Agency / temporary', sick: 'Long-term sick (−)' }[k]}</th>${M.map((m) => { const st = m.staff;
       return `<td class="num"><input type="number" min="0" step="0.5" class="cpm-hc-in ${st && !st.set ? 'carried' : ''}" data-hc-staff="${m.month}" data-k="${k}" value="${st ? st[k] ?? 0 : ''}" title="${st && !st.set ? `As set for ${esc(st.from)} — change it to set ${esc(m.label)}` : `${esc(m.label)}`}"></td>`; }).join('')}<td></td></tr>`;
   const table = `<div class="kdb-scroll"><table class="log small cpm-hc-table"><thead><tr><th></th>${M.map((m) => `<th class="num">${esc(m.label)}</th>`).join('')}<th class="num">${year}</th></tr></thead><tbody>
       ${totRow('Working days', (m) => m.workdays, (v) => cpmN(v), { tip: 'Production\'s working days, less the holidays on ⚙ Capacity' })}
@@ -889,8 +889,8 @@ async function cpmHeadcount(body) {
       <tr><th title="Hours for a month only (a campaign, a project): typed in">One-off hours</th>${M.map((m) => `<td class="num"><input type="number" min="0" step="1" class="cpm-hc-in" data-hc-extra="${m.month}" value="${C.extra[m.month] || ''}"></td>`).join('')}<td class="num">${h1(sum((m) => m.extra))}</td></tr>
       ${totRow('Hours needed', (m) => m.total, h1, { strong: true, cls: 'cpm-hc-tot' })}
       <tr class="cpm-hc-sec"><th colspan="14">People there <span class="muted small">— type in; a month left as it is carries on from the one before (paler)</span></th></tr>
-      ${['perm', 'agency', 'temp', 'sick'].map(staffIn).join('')}
-      ${totRow('People there', (m) => m.heads, p1, { noTotal: true, tip: 'Permanent + agency + temporary − long-term sick' })}
+      ${['perm', 'agency', 'sick'].map(staffIn).join('')}
+      ${totRow('People there', (m) => m.heads, p1, { noTotal: true, tip: 'Permanent + agency / temporary − long-term sick' })}
       ${totRow('Hours there', (m) => m.available, h1, { tip: `People × ${C.day_hours} h a day × working days × ${cpmPct(C.efficiency)}` })}
       <tr class="cpm-hc-sec"><th colspan="14">The gap</th></tr>
       ${totRow('People needed', (m) => m.fte_needed, p1, { strong: true, noTotal: true, tip: 'Hours needed ÷ the hours a person gives that month' })}

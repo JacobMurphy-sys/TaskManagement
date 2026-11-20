@@ -17,7 +17,7 @@ const { readBook, openZip, items, attr } = require('./xlsxread');
 const PERSO = cpm.TECHS; // DOD, Emboss, Laser
 const MATCH = ['OTTO', 'HMT']; // automatic matching, and by hand
 const MATCH_LABEL = { OTTO: 'OTTO (machine)', HMT: 'By hand' };
-const STAFF = ['perm', 'agency', 'temp', 'sick'];
+const STAFF = ['perm', 'agency', 'sick']; // permanent, agency / temporary (one: in practice the same), long-term sick
 const DEFAULT = { rates: {}, day_hours: 7.5, efficiency: 0.9, match_default: { OTTO: 1, HMT: 0 }, match: {}, other: [], extra: {}, staff: {} };
 const kv = (k) => db.get('SELECT value FROM settings WHERE key = ?', [k])?.value;
 const setKv = (k, v) => db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, v]);
@@ -25,7 +25,9 @@ const json = (s, d) => { try { const v = JSON.parse(s || ''); return v ?? d; } c
 const num = (v) => (v === '' || v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v));
 const err400 = (msg) => Object.assign(new Error(msg), { status: 400 });
 
-const config = () => ({ ...DEFAULT, ...json(kv('cpm_hc'), {}) });
+// a month's people: agency and temporary were kept apart once — now one (added together)
+const oneAgency = (r) => (r && 'temp' in r ? (({ temp, ...x }) => ({ ...x, agency: (Number(x.agency) || 0) + (Number(temp) || 0) }))(r) : r);
+const config = () => { const c = { ...DEFAULT, ...json(kv('cpm_hc'), {}) }; c.staff = Object.fromEntries(Object.entries(c.staff || {}).map(([m, r]) => [m, oneAgency(r)])); return c; };
 
 // the set-up, checked and tidied: only what's given changes
 function save(body = {}) {
@@ -45,7 +47,7 @@ function save(body = {}) {
   if (body.staff) for (const [m, v] of Object.entries(body.staff)) {
     if (!/^\d{4}-\d{2}$/.test(m)) continue;
     if (v === null) { delete c.staff[m]; continue; }
-    const row = {}; for (const k of STAFF) { const n = num(v[k]); if (n !== null && n < 0) throw err400('People can\'t be fewer than 0'); row[k] = n ?? 0; }
+    const row = {}; const w = oneAgency(v); for (const k of STAFF) { const n = num(w[k]); if (n !== null && n < 0) throw err400('People can\'t be fewer than 0'); row[k] = n ?? 0; }
     c.staff[m] = row;
   }
   setKv('cpm_hc', JSON.stringify(c));
@@ -110,7 +112,7 @@ function headcount({ year, changes = [], useFlex = true, cards = null }) {
     const otherTotal = otherPerDay * wd + extra;
     const total = core + otherTotal;
     const st = staffAt(c, month);
-    const heads = st ? (st.perm || 0) + (st.agency || 0) + (st.temp || 0) - (st.sick || 0) : null;
+    const heads = st ? (st.perm || 0) + (st.agency || 0) - (st.sick || 0) : null;
     const perHead = c.day_hours * wd * c.efficiency;
     const avail = heads === null ? null : heads * perHead;
     const fte = perHead ? total / perHead : null;
@@ -160,7 +162,8 @@ function parseWorkbook(buf, { names = new Map() } = {}) {
   out.other = out.other.filter((x) => x.per_day > 0);
   // people per month
   const rows = { perm: rowOf(/^direct permanent$/i), agency: rowOf(/^direct agency$/i), temp: rowOf(/^direct temporary$/i), sick: rowOf(/^long\s*-?\s*time sick|^long-?term sick/i) };
-  if (Object.values(rows).some(Boolean)) cols.forEach((col, i) => { out.staff[`${year}-${String(i + 1).padStart(2, '0')}`] = Object.fromEntries(STAFF.map((k) => [k, rows[k] ? Number(val(`${L(col)}${rows[k]}`)) || 0 : 0])); });
+  // (its agency and temporary rows added together: one, agency / temporary)
+  if (Object.values(rows).some(Boolean)) cols.forEach((col, i) => { const n = (k) => (rows[k] ? Number(val(`${L(col)}${rows[k]}`)) || 0 : 0); out.staff[`${year}-${String(i + 1).padStart(2, '0')}`] = { perm: n('perm'), agency: n('agency') + n('temp'), sick: n('sick') }; });
   // hours a day and efficiency, from the gross available hours formula: (…)*7.5*D2*0.9
   const gross = rowOf(/^gross available hours$/i);
   const f = gross ? String(cell(`${L(cols[0])}${gross}`)?.f || '') : '';
