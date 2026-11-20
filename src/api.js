@@ -3918,6 +3918,28 @@ router.put('/cpm/customers/:trigram', h((req, res) => {
 }));
 router.delete('/cpm/customers/:trigram', h((req, res) => { db.run('DELETE FROM cpm_customers WHERE trigram = ?', [String(req.params.trigram).toUpperCase()]); cpm.remapForecasts(); res.status(204).end(); }));
 // the CPM workbook's Config sheet: customers, splits, OEE (forecast names: the customer's name in it)
+// 👷 Headcount: the forecast as working hours and people, month by month, against the people there are (cpmhc.js);
+// on the base plan or a scenario, with or without flex
+const cpmHc = require('./cpmhc');
+const hcErr = (fn) => { try { return fn(); } catch (err) { throw err.status ? new HttpError(err.status, err.message) : err; } };
+router.get('/cpm/headcount', h((req, res) => {
+  cpmRefresh();
+  const year = Number(req.query.year) || new Date().getFullYear(); const useFlex = req.query.flex !== '0'; const cards = cpmCards();
+  const sc = req.query.scenario ? cpmScenario(req, Number(req.query.scenario)) : null;
+  const plan = cpmHc.headcount({ year, useFlex, cards, changes: sc?.changes || [] });
+  // with a scenario: the base plan's people needed beside it
+  const base = sc ? cpmHc.headcount({ year, useFlex, cards }).months.map((m) => ({ month: m.month, total: m.total, fte_needed: m.fte_needed })) : null;
+  res.json({ ...plan, scenario: sc ? { id: sc.id, name: sc.name } : null, base });
+}));
+router.put('/cpm/headcount/config', h((req, res) => res.json(hcErr(() => cpmHc.save(req.body || {})))));
+// 📥 the old HC Forecast workbook: its rates, matching split per customer, other work, one-off hours and people
+router.post('/cpm/headcount/import', express.raw({ type: '*/*', limit: '60mb' }), h((req, res) => {
+  const got = hcErr(() => cpmHc.parseWorkbook(req.body, { names: cpm.nameMap() }));
+  const body = { rates: got.rates, other: got.other.length ? got.other : undefined, extra: got.extra, staff: got.staff, match: got.match };
+  if (got.day_hours) body.day_hours = got.day_hours; if (got.efficiency) body.efficiency = got.efficiency;
+  hcErr(() => cpmHc.save(body));
+  res.json({ year: got.year, rates: Object.keys(got.rates).length, other: got.other.length, extra: Object.keys(got.extra).length, months: Object.keys(got.staff).length, customers: Object.keys(got.match).length, unknown: got.unknown, day_hours: got.day_hours, efficiency: got.efficiency });
+}));
 router.post('/cpm/customers/import', express.raw({ type: '*/*', limit: '60mb' }), h((req, res) => {
   let cfg; try { cfg = cpm.parseConfig(req.body); } catch (err) { throw new HttpError(400, err.message); }
   const byTri = new Map(); for (const c of cfg.customers) { const x = byTri.get(c.trigram); if (!x) byTri.set(c.trigram, { ...c, names: [c.name] }); else x.names.push(c.name); }

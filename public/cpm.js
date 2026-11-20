@@ -1,7 +1,7 @@
 // 📐 CPM — capacity planning (Prod Management): the forecasts against the machines' capacity per
 // technology by month or week, the forecasts against what was done (flex), the customers' split and
 // OEE, the capacity settings, and each person's scenarios (src/cpm.js does the sums).
-const CPM_TABS = [['overview', '📊 Overview'], ['site', '🏭 Site capacity'], ['day', '🕐 Day by hour'], ['flex', '📈 Forecast vs actual'], ['customers', '👥 Customers'], ['capacity', '⚙ Capacity'], ['scenarios', '🧪 Scenarios']];
+const CPM_TABS = [['overview', '📊 Overview'], ['site', '🏭 Site capacity'], ['headcount', '👷 Headcount'], ['day', '🕐 Day by hour'], ['flex', '📈 Forecast vs actual'], ['customers', '👥 Customers'], ['capacity', '⚙ Capacity'], ['scenarios', '🧪 Scenarios']];
 const cpmN = (v, d = 0) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: d }));
 // each machine's colour, the same on every chart (by its place among the machines)
 const CPM_MACH_COL = ['#e4572e', '#f3a712', '#3fa34d', '#2e86ab', '#9b5de5', '#f15bb5', '#00a6a6', '#8d6a9f', '#c0843b', '#5c8001'];
@@ -53,6 +53,7 @@ async function renderCpm(tab) {
   try {
     if (tab === 'overview') await cpmOverview(body);
     else if (tab === 'site') await cpmSite(body);
+    else if (tab === 'headcount') await cpmHeadcount(body);
     else if (tab === 'day') await cpmDay(body);
     else if (tab === 'flex') await cpmFlex(body);
     else if (tab === 'customers') await cpmCustomers(body);
@@ -836,4 +837,128 @@ function cpmFcTotals(d) {
       ${ax[0] && ax.some((x) => x !== ax[0]) ? tr('SITHUB Database', sit, 'muted', 'SITHUB\'s Database row adds January\'s Amex figure to every month (its lookup is fixed to 01/01/2026) — the total above takes each month\'s own') : ''}
     </tbody></table></div>
     ${ax[0] && ax.some((x) => x !== ax[0]) ? '<p class="small muted">SITHUB\'s Database adds January\'s Amex to every month (its lookup is fixed on 01/01/2026); the total here takes each month\'s own Amex figure, so February on differs by that.</p>' : ''}</div>`;
+}
+
+// ---- 👷 Headcount: the forecast as working hours, and the people they take, against the people there are -----
+// (src/cpmhc.js does the sums, on this Capacity planning's forecast, flex, scenario, split and working days)
+async function cpmHeadcount(body) {
+  const year = Number(store.get('cpmYear', new Date().getFullYear())) || new Date().getFullYear();
+  const flex = store.get('cpmFlex', true); const scId = Number(store.get('cpmHcScenario', 0)) || 0;
+  const [d, scs] = await Promise.all([api.get(`/cpm/headcount?year=${year}&flex=${flex ? 1 : 0}${scId ? `&scenario=${scId}` : ''}`), api.get('/cpm/scenarios').catch(() => [])]);
+  const C = d.config; const M = d.months;
+  const h1 = (v) => cpmN(v, 0); const p1 = (v) => (v === null || v === undefined ? '—' : Number(v).toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
+  const sum = (f) => M.reduce((a, m) => a + (f(m) || 0), 0);
+  const withStaff = M.filter((m) => m.heads !== null);
+  const avg = (f, list = M) => (list.length ? list.reduce((a, m) => a + (f(m) || 0), 0) / list.length : null);
+  const worst = withStaff.reduce((w, m) => (w === null || m.gap_fte < w.gap_fte ? m : w), null);
+  const tile = (label, v, sub, cls = '') => `<div class="cpm-site-tile ${cls}"><div class="small muted">${label}</div><div class="cpm-site-big">${v}</div>${sub ? `<div class="small muted">${sub}</div>` : ''}</div>`;
+  const gapCls = (g) => (g === null || g === undefined ? '' : g < -0.05 ? 'pl-late' : g > 0.05 ? 'pl-ok' : '');
+  const gapTxt = (g, f) => (g === null || g === undefined ? '—' : `${g > 0 ? '+' : g < 0 ? '−' : ''}${f(Math.abs(g))}`);
+  const scList = (Array.isArray(scs) ? scs : scs.scenarios || []);
+  // ---- the chart: people needed (bars: perso and matching, other work) against the people there (line)
+  const chart = () => {
+    const W = 920; const H = 250; const L = 44; const B = 24; const T = 16; const slot = (W - L - 6) / 12; const x = (i) => L + (i + 0.5) * slot; const bw = slot * 0.6;
+    const top = Math.max(1, ...M.map((m) => Math.max(m.fte_needed || 0, m.heads || 0)), ...(d.base || []).map((b) => b.fte_needed || 0)) * 1.12;
+    const step = top > 60 ? 10 : top > 25 ? 5 : top > 10 ? 2 : 1; const max = Math.ceil(top / step) * step; const y = (v) => T + (H - T - B) * (1 - v / max);
+    const ticks = Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step);
+    return `<svg class="cpm-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMin meet">
+      ${ticks.map((v) => `<line x1="${L}" x2="${W - 4}" y1="${y(v)}" y2="${y(v)}" class="cpm-grid"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="cpm-ax">${v}</text>`).join('')}
+      ${M.map((m, i) => { const coreF = m.per_head ? m.core / m.per_head : 0; const othF = m.per_head ? m.other_total / m.per_head : 0; const short = m.heads !== null && m.fte_needed > m.heads + 0.05;
+        return `<g><title>${esc(`${m.label}: ${p1(m.fte_needed)} people needed (${h1(m.total)} h: perso & matching ${h1(m.core)}, other ${h1(m.other_total)}) · ${m.heads === null ? 'no people set' : `${p1(m.heads)} there (${h1(m.available)} h)`}`)}</title>
+          <rect x="${x(i) - bw / 2}" y="${y(coreF)}" width="${bw}" height="${Math.max(0, y(0) - y(coreF))}" class="cpm-hc-core"/>
+          <rect x="${x(i) - bw / 2}" y="${y(coreF + othF)}" width="${bw}" height="${Math.max(0, y(coreF) - y(coreF + othF))}" class="cpm-hc-other"/>
+          <text x="${x(i)}" y="${y(Math.max(coreF + othF, m.heads || 0)) - 7}" text-anchor="middle" class="cpm-lbl ${short ? 'cpm-hc-short' : ''}">${p1(m.fte_needed)}${short ? ` (−${p1(m.fte_needed - m.heads)})` : ''}</text></g>`; }).join('')}
+      ${withStaff.length ? `<polyline fill="none" stroke="var(--text)" stroke-width="2.2" points="${M.map((m, i) => (m.heads === null ? null : `${x(i)},${y(m.heads)}`)).filter(Boolean).join(' ')}"/>
+        ${M.map((m, i) => (m.heads === null ? '' : `<circle cx="${x(i)}" cy="${y(m.heads)}" r="3" class="cpm-cap"><title>${esc(`${m.label}: ${p1(m.heads)} people there`)}</title></circle>`)).join('')}` : ''}
+      ${d.base ? `<polyline fill="none" stroke="#7a5cff" stroke-width="2" stroke-dasharray="6 4" points="${d.base.map((b, i) => `${x(i)},${y(b.fte_needed || 0)}`).join(' ')}"><title>The base plan's people needed</title></polyline>` : ''}
+      ${M.map((m, i) => `<text x="${x(i)}" y="${H - 7}" text-anchor="middle" class="cpm-ax">${esc(m.label)}</text>`).join('')}
+    </svg>
+    <div class="cpm-legend"><span><i class="sw cpm-hc-core-sw"></i>People needed for perso and matching</span><span><i class="sw cpm-hc-other-sw"></i>for the other work</span><span><i class="ln"></i>People there</span>${d.base ? '<span><i class="ln dash" style="border-color:#7a5cff"></i>Base plan, people needed</span>' : ''}<span class="muted">${p1(C.day_hours)} h a day × working days × ${cpmPct(C.efficiency)} efficiency a person</span></div>`;
+  };
+  // ---- month by month: the hours, the people (typed in), and the gap
+  const totRow = (label, f, fmt = h1, o = {}) => `<tr class="${o.cls || ''}"><th title="${esc(o.tip || '')}">${o.strong ? `<b>${label}</b>` : label}</th>${M.map((m) => `<td class="num">${o.strong ? `<b>${fmt(f(m))}</b>` : fmt(f(m))}</td>`).join('')}<td class="num"><b>${o.noTotal ? '' : fmt(sum(f))}</b></td></tr>`;
+  const staffIn = (k) => `<tr class="cpm-hc-staff"><th>${{ perm: 'Permanent', agency: 'Agency', temp: 'Temporary', sick: 'Long-term sick (−)' }[k]}</th>${M.map((m) => { const st = m.staff;
+      return `<td class="num"><input type="number" min="0" step="0.5" class="cpm-hc-in ${st && !st.set ? 'carried' : ''}" data-hc-staff="${m.month}" data-k="${k}" value="${st ? st[k] ?? 0 : ''}" title="${st && !st.set ? `As set for ${esc(st.from)} — change it to set ${esc(m.label)}` : `${esc(m.label)}`}"></td>`; }).join('')}<td></td></tr>`;
+  const table = `<div class="kdb-scroll"><table class="log small cpm-hc-table"><thead><tr><th></th>${M.map((m) => `<th class="num">${esc(m.label)}</th>`).join('')}<th class="num">${year}</th></tr></thead><tbody>
+      ${totRow('Working days', (m) => m.workdays, (v) => cpmN(v), { tip: 'Production\'s working days, less the holidays on ⚙ Capacity' })}
+      ${totRow('Cards (forecast)', (m) => m.cards, cpmK, { tip: `The forecast${flex ? ' × flex' : ''}${d.scenario ? `, with ${d.scenario.name}` : ''}` })}
+      <tr class="cpm-hc-sec"><th colspan="14">Hours needed</th></tr>
+      ${d.techs.map((t) => totRow(`${CPM_TECH_ICON[t] || ''} ${esc(t)} perso`, (m) => m.perso[t], h1, { tip: `Cards × the customer's ${t} share ÷ ${cpmN(d.rates[t])} cards an hour` })).join('')}
+      ${d.methods.map((k) => totRow(`Matching: ${esc(d.method_labels[k])}`, (m) => m.match[k], h1, { tip: `Cards × the customer's ${d.method_labels[k]} share ÷ ${cpmN(d.rates[k])} cards an hour` })).join('')}
+      ${totRow('Other work', (m) => m.other_total - m.extra, h1, { tip: C.other.map((o) => `${o.name}: ${o.per_day} h a working day`).join('\n') || 'None set — add it under Rates and other work' })}
+      <tr><th title="Hours for a month only (a campaign, a project): typed in">One-off hours</th>${M.map((m) => `<td class="num"><input type="number" min="0" step="1" class="cpm-hc-in" data-hc-extra="${m.month}" value="${C.extra[m.month] || ''}"></td>`).join('')}<td class="num">${h1(sum((m) => m.extra))}</td></tr>
+      ${totRow('Hours needed', (m) => m.total, h1, { strong: true, cls: 'cpm-hc-tot' })}
+      <tr class="cpm-hc-sec"><th colspan="14">People there <span class="muted small">— type in; a month left as it is carries on from the one before (paler)</span></th></tr>
+      ${['perm', 'agency', 'temp', 'sick'].map(staffIn).join('')}
+      ${totRow('People there', (m) => m.heads, p1, { noTotal: true, tip: 'Permanent + agency + temporary − long-term sick' })}
+      ${totRow('Hours there', (m) => m.available, h1, { tip: `People × ${C.day_hours} h a day × working days × ${cpmPct(C.efficiency)}` })}
+      <tr class="cpm-hc-sec"><th colspan="14">The gap</th></tr>
+      ${totRow('People needed', (m) => m.fte_needed, p1, { strong: true, noTotal: true, tip: 'Hours needed ÷ the hours a person gives that month' })}
+      ${d.base ? totRow('People needed, base plan', (m) => d.base.find((b) => b.month === m.month)?.fte_needed, p1, { noTotal: true }) : ''}
+      <tr class="cpm-hc-tot"><th title="People there − people needed: + spare, − short"><b>People spare / short</b></th>${M.map((m) => `<td class="num"><b class="${gapCls(m.gap_fte)}">${gapTxt(m.gap_fte, p1)}</b></td>`).join('')}<td></td></tr>
+      <tr><th title="Hours there − hours needed: + spare, − short">Hours spare / short</th>${M.map((m) => `<td class="num"><span class="${gapCls(m.gap_hours)}">${gapTxt(m.gap_hours, h1)}</span></td>`).join('')}<td class="num"><span class="${gapCls(withStaff.length ? sum((m) => m.gap_hours) : null)}">${withStaff.length ? gapTxt(sum((m) => m.gap_hours), h1) : ''}</span></td></tr>
+    </tbody></table></div>`;
+  // ---- per customer: the hours a month, and its matching split (OTTO % typed in; the rest by hand)
+  const custs = `<div class="kdb-scroll"><table class="log small cpm-hc-table"><thead><tr><th>Customer</th><th class="num" title="Its cards matched on OTTO; the rest by hand">Matching on OTTO</th>${M.map((m) => `<th class="num">${esc(m.label)}</th>`).join('')}<th class="num">${year}</th></tr></thead><tbody>
+      ${d.customers.map((c) => `<tr><th>${esc(c.trigram || c.name)}${c.trigram && c.name && c.name !== c.trigram ? ` <span class="muted">${esc(c.name)}</span>` : ''}</th>
+        <td class="num"><input type="number" min="0" max="100" step="1" class="cpm-hc-in ${c.match_set ? '' : 'carried'}" data-hc-match="${esc(c.trigram || c.key)}" value="${Math.round((c.match.OTTO || 0) * 100)}" title="${c.match_set ? '' : 'The default — type to set this customer\'s'}"> %</td>
+        ${c.hours.map((h) => `<td class="num">${h ? h1(h) : '<span class="muted">–</span>'}</td>`).join('')}<td class="num"><b>${h1(c.total)}</b></td></tr>`).join('')}
+    </tbody></table></div>${d.customers.length ? '' : '<p class="muted small">No forecast for this year yet (Reporting › Sources: the BeNeLux and Amex forecasts).</p>'}`;
+  // ---- the rates and other work
+  const rateIn = (k, label) => `<label class="f">${label}<span class="row" style="gap:6px"><input type="number" min="1" step="1" data-hc-rate="${k}" value="${C.rates[k] || ''}" placeholder="${d.rate_from[k] === 'production' ? `${cpmN(d.rates[k])} (Production)` : 'cards an hour'}" style="max-width:130px"> /h</span></label>`;
+  const setup = `<div class="cpm-hc-setup">
+      <div><h4>Cards an hour, for a person</h4><p class="small muted" style="margin-top:0">Perso by technology (blank: Production's machine speed), and matching by method.</p>
+        <div class="row" style="gap:10px;flex-wrap:wrap">${d.techs.map((t) => rateIn(t, `${CPM_TECH_ICON[t] || ''} ${t}`)).join('')}${d.methods.map((k) => rateIn(k, `Matching: ${d.method_labels[k]}`)).join('')}</div>
+        <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:8px">
+          <label class="f">Hours a day<input type="number" min="1" max="24" step="0.25" data-hc-day value="${C.day_hours}" style="max-width:90px"></label>
+          <label class="f">Efficiency<span class="row" style="gap:6px"><input type="number" min="1" max="100" step="1" data-hc-eff value="${Math.round(C.efficiency * 100)}" style="max-width:80px"> %</span></label>
+          <label class="f" title="For customers without a split of their own">Matching on OTTO, by default<span class="row" style="gap:6px"><input type="number" min="0" max="100" step="1" data-hc-mdef value="${Math.round((C.match_default?.OTTO ?? 1) * 100)}" style="max-width:80px"> %</span></label></div></div>
+      <div><h4>Other work <span class="small muted">— hours a working day</span></h4>
+        <table class="log small"><tbody>${C.other.map((o, i) => `<tr><td><input type="text" data-hc-oname="${i}" value="${esc(o.name)}"></td><td class="num"><input type="number" min="0" step="0.5" data-hc-oday="${i}" value="${o.per_day}" style="max-width:90px"> h</td><td><button type="button" class="icon" data-hc-odel="${i}" title="Remove">✕</button></td></tr>`).join('')}
+          <tr><td><input type="text" id="hc-onew-name" placeholder="＋ e.g. Quality checks"></td><td class="num"><input type="number" min="0" step="0.5" id="hc-onew-day" placeholder="h a day" style="max-width:90px"></td><td><button type="button" class="small" id="hc-onew">Add</button></td></tr></tbody></table>
+        <div class="small muted">${p1(C.other.reduce((a, o) => a + (o.per_day || 0), 0))} h a working day in all</div></div></div>`;
+  body.innerHTML = `
+    <div class="card"><div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><h3 style="margin:0">👷 Headcount</h3>
+        <span class="row" style="gap:4px"><button type="button" class="icon" data-hc-year="${year - 1}">‹</button><b>${year}</b><button type="button" class="icon" data-hc-year="${year + 1}">›</button></span>
+        <label class="small row" style="gap:4px"><input type="checkbox" id="hc-flex" ${flex ? 'checked' : ''}> Apply flex</label>
+        <label class="small row" style="gap:4px">Plan <select id="hc-scen"><option value="0">Base</option>${scList.map((s) => `<option value="${s.id}" ${s.id === scId ? 'selected' : ''}>🧪 ${esc(s.name)}</option>`).join('')}</select></label>
+        <div class="spacer"></div><button type="button" id="hc-import" title="Read the rates, matching split, other work, one-off hours and people from the old HC Forecast workbook">📥 Import the HC Forecast workbook</button><input type="file" id="hc-file" accept=".xlsx,.xlsm" hidden></div>
+      <p class="small muted">The forecast turned into the working hours it takes and the people to do them: each customer's cards${flex ? ' (× flex)' : ''}${d.scenario ? ` with <b>${esc(d.scenario.name)}</b>` : ''}, split across DOD / Emboss / Laser as on <a href="#/cpm/customers">👥 Customers</a>, ÷ a person's cards an hour, plus matching and the other work — against the people there, at ${p1(C.day_hours)} h a day and ${cpmPct(C.efficiency)} efficiency.</p>
+      ${d.warnings.length ? `<div class="kpi-actions">${d.warnings.map((w) => `<div class="kpi-action notice"><span>⚠ ${esc(w)}</span></div>`).join('')}</div>` : ''}
+      <div class="cpm-site-tiles">
+        ${tile(`Hours needed, ${year}`, h1(sum((m) => m.total)), `${h1(sum((m) => m.core))} perso & matching · ${h1(sum((m) => m.other_total))} other`)}
+        ${tile('People needed, a month', p1(avg((m) => m.fte_needed)), `on average · most ${p1(Math.max(...M.map((m) => m.fte_needed || 0)))}`)}
+        ${tile('People there, a month', withStaff.length ? p1(avg((m) => m.heads, withStaff)) : '—', withStaff.length ? `on average over ${withStaff.length} month${withStaff.length === 1 ? '' : 's'}` : 'none set yet')}
+        ${worst ? tile('Tightest month', `${esc(worst.label)} ${gapTxt(worst.gap_fte, p1)}`, worst.gap_fte < 0 ? 'people short' : 'people spare', worst.gap_fte < -0.05 ? 'cpm-hc-bad' : '') : ''}
+      </div></div>
+    <div class="card"><h3>People needed and there, month by month</h3>${chart()}</div>
+    <div class="card"><h3>Month by month</h3>${table}</div>
+    <div class="card"><h3>Per customer <span class="small muted">— hours a month for perso and matching</span></h3>${custs}</div>
+    <div class="card"><h3>Rates and other work</h3>${setup}</div>`;
+  // ---- changes save as they're made, then the tab is worked out again
+  const put = async (b) => { try { await api.put('/cpm/headcount/config', b); renderCpm('headcount'); } catch (err) { toast(err.message, 'error'); } };
+  $$('[data-hc-year]').forEach((b) => { b.onclick = () => { store.set('cpmYear', Number(b.dataset.hcYear)); renderCpm('headcount'); }; });
+  $('#hc-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('headcount'); };
+  $('#hc-scen').onchange = (e) => { store.set('cpmHcScenario', Number(e.target.value)); renderCpm('headcount'); };
+  $$('[data-hc-staff]').forEach((i) => { i.onchange = () => { const mo = i.dataset.hcStaff; const row = Object.fromEntries($$(`[data-hc-staff="${mo}"]`).map((x) => [x.dataset.k, x.value === '' ? 0 : Number(x.value)])); put({ staff: { [mo]: row } }); }; });
+  $$('[data-hc-extra]').forEach((i) => { i.onchange = () => put({ extra: { [i.dataset.hcExtra]: i.value === '' ? 0 : Number(i.value) } }); });
+  $$('[data-hc-match]').forEach((i) => { i.onchange = () => put({ match: { [i.dataset.hcMatch]: i.value === '' ? null : { OTTO: Number(i.value) / 100 } } }); });
+  $$('[data-hc-rate]').forEach((i) => { i.onchange = () => put({ rates: { [i.dataset.hcRate]: i.value === '' ? null : Number(i.value) } }); });
+  $('[data-hc-day]').onchange = (e) => put({ day_hours: Number(e.target.value) });
+  $('[data-hc-eff]').onchange = (e) => put({ efficiency: Number(e.target.value) / 100 });
+  $('[data-hc-mdef]').onchange = (e) => put({ match_default: { OTTO: Number(e.target.value) / 100 } });
+  const others = () => C.other.map((o, i) => ({ name: $(`[data-hc-oname="${i}"]`).value, per_day: Number($(`[data-hc-oday="${i}"]`).value) || 0 }));
+  $$('[data-hc-oname], [data-hc-oday]').forEach((i) => { i.onchange = () => put({ other: others() }); });
+  $$('[data-hc-odel]').forEach((b) => { b.onclick = () => put({ other: others().filter((_, i) => i !== Number(b.dataset.hcOdel)) }); });
+  $('#hc-onew').onclick = () => { const name = $('#hc-onew-name').value.trim(); if (!name) return toast('Name the work first', 'error'); put({ other: [...others(), { name, per_day: Number($('#hc-onew-day').value) || 0 }] }); };
+  $('#hc-import').onclick = () => $('#hc-file').click();
+  $('#hc-file').onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      const r = await fetch('/api/cpm/headcount/import', { method: 'POST', body: f, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
+      const x = await r.json(); if (!r.ok) throw new Error(x.error || r.statusText);
+      toast(`Read ${x.rates} rates, ${x.customers} customers' matching, ${x.other} kinds of other work, ${x.months} months of people${x.unknown.length ? ` — ${x.unknown.length} names not linked to a customer here` : ''}`);
+      renderCpm('headcount');
+    } catch (err) { toast(err.message, 'error'); }
+  };
 }
