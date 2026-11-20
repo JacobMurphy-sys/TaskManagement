@@ -84,14 +84,15 @@ function headcount({ year, changes = [], useFlex = true, cards = null }) {
   const customers = [...byCust.values()].map((C) => {
     const mx = matchOf(C);
     const hours = Array(12).fill(0); const cardsBy = Array(12).fill(0);
+    const by = Object.fromEntries([...PERSO, ...MATCH].map((k) => [k, Array(12).fill(0)])); // its hours by technology and matching method
     for (let m = 1; m <= 12; m++) {
       const M = C.months[m]; if (!M) continue;
       const share = Object.values(M.split).reduce((a, b) => a + b, 0); const q = M.cards * share;
-      let h = 0; for (const [t, s] of Object.entries(M.split)) if (rate[t]) h += (M.cards * s) / rate[t];
-      for (const k of MATCH) if (rate[k] && mx[k]) h += (q * mx[k]) / rate[k];
+      let h = 0; for (const [t, s] of Object.entries(M.split)) if (rate[t]) { const x = (M.cards * s) / rate[t]; h += x; if (by[t]) by[t][m - 1] += x; }
+      for (const k of MATCH) if (rate[k] && mx[k]) { const x = (q * mx[k]) / rate[k]; h += x; by[k][m - 1] += x; }
       hours[m - 1] = h; cardsBy[m - 1] = q;
     }
-    return { key: C.key, trigram: C.trigram, name: C.name, match: mx, match_set: !!c.match[C.trigram || C.key], hours, cards: cardsBy, total: hours.reduce((a, b) => a + b, 0) };
+    return { key: C.key, trigram: C.trigram, name: C.name, match: mx, match_set: !!c.match[C.trigram || C.key], hours, cards: cardsBy, by, total: hours.reduce((a, b) => a + b, 0) };
   }).filter((x) => x.total > 0 || x.cards.some((q) => q > 0)).sort((a, b) => b.total - a.total);
   const otherPerDay = c.other.reduce((a, x) => a + (x.per_day || 0), 0);
   const months = plan.periods.map((P, i) => {
