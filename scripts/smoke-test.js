@@ -263,7 +263,7 @@ async function waitForServer() {
       await assert.rejects(call('PUT', '/cpm/headcount/config', { efficiency: 150 }), /Efficiency/);
       await assert.rejects(call('PUT', '/cpm/headcount/config', { other: [{ name: '', per_day: 3 }] }), /needs a name/);
       await call('PUT', '/cpm/headcount/config', { rates: { DOD: 1500, Emboss: 1200, Laser: 500, OTTO: 3000, HMT: 400 }, day_hours: 7.5, efficiency: 90,
-        match_default: { OTTO: 100 }, other: [{ name: 'Admin', per_day: 10 }], extra: { '2031-03': 50 }, staff: { '2031-01': { perm: 10, agency: 2, temp: 0, sick: 1 } } });
+        match_default: { OTTO: 100 }, other: [{ name: 'Admin', per_day: 10 }], extra: { '2031-03': 50 }, staff: { '2031-01': { perm: 10, agency: 1, temp: 1, sick: 1 } } }); // (an old temp figure: added to agency)
       const { DatabaseSync } = require('node:sqlite'); const raw = new DatabaseSync(path.join(tmp, 'test.db'));
       raw.prepare("INSERT INTO cpm_customers (trigram, name, fc_names, split) VALUES ('HCT', 'Headcount test', 'Headcount test', '{\"DOD\":0.6,\"Laser\":0.4}')").run();
       raw.prepare("INSERT INTO cpm_forecast (as_of, source, year, month, trigram, name, tech, qty, read_at) VALUES ('2031-01', 'benelux', 2031, 1, 'HCT', 'Headcount test', NULL, 15000, '2031-01-01T00:00:00Z'), ('2031-01', 'benelux', 2031, 3, 'HCT', 'Headcount test', NULL, 30000, '2031-01-01T00:00:00Z')").run();
@@ -278,7 +278,8 @@ async function waitForServer() {
       assert.ok(Math.abs(jan.perso.DOD - 6) < 0.01 && Math.abs(jan.perso.Laser - 12) < 0.01 && Math.abs(jan.match.HMT - 18.75) < 0.01);
       assert.equal(jan.other_total, 10 * jan.workdays, 'other work: hours a working day × working days');
       assert.equal(mar.extra, 50, 'one-off hours in their month');
-      assert.equal(jan.heads, 11, 'permanent + agency + temporary − long-term sick');
+      assert.equal(jan.heads, 11, 'permanent + agency / temporary − long-term sick');
+      assert.deepStrictEqual(hc.config.staff['2031-01'], { perm: 10, agency: 2, sick: 1 }, 'agency and temporary are one');
       assert.ok(hc.months[1].staff && !hc.months[1].staff.set && hc.months[1].heads === 11, 'a month not set carries on from the one before');
       assert.ok(Math.abs(jan.available - 11 * 7.5 * jan.workdays * 0.9) < 0.01);
       assert.ok(Math.abs(jan.fte_needed - jan.total / (7.5 * jan.workdays * 0.9)) < 1e-9 && Math.abs(jan.gap_fte - (11 - jan.fte_needed)) < 1e-9);
@@ -289,11 +290,11 @@ async function waitForServer() {
       const old = xlsxOf([{ name: 'HC Forecast v3', columns: [{ header: 'Customer' }, { header: '' }, { header: 'Service' }, ...months.map((m) => ({ header: m })), { header: '2031' }],
         rows: [['', '', '', ...days], ['WORKING HOURS REQUIRED', '', 'CORE SERVICES'], ['', '', 'OTHER SERVICES'],
           ['', '', 'Carrier printing', ...days.map((dd) => dd * 15)], ['', '', 'Metal campaign', 0, 0, 120, 0, 0, 0, 0, 0, 0, 0, 0, 0], ['', '', 'OTHER SERVICES TOTAL'],
-          ['HEADCOUNT', '', 'TYPE'], ['', '', 'Direct Permanent', ...days.map(() => 30)], ['', '', 'Direct Agency', ...days.map(() => 2)], ['', '', 'Direct Temporary', ...days.map(() => 0)], ['', '', 'Longtime Sick', ...days.map(() => 1)]] }]);
+          ['HEADCOUNT', '', 'TYPE'], ['', '', 'Direct Permanent', ...days.map(() => 30)], ['', '', 'Direct Agency', ...days.map(() => 2)], ['', '', 'Direct Temporary', ...days.map(() => 1)], ['', '', 'Longtime Sick', ...days.map(() => 1)]] }]);
       const imp = await fetch(`${BASE}/cpm/headcount/import`, { method: 'POST', body: old, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } }).then((r) => r.json());
       assert.deepStrictEqual([imp.year, imp.other, imp.extra, imp.months], [2031, 1, 1, 12]);
       const cfg = (await call('GET', '/cpm/headcount?year=2031&flex=0')).config;
-      assert.deepStrictEqual([cfg.other.map((o) => `${o.name}=${o.per_day}`), cfg.extra['2031-03'], cfg.staff['2031-06']], [['Carrier printing=15'], 120, { perm: 30, agency: 2, temp: 0, sick: 1 }]);
+      assert.deepStrictEqual([cfg.other.map((o) => `${o.name}=${o.per_day}`), cfg.extra['2031-03'], cfg.staff['2031-06']], [['Carrier printing=15'], 120, { perm: 30, agency: 3, sick: 1 }]);
       const bad = await fetch(`${BASE}/cpm/headcount/import`, { method: 'POST', body: xlsxOf([{ name: 'X', columns: [{ header: 'A' }], rows: [] }]), headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
       assert.equal(bad.status, 400, 'not an HC Forecast workbook');
       const raw2 = new DatabaseSync(path.join(tmp, 'test.db')); raw2.prepare("DELETE FROM cpm_forecast WHERE year = 2031").run(); raw2.prepare("DELETE FROM cpm_customers WHERE trigram = 'HCT'").run(); raw2.close();
