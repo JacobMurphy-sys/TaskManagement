@@ -898,12 +898,22 @@ async function cpmHeadcount(body) {
       <tr class="cpm-hc-tot"><th title="People there − people needed: + spare, − short"><b>People spare / short</b></th>${M.map((m) => `<td class="num"><b class="${gapCls(m.gap_fte)}">${gapTxt(m.gap_fte, p1)}</b></td>`).join('')}<td></td></tr>
       <tr><th title="Hours there − hours needed: + spare, − short">Hours spare / short</th>${M.map((m) => `<td class="num"><span class="${gapCls(m.gap_hours)}">${gapTxt(m.gap_hours, h1)}</span></td>`).join('')}<td class="num"><span class="${gapCls(withStaff.length ? sum((m) => m.gap_hours) : null)}">${withStaff.length ? gapTxt(sum((m) => m.gap_hours), h1) : ''}</span></td></tr>
     </tbody></table></div>`;
-  // ---- per customer: the hours a month, and its matching split (OTTO % typed in; the rest by hand)
+  // ---- per customer: the hours a month, and its matching split (OTTO % typed in; the rest by hand). Summary: a row a
+  // customer; Detailed: each customer's hours by technology (perso) and matching method, with its total
+  const custView = store.get('cpmHcCustView', 'summary') === 'detail' ? 'detail' : 'summary';
+  const matchIn = (c) => `<input type="number" min="0" max="100" step="1" class="cpm-hc-in ${c.match_set ? '' : 'carried'}" data-hc-match="${esc(c.trigram || c.key)}" value="${Math.round((c.match.OTTO || 0) * 100)}" title="${c.match_set ? '' : 'The default — type to set this customer\'s'}"> %`;
+  const custName = (c) => `${esc(c.trigram || c.name)}${c.trigram && c.name && c.name !== c.trigram ? ` <span class="muted">${esc(c.name)}</span>` : ''}`;
+  const cell = (h) => `<td class="num">${h ? h1(h) : '<span class="muted">–</span>'}</td>`;
+  const parts = [...d.techs.map((t) => [t, `${CPM_TECH_ICON[t] || ''} ${esc(t)}`]), ...d.methods.map((k) => [k, `Matching: ${esc(d.method_labels[k])}`])];
+  const custRows = custView === 'summary'
+    ? d.customers.map((c) => `<tr><th>${custName(c)}</th><td class="num">${matchIn(c)}</td>${c.hours.map(cell).join('')}<td class="num"><b>${h1(c.total)}</b></td></tr>`).join('')
+    : d.customers.map((c) => { const rows = parts.filter(([k]) => c.by?.[k]?.some((v) => v > 0));
+      return `<tr class="cpm-hc-cust"><th>${custName(c)}</th><td class="num">${matchIn(c)}</td>${c.hours.map((h) => `<td class="num"><b>${h ? h1(h) : '–'}</b></td>`).join('')}<td class="num"><b>${h1(c.total)}</b></td></tr>
+        ${rows.map(([k, label]) => `<tr class="cpm-hc-part"><th>${label}</th><td></td>${c.by[k].map(cell).join('')}<td class="num">${h1(c.by[k].reduce((a, v) => a + v, 0))}</td></tr>`).join('')}`; }).join('');
   const custs = `<div class="kdb-scroll"><table class="log small cpm-hc-table"><thead><tr><th>Customer</th><th class="num" title="Its cards matched on OTTO; the rest by hand">Matching on OTTO</th>${M.map((m) => `<th class="num">${esc(m.label)}</th>`).join('')}<th class="num">${year}</th></tr></thead><tbody>
-      ${d.customers.map((c) => `<tr><th>${esc(c.trigram || c.name)}${c.trigram && c.name && c.name !== c.trigram ? ` <span class="muted">${esc(c.name)}</span>` : ''}</th>
-        <td class="num"><input type="number" min="0" max="100" step="1" class="cpm-hc-in ${c.match_set ? '' : 'carried'}" data-hc-match="${esc(c.trigram || c.key)}" value="${Math.round((c.match.OTTO || 0) * 100)}" title="${c.match_set ? '' : 'The default — type to set this customer\'s'}"> %</td>
-        ${c.hours.map((h) => `<td class="num">${h ? h1(h) : '<span class="muted">–</span>'}</td>`).join('')}<td class="num"><b>${h1(c.total)}</b></td></tr>`).join('')}
+      ${custRows}
     </tbody></table></div>${d.customers.length ? '' : '<p class="muted small">No forecast for this year yet (Reporting › Sources: the BeNeLux and Amex forecasts).</p>'}`;
+  const custSeg = `<span class="seg" role="group" aria-label="Per customer view"><button type="button" data-hc-cview="summary" class="${custView === 'summary' ? 'on' : ''}" title="A row a customer: its hours for perso and matching">Summary</button><button type="button" data-hc-cview="detail" class="${custView === 'detail' ? 'on' : ''}" title="Each customer's hours by technology and matching method">Detailed</button></span>`;
   // ---- the rates and other work
   const rateIn = (k, label) => `<label class="f">${label}<span class="row" style="gap:6px"><input type="number" min="1" step="1" data-hc-rate="${k}" value="${C.rates[k] || ''}" placeholder="${d.rate_from[k] === 'production' ? `${cpmN(d.rates[k])} (Production)` : 'cards an hour'}" style="max-width:130px"> /h</span></label>`;
   const setup = `<div class="cpm-hc-setup">
@@ -933,12 +943,13 @@ async function cpmHeadcount(body) {
       </div></div>
     <div class="card"><h3>People needed and there, month by month</h3>${chart()}</div>
     <div class="card"><h3>Month by month</h3>${table}</div>
-    <div class="card"><h3>Per customer <span class="small muted">— hours a month for perso and matching</span></h3>${custs}</div>
+    <div class="card"><h3>Per customer <span class="small muted">— hours a month for perso and matching${custView === 'detail' ? ', by technology and method' : ''}</span> ${custSeg}</h3>${custs}</div>
     <div class="card"><h3>Rates and other work</h3>${setup}</div>`;
   // ---- changes save as they're made, then the tab is worked out again
   const put = async (b) => { try { await api.put('/cpm/headcount/config', b); renderCpm('headcount'); } catch (err) { toast(err.message, 'error'); } };
   $$('[data-hc-year]').forEach((b) => { b.onclick = () => { store.set('cpmYear', Number(b.dataset.hcYear)); renderCpm('headcount'); }; });
   $('#hc-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('headcount'); };
+  $$('[data-hc-cview]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); store.set('cpmHcCustView', b.dataset.hcCview); renderCpm('headcount'); }; });
   $('#hc-scen').onchange = (e) => { store.set('cpmHcScenario', Number(e.target.value)); renderCpm('headcount'); };
   $$('[data-hc-staff]').forEach((i) => { i.onchange = () => { const mo = i.dataset.hcStaff; const row = Object.fromEntries($$(`[data-hc-staff="${mo}"]`).map((x) => [x.dataset.k, x.value === '' ? 0 : Number(x.value)])); put({ staff: { [mo]: row } }); }; });
   $$('[data-hc-extra]').forEach((i) => { i.onchange = () => put({ extra: { [i.dataset.hcExtra]: i.value === '' ? 0 : Number(i.value) } }); });

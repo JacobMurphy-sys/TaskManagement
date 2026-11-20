@@ -273,6 +273,7 @@ async function waitForServer() {
       const c = hc.customers.find((x) => x.trigram === 'HCT');
       // Jan: 15000 × 0.6 ÷ 1500 + 15000 × 0.4 ÷ 500 = 18 h perso; matching 15000 × (0.5 ÷ 3000 + 0.5 ÷ 400) = 21.25 h
       assert.ok(Math.abs(c.hours[0] - 39.25) < 0.01, `customer hours ${c.hours[0]}`);
+      assert.deepStrictEqual(['DOD', 'Emboss', 'Laser', 'OTTO', 'HMT'].map((k) => Math.round(c.by[k][0] * 100) / 100), [6, 0, 12, 2.5, 18.75], 'its hours by technology and matching method');
       const jan = hc.months[0]; const mar = hc.months[2];
       assert.ok(Math.abs(jan.perso.DOD - 6) < 0.01 && Math.abs(jan.perso.Laser - 12) < 0.01 && Math.abs(jan.match.HMT - 18.75) < 0.01);
       assert.equal(jan.other_total, 10 * jan.workdays, 'other work: hours a working day × working days');
