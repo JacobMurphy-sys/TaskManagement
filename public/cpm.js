@@ -924,10 +924,12 @@ async function cpmHeadcount(body) {
           <label class="f">Efficiency<span class="row" style="gap:6px"><input type="number" min="1" max="100" step="1" data-hc-eff value="${Math.round(C.efficiency * 100)}" style="max-width:80px"> %</span></label>
           <label class="f" title="For customers without a split of their own">Matching on OTTO, by default<span class="row" style="gap:6px"><input type="number" min="0" max="100" step="1" data-hc-mdef value="${Math.round((C.match_default?.OTTO ?? 1) * 100)}" style="max-width:80px"> %</span></label></div></div>
       <div><h4>Other work <span class="small muted">— hours a working day</span></h4>
-        <table class="log small"><tbody>${C.other.map((o, i) => `<tr><td><input type="text" data-hc-oname="${i}" value="${esc(o.name)}"></td><td class="num"><input type="number" min="0" step="0.5" data-hc-oday="${i}" value="${o.per_day}" style="max-width:90px"> h</td><td><button type="button" class="icon" data-hc-odel="${i}" title="Remove">✕</button></td></tr>`).join('')}
+        <table class="log small"><tbody id="hc-orows">${C.other.map((o) => `<tr data-hc-orow><td><input type="text" data-hc-oname value="${esc(o.name)}"></td><td class="num"><input type="number" min="0" step="0.5" data-hc-oday value="${o.per_day}" style="max-width:90px"> h</td><td><button type="button" class="icon" data-hc-odel title="Remove">✕</button></td></tr>`).join('')}
           <tr><td><input type="text" id="hc-onew-name" placeholder="＋ e.g. Quality checks"></td><td class="num"><input type="number" min="0" step="0.5" id="hc-onew-day" placeholder="h a day" style="max-width:90px"></td><td><button type="button" class="small" id="hc-onew">Add</button></td></tr></tbody></table>
         <div class="small muted">${p1(C.other.reduce((a, o) => a + (o.per_day || 0), 0))} h a working day in all</div></div></div>`;
   body.innerHTML = `
+    <div class="cpm-hc-savebar" id="hc-savebar"><span class="small muted">Change the people, one-off hours, matching, rates or other work below, then save them together.</span><div class="spacer"></div>
+      <span class="small pl-warn" id="hc-dirty" hidden>Not saved yet</span><button class="small" id="hc-undo" disabled>Undo changes</button><button class="small primary" id="hc-save" disabled>💾 Save</button></div>
     <div class="card"><div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><h3 style="margin:0">👷 Headcount</h3>
         <span class="row" style="gap:4px"><button type="button" class="icon" data-hc-year="${year - 1}">‹</button><b>${year}</b><button type="button" class="icon" data-hc-year="${year + 1}">›</button></span>
         <label class="small row" style="gap:4px"><input type="checkbox" id="hc-flex" ${flex ? 'checked' : ''}> Apply flex</label>
@@ -945,23 +947,46 @@ async function cpmHeadcount(body) {
     <div class="card"><h3>Month by month</h3>${table}</div>
     <div class="card"><h3>Per customer <span class="small muted">— hours a month for perso and matching${custView === 'detail' ? ', by technology and method' : ''}</span> ${custSeg}</h3>${custs}</div>
     <div class="card"><h3>Rates and other work</h3>${setup}</div>`;
-  // ---- changes save as they're made, then the tab is worked out again
-  const put = async (b) => { try { await api.put('/cpm/headcount/config', b); renderCpm('headcount'); } catch (err) { toast(err.message, 'error'); } };
-  $$('[data-hc-year]').forEach((b) => { b.onclick = () => { store.set('cpmYear', Number(b.dataset.hcYear)); renderCpm('headcount'); }; });
-  $('#hc-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('headcount'); };
-  $$('[data-hc-cview]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); store.set('cpmHcCustView', b.dataset.hcCview); renderCpm('headcount'); }; });
-  $('#hc-scen').onchange = (e) => { store.set('cpmHcScenario', Number(e.target.value)); renderCpm('headcount'); };
-  $$('[data-hc-staff]').forEach((i) => { i.onchange = () => { const mo = i.dataset.hcStaff; const row = Object.fromEntries($$(`[data-hc-staff="${mo}"]`).map((x) => [x.dataset.k, x.value === '' ? 0 : Number(x.value)])); put({ staff: { [mo]: row } }); }; });
-  $$('[data-hc-extra]').forEach((i) => { i.onchange = () => put({ extra: { [i.dataset.hcExtra]: i.value === '' ? 0 : Number(i.value) } }); });
-  $$('[data-hc-match]').forEach((i) => { i.onchange = () => put({ match: { [i.dataset.hcMatch]: i.value === '' ? null : { OTTO: Number(i.value) / 100 } } }); });
-  $$('[data-hc-rate]').forEach((i) => { i.onchange = () => put({ rates: { [i.dataset.hcRate]: i.value === '' ? null : Number(i.value) } }); });
-  $('[data-hc-day]').onchange = (e) => put({ day_hours: Number(e.target.value) });
-  $('[data-hc-eff]').onchange = (e) => put({ efficiency: Number(e.target.value) / 100 });
-  $('[data-hc-mdef]').onchange = (e) => put({ match_default: { OTTO: Number(e.target.value) / 100 } });
-  const others = () => C.other.map((o, i) => ({ name: $(`[data-hc-oname="${i}"]`).value, per_day: Number($(`[data-hc-oday="${i}"]`).value) || 0 }));
-  $$('[data-hc-oname], [data-hc-oday]').forEach((i) => { i.onchange = () => put({ other: others() }); });
-  $$('[data-hc-odel]').forEach((b) => { b.onclick = () => put({ other: others().filter((_, i) => i !== Number(b.dataset.hcOdel)) }); });
-  $('#hc-onew').onclick = () => { const name = $('#hc-onew-name').value.trim(); if (!name) return toast('Name the work first', 'error'); put({ other: [...others(), { name, per_day: Number($('#hc-onew-day').value) || 0 }] }); };
+  // ---- edits are kept until 💾 Save (one save, then the tab is worked out again); Undo changes drops them
+  const pend = { staff: {}, extra: {}, match: {}, rates: {} }; let dirty = false;
+  const touch = (el) => { el?.classList.add('cpm-hc-edited'); dirty = true; $('#hc-save').disabled = false; $('#hc-undo').disabled = false; $('#hc-dirty').hidden = false; };
+  const leave = () => !dirty || confirm('Leave without saving? Your changes on Headcount will be lost.');
+  const go = (fn) => () => { if (!leave()) return; dirty = false; fn(); renderCpm('headcount'); };
+  $$('[data-hc-year]').forEach((b) => { b.onclick = go(() => store.set('cpmYear', Number(b.dataset.hcYear))); });
+  $('#hc-flex').onchange = (e) => { if (!leave()) { e.target.checked = !e.target.checked; return; } dirty = false; store.set('cpmFlex', e.target.checked); renderCpm('headcount'); };
+  $$('[data-hc-cview]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); go(() => store.set('cpmHcCustView', b.dataset.hcCview))(); }; });
+  $('#hc-scen').onchange = (e) => { if (!leave()) { e.target.value = String(scId); return; } dirty = false; store.set('cpmHcScenario', Number(e.target.value)); renderCpm('headcount'); };
+  $$('[data-hc-staff]').forEach((i) => { i.oninput = () => { const mo = i.dataset.hcStaff; pend.staff[mo] = Object.fromEntries($$(`[data-hc-staff="${mo}"]`).map((x) => [x.dataset.k, x.value === '' ? 0 : Number(x.value)])); i.classList.remove('carried'); touch(i); }; });
+  $$('[data-hc-extra]').forEach((i) => { i.oninput = () => { pend.extra[i.dataset.hcExtra] = i.value === '' ? 0 : Number(i.value); touch(i); }; });
+  $$('[data-hc-match]').forEach((i) => { i.oninput = () => { pend.match[i.dataset.hcMatch] = i.value === '' ? null : { OTTO: Number(i.value) / 100 }; i.classList.remove('carried'); touch(i); }; });
+  $$('[data-hc-rate]').forEach((i) => { i.oninput = () => { pend.rates[i.dataset.hcRate] = i.value === '' ? null : Number(i.value); touch(i); }; });
+  $('[data-hc-day]').oninput = (e) => { pend.day_hours = Number(e.target.value); touch(e.target); };
+  $('[data-hc-eff]').oninput = (e) => { pend.efficiency = Number(e.target.value) / 100; touch(e.target); };
+  $('[data-hc-mdef]').oninput = (e) => { pend.match_default = { OTTO: Number(e.target.value) / 100 }; touch(e.target); };
+  // other work: rows changed, removed or added here; the whole list is saved
+  const others = () => $$('#hc-orows [data-hc-orow]').filter((r) => !r.hidden).map((r) => ({ name: r.querySelector('[data-hc-oname]').value.trim(), per_day: Number(r.querySelector('[data-hc-oday]').value) || 0 }));
+  const wireO = (r) => {
+    r.querySelectorAll('[data-hc-oname], [data-hc-oday]').forEach((i) => { i.oninput = () => { pend.other = true; touch(i); }; });
+    r.querySelector('[data-hc-odel]').onclick = () => { r.hidden = true; pend.other = true; touch(null); };
+  };
+  $$('#hc-orows [data-hc-orow]').forEach(wireO);
+  $('#hc-onew').onclick = () => {
+    const name = $('#hc-onew-name').value.trim(); if (!name) return toast('Name the work first', 'error');
+    $('#hc-onew-name').closest('tr').insertAdjacentHTML('beforebegin', `<tr data-hc-orow><td><input type="text" data-hc-oname value="${esc(name)}" class="cpm-hc-edited"></td><td class="num"><input type="number" min="0" step="0.5" data-hc-oday value="${Number($('#hc-onew-day').value) || 0}" style="max-width:90px" class="cpm-hc-edited"> h</td><td><button type="button" class="icon" data-hc-odel title="Remove">✕</button></td></tr>`);
+    wireO($('#hc-onew-name').closest('tr').previousElementSibling);
+    $('#hc-onew-name').value = ''; $('#hc-onew-day').value = ''; pend.other = true; touch(null);
+  };
+  $('#hc-undo').onclick = () => { dirty = false; renderCpm('headcount'); };
+  $('#hc-save').onclick = async (e) => {
+    const b = { ...pend }; if (pend.other) b.other = others(); else delete b.other;
+    for (const k of ['staff', 'extra', 'match', 'rates']) if (!Object.keys(b[k]).length) delete b[k];
+    e.target.disabled = true; e.target.textContent = '⏳ Saving…';
+    try { await api.put('/cpm/headcount/config', b); dirty = false; toast('Saved'); renderCpm('headcount'); }
+    catch (err) { toast(err.message, 'error'); e.target.disabled = false; e.target.textContent = '💾 Save'; }
+  };
+  // leaving the page (another page or tab, or closing it) with changes not saved asks first
+  leaveGuard = () => !dirty || confirm('Leave without saving? Your changes on Headcount will be lost.');
+  window.onbeforeunload = () => (dirty && document.body.contains($('#hc-savebar')) ? 'Changes not saved' : undefined);
   $('#hc-import').onclick = () => $('#hc-file').click();
   $('#hc-file').onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;

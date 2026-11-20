@@ -416,7 +416,12 @@ function renderSidebar() {
   toggleMenu(false);
 }
 
+// A page with edits not saved yet sets leaveGuard (→ true when it may be left); the router asks it first and, if
+// told no, puts the address back and stays. lastHash: where the page was.
+let leaveGuard = null; let lastHash = location.hash;
 async function route() {
+  if (leaveGuard && location.hash !== lastHash && !leaveGuard()) { history.replaceState(null, '', lastHash || '#/'); return; }
+  leaveGuard = null; lastHash = location.hash;
   document.body.classList.remove('sidebar-open');
   main().classList.remove('cockpit-main', 'kpi-dash'); // 🏠 Home (and Reporting's Quality and EHS) fit the screen; every other page scrolls
   let [view = 'dashboard', ...rest] = location.hash.replace(/^#\/?/, '').split('/');
