@@ -242,6 +242,16 @@ async function waitForServer() {
       const day = (await call('GET', '/focus-items')).day;
       assert.ok(day.some((f) => f.text === 'Old and open' && f.carried) && !day.some((f) => f.text === 'Old and done'), 'not done carries on');
       assert.equal((await call('GET', '/focus-items?person=Someone%20else')).day.length, 0, 'each person their own');
+      // another day or week, picked: its own focus (a week by any of its days: its Monday), nothing carried into it
+      const fd = await call('POST', '/focus-items', { scope: 'day', period: '2030-03-14', text: 'A day ahead' });
+      const fw = await call('POST', '/focus-items', { scope: 'week', period: '2030-03-14', text: 'A week ahead' });
+      assert.deepStrictEqual([fd.period, fw.period], ['2030-03-14', '2030-03-11'], 'the day, and the Monday of its week');
+      const ahead = await call('GET', '/focus-items?day=2030-03-14&week=2030-03-16');
+      assert.deepStrictEqual([ahead.day_period, ahead.week_period, ahead.day.map((f) => f.text), ahead.week.map((f) => f.text)], ['2030-03-14', '2030-03-11', ['A day ahead'], ['A week ahead']]);
+      assert.ok(!(await call('GET', '/focus-items')).day.some((f) => f.id === fd.id), 'not on today');
+      const dshA = await call('GET', '/dashboard?fx_day=2030-03-14&fx_week=2030-03-14');
+      assert.ok(dshA.focus_items.day.some((f) => f.id === fd.id) && Array.isArray(dshA.meetings_day));
+      await call('DELETE', `/focus-items/${fd.id}`); await call('DELETE', `/focus-items/${fw.id}`);
       for (const f of [...day, ...(await call('GET', '/focus-items')).week]) await call('DELETE', `/focus-items/${f.id}`);
       assert.equal((await call('GET', '/focus-items')).day.length, 0);
       await call('DELETE', `/tasks/${ft.id}`);

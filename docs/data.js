@@ -45,7 +45,7 @@ window.TIMELINE = {
   PINS: [
   { id: 'home-focus-2', date: '2026-11-19', area: 'projects', title: 'Home: a focus you set yourself',
     text: 'Home\'s focus now runs the full height of the page, in two parts, today and this week, each with its own list that you add to, the suggestions SITHUB works out, and the meetings planned. Tasks moved up beside the projects.',
-    points: ['A + in each corner adds to today or this week; what isn\'t done carries on', 'Suggestions folded away, one click to take one in', 'Today\'s meetings and the rest of the week\'s, in their part', 'Shorter quick notes and projects, more room for tasks'] },
+    points: ['A + in each corner adds to today or this week; what isn\'t done carries on', 'Pick another day or week from the calendar to plan its focus ahead', 'Suggestions folded away, one click to take one in', 'Today\'s meetings and the rest of the week\'s, in their part', 'Shorter quick notes and projects, more room for tasks'] },
   { id: 'productivity-shipped', date: '2026-11-18', area: 'reporting', title: 'Productivity on cards shipped',
     text: 'Productivity is now cards shipped per working hour, like CPMS; the scrap rate stays on cards persoed. Operations, the Database\'s KPI figures and the weekly SC report all use it.' },
   { id: 'task-on-hold', date: '2026-11-18', area: 'projects', title: 'Tasks on hold',
