@@ -2882,3 +2882,17 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .cpm-hc-table .cpm-hc-part th { padding-left: 22px; color: var(--muted); font-weight: 400; }
 .cpm-hc-savebar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; margin-bottom: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
 .cpm-hc-in.cpm-hc-edited, .cpm-hc-setup input.cpm-hc-edited { background: color-mix(in srgb, #FFC000 22%, var(--panel)); border-color: #d9a400; font-style: normal; color: var(--text); }
+
+/* 💶 CAPEX step by step: the return as it stands, and what's at stake if we don't invest */
+.cxg-fig { margin-top: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); font-size: 13.5px; }
+.cxg-fig-warn { margin-top: 6px; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, #FFC000 16%, transparent); border-left: 3px solid #d9a400; font-size: 13px; }
+.cxni-think { padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); font-size: 13px; margin-bottom: 10px; }
+.cxni-think ul { margin: 4px 0 0; padding-left: 18px; }
+.cxni-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.cxni-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; }
+.cxni-n { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; display: grid; place-items: center; margin-top: 18px; }
+.cxni-f { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.cxni-text input { width: 100%; }
+.cxni-line { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+.cxni-basis { flex: 1 1 220px; } .cxni-basis input { width: 100%; }
+.cxni-total { margin-top: 8px; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, var(--danger) 9%, transparent); font-size: 13.5px; }

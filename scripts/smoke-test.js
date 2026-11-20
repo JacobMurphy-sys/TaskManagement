@@ -651,6 +651,14 @@ async function waitForServer() {
       const cx = await call('POST', '/capex', { title: 'Printer line 3', category: 'Capacity / growth', owner: 'Riley Owner', amount: 120000, currency: '€', planned_date: '2026-02-01', justification: 'More capacity', ir: JSON.stringify(ir) });
       const kept = JSON.parse(cx.ir);
       assert.deepEqual([kept.junk, kept.items.length, kept.bu, kept.milestones.po], [undefined, 2, 'BU2', ''], 'the IR details kept, cleaned');
+      // ⚠ if we don't invest: kept, cleaned (likelihood one of three, the cost a number)
+      const niKept = JSON.parse((await call('PATCH', `/capex/${cx.id}`, { ir: JSON.stringify({ ...kept, not_investing: [{ text: 'Orders turned away', likelihood: 'likely', when: 'within 6 months', cost: '85000', basis: 'units × margin' }, { text: 'Overtime', likelihood: 'often', cost: 'x' }] }) })).ir).not_investing;
+      assert.deepStrictEqual(niKept, [{ text: 'Orders turned away', likelihood: 'likely', when: 'within 6 months', cost: 85000, basis: 'units × margin' }, { text: 'Overtime', likelihood: '', when: '', cost: null, basis: '' }]);
+      // 💶 the return with what's typed so far, not saved: the same as the saved one, and changing with the savings
+      const pv = await call('POST', '/capex/ir/preview', { id: cx.id, capex: { amount: 120000 }, ir: kept });
+      const pv2 = await call('POST', '/capex/ir/preview', { id: cx.id, capex: { amount: 120000 }, ir: { ...kept, savings: { labour: { 2026: 60000, 2027: 120000, 2028: 120000 } } } });
+      assert.ok(pv.results && pv2.results && Math.abs(pv.results.irr - 0.2152) < 0.002 && pv2.results.npv > pv.results.npv && pv2.results.irr > pv.results.irr, `the preview follows the savings (${JSON.stringify([pv.results, pv2.results])})`);
+      assert.equal(JSON.parse((await call('GET', '/capex')).items.find((c) => c.id === cx.id).ir).savings.labour[2027], 60000, 'a preview saves nothing');
       const st = await call('GET', `/capex/${cx.id}/ir`);
       assert.ok(st.results && st.results.total_k === 120 && Math.abs(st.results.irr - 0.2152) < 0.002 && st.auto[12]?.a === 'yes' && st.auto[3]?.a === 'yes', `the model worked out (${JSON.stringify(st.results)}) and the automatic answers`);
       const get = async (u) => { const r = await fetch(BASE + u, { headers: { 'X-Requested-With': 'TaskManager' } }); return { r, b: Buffer.from(await r.arrayBuffer()) }; };

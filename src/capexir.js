@@ -55,6 +55,10 @@ function irOf(raw) {
     savings: Object.fromEntries(Object.keys(SAVING_LINES).map((k) => [k, years(r.savings?.[k])]).filter(([, v]) => Object.keys(v).length)),
     growth: list(r.growth).slice(0, 9).map((g) => ({ customer: str(g?.customer, 120), asp: num(g?.asp), unit_cost: num(g?.unit_cost), volumes: years(g?.volumes) })),
     risks_opps: list(r.risks_opps).slice(0, 10).map((x) => ({ kind: x?.kind === 'opp' ? 'opp' : 'risk', text: str(x?.text, 400), k: num(x?.k) })),
+    // ⚠ if we don't invest: what happens, how likely, when, and what it would cost a year (the deck's risks of not
+    // investing are written from these, with their figures)
+    not_investing: list(r.not_investing).slice(0, 6).map((x) => ({ text: str(x?.text, 400), likelihood: ['likely', 'possible', 'unlikely'].includes(x?.likelihood) ? x.likelihood : '',
+      when: str(x?.when, 80), cost: num(x?.cost), basis: str(x?.basis, 300) })),
     // 🧭 the step-by-step answers, as given (the fields above are worked out from them in the browser)
     guide: Object.fromEntries(Object.entries(r.guide && typeof r.guide === 'object' ? r.guide : {}).filter(([k, v]) => /^[a-z_]{1,30}$/.test(k) && ['string', 'number', 'boolean'].includes(typeof v)).slice(0, 80)
       .map(([k, v]) => [k, typeof v === 'string' ? v.slice(0, 500) : v])),

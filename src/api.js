@@ -843,6 +843,16 @@ router.get('/capex/:id/ir', h(async (req, res) => {
   if (m.buf) { try { const r = capexIr.fillModel(m.buf, x, { figures: f }); out.results = r.results; } catch (err) { out.model_error = err.message; } } else out.model_error = m.error;
   res.json(out);
 }));
+// 💶 the figures as they'd be with what's typed in so far (not saved): payback, NPV, ROI and IRR, for the step by step
+router.post('/capex/ir/preview', h(async (req, res) => {
+  const b = req.body || {}; const base = b.id ? capexOne(Number(b.id)) : {};
+  const keep = ['title', 'amount', 'planned_date', 'currency', 'annual_saving', 'supplier', 'category', 'ref'];
+  const x = { ...base, ...Object.fromEntries(keep.filter((k) => b.capex && k in b.capex).map((k) => [k, b.capex[k]])), ir: JSON.stringify(b.ir || {}) };
+  const m = await irTemplate('model');
+  if (!m.buf) return res.json({ results: null, model_error: m.error });
+  try { const r = capexIr.fillModel(m.buf, x, { figures: capexIr.figures(x) }); const R = r.results || {}; res.json({ results: { payback_years: R.payback_years ?? null, npv: R.npv ?? null, roi: R.roi ?? null, irr: R.irr ?? null } }); }
+  catch (err) { res.json({ results: null, model_error: err.message }); }
+}));
 // 📑 the chosen supplier's quote as a picture, for the supplier selection slide (a PDF is made a picture in the browser)
 const QUOTE_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpeg' };
 const quoteOf = (id, withData = false) => db.get(`SELECT id, file_name, mime, size, created_at${withData ? ', data' : ''} FROM capex_files WHERE capex_id = ? AND kind = 'quote'`, [id]) || null;
