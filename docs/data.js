@@ -45,7 +45,7 @@ window.TIMELINE = {
   PINS: [
   { id: 'home-focus-2', date: '2026-11-19', area: 'projects', title: 'Home: a focus you set yourself',
     text: 'Home\'s focus now runs the full height of the page, in two parts, today and this week, each with its own list that you add to, the suggestions SITHUB works out, and the meetings planned. Tasks moved up beside the projects.',
-    points: ['A + in each corner adds to today or this week; what isn\'t done carries on', 'Suggestions folded away, one click to take one in', 'Today\'s meetings and the rest of the week\'s, in their part', 'Shorter quick notes and projects, more room for tasks'] },
+    points: ['A + in each corner adds to today or this week; what isn\'t done carries on', 'Pick another day or week from the calendar to plan its focus ahead', 'Suggestions folded away, one click to take one in', 'Today\'s meetings and the rest of the week\'s, in their part', 'Shorter quick notes and projects, more room for tasks'] },
   { id: 'backups-321', date: '2026-11-19', area: 'platform', title: '3-2-1 backups',
     text: 'Backups now follow the 3-2-1 rule: besides the usual backups, a copy at the end of each day goes to a second place and one at the end of each week to a third, kept in the cloud.',
     points: ['Each copy is a fresh backup, checked byte for byte where it lands', 'Missed copies are made as soon as the server is back or the folder can be reached', 'Folders, times and how many to keep set on the Backups page', 'Copy now, and the last and next run shown for each'] },

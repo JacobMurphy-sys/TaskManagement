@@ -2837,6 +2837,9 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .fx-week .fx-head { background: color-mix(in srgb, #2aa198 12%, transparent); }
 .fx-kicker { font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); font-weight: 700; }
 .fx-head h3 { margin: 2px 0 0; font-size: 18px; }
+.fx-nav { display: flex; align-items: center; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+.fx-nav input { width: auto; padding: 2px 6px; font-size: 12.5px; }
+.fx-nav .icon { padding: 2px 6px; }
 .fx-add { flex: none; padding: 2px 10px; font-size: 16px; line-height: 1.4; border-radius: 8px; }
 .fx-body { flex: 1; min-height: 0; overflow: auto; padding: 6px 14px 10px; display: flex; flex-direction: column; gap: 8px; }
 .fx-new input { width: 100%; }

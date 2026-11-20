@@ -546,9 +546,12 @@ function taskListHtml(list, p, hideDone, o = {}) {
   return `<div class="more-scope"><ul class="tasks tl-list ${o.project ? 'with-proj' : ''}">${list.map((t) => (hide.has(t.id) ? hideItem(row(t)) : row(t))).join('')}</ul>${moreButton(hide.size, DONE_SHOWN, 'completed')}</div>`;
 }
 
+// 🎯 the day and week Home's focus shows (null: today, this week); back to them when the page is opened afresh
+const HOME_FX = { day: null, week: null };
 async function renderDashboard() {
   const who = store.get('homePerson', '') || '';
-  const [d0] = await Promise.all([api.get(`/dashboard${who ? `?focus_person=${encodeURIComponent(who)}` : ''}`), loadProjects()]);
+  const qs = new URLSearchParams(Object.entries({ focus_person: who, fx_day: HOME_FX.day || '', fx_week: HOME_FX.week || '' }).filter(([, v]) => v)).toString();
+  const [d0] = await Promise.all([api.get(`/dashboard${qs ? `?${qs}` : ''}`), loadProjects()]);
   // 👤 one person's view: the tasks they own, the projects they're on
   const mineT = (t) => !who || splitOwners(t.owner).some((o) => sameName(o, who));
   const onProj = (p) => !who || [p.leader, p.sponsor, p.team_names, p.task_owners].some((v) => splitOwners(v).some((o) => sameName(o, who)));
@@ -597,7 +600,13 @@ async function renderDashboard() {
   const fi = d.focus_items || { day: [], week: [] };
   const todayKey = fi.today || new Date().toISOString().slice(0, 10);
   const isoWeek = (iso) => { const t = new Date(`${iso}T12:00:00`); t.setDate(t.getDate() + 3 - ((t.getDay() + 6) % 7)); const w1 = new Date(t.getFullYear(), 0, 4); return 1 + Math.round(((t - w1) / 86400000 - 3 + ((w1.getDay() + 6) % 7)) / 7); };
-  const mon = new Date(`${fi.monday || todayKey}T12:00:00`); const sun = new Date(mon); sun.setDate(sun.getDate() + 6);
+  // the day and week shown (picked, or today and this week)
+  const dayP = fi.day_period || todayKey; const weekP = fi.week_period || fi.monday || todayKey;
+  const isToday = dayP === todayKey; const isThisWeek = weekP === fi.monday;
+  const mon = new Date(`${weekP}T12:00:00`); const sun = new Date(mon); sun.setDate(sun.getDate() + 6);
+  const ymd = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+  const isoYear = (iso) => { const t = new Date(`${iso}T12:00:00`); t.setDate(t.getDate() + 3 - ((t.getDay() + 6) % 7)); return t.getFullYear(); };
+  const weekVal = (iso) => `${isoYear(iso)}-W${String(isoWeek(iso)).padStart(2, '0')}`;
   const dShort = (x) => x.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   const localDayOf = (iso) => { const x = new Date(iso); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
   const fxItem = (f) => `<li class="fx-item ${f.done_at ? 'done' : ''}" data-fx-id="${f.id}">
@@ -615,21 +624,30 @@ async function renderDashboard() {
   const meetRow = (m, withDay) => { const past = new Date(m.held_at) < new Date(); return `<li class="fx-mrow ${past ? 'past' : ''}">
       <span class="fx-mwhen">${withDay ? `${esc(new Date(m.held_at).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' }))} · ` : ''}${esc(new Date(m.held_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }))}</span>
       <span class="fx-mt" data-action="open-meeting" data-id="${m.id}" title="Open the meeting">${esc(m.title)}</span>${m.project_name ? `<a class="ck-proj" href="#/project/${m.project_id}">${esc(m.project_name)}</a>` : ''}</li>`; };
-  const mWeek = d.meetings_week || [];
-  const mToday = mWeek.filter((m) => localDayOf(m.held_at) === todayKey);
-  const mRest = mWeek.filter((m) => localDayOf(m.held_at) !== todayKey);
-  const fxSec = (k, kicker, title, items, suggItems, meetTitle, meets, withDay, emptyMsg) => `<div class="fx-sec fx-${k}">
-      <header class="fx-head"><div><div class="fx-kicker">${kicker}</div><h3>${title}${who ? ` <span class="ck-sub">${esc(who)}</span>` : ''}</h3></div>
-        <button type="button" class="fx-add" data-fx-add="${k}" title="Add to ${k === 'day' ? 'today' : 'this week'}'s focus">＋</button></header>
+  // the meetings of the day shown under the day; the rest of the week shown's under the week
+  const mToday = d.meetings_day || [];
+  const shownIds = new Set(mToday.map((m) => m.id));
+  const mRest = (d.meetings_week || []).filter((m) => !shownIds.has(m.id));
+  // ◀ ▶, a calendar to pick a day (or a week) and the way back to today (this week)
+  const weekInput = (() => { const i = document.createElement('input'); i.type = 'week'; return i.type === 'week'; })();
+  const fxNav = (k) => (k === 'day'
+    ? `<div class="fx-nav"><button type="button" class="icon" data-fx-step="day" data-n="-1" title="The day before">◀</button><input type="date" data-fx-pickdate="day" value="${dayP}" title="Pick a day to set its focus"><button type="button" class="icon" data-fx-step="day" data-n="1" title="The day after">▶</button>${isToday ? '' : '<button type="button" class="small" data-fx-now="day">Today</button>'}</div>`
+    : `<div class="fx-nav"><button type="button" class="icon" data-fx-step="week" data-n="-7" title="The week before">◀</button>${weekInput ? `<input type="week" data-fx-pickdate="week" value="${weekVal(weekP)}" title="Pick a week to set its focus">` : `<input type="date" data-fx-pickdate="week" value="${weekP}" title="Pick a day in the week to set its focus">`}<button type="button" class="icon" data-fx-step="week" data-n="7" title="The week after">▶</button>${isThisWeek ? '' : '<button type="button" class="small" data-fx-now="week">This week</button>'}</div>`);
+  const fxSec = (k, kicker, title, items, suggItems, meetTitle, meets, withDay, emptyMsg, addFor) => `<div class="fx-sec fx-${k}">
+      <header class="fx-head"><div><div class="fx-kicker">${kicker}</div><h3>${title}${who ? ` <span class="ck-sub">${esc(who)}</span>` : ''}</h3>${fxNav(k)}</div>
+        <button type="button" class="fx-add" data-fx-add="${k}" title="Add to the focus of ${esc(addFor)}">＋</button></header>
       <div class="fx-body">
-        <form class="fx-new" data-fx-new="${k}" hidden><input type="text" maxlength="300" placeholder="What ${k === 'day' ? 'needs doing today' : 'matters this week'}? (Enter · Esc)" autocomplete="off"></form>
+        <form class="fx-new" data-fx-new="${k}" data-period="${k === 'day' ? dayP : weekP}" hidden><input type="text" maxlength="300" placeholder="What ${k === 'day' ? `needs doing ${isToday ? 'today' : 'that day'}` : `matters ${isThisWeek ? 'this week' : 'that week'}`}? (Enter · Esc)" autocomplete="off"></form>
         <ul class="fx-list">${items.length ? items.map(fxItem).join('') : `<li class="fx-none">${emptyMsg}</li>`}</ul>
         ${sugg(k, suggItems)}
         <div class="fx-meet"><h4>🗓 ${meetTitle} <span class="ck-n">${meets.length}</span></h4>${meets.length ? `<ul class="fx-mlist">${meets.map((m) => meetRow(m, withDay)).join('')}</ul>` : '<div class="ck-empty">No meetings planned.</div>'}</div>
       </div></div>`;
   const focusPanel = `<section class="ck-panel ck-focus2" id="ck-focus">
-      ${fxSec('day', `Make today count · ${esc(new Date(`${todayKey}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }))}`, 'Today’s focus', fi.day, d.focus?.day, 'Meetings today', mToday, false, 'Nothing set yet — ＋ adds what today is for.')}
-      ${fxSec('week', `${mon.getFullYear()}-W${String(isoWeek(fi.monday || todayKey)).padStart(2, '0')} · ${dShort(mon)} – ${dShort(sun)}`, 'This week’s focus', fi.week, d.focus?.week, 'Meetings this week', mRest, true, 'Nothing set yet — ＋ adds what this week is for.')}
+      ${(() => { const dl = new Date(`${dayP}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }); const dd = dayDiff(dayP);
+    return fxSec('day', `${isToday ? 'Make today count' : dd === 1 ? 'Tomorrow' : dd === -1 ? 'Yesterday' : dd > 0 ? `In ${dd} days` : `${-dd} days ago`} · ${esc(dl)}`, isToday ? 'Today’s focus' : `Focus for ${esc(new Date(`${dayP}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }))}`,
+      fi.day, isToday ? d.focus?.day : null, isToday ? 'Meetings today' : 'Meetings that day', mToday, false, isToday ? 'Nothing set yet — ＋ adds what today is for.' : 'Nothing set for that day — ＋ adds to it.', isToday ? 'today' : dl); })()}
+      ${fxSec('week', `${isoYear(weekP)}-W${String(isoWeek(weekP)).padStart(2, '0')} · ${dShort(mon)} – ${dShort(sun)}`, isThisWeek ? 'This week’s focus' : weekP > (fi.monday || '') && (new Date(`${weekP}T12:00:00`) - new Date(`${fi.monday}T12:00:00`)) / 86400000 < 8 ? 'Next week’s focus' : `Focus for week ${isoWeek(weekP)}`,
+        fi.week, isThisWeek ? d.focus?.week : null, isThisWeek ? 'Meetings this week' : 'Meetings that week', mRest, true, isThisWeek ? 'Nothing set yet — ＋ adds what this week is for.' : 'Nothing set for that week — ＋ adds to it.', isThisWeek ? 'this week' : `week ${isoWeek(weekP)}`)}
     </section>`;
   const tasksPanel = panel('ck-tasks', '✅ Tasks', TABS.map(([k, , , l, msg]) => `<ul class="ck-list" data-ck-list="${k}" ${tab === k ? '' : 'hidden'}>${l.length ? l.map((t) => row(t)).join('') : `<li>${empty(msg)}</li>`}</ul>`).join(''),
     { tools: `<div class="ck-tabs" role="tablist">${TABS.map(([k, ic, label, l]) => `<button type="button" role="tab" data-ck-tab="${k}" class="${tab === k ? 'on' : ''} ${l.length ? '' : 'zero'} ${k === 'overdue' || k === 'blocked' ? 'bad' : ''}" aria-selected="${tab === k}">${ic} ${label} <b>${l.length}</b></button>`).join('')}</div>`, cls: 'ck-tasks' });
@@ -691,7 +709,7 @@ async function renderDashboard() {
   $$('[data-fx-add]').forEach((b) => { b.onclick = () => { const f = $(`[data-fx-new="${b.dataset.fxAdd}"]`); f.hidden = !f.hidden; if (!f.hidden) f.querySelector('input').focus(); }; });
   $$('[data-fx-new]').forEach((f) => {
     const inp = f.querySelector('input');
-    f.onsubmit = (e) => { e.preventDefault(); const text = inp.value.trim(); if (!text) return; fxDo(() => api.post('/focus-items', { scope: f.dataset.fxNew, text, person: fxPerson })); };
+    f.onsubmit = (e) => { e.preventDefault(); const text = inp.value.trim(); if (!text) return; fxDo(() => api.post('/focus-items', { scope: f.dataset.fxNew, period: f.dataset.period, text, person: fxPerson })); };
     inp.onkeydown = (e) => { if (e.key === 'Escape') { inp.value = ''; f.hidden = true; } };
   });
   $$('[data-fx-done]').forEach((c) => { c.onchange = () => fxDo(() => api.patch(`/focus-items/${c.dataset.fxDone}`, { done: c.checked })); });
@@ -701,6 +719,13 @@ async function renderDashboard() {
   $$('[data-fx-del]').forEach((b) => { b.onclick = () => fxDo(() => api.del(`/focus-items/${b.dataset.fxDel}`)); });
   $$('[data-fx-pick]').forEach((b) => { b.onclick = () => fxDo(() => api.post('/focus-items', { scope: b.dataset.fxPick, [b.dataset.kind === 'project' ? 'project_id' : 'task_id']: Number(b.dataset.id), person: fxPerson })); });
   $$('[data-fx-sugg]').forEach((x) => { x.ontoggle = () => store.set(`fxSugg:${x.dataset.fxSugg}`, x.open); });
+  // another day or week: ◀ ▶, the calendar, or back to today (this week)
+  const fxGo = (k, iso) => { HOME_FX[k] = iso && iso !== (k === 'day' ? todayKey : fi.monday) ? iso : null; route(); };
+  const weekToMonday = (v) => { const m = String(v).match(/^(\d{4})-W(\d{2})$/); if (!m) return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+    const jan4 = new Date(Number(m[1]), 0, 4, 12); jan4.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (Number(m[2]) - 1) * 7); return ymd(jan4); };
+  $$('[data-fx-step]').forEach((b) => { b.onclick = () => { const k = b.dataset.fxStep; const x = new Date(`${k === 'day' ? dayP : weekP}T12:00:00`); x.setDate(x.getDate() + Number(b.dataset.n)); fxGo(k, ymd(x)); }; });
+  $$('[data-fx-pickdate]').forEach((i) => { i.onchange = () => { const k = i.dataset.fxPickdate; const v = k === 'week' ? weekToMonday(i.value) : i.value; if (v) fxGo(k, v); }; });
+  $$('[data-fx-now]').forEach((b) => { b.onclick = () => fxGo(b.dataset.fxNow, null); });
   const showTab = (k) => { store.set('homeTaskTab', k); $$('[data-ck-tab]').forEach((x) => { x.classList.toggle('on', x.dataset.ckTab === k); x.setAttribute('aria-selected', String(x.dataset.ckTab === k)); }); $$('[data-ck-list]').forEach((l) => { l.hidden = l.dataset.ckList !== k; }); };
   $$('[data-ck-tab]').forEach((b) => { b.onclick = () => showTab(b.dataset.ckTab); });
   $$('[data-ck-jump]').forEach((b) => { b.onclick = () => {

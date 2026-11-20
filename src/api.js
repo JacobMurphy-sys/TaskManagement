@@ -436,16 +436,21 @@ const pad2 = (n) => String(n).padStart(2, '0');
 const localDay = (d = new Date()) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const mondayOf = (d = new Date()) => { const m = new Date(d); m.setHours(12, 0, 0, 0); m.setDate(m.getDate() - ((m.getDay() + 6) % 7)); return localDay(m); };
 const focusPerson = (req, given) => String(given ?? req.account?.person ?? '').trim().slice(0, 120);
-function focusItems(person, now = new Date()) {
+// a day or week asked for (YYYY-MM-DD; a week by any of its days), else today or this week
+const fxDate = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !Number.isNaN(new Date(`${v}T12:00:00`).getTime()) ? String(v) : null);
+// The focus of a day and a week (today and this week unless others are asked for). Today's and this week's take in
+// what's still open from before (carried); another day or week shows just its own.
+function focusItems(person, { day = null, week = null } = {}, now = new Date()) {
   const today = localDay(now); const monday = mondayOf(now);
-  const q = (scope, period) => db.all(`SELECT f.*, t.status AS task_status, t.title AS task_title, p.name AS project_name FROM focus_items f
+  const dayP = fxDate(day) || today; const weekP = fxDate(week) ? mondayOf(new Date(`${week}T12:00:00`)) : monday;
+  const q = (scope, period, carry) => db.all(`SELECT f.*, t.status AS task_status, t.title AS task_title, p.name AS project_name FROM focus_items f
       LEFT JOIN tasks t ON t.id = f.task_id LEFT JOIN projects p ON p.id = f.project_id
-      WHERE f.person = ? COLLATE NOCASE AND f.scope = ? AND (f.period = ? OR (f.period < ? AND f.done_at IS NULL))
-      ORDER BY f.done_at IS NOT NULL, f.period, f.sort_order, f.id`, [person, scope, period, period])
+      WHERE f.person = ? COLLATE NOCASE AND f.scope = ? AND (f.period = ? OR (? AND f.period < ? AND f.done_at IS NULL))
+      ORDER BY f.done_at IS NOT NULL, f.period, f.sort_order, f.id`, [person, scope, period, carry ? 1 : 0, period])
     .map((f) => ({ ...f, carried: f.period < period }));
-  return { person, today, monday, day: q('day', today), week: q('week', monday) };
+  return { person, today, monday, day_period: dayP, week_period: weekP, day: q('day', dayP, dayP === today), week: q('week', weekP, weekP === monday) };
 }
-router.get('/focus-items', h((req, res) => res.json(focusItems(focusPerson(req, req.query.person)))));
+router.get('/focus-items', h((req, res) => res.json(focusItems(focusPerson(req, req.query.person), { day: req.query.day, week: req.query.week }))));
 router.post('/focus-items', h((req, res) => {
   const scope = req.body?.scope === 'week' ? 'week' : 'day';
   const task = req.body?.task_id ? db.get('SELECT id, title, project_id FROM tasks WHERE id = ?', [Number(req.body.task_id)]) : null;
@@ -453,7 +458,9 @@ router.post('/focus-items', h((req, res) => {
   const text = String(req.body?.text || task?.title || project?.name || '').trim().slice(0, 300);
   if (!text) throw new HttpError(400, 'Say what to focus on');
   const person = focusPerson(req, req.body?.person);
-  const period = scope === 'week' ? mondayOf() : localDay();
+  // the day or week it's for (today or this week unless another is given; a week by any of its days)
+  const at = fxDate(req.body?.period);
+  const period = scope === 'week' ? mondayOf(at ? new Date(`${at}T12:00:00`) : new Date()) : at || localDay();
   const next = (db.get('SELECT MAX(sort_order) AS m FROM focus_items WHERE person = ? AND scope = ? AND period = ?', [person, scope, period]).m ?? -1) + 1;
   res.status(201).json(insertRow('focus_items', { person, scope, period, text, task_id: task?.id || null, project_id: task?.project_id || project?.id || null, sort_order: next }));
 }));
@@ -1794,10 +1801,13 @@ router.get('/dashboard', h((req, res) => {
     meetings: meetingList(`m.held_at >= ? AND m.held_at < ? AND (p.id IS NULL OR p.status <> 'archived')`,
       [dayStart(0), dayStart(8)], 'm.held_at, m.id'),
     // 🗓 this week's meetings, Monday to Sunday (Home's focus shows today's and the rest of the week's)
-    meetings_week: (() => { const mon = new Date(`${mondayOf()}T00:00:00`); const sun = new Date(mon); sun.setDate(sun.getDate() + 7);
+    // (the week and day picked on Home's focus: this week and today unless others are asked for)
+    meetings_week: (() => { const mon = new Date(`${fxDate(req.query.fx_week) ? mondayOf(new Date(`${req.query.fx_week}T12:00:00`)) : mondayOf()}T00:00:00`); const sun = new Date(mon); sun.setDate(sun.getDate() + 7);
       return meetingList(`m.held_at >= ? AND m.held_at < ? AND (p.id IS NULL OR p.status <> 'archived')`, [mon.toISOString(), sun.toISOString()], 'm.held_at, m.id'); })(),
-    // 🎯 the focus typed in: the person shown (or the account's own)
-    focus_items: focusItems(focusPerson(req, req.query.focus_person || undefined)),
+    meetings_day: (() => { const d0 = new Date(`${fxDate(req.query.fx_day) || localDay()}T00:00:00`); const d1 = new Date(d0); d1.setDate(d1.getDate() + 1);
+      return meetingList(`m.held_at >= ? AND m.held_at < ? AND (p.id IS NULL OR p.status <> 'archived')`, [d0.toISOString(), d1.toISOString()], 'm.held_at, m.id'); })(),
+    // 🎯 the focus typed in: the person shown (or the account's own), for the day and week picked
+    focus_items: focusItems(focusPerson(req, req.query.focus_person || undefined), { day: req.query.fx_day, week: req.query.fx_week }),
     recent_notes: db.all(`SELECT n.*, p.name AS project_name, t.title AS task_title FROM notes n
       LEFT JOIN projects p ON p.id = n.project_id LEFT JOIN tasks t ON t.id = n.task_id
       WHERE n.project_id IS NOT NULL OR n.task_id IS NOT NULL ORDER BY n.created_at DESC LIMIT 15`),
