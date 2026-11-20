@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'capex-not-investing', date: '2026-11-20', area: 'projects', title: 'CAPEX: the cost of not investing',
+    text: 'The IR step by step now asks what the business could lose if the investment isn\'t made, with how likely it is, when and what it would cost a year, and shows the return as the model works it out while the savings are typed in.',
+    points: ['Prompts that fit the reason for the investment', 'The total at stake a year, set against the investment', 'The deck\'s risks of not investing carry their figures', 'A weak or missing return points to the cost of not investing'] },
   { id: 'cpm-headcount', date: '2026-11-20', area: 'capacity', title: 'Capacity planning: headcount',
     text: 'A Headcount tab turns the forecast into the working hours it takes and the people needed, month by month, against the people there are, on the same forecast, flex, scenarios and working days as the machines.',
     points: ['Perso and matching hours from each customer\'s cards and split, plus the other work and one-off hours', 'Per customer as a summary, or in detail by technology and matching method', 'Edits kept until one Save, with Undo, rather than saving each box', 'People typed in per month (permanent, agency or temporary, long-term sick); spare or short shown in people and in hours', 'Follows flex and scenarios, with the base plan beside a scenario', 'Reads the old HC forecast workbook once to bring its rates, splits, other work and people across'] },

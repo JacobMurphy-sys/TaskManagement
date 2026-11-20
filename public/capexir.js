@@ -11,7 +11,8 @@ function cxIrEmpty() {
     cap_start: '', depreciation_years: null, detail: '', reasons: ['', '', ''], risks: ['', '', ''], items: [], quotes: [], selection_reason: '',
     freight: { sea: { co2: '', lead: '', price: null }, air: { co2: '', lead: '', price: null } }, freight_mode: '', freight_reason: '',
     negotiation: { purchaser: '', explanation: '', conditions: '', gains: '' }, milestones: { investco: '', po: '', fat: '', delivery: '', sat: '', sop: '' },
-    planning_comments: '', cashout_comments: '', savings: {}, growth: [], risks_opps: [], checklist: {} };
+    planning_comments: '', cashout_comments: '', savings: {}, growth: [], risks_opps: [], checklist: {},
+    not_investing: [0, 1, 2].map(() => ({ text: '', likelihood: '', when: '', cost: null, basis: '' })) };
 }
 function cxIrOf(x) {
   let r = {}; try { r = JSON.parse(x?.ir || '{}') || {}; } catch { r = {}; }
@@ -19,6 +20,10 @@ function cxIrOf(x) {
   for (const k of ['budget', 'negotiation', 'milestones']) out[k] = { ...e[k], ...(r[k] || {}) };
   out.freight = { sea: { ...e.freight.sea, ...(r.freight?.sea || {}) }, air: { ...e.freight.air, ...(r.freight?.air || {}) } };
   for (const k of ['reasons', 'risks']) { out[k] = [...(r[k] || [])]; while (out[k].length < 3) out[k].push(''); }
+  // ⚠ if we don't invest: an older record's free-text risks become its first consequences (to be costed)
+  out.not_investing = Array.isArray(r.not_investing) && r.not_investing.length ? r.not_investing.map((t) => ({ text: '', likelihood: '', when: '', cost: null, basis: '', ...t }))
+    : (r.risks || []).filter(Boolean).map((t) => ({ text: t, likelihood: '', when: '', cost: null, basis: '' }));
+  while (out.not_investing.length < 3) out.not_investing.push({ text: '', likelihood: '', when: '', cost: null, basis: '' });
   for (const i of out.items) i.cashout = i.cashout || {};
   for (const g of out.growth) g.volumes = g.volumes || {};
   return out;
@@ -54,8 +59,13 @@ function cxIrPanes(root, x, getX) {
   const JUSTIF_OF = { replace: 'Replacement / Obsolescence', growth: 'Growth / Capacity increase', save: 'Improvement / Productivity', comply: 'Compliance', footprint: 'Strategic footprint' };
   const YEARS_FOR = { building: 20, equipment: 7, it: 3 };
   // what the answers mean in the IR's own terms
+  // the risks of not investing, as one line each for the deck: what happens — what it would cost a year (how likely, when)
+  const whole = (v) => `${curSym(cur())}${Math.round(Number(v) || 0).toLocaleString('en-GB')}`;
+  const niLine = (t) => { const bits = [t.likelihood, t.when].filter(Boolean).join(', ');
+    return `${t.text}${Number(t.cost) > 0 ? ` — ≈ ${whole(t.cost)} a year` : ''}${bits ? ` (${bits})` : ''}`; };
   function applyGuide() {
     const g = G(); const X = getX();
+    if (ir.not_investing.some((t) => String(t.text || '').trim())) ir.risks = ir.not_investing.filter((t) => String(t.text || '').trim()).map(niLine);
     if (NATURE_OF[g.kind]) ir.nature = NATURE_OF[g.kind];
     if (JUSTIF_OF[g.why]) ir.justif = JUSTIF_OF[g.why];
     if (g.budgeted) ir.budgeted = g.budgeted;
@@ -130,8 +140,23 @@ function cxIrPanes(root, x, getX) {
   // Each question has a priority: 1 required (the pack can't be made properly without it), 2 important (a gap in the
   // deck without it), 3 if known. A step is ticked once its priority 1 questions are answered.
   const PRIO = { 1: ['P1', 'Required', 'cxg-p1'], 2: ['P2', 'Important', 'cxg-p2'], 3: ['P3', 'If known', 'cxg-p3'] };
+  // ⚠ if we don't invest: what to think about, by the main reason given (and examples for the first rows)
+  const NI_THINK = {
+    replace: { think: ['How often it breaks down now, and how long it\'s down each time', 'What a lost hour costs (margin lost, overtime, rework)', 'Spare parts or support running out, and what a long stop would mean', 'Customers or audits put at risk by a breakdown'],
+      ex: [['Line stops more often as it ages: ~120 h downtime a year', '120 h × the margin lost an hour'], ['No spare parts after the supplier ends support: a long stop', 'weeks down × weekly margin'], ['Late deliveries during breakdowns: penalties', 'penalties in the contract']] },
+    growth: { think: ['Orders or volumes you\'d have to turn away', 'The margin on them', 'Overtime, weekend shifts or subcontracting to cover the gap', 'A customer or tender that could go to a competitor'],
+      ex: [['Orders we can\'t take in the peak', 'units turned away × margin a unit'], ['Weekend overtime to keep up', 'hours a week × the overtime rate'], ['Losing the tender to a competitor', 'the margin on the contract']] },
+    save: { think: ['What keeps costing money every year if nothing changes', 'Hours, scrap, energy, maintenance that stay as they are', 'Whether costs are rising (wear, prices)', 'Competitiveness: prices a customer could get elsewhere'],
+      ex: [['Scrap stays at today\'s level', 'cards scrapped a year × their cost'], ['Manual handling hours stay', 'hours a year × the loaded rate'], ['Maintenance costs keep rising', 'last years\' maintenance bills']] },
+    comply: { think: ['Fines or penalties', 'An audit finding, or losing a certification or customer approval', 'Business that depends on that approval', 'Safety: incidents, and what they cost'],
+      ex: [['A major audit finding: certification at risk', 'revenue that depends on it'], ['A fine from the authority', 'the fine set out in the rule'], ['A customer stops ordering until it\'s fixed', 'that customer\'s margin a year']] },
+    footprint: { think: ['What the site plan depends on this for', 'Costs of running both the old and new way longer', 'Volume or customers that move elsewhere if it isn\'t done', 'Dates the group or customers have been promised'],
+      ex: [['The move is delayed: two sites running', 'months × the cost of running both'], ['Volume moved to another site', 'its margin a year'], ['Customer dates missed', 'penalties or the business at risk']] },
+  };
   const filled = (v) => v !== null && v !== undefined && String(v).trim() !== '';
   const eqItems = () => ir.items.filter((it) => it.kind === 'equipment');
+  const niFilled = () => ir.not_investing.filter((t) => filled(t.text));
+  const investAmount = () => Number(getX().amount) || ir.items.reduce((a, it) => a + (Number(it.amount) || 0) * (Number(it.qty) || 1), 0);
   const STEPS = [
     { k: 'basics', title: 'The basics', reqs: [[1, 'Site', () => filled(ir.site)], [1, 'Business unit', () => filled(ir.bu)], [3, 'IR n°', () => filled(ir.ir_number)]], html: () => `
       ${q('Which site is it for?', inp('site', { ph: meta?.site || 'e.g. the site\'s name' }), '', 1)}
@@ -195,12 +220,31 @@ function cxIrPanes(root, x, getX) {
           ${q('Extra units a year (thousands)', gIn('growth_volume', { type: 'number', w: '140px' }), 'Only for more capacity: what you could sell that you can\'t make today.')}
           ${Number(g.growth_volume) > 0 ? `${q('For which customer(s)?', gIn('growth_customer'), '', 2)}${q(`Price per unit (${esc(cur())})`, gIn('growth_price', { type: 'number', w: '140px' }), '', 1)}${q(`Material and variable cost per unit (${esc(cur())})`, gIn('growth_cost', { type: 'number', w: '140px' }), '', 1)}` : ''}</div></div>
         ${q('How many years will it be used?', gIn('years', { type: 'number', w: '140px', ph: String(YEARS_FOR[g.kind] || 5) }), `The depreciation period: typically ${g.kind === 'building' ? '20' : g.kind === 'it' ? '3' : '5 to 10'} years${g.kind ? ' for this kind' : ''}; finance confirms it. Blank: 5.`, 2)}
-        ${g.no_benefit !== 'yes' ? q('In its first year running, how much of that does it reach? (%)', gIn('ramp', { type: 'number', w: '140px', ph: '100' }), 'If it takes time to get up to speed, e.g. 60: the first year counts that share.', 3) : ''}`;
+        ${g.no_benefit !== 'yes' ? q('In its first year running, how much of that does it reach? (%)', gIn('ramp', { type: 'number', w: '140px', ph: '100' }), 'If it takes time to get up to speed, e.g. 60: the first year counts that share.', 3) : ''}
+        <div class="cxg-fig" id="cxg-fig">${figBox()}</div>`;
     }, fills: 'the P&L, payback, NPV, ROI and IRR in the model and on the financial slide' },
-    { k: 'story', title: 'The story', reqs: [[1, 'What will be done', () => filled(ir.detail)], [1, 'Three reasons to do it', () => ir.reasons.filter(Boolean).length >= 3], [1, 'Three risks of not doing it', () => ir.risks.filter(Boolean).length >= 3]], html: () => `
+    { k: 'notinvest', title: 'If we don\'t invest', reqs: [[1, 'At least one thing that happens, with what it would cost a year', () => niFilled().some((t) => Number(t.cost) > 0)], [2, 'Three things that happen if we don\'t', () => niFilled().length >= 3], [2, 'How likely each is, and when', () => niFilled().every((t) => t.likelihood && filled(t.when)), () => niFilled().length > 0]], html: () => {
+      const g = G(); const T = NI_THINK[g.why] || NI_THINK.replace; const cur0 = esc(cur());
+      const rows = ir.not_investing.map((t, i) => { const ex = T.ex[i] || ['', ''];
+        return `<div class="cxni-row"><div class="cxni-n">${i + 1}</div><div class="cxni-f">
+          ${lbl('What happens', inp(`not_investing.${i}.text`, { ph: ex[0] ? `e.g. ${ex[0]}` : '' }), 'cxni-text')}
+          <div class="cxni-line">${lbl('How likely', `<select data-k="not_investing.${i}.likelihood" data-t="str"><option value=""></option>${[['likely', 'Likely'], ['possible', 'Possible'], ['unlikely', 'Unlikely']].map(([v, l]) => `<option value="${v}" ${t.likelihood === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
+            ${lbl('When', inp(`not_investing.${i}.when`, { ph: 'e.g. within 12 months', w: '160px' }))}
+            ${lbl(`What it would cost a year (${cur0})`, inp(`not_investing.${i}.cost`, { type: 'number', w: '150px' }))}
+            ${lbl('How you got to that figure', inp(`not_investing.${i}.basis`, { ph: ex[1] ? `e.g. ${ex[1]}` : 'e.g. hours × rate' }), 'cxni-basis')}</div></div>
+          ${ir.not_investing.length > 1 ? `<button type="button" class="icon" data-cxir="del-ni" data-i="${i}" title="Remove">✕</button>` : ''}</div>`; }).join('');
+      const costed = niFilled().filter((t) => Number(t.cost) > 0); const likely = costed.filter((t) => t.likelihood === 'likely');
+      const sum = (l) => l.reduce((a, t) => a + Number(t.cost), 0);
+      return `<p class="small muted" style="margin-top:0">The approval board weighs what the business could lose by <b>not</b> investing as much as what it gains. Say what would happen, how likely it is, when, and — most important — what it would cost a year. A rough, explained figure is better than none.</p>
+        <div class="cxni-think"><b>Think about${g.why ? '' : ' (pick the main reason in step 3 for prompts that fit)'}</b><ul>${T.think.map((x) => `<li>${x}</li>`).join('')}</ul></div>
+        <div class="cxni-rows">${rows}</div>
+        ${ir.not_investing.length < 6 ? '<button type="button" class="small" data-cxir="add-ni">＋ Another</button>' : ''}
+        ${costed.length ? `<div class="cxni-total">At stake if we don't invest: <b>${esc(whole(sum(likely)))}</b> a year likely${sum(costed) > sum(likely) ? `, up to <b>${esc(whole(sum(costed)))}</b> a year with all of them` : ''}${investAmount() ? ` — against an investment of ${esc(whole(investAmount()))}` : ''}.</div>` : ''}`;
+    }, fills: 'the risks of not investing on the description & justification slide, with their figures' },
+    { k: 'story', title: 'The story', reqs: [[1, 'What will be done', () => filled(ir.detail)], [1, 'Three reasons to do it', () => ir.reasons.filter(Boolean).length >= 3]], html: () => `
       ${q('In a few lines, what will be done?', area('detail', 3, 'e.g. Install a second DOD printer on line 3; the layout stays as it is'), '', 1)}
       ${q('Three reasons to do it', ir.reasons.map((_, i) => inp(`reasons.${i}`, { ph: ['e.g. Cover the forecast peak in Q4', 'e.g. Cut lead times to 5 days', 'e.g. Win the new tender'][i] || '' })).join(''), '', 1)}
-      ${q('Three things that happen if we don\'t', ir.risks.map((_, i) => inp(`risks.${i}`, { ph: ['e.g. Orders we can\'t take', 'e.g. Weekend overtime', 'e.g. Late deliveries'][i] || '' })).join(''), '', 1)}`,
+      <p class="small muted">The risks of not doing it come from step <a href="javascript:void 0" data-cxg-go="notinvest">If we don't invest</a>, with their figures.</p>`,
       fills: 'the description & justification slide' },
     { k: 'done', title: 'Check and download', reqs: [], html: () => {
       const open = (p) => STEPS.flatMap((st) => st.reqs.filter(([pr, , ok, when]) => pr === p && (!when || when()) && !ok()).map(([, label]) => [st, label]));
@@ -352,12 +396,37 @@ function cxIrPanes(root, x, getX) {
       ${(status?.notes || []).length ? `<details class="small"><summary class="muted">${status.notes.length} note${status.notes.length === 1 ? '' : 's'} on how it's filled in</summary><ul class="mini">${status.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></details>` : ''}`
       : '<span class="small muted">Save the investment to download its IR pack.</span>'}</div>`;
   };
+  // 💶 the return as the model works it out with what's typed so far (not saved): asked for a moment after a change
+  let live = null; let liveKey = ''; let liveT = null; let liveBusy = false;
+  function figBox() {
+    const g = G(); const k = (v) => (v === null || v === undefined ? '–' : `${Math.round(v).toLocaleString('en-GB')} k${esc(cur())}`);
+    const R = live?.results; const yrs = Number(ir.depreciation_years) || Number(g.years) || 5;
+    const none = g.no_benefit === 'yes' || !R || R.roi === null || R.roi === undefined;
+    const weak = !none && ((R.npv !== null && R.npv < 0) || (R.payback_years !== null && R.payback_years > yrs) || R.roi <= 0);
+    const head = g.no_benefit === 'yes' ? (R && R.roi !== null && R.roi !== undefined ? '<span class="small muted">(Savings typed on 🔧 Details still count in the model: clear them there if it really saves nothing.)</span>' : '')
+      : live?.model_error ? `<span class="muted">The return can't be worked out here: ${esc(live.model_error)}</span>`
+      : !live ? '<span class="muted">Working out the return…</span>'
+      : `<b>The return, as it stands:</b> payback <b>${R?.payback_years !== null && R?.payback_years !== undefined ? `${Math.round(R.payback_years * 12)} months` : '–'}</b> · ROI <b>${R?.roi !== null && R?.roi !== undefined ? `${Math.round(R.roi * 100)}%` : '–'}</b> · NPV <b>${k(R?.npv)}</b> · IRR <b>${R?.irr !== null && R?.irr !== undefined ? `${Math.round(R.irr * 100)}%` : '–'}</b>${liveBusy ? ' <span class="muted">…</span>' : ''}`;
+    const nudge = none || weak ? `<div class="cxg-fig-warn">${none ? 'No measurable return' : weak ? `A weak return${R.npv < 0 ? ' (NPV below zero)' : R.payback_years > yrs ? ` (it pays back after ${yrs} years of use)` : ''}` : ''}: the case then rests on <b>what the business loses if we don't invest</b>. Make that clear, with figures, in the next step — <a href="javascript:void 0" data-cxg-go="notinvest">If we don't invest</a>.</div>` : '';
+    return `${head}${nudge}`;
+  }
+  function askLive() {
+    if (!(tab === 'guide' && gStep === 'benefit')) return;
+    const X = getX(); const body = { id: x?.id || null, capex: { title: X.title, amount: X.amount, planned_date: X.planned_date, currency: X.currency, annual_saving: X.annual_saving, supplier: X.supplier, category: X.category }, ir };
+    const key = JSON.stringify(body); if (key === liveKey) return;
+    clearTimeout(liveT); liveBusy = true; const box = root.querySelector('#cxg-fig'); if (box) box.innerHTML = figBox();
+    liveT = setTimeout(async () => {
+      try { live = await api.post('/capex/ir/preview', body); liveKey = key; } catch (err) { live = { results: null, model_error: err.message }; }
+      liveBusy = false; const b = root.querySelector('#cxg-fig'); if (b) b.innerHTML = figBox();
+    }, 500);
+  }
   function render() {
     const detail = store.get('cxIrDetail', 'request');
     root.innerHTML = `${head()}<div class="seg cx-irtabs"><button type="button" data-cxir-tab="guide" class="${tab === 'guide' ? 'on' : ''}">🧭 Step by step</button><button type="button" data-cxir-tab="${tab === 'guide' ? detail : tab}" class="${tab !== 'guide' ? 'on' : ''}" title="Every field, to check the result or for unusual cases">🔧 Details</button></div>
       ${tab !== 'guide' ? `<div class="cx-irsub"><span class="small muted">Every field, to check what Step by step filled in or for unusual cases:</span> <div class="seg">${CXIR_TABS.filter(([k]) => k !== 'guide').map(([k, l]) => `<button type="button" data-cxir-tab="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>` : ''}
       <div class="cx-irpane">${meta ? panes[tab]() : '<div class="empty small">Reading the IR templates…</div>'}</div>`;
     joinLabels?.();
+    askLive();
   }
   // typing changes the record; leaving a field that totals or layout depend on redraws (once the focus has moved on)
   const take = (el) => {
@@ -420,6 +489,8 @@ function cxIrPanes(root, x, getX) {
     if (a === 'add-growth') ir.growth.push({ customer: '', asp: null, unit_cost: null, volumes: {} });
     if (a === 'del-growth') ir.growth.splice(i, 1);
     if (a === 'add-ro') ir.risks_opps.push({ kind: 'risk', text: '', k: null });
+    if (a === 'add-ni' && ir.not_investing.length < 6) ir.not_investing.push({ text: '', likelihood: '', when: '', cost: null, basis: '' });
+    if (a === 'del-ni') ir.not_investing.splice(i, 1);
     if (a === 'del-ro') ir.risks_opps.splice(i, 1);
     if (a === 'quote-del') { if (!confirm('Remove the quote from this investment?')) return; api.del(`/capex/${x.id}/ir/quote`).then(() => { status = { ...(status || {}), quote: null }; render(); }).catch((err) => toast(err.message, 'error')); return; }
     if (a === 'clear-cash') ir.items.forEach((it) => { it.cashout = {}; });
