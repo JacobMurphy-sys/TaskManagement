@@ -2920,3 +2920,5 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .cpmdr-row:hover td, .cpmdr-row:hover th { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .cpmdr-mark td { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .cpmdr-t .pllx-share { min-width: 160px; }
+.cpm-capt { stroke-width: 2.2; }
+.cpm-all-load th, .cpm-all-load td { border-bottom: 2px solid var(--border); }
