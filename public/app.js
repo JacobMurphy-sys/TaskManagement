@@ -2556,7 +2556,8 @@ function quickNoteDialog(note = null) {
 // onto a project. [ ] lines in it become tasks then.
 async function assignNoteDialog(note) {
   const active = state.projects.filter((p) => p.status !== 'archived');
-  const open = await api.get('/tasks?open=1');
+  const [open, TL] = await Promise.all([api.get('/tasks?open=1'), api.get('/task-lists').catch(() => ({ lists: [] }))]);
+  const myLists = TL.lists || []; const lastList = store.get('lastNoteList', '');
   const byId = new Map(open.map((t) => [t.id, t]));
   const onProject = state.view === 'project' ? Number(state.projectId) : null;
   let mode = store.get('lastNoteMode', open.length ? 'task' : 'new');
@@ -2585,7 +2586,8 @@ async function assignNoteDialog(note) {
       <select id="qn-task" size="7" style="width:100%;margin-top:6px">${taskOptions()}</select></div>
     <div data-pane="new" style="margin-top:10px">
       <label class="f">New task title<input id="qn-title" value="${esc(noteTaskTitle(note))}" placeholder="e.g. Call supplier !high @fri"></label>
-      <label class="f" style="margin-top:8px">Project<select id="qn-new-project"><option value="">— None (standalone task) —</option>${projectOptions(onProject)}</select></label></div>
+      <label class="f" style="margin-top:8px">Project<select id="qn-new-project"><option value="">— None (standalone task) —</option>${projectOptions(onProject)}</select></label>
+      ${myLists.length ? `<label class="f" style="margin-top:8px">My list<select id="qn-new-list"><option value="">— Not in a list —</option>${myLists.map((l) => `<option value="${l.id}" ${String(l.id) === String(lastList) ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>` : ''}</div>
     <div data-pane="project" style="margin-top:10px">
       <label class="f">Project<select id="qn-project">${projectOptions(onProject || store.get('lastNoteProject'))}</select></label></div>
     <div class="small muted" id="qn-hint" style="margin-top:8px"></div>
@@ -2623,8 +2625,12 @@ async function assignNoteDialog(note) {
       store.set('lastNoteProject', payload.project_id);
     }
     let saved; try { saved = await api.post(`/notes/${note.id}/assign`, payload); } catch (err) { toast(err.message, 'error'); return; }
+    // the new task into one of My lists, if one was picked
+    const listId = mode === 'new' ? Number($('#qn-new-list')?.value) || null : null;
+    if (mode === 'new' && $('#qn-new-list')) store.set('lastNoteList', listId ? String(listId) : '');
+    if (listId && saved.task?.id) { try { await api.put(`/task-lists/task/${saved.task.id}`, { list: listId }); } catch (err) { toast(err.message, 'error'); } }
     store.set('lastNoteMode', mode);
-    toast(saved.task ? `Task “${saved.task.title}” created with the note` : noteToast(saved).replace('Note added', 'Note assigned'));
+    toast(saved.task ? `Task “${saved.task.title}” created with the note${listId ? ` in ${myLists.find((l) => l.id === listId)?.name || 'your list'}` : ''}` : noteToast(saved).replace('Note added', 'Note assigned'));
     closeModal();
     await refresh();
   };
