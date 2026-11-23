@@ -2516,6 +2516,15 @@ async function waitForServer() {
           const dx = await fetch(`${BASE}/cpm/day/export?year=${Y}&month=1&flex=0`, { headers: { 'X-Requested-With': 'TaskManager' } });
           assert.equal(dx.status, 200);
           assert.deepEqual(require('../src/xlsxread').readBook(Buffer.from(await dx.arrayBuffer())).sheets.map((x) => x.name), [`Day January ${Y}`, 'Hour profile', 'Charts']);
+          // 👷 Headcount and 🏭 Site capacity as workbooks: formulas over inputs, with charts
+          for (const [u, names, nCharts] of [[`/cpm/headcount/export?year=${Y}&flex=0`, [`Headcount ${Y}`, 'By customer'], 2], [`/cpm/site/export?year=${Y}`, [`Site capacity ${Y}`], 1]]) {
+            const xr = await fetch(`${BASE}${u}`, { headers: { 'X-Requested-With': 'TaskManager' } }); assert.equal(xr.status, 200, u);
+            const buf = Buffer.from(await xr.arrayBuffer()); const bk = require('../src/xlsxread').readBook(buf);
+            assert.deepEqual(bk.sheets.map((x) => x.name), names, `${u}: its sheets`);
+            const z = require('../src/xlsxread').openZip(buf); const charts = Object.keys(z.files || {}).filter((f) => /^xl\/charts\/chart\d+\.xml$/.test(f));
+            assert.ok(charts.length >= nCharts || [...Array(9).keys()].filter((k) => z.text(`xl/charts/chart${k + 1}.xml`)).length >= nCharts, `${u}: its charts`);
+            assert.ok([...bk.sheet(names[0]).cells.values()].some((c) => c.f), `${u}: formulas, not just values`);
+          }
           // 👥 Customers hour by hour as a workbook: a row per line, then the totals; the hours as shown (cards or needed)
           for (const view of ['need', 'cards']) {
             const cx = await fetch(`${BASE}/cpm/day/customers.xlsx?year=${Y}&month=1&flex=0&view=${view}`, { headers: { 'X-Requested-With': 'TaskManager' } });

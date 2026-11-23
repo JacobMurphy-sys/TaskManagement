@@ -282,14 +282,14 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   const hl = (h) => `${String(h).padStart(2, '0')}:00`;
   const name = `Day ${d.label}`.slice(0, 31);
   const sh = sheet(name); const pr = sheet('Hour profile');
-  for (const s of [sh, pr]) { s.width(1, 9).width(2, 10).width(3, 9).width(4, 28).width(5, 9); for (let c = 6; c <= 14; c++) s.width(c, 10); s.width(15, 2); for (let i = 0; i < n; i++) s.width(hc(i), 8); s.width(hc(n), 11); }
+  for (const s of [sh, pr]) { s.width(1, 9).width(2, 10).width(3, 9).width(4, 28).width(5, 9); for (let c = 6; c <= 14; c++) s.width(c, 10); s.width(15, 10); for (let i = 0; i < n; i++) s.width(hc(i), 8); s.width(hc(n), 11); }
   sh.set(1, 1, `CPM daily — a working day in ${d.label}${scenario ? ` — ${scenario}` : ''}`, 'title');
   sh.set(2, 1, `Forecast as read in ${d.forecast_as_of || '—'} · ${d.flex ? 'flex applied' : 'no flex'} · each customer's day spread as its cards were produced (Hour profile sheet) · renewals = Low priority work orders, in each technology's window`, 'note');
   sh.set(3, 1, 'Cells in blue on yellow are inputs — renewal %, volume, OEE, the hour profile, the renewal windows, hours worked, speeds, availability and how each machine splits its hours — change them and the day works itself out.', 'note');
   sh.set(4, 1, 'Working days', 'bold'); sh.set(4, 3, d.workdays, 'input');
   sh.set(4, 5, 'Renewal OEE +', 'bold'); sh.set(4, 6, d.bonus, 'inputPct');
-  sh.set(4, 8, 'Capacity × ', 'bold'); sh.set(4, 10, d.full ? 1 : Math.min(1, d.hph / 8), 'inputDec'); sh.set(4, 11, d.full ? 'full speed' : `${d.hph} productive hours of 8`, 'note');
-  const head = (s, row, labels) => { labels.forEach((l, i) => s.set(row, i + 1, l, i >= 5 ? 'headerNum' : 'header')); s.set(row, 15, '', 'header'); H.forEach((h, i) => s.set(row, hc(i), hl(h), 'headerNum')); s.set(row, hc(n), 'Day', 'headerNum'); };
+  sh.set(4, 8, 'Capacity × ', 'bold'); sh.set(4, 10, 1, 'inputDec'); sh.set(4, 11, 'full speed — the losses are in each customer\'s OEE', 'note');
+  const head = (s, row, labels) => { labels.forEach((l, i) => s.set(row, i + 1, l, i >= 5 ? 'headerNum' : 'header')); s.set(row, 15, s === sh && row === 6 ? 'Added' : '', 'header'); H.forEach((h, i) => s.set(row, hc(i), hl(h), 'headerNum')); s.set(row, hc(n), 'Day', 'headerNum'); };
   const R0 = 7; const rows = d.rows; const R1 = R0 + rows.length - 1;
   head(sh, 6, ['Daily %', 'Renewals %', 'Trigram', 'Customer', 'Tech', 'Month', 'Daily /month', 'Daily /day', 'OEE', 'Needed daily', 'RNW /month', 'RNW /day', 'RNW OEE', 'Needed RNW']);
   head(pr, 6, ['', '', 'Trigram', 'Customer', 'Tech', 'From', '', '', '', '', '', '', '', '']);
@@ -298,7 +298,7 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   rows.forEach((r, k) => {
     const row = R0 + k;
     sh.set(row, 2, r.rnw_pct, 'inputPct'); sh.f(row, 1, `1-B${row}`, 'pct', r.daily_pct);
-    sh.set(row, 3, r.trigram || '—'); sh.set(row, 4, r.name); sh.set(row, 5, r.tech);
+    sh.set(row, 3, r.trigram || '—'); sh.set(row, 4, r.name); sh.set(row, 5, r.tech); if (r.added) sh.set(row, 15, r.added === 'campaign' ? 'campaign' : 'scenario', 'bold');
     sh.set(row, 6, r.month_volume, 'input'); sh.f(row, 7, `F${row}*A${row}`, 'int', r.month_volume * r.daily_pct); sh.f(row, 8, r.peak && r.peak.factor !== 1 ? `G${row}/$C$4*${r.peak.factor}` : `G${row}/$C$4`, 'int', r.daily); // worst case: × its busiest day ÷ its average
     sh.set(row, 9, r.oee, 'inputPct'); sh.f(row, 10, `H${row}/I${row}`, 'int', r.need_daily);
     sh.f(row, 11, `F${row}*B${row}`, 'int', r.month_volume * r.rnw_pct); sh.f(row, 12, `K${row}/$C$4`, 'int', r.renew); sh.f(row, 13, `MIN(1,I${row}+$F$4)`, 'pct', r.oee_rnw); sh.f(row, 14, `L${row}/M${row}`, 'int', r.need_rnw);
@@ -349,13 +349,19 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   for (const t of T) {
     const X = d.tech[t]; const R = S[t] = {}; const lab = (txt) => { sh.set(r, 4, txt); sh.set(r, 5, t, 'bold'); return r++; };
     R.daily = lab('Daily (÷ OEE)'); R.rnw = lab('Renewals'); R.need = lab('Needed'); R.cap = lab('Capacity'); R.load = lab('Load'); R.carry = lab('Carried over');
+    R.added = lab('of the daily: added (campaigns, scenario)'); R.addedRnw = lab('of the renewals: added'); R.own = lab('Daily, the forecast\'s own'); R.rnwOwn = lab('Renewals, the forecast\'s own');
     H.forEach((_, i) => { const c = hc(i); const at = (row) => `${L(c)}${row}`;
       sh.f(R.daily, c, `SUMIF($E$${R0}:$E$${R1},"${t}",${L(c)}$${R0}:${L(c)}$${R1})`, 'int', X.daily[i]);
       sh.f(R.rnw, c, `${L(c)}${rnw[t]}`, 'int', X.renewals[i]); sh.f(R.need, c, `${at(R.daily)}+${at(R.rnw)}`, 'intBold', X.need[i]);
       sh.f(R.cap, c, C1 >= C0 ? `SUMIF($E$${C0}:$E$${C1},"${t}",${L(c)}$${C0}:${L(c)}$${C1})` : '0', 'int', X.capacity[i]);
       sh.f(R.load, c, `IF(${at(R.cap)}>0,${at(R.need)}/${at(R.cap)},"")`, 'pct', X.load[i]);
-      sh.f(R.carry, c, i ? `MAX(0,${L(c - 1)}${R.carry}+${at(R.need)}-${at(R.cap)})` : `MAX(0,${at(R.need)}-${at(R.cap)})`, 'int', X.backlog[i]); });
-    for (const row of [R.daily, R.rnw, R.need, R.cap]) sh.f(row, hc(n), `SUM(${L(hc(0))}${row}:${L(hc(n - 1))}${row})`, 'intBold');
+      sh.f(R.carry, c, i ? `MAX(0,${L(c - 1)}${R.carry}+${at(R.need)}-${at(R.cap)})` : `MAX(0,${at(R.need)}-${at(R.cap)})`, 'int', X.backlog[i]);
+      // what's added (column O marked): its daily hours, and its renewals over the technology's window
+      const fl = rnw[t] - 1; const winSum = `SUM($${L(hc(0))}$${fl}:$${L(hc(n - 1))}$${fl})`;
+      sh.f(R.added, c, `SUMIFS(${L(c)}$${R0}:${L(c)}$${R1},$E$${R0}:$E$${R1},"${t}",$O$${R0}:$O$${R1},"<>")`, 'int', X.added?.[i] || 0);
+      sh.f(R.addedRnw, c, `IF(${winSum}>0,${L(c)}$${fl}*SUMIFS($N$${R0}:$N$${R1},$E$${R0}:$E$${R1},"${t}",$O$${R0}:$O$${R1},"<>")/${winSum},0)`, 'int', X.added_rnw?.[i] || 0);
+      sh.f(R.own, c, `${at(R.daily)}-${at(R.added)}`, 'int', X.daily[i] - (X.added?.[i] || 0)); sh.f(R.rnwOwn, c, `${at(R.rnw)}-${at(R.addedRnw)}`, 'int', X.renewals[i] - (X.added_rnw?.[i] || 0)); });
+    for (const row of [R.daily, R.rnw, R.need, R.cap, R.added, R.addedRnw, R.own, R.rnwOwn]) sh.f(row, hc(n), `SUM(${L(hc(0))}${row}:${L(hc(n - 1))}${row})`, 'intBold');
     sh.f(R.load, hc(n), `IF(${L(hc(n))}${R.cap}>0,${L(hc(n))}${R.need}/${L(hc(n))}${R.cap},"")`, 'pctBold', X.total.load);
     sh.cf.push({ ref: `${L(hc(0))}${R.load}:${L(hc(n))}${R.load}`, rules: [{ op: 'greaterThan', v: '1', dxf: 'bad' }, { op: 'between', v: '0.85', v2: '1', dxf: 'warn' }, { op: 'between', v: '0', v2: '0.85', dxf: 'good' }] });
     sh.cf.push({ ref: `${L(hc(0))}${R.carry}:${L(hc(n - 1))}${R.carry}`, rules: [{ op: 'greaterThan', v: '0.5', dxf: 'bad' }] });
@@ -364,17 +370,133 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   // each row in its technology's colour, as the CPM workbook does
   for (const [a, b] of [[R0, R1], [C0 - shareRows.length - 1, C1]]) if (b >= a) sh.cf.push({ ref: `A${a}:${L(hc(n))}${b}`, rules: T.map((t) => ({ expr: `$E${a}="${t}"`, dxf: t })) });
   if (rows.length) pr.cf.push({ ref: `A${R0}:${L(hc(n))}${R1}`, rules: T.map((t) => ({ expr: `$E${R0}="${t}"`, dxf: t })) });
+  if (rows.length) sh.cf.push({ ref: `${L(hc(0))}${R0}:${L(hc(n - 1))}${R1}`, rules: [{ scale: ['FFFFFF', '7382E6'] }] }); // where each customer's day lands
   sh.freeze = { row: 7, col: 6 }; pr.freeze = { row: 7, col: 6 };
   // charts
   const ch = sheet('Charts'); ch.set(1, 1, `A working day in ${d.label} — charts`, 'title'); ch.set(2, 1, 'They read the day sheet: change an input there and they follow.', 'note');
   const cats = sh.full(headRow, hc(0), headRow, hc(n - 1)); const rng = (row) => sh.full(row, hc(0), row, hc(n - 1)); const W = 13; const HH = 20;
-  ch.charts.push({ title: 'All technologies — load hour by hour', cats, pct: true, from: [1, 4], to: [2 * W, 4 + HH - 1],
+  ch.charts.push({ title: 'All technologies — needed (bars) against each one\'s capacity (lines)', cats, fmt: '#,##0', from: [1, 4], to: [2 * W, 4 + HH - 1],
+    series: [...T.map((t) => ({ name: `${t} needed`, ref: rng(S[t].need), kind: 'bar', color: TECH_COL[t] || '1F77B4' })), ...T.map((t) => ({ name: `${t} capacity`, ref: rng(S[t].cap), kind: 'line', color: TECH_COL[t] || '1F77B4', dash: true }))] });
+  const AT0 = 4 + HH; ch.charts.push({ title: 'All technologies — load hour by hour', cats, pct: true, from: [1, AT0], to: [2 * W, AT0 + HH - 1],
     series: T.map((t) => ({ name: t, ref: rng(S[t].load), kind: 'line', color: TECH_COL[t] || '1F77B4', markers: true })) });
-  T.forEach((t, i) => { const at = [1 + (i % 2) * W, 4 + HH + Math.floor(i / 2) * HH];
-    ch.charts.push({ title: `${t} — the day against capacity`, cats, stacked: true, from: at, to: [at[0] + W - 1, at[1] + HH - 1],
-      series: [{ name: 'Daily', ref: rng(S[t].daily), kind: 'bar', color: TECH_COL[t] || '1F77B4' }, { name: 'Renewals', ref: rng(S[t].rnw), kind: 'bar', color: TECH_LIGHT[t] || '9AA7BD' },
+  const anyAdded = T.some((t) => (d.tech[t].added || []).some((v) => v > 0.5) || (d.tech[t].added_rnw || []).some((v) => v > 0.5));
+  T.forEach((t, i) => { const at = [1 + (i % 2) * W, 4 + 2 * HH + Math.floor(i / 2) * HH];
+    ch.charts.push({ title: `${t} — the day against capacity`, cats, stacked: true, fmt: '#,##0', from: at, to: [at[0] + W - 1, at[1] + HH - 1],
+      series: [{ name: 'Daily', ref: rng(anyAdded ? S[t].own : S[t].daily), kind: 'bar', color: TECH_COL[t] || '1F77B4' }, ...(anyAdded ? [{ name: 'Added (campaigns, scenario)', ref: rng(S[t].added), kind: 'bar', color: 'FF7A1A' }] : []),
+        { name: 'Renewals', ref: rng(anyAdded ? S[t].rnwOwn : S[t].rnw), kind: 'bar', color: TECH_LIGHT[t] || '9AA7BD' }, ...(anyAdded ? [{ name: 'Renewals added', ref: rng(S[t].addedRnw), kind: 'bar', color: 'FFBE8C' }] : []),
         { name: 'Capacity', ref: rng(S[t].cap), kind: 'line', color: '111827' }, { name: 'Carried over', ref: rng(S[t].carry), kind: 'line', color: 'C0392B', dash: true }] }); });
   return buildBook([sh, pr, ch]);
 }
 
-module.exports = { buildCpmWorkbook, buildDayWorkbook, describe };
+// ---- 👷 Headcount: the year by month, as formulas over its inputs (rates, working days, hours a day, efficiency,
+// people, other work), with the charts reading them; and the hours per customer
+function buildHeadcountWorkbook(d, { scenario = null, flex = true } = {}) {
+  const M = d.months; const C = d.config; const T = d.techs; const K = d.methods; const mc = (i) => 3 + i; const YC = 15; const L = (c) => colName(c - 1);
+  const sh = sheet(`Headcount ${d.year}`); sh.width(1, 40).width(2, 12); for (let i = 0; i < 12; i++) sh.width(mc(i), 10); sh.width(YC, 12);
+  sh.set(1, 1, `Headcount ${d.year}${scenario ? ` — ${scenario}` : ''}`, 'title');
+  sh.set(2, 1, `Forecast as read in ${d.forecast_as_of || '—'}. Blue on yellow are inputs — the cards (forecast × split${flex ? ' × flex' : ''}), the rates, working days, hours a day, efficiency, people and the other work: change one and the rest follows, charts too.`, 'note');
+  sh.set(4, 1, 'Hours a day (a person)', 'bold'); sh.set(4, 2, C.day_hours, 'inputDec');
+  sh.set(5, 1, 'Efficiency (share of their hours on the work)', 'bold'); sh.set(5, 2, C.efficiency, 'inputPct');
+  const head = (row, b = '') => { sh.set(row, 1, '', 'header'); sh.set(row, 2, b, 'headerNum'); M.forEach((m, i) => sh.set(row, mc(i), m.label, 'headerNum')); sh.set(row, YC, String(d.year), 'headerNum'); };
+  const section = (row, text) => { for (let c = 1; c <= YC; c++) sh.set(row, c, c === 1 ? text : '', 'section'); };
+  const yearSum = (row, style = 'intBold') => sh.f(row, YC, `SUM(${L(mc(0))}${row}:${L(mc(11))}${row})`, style);
+  let r = 7; head(r); const hd = r; r++;
+  const wd = r; sh.set(wd, 1, 'Working days', 'bold'); M.forEach((m, i) => sh.set(wd, mc(i), m.workdays, 'input')); yearSum(wd); r += 2;
+  const hourRows = []; const kinds = []; // the rows of hours, for the totals and the chart
+  const workRows = (label, list, cardsOf, rateOf) => {
+    section(r, label); r++; head(r, 'cards / h'); r++;
+    for (const k of list) {
+      const cr = r; const hr = r + 1; const rate = rateOf(k);
+      sh.set(cr, 1, `${k} — cards`); M.forEach((m, i) => sh.set(cr, mc(i), cardsOf(m, k), 'input')); yearSum(cr);
+      sh.set(hr, 1, `${k} — hours`, 'bold'); sh.set(hr, 2, rate || 0, 'input');
+      M.forEach((m, i) => sh.f(hr, mc(i), `IF($B${hr}>0,${L(mc(i))}${cr}/$B${hr},0)`, 'int', rate ? cardsOf(m, k) / rate : 0)); yearSum(hr);
+      hourRows.push(hr); kinds.push(k); r += 2;
+    }
+  };
+  workRows('Perso — cards (forecast × split) and the hours at each technology\'s rate', T, (m, t) => (m.perso[t] || 0) * (d.rates[t] || 0), (t) => d.rates[t]);
+  workRows('Matching — the cards matched each way and the hours at its rate', K, (m, k) => (m.match[k] || 0) * (d.rates[k] || 0), (k) => d.rates[k]);
+  const core = r; sh.set(core, 1, 'Perso and matching hours', 'bold'); M.forEach((_, i) => sh.f(core, mc(i), hourRows.map((h) => `${L(mc(i))}${h}`).join('+') || '0', 'intBold', M[i].core)); yearSum(core); r += 2;
+  section(r, 'Other work — hours a day each (× the month\'s working days), and one-off hours'); r++; head(r, 'h a day'); r++;
+  const otherRows = [];
+  (C.other || []).forEach((o) => { sh.set(r, 1, o.name); sh.set(r, 2, o.per_day || 0, 'inputDec'); M.forEach((m, i) => sh.f(r, mc(i), `$B${r}*${L(mc(i))}$${wd}`, 'int', (o.per_day || 0) * m.workdays)); yearSum(r); otherRows.push(r); r++; });
+  const ex = r; sh.set(ex, 1, 'One-off hours (extra)'); M.forEach((m, i) => sh.set(ex, mc(i), m.extra || 0, 'input')); yearSum(ex); otherRows.push(ex); r++;
+  const oth = r; sh.set(oth, 1, 'Other work', 'bold'); M.forEach((m, i) => sh.f(oth, mc(i), `SUM(${L(mc(i))}${otherRows[0]}:${L(mc(i))}${ex})`, 'intBold', m.other_total)); yearSum(oth); r += 2;
+  const tot = r; sh.set(tot, 1, 'Hours needed', 'bold'); M.forEach((m, i) => sh.f(tot, mc(i), `${L(mc(i))}${core}+${L(mc(i))}${oth}`, 'intBold', m.total)); yearSum(tot); r += 2;
+  section(r, 'People — there (permanent + agency − off sick) against needed'); r++; head(r); r++;
+  const stRow = (label, k) => { sh.set(r, 1, label); M.forEach((m, i) => sh.set(r, mc(i), m.staff ? m.staff[k] || 0 : 0, 'input')); return r++; };
+  const pe = stRow('Permanent', 'perm'); const ag = stRow('Agency', 'agency'); const si = stRow('Off sick (on average)', 'sick');
+  const he = r++; sh.set(he, 1, 'People there', 'bold'); M.forEach((m, i) => sh.f(he, mc(i), `${L(mc(i))}${pe}+${L(mc(i))}${ag}-${L(mc(i))}${si}`, 'intBold', m.heads ?? 0));
+  const ph = r++; sh.set(ph, 1, 'Hours a person (hours a day × working days × efficiency)'); M.forEach((m, i) => sh.f(ph, mc(i), `$B$4*${L(mc(i))}${wd}*$B$5`, 'dec', m.per_head));
+  const av = r++; sh.set(av, 1, 'Hours there', 'bold'); M.forEach((m, i) => sh.f(av, mc(i), `${L(mc(i))}${he}*${L(mc(i))}${ph}`, 'intBold', m.available ?? 0)); yearSum(av);
+  const nd = r++; sh.set(nd, 1, 'People needed', 'bold'); M.forEach((m, i) => sh.f(nd, mc(i), `IF(${L(mc(i))}${ph}>0,${L(mc(i))}${tot}/${L(mc(i))}${ph},0)`, 'dec', m.fte_needed || 0));
+  const gh = r++; sh.set(gh, 1, 'Hours spare (− short)', 'bold'); M.forEach((m, i) => sh.f(gh, mc(i), `${L(mc(i))}${av}-${L(mc(i))}${tot}`, 'intBold', m.gap_hours ?? 0)); yearSum(gh);
+  const gp = r++; sh.set(gp, 1, 'People spare (− short)', 'bold'); M.forEach((m, i) => sh.f(gp, mc(i), `${L(mc(i))}${he}-${L(mc(i))}${nd}`, 'dec', m.gap_fte ?? 0));
+  for (const row of [gh, gp]) sh.cf.push({ ref: `${L(mc(0))}${row}:${L(YC)}${row}`, rules: [{ op: 'lessThan', v: '0', dxf: 'bad' }, { op: 'greaterThanOrEqual', v: '0', dxf: 'good' }] });
+  sh.freeze = { row: hd, col: 2 };
+  const cats = sh.full(hd, mc(0), hd, mc(11)); const rng = (row) => sh.full(row, mc(0), row, mc(11)); const COLS = { DOD: '008080', Emboss: '4B5563', Laser: '7030A0', OTTO: 'D97706', HMT: 'F59E0B' };
+  const at0 = r + 2; const W = 8; const HH = 20;
+  sh.charts.push({ title: 'Hours needed, by kind of work, against the hours there', cats, stacked: true, fmt: '#,##0', from: [1, at0], to: [1 + W, at0 + HH - 1],
+    series: [...hourRows.map((h, j) => ({ name: kinds[j], ref: rng(h), kind: 'bar', color: COLS[kinds[j]] || '6B7280' })), { name: 'Other work', ref: rng(oth), kind: 'bar', color: 'A5B4FC' }, { name: 'Hours there', ref: rng(av), kind: 'line', color: '111827' }] });
+  sh.charts.push({ title: 'People needed against people there', cats, fmt: '0', from: [2 + W, at0], to: [2 + 2 * W, at0 + HH - 1],
+    series: [{ name: 'People needed', ref: rng(nd), kind: 'bar', color: '7382E6' }, { name: 'People there', ref: rng(he), kind: 'line', color: '111827' }] });
+  // the hours per customer (and per technology / way of matching)
+  const cu = sheet('By customer'); cu.width(1, 30).width(2, 12); for (let i = 0; i < 12; i++) cu.width(mc(i), 10); cu.width(YC, 12);
+  cu.set(1, 1, `Headcount ${d.year} — the hours per customer`, 'title'); cu.set(2, 1, 'Each customer\'s cards × its split, at the rates (worked out in SITHUB; the totals are formulas).', 'note');
+  cu.set(4, 1, 'Customer', 'header'); cu.set(4, 2, 'Work', 'header'); M.forEach((m, i) => cu.set(4, mc(i), m.label, 'headerNum')); cu.set(4, YC, String(d.year), 'headerNum');
+  let q = 5; const custRows = [];
+  for (const c of d.customers) {
+    const top = q; cu.set(q, 1, c.trigram ? `${c.trigram} — ${c.name}` : c.name, 'bold'); cu.set(q, 2, 'all', 'bold');
+    const parts = Object.entries(c.by || {}).filter(([, a]) => a.some((v) => v > 0.005));
+    M.forEach((_, i) => cu.f(q, mc(i), parts.length ? `SUM(${L(mc(i))}${q + 1}:${L(mc(i))}${q + parts.length})` : '0', 'intBold', c.hours[i])); cu.f(q, YC, `SUM(${L(mc(0))}${q}:${L(mc(11))}${q})`, 'intBold');
+    custRows.push(top); q++;
+    for (const [k, a] of parts) { cu.set(q, 2, k); a.forEach((v, i) => cu.set(q, mc(i), v, 'dec')); cu.f(q, YC, `SUM(${L(mc(0))}${q}:${L(mc(11))}${q})`, 'int'); q++; }
+  }
+  if (custRows.length) { cu.set(q, 1, 'All customers', 'bold'); M.forEach((_, i) => cu.f(q, mc(i), custRows.map((x) => `${L(mc(i))}${x}`).join('+'), 'intBold')); cu.f(q, YC, `SUM(${L(mc(0))}${q}:${L(mc(11))}${q})`, 'intBold');
+    cu.cf.push({ ref: custRows.map((x) => `${L(mc(0))}${x}:${L(mc(11))}${x}`).join(' '), rules: [{ scale: ['FFFFFF', '7382E6'] }] }); }
+  cu.freeze = { row: 4, col: 2 };
+  const top8 = custRows.slice(0, 8); const cats2 = cu.full(4, mc(0), 4, mc(11)); const PAL = ['430099', '7382E6', '008080', 'D97706', '7030A0', '4B5563', 'C0392B', '2E8B57'];
+  if (top8.length) cu.charts.push({ title: 'Hours per customer — the biggest', cats: cats2, stacked: true, fmt: '#,##0', from: [3, q + 3], to: [14, q + 24],
+    series: top8.map((row, j) => ({ name: String(d.customers[j].trigram || d.customers[j].name), ref: cu.full(row, mc(0), row, mc(11)), kind: 'bar', color: PAL[j % PAL.length] })) });
+  return buildBook([sh, cu]);
+}
+
+// ---- 🏭 Site capacity: each machine flat out — speed × hours a day (shifts × 8 × its share for perso) × working
+// days — as formulas over its inputs, the technologies' totals at each machine's split, with charts
+function buildSiteWorkbook(d) {
+  const T = d.techs; const M = d.months; const L = (c) => colName(c - 1);
+  const sh = sheet(`Site capacity ${d.year}`); const SC = 7; const mc = (i) => SC + T.length + 1 + i; const YC = mc(12);
+  sh.width(1, 22).width(2, 14).width(3, 10).width(4, 11).width(5, 11).width(6, 11); for (let i = 0; i < T.length; i++) sh.width(SC + i, 9); sh.width(SC + T.length, 11); for (let i = 0; i < 12; i++) sh.width(mc(i), 11); sh.width(YC, 13);
+  sh.set(1, 1, `Site capacity ${d.year} — what the machines could make flat out`, 'title');
+  sh.set(2, 1, 'Run speed × hours a day (shifts × 8 h × its share for perso) × working days — no OEE: the losses are counted in Capacity planning\'s OEE. Blue on yellow are inputs; change one and the rest follows, charts too.', 'note');
+  sh.set(4, 1, 'Shifts a day', 'bold'); sh.set(4, 2, d.shifts, 'input'); sh.set(4, 3, 'Hours a shift', 'bold'); sh.set(4, 4, d.hours, 'input');
+  const hr = 6; const head = [['Machine', 1], ['Runs', 2], ['Counted', 3], ['Speed /h', 4], ['Share for perso', 5], ['Hours a day', 6]];
+  head.forEach(([l, c]) => sh.set(hr, c, l, c >= 4 ? 'headerNum' : 'header')); T.forEach((t, i) => sh.set(hr, SC + i, `${t} share`, 'headerNum')); sh.set(hr, SC + T.length, 'A day', 'headerNum');
+  M.forEach((m, i) => sh.set(hr, mc(i), m.label, 'headerNum')); sh.set(hr, YC, String(d.year), 'headerNum');
+  const wd = hr + 1; sh.set(wd, 1, 'Working days', 'bold'); M.forEach((m, i) => sh.set(wd, mc(i), m.workdays, 'input')); sh.f(wd, YC, `SUM(${L(mc(0))}${wd}:${L(mc(11))}${wd})`, 'intBold');
+  const R0 = wd + 1; let r = R0;
+  for (const m of d.machines) {
+    const c = m.counted; const speed = c ? (c.hour || 0) : 0;
+    sh.set(r, 1, m.name, 'bold'); sh.set(r, 2, m.techs.join(', ')); sh.set(r, 3, c ? (c.basis === 'mix' ? 'its mix' : c.basis === 'fastest' ? `fastest (${c.tech})` : c.tech) : '—', 'note');
+    sh.set(r, 4, speed, 'input'); sh.set(r, 5, m.avail ?? 1, 'inputPct'); sh.f(r, 6, `$B$4*$D$4*E${r}`, 'dec', m.hours_day);
+    T.forEach((t, i) => sh.set(r, SC + i, c ? (c.basis === 'mix' ? c.split[t] || 0 : c.tech === t ? 1 : 0) : 0, 'inputPct'));
+    sh.f(r, SC + T.length, `D${r}*F${r}`, 'int', c ? c.day : 0);
+    M.forEach((mm, i) => sh.f(r, mc(i), `$${L(SC + T.length)}${r}*${L(mc(i))}$${wd}`, 'int', c ? c.months[i] : 0)); sh.f(r, YC, `SUM(${L(mc(0))}${r}:${L(mc(11))}${r})`, 'intBold', c ? c.year : 0);
+    r++;
+  }
+  const R1 = r - 1; r++;
+  const tr = {}; for (const t of T) { tr[t] = r; sh.set(r, 1, t, 'bold'); sh.set(r, 3, 'at each machine\'s share', 'note');
+    sh.f(r, SC + T.length, R1 >= R0 ? `SUMPRODUCT($${L(SC + T.indexOf(t))}$${R0}:$${L(SC + T.indexOf(t))}$${R1},${L(SC + T.length)}$${R0}:${L(SC + T.length)}$${R1})` : '0', 'intBold', d.counted_by_tech[t].day);
+    M.forEach((_, i) => sh.f(r, mc(i), R1 >= R0 ? `SUMPRODUCT($${L(SC + T.indexOf(t))}$${R0}:$${L(SC + T.indexOf(t))}$${R1},${L(mc(i))}$${R0}:${L(mc(i))}$${R1})` : '0', 'int', d.counted_by_tech[t].months[i]));
+    sh.f(r, YC, `SUM(${L(mc(0))}${r}:${L(mc(11))}${r})`, 'intBold', d.counted_by_tech[t].year); r++; }
+  const all = r; sh.set(all, 1, 'Site', 'bold'); for (const c of [SC + T.length, ...M.map((_, i) => mc(i)), YC]) sh.f(all, c, R1 >= R0 ? `SUM(${L(c)}${R0}:${L(c)}${R1})` : '0', 'intBold');
+  sh.freeze = { row: hr, col: 1 };
+  const COLS = { DOD: '008080', Emboss: '4B5563', Laser: '7030A0' };
+  const at0 = all + 3; const W = 9; const HH = 20; const cats = sh.full(hr, mc(0), hr, mc(11));
+  sh.charts.push({ title: 'Cards the site could make each month, by technology', cats, stacked: true, from: [1, at0], to: [1 + W, at0 + HH - 1],
+    series: T.map((t) => ({ name: t, ref: sh.full(tr[t], mc(0), tr[t], mc(11)), kind: 'bar', color: COLS[t] || '6B7280' })) });
+  if (R1 >= R0) sh.charts.push({ title: 'Each machine — cards a year', cats: sh.full(R0, 1, R1, 1), from: [2 + W, at0], to: [2 + 2 * W, at0 + HH - 1],
+    series: [{ name: String(d.year), ref: sh.full(R0, YC, R1, YC), kind: 'bar', color: '7382E6' }] });
+  return buildBook([sh]);
+}
+
+module.exports = { buildCpmWorkbook, buildDayWorkbook, buildHeadcountWorkbook, buildSiteWorkbook, describe };

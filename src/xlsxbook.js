@@ -78,7 +78,9 @@ function sheetXml(sh, drawingRel) {
   const fr = sh.freeze; const pane = fr ? `<pane ${fr.col > 1 ? `xSplit="${fr.col - 1}" ` : ''}${fr.row > 1 ? `ySplit="${fr.row - 1}" ` : ''}topLeftCell="${ref(fr.row, fr.col)}" activePane="${fr.row > 1 && fr.col > 1 ? 'bottomRight' : fr.row > 1 ? 'bottomLeft' : 'topRight'}" state="frozen"/>` : '';
   let prio = 1;
   const DXF = { good: 0, warn: 1, bad: 2, DOD: 3, Emboss: 4, Laser: 5 };
-  const cf = sh.cf.map((x) => `<conditionalFormatting sqref="${x.ref}">${x.rules.map((rule) => (rule.expr
+  const cf = sh.cf.map((x) => `<conditionalFormatting sqref="${x.ref}">${x.rules.map((rule) => (rule.scale // a colour scale: lowest → highest
+    ? `<cfRule type="colorScale" priority="${prio++}"><colorScale><cfvo type="min"/><cfvo type="max"/>${rule.scale.map((c) => `<color rgb="FF${c}"/>`).join('')}</colorScale></cfRule>`
+    : rule.expr
     ? `<cfRule type="expression" dxfId="${DXF[rule.dxf]}" priority="${prio++}"><formula>${xmlEsc(rule.expr)}</formula></cfRule>`
     : `<cfRule type="cellIs" dxfId="${DXF[rule.dxf]}" priority="${prio++}" operator="${rule.op}"><formula>${rule.v}</formula>${rule.v2 !== undefined ? `<formula>${rule.v2}</formula>` : ''}</cfRule>`)).join('')}</conditionalFormatting>`).join('');
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -93,7 +95,7 @@ function sheetXml(sh, drawingRel) {
     + '</worksheet>';
 }
 
-// a chart: { title, cats: "'Sheet'!$B$2:$M$2", series: [{ name, ref, kind: 'bar'|'line', color: 'RRGGBB', dash }], from: [col, row], to: [col, row], y }
+// a chart: { title, cats: "'Sheet'!$B$2:$M$2", series: [{ name, ref, kind: 'bar'|'line', color: 'RRGGBB', dash }], from: [col, row], to: [col, row], y, fmt (the value axis' number format; default millions) }
 function chartXml(ch) {
   const ser = (x, i) => `<c:ser><c:idx val="${i}"/><c:order val="${i}"/><c:tx><c:v>${xmlEsc(x.name)}</c:v></c:tx>`
     + `<c:spPr>${x.kind === 'line' ? `<a:ln w="28575" cap="rnd"><a:solidFill><a:srgbClr val="${x.color}"/></a:solidFill>${x.dash ? '<a:prstDash val="dash"/>' : ''}<a:round/></a:ln>` : `<a:solidFill><a:srgbClr val="${x.color}"/></a:solidFill>`}</c:spPr>`
@@ -110,7 +112,7 @@ function chartXml(ch) {
     + (bars.length ? `<c:barChart><c:barDir val="col"/><c:grouping val="${ch.stacked ? 'stacked' : 'clustered'}"/><c:varyColors val="0"/>${bars.map(([x, i]) => ser(x, i)).join('')}<c:gapWidth val="60"/><c:overlap val="${ch.stacked ? 100 : -10}"/>${axes}</c:barChart>` : '')
     + (lines.length ? `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>${lines.map(([x, i]) => ser(x, i)).join('')}<c:marker val="1"/>${axes}</c:lineChart>` : '')
     + '<c:catAx><c:axId val="5001"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:numFmt formatCode="General" sourceLinked="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:crossAx val="5002"/><c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/><c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>'
-    + `<c:valAx><c:axId val="5002"/><c:scaling><c:orientation val="minMax"/><c:min val="0"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:majorGridlines><c:spPr><a:ln w="6350"><a:solidFill><a:srgbClr val="E5E7EB"/></a:solidFill></a:ln></c:spPr></c:majorGridlines><c:numFmt formatCode="${ch.pct ? '0%' : '#,##0.00,,&quot;M&quot;'}" sourceLinked="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:crossAx val="5001"/><c:crosses val="autoZero"/><c:crossBetween val="between"/>${ch.major ? `<c:majorUnit val="${ch.major}"/>` : ''}</c:valAx>`
+    + `<c:valAx><c:axId val="5002"/><c:scaling><c:orientation val="minMax"/><c:min val="0"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:majorGridlines><c:spPr><a:ln w="6350"><a:solidFill><a:srgbClr val="E5E7EB"/></a:solidFill></a:ln></c:spPr></c:majorGridlines><c:numFmt formatCode="${ch.pct ? '0%' : ch.fmt ? xmlEsc(ch.fmt) : '#,##0.00,,&quot;M&quot;'}" sourceLinked="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:crossAx val="5001"/><c:crosses val="autoZero"/><c:crossBetween val="between"/>${ch.major ? `<c:majorUnit val="${ch.major}"/>` : ''}</c:valAx>`
     + '</c:plotArea><c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend><c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart>'
     + '<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="900"/></a:pPr><a:endParaRPr lang="en-GB"/></a:p></c:txPr></c:chartSpace>';
 }
