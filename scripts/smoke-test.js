@@ -2448,6 +2448,17 @@ async function waitForServer() {
           assert.match((await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&regen=1`)).forecast_status.benelux.error, /can't find/, 'a file that can\'t be read says so');
           // 🕐 a day by the hour: the month's volume a working day, ÷ OEE, over the hours; renewals in their window
           await call('PUT', '/cpm/day/renewals', { trigram: 'KBC', tech: 'DOD', share: 0 }); // earlier tests' Low work orders would make KBC all renewals
+          // the learned renewal share is an average day's: 20 ordinary days of dailies and one bulk renewal day count as 1 in 21
+          // days of renewals, not as the bulk day's share of all the cards
+          { const sqr = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
+            const ins = sqr.prepare("INSERT INTO plan_history_jobs (key, wo, customer, qty, prio, first_seen, last_seen) VALUES (?, ?, 'AES', ?, ?, ?, ?)");
+            const dayAgo = (k) => { const x = new Date(); x.setDate(x.getDate() - k); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}T10:00`; };
+            for (let k = 1; k <= 20; k++) ins.run(`RNWD${k}`, `RNWD${k}`, 1000, 'High', dayAgo(k), dayAgo(k));
+            ins.run('RNWBULK', 'RNWBULK', 30000, 'Low', dayAgo(21), dayAgo(21)); sqr.close();
+            const ar = (await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`)).rows.find((r) => r.trigram === 'AES');
+            assert.ok(ar && ar.rnw_learned_days >= 21 && ar.rnw_learned < 0.12 && ar.rnw_learned_whole > 0.55, `renewals learned on an average day (${ar?.rnw_learned}), not the months' total (${ar?.rnw_learned_whole})`);
+            assert.ok(Math.abs(ar.rnw_pct - ar.rnw_learned) < 1e-9, 'none typed: the learned share is used');
+            const sqd = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); sqd.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'RNW%'").run(); sqd.close(); }
           let dy = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`);
           const kd = dy.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
           assert.ok(kd && kd.month_volume === 4000 * 0.5 && Math.abs(kd.need_daily - kd.month_volume / 0.5 / dy.workdays) < 0.01, 'KBC DOD a day: forecast × split ÷ OEE ÷ working days');
