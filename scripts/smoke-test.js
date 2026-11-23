@@ -2555,6 +2555,8 @@ async function waitForServer() {
             const pvCards = pv.months.reduce((a2, m) => a2 + Object.values(m.techs).reduce((b, x) => b + x.cards1 - x.cards0, 0), 0);
             assert.ok(pv.months.length === 2 && Math.abs(pvCards - 30000) < 0.5, `preview: the cards added, in its two months (${pvCards})`);
             assert.ok(pv.months.every((m) => Object.values(m.techs).every((x) => x.need1 >= x.need0 && (x.load1 === null || x.load1 >= x.load0))), 'preview: needed and load only up');
+            const pvZero = await call('GET', `/cpm/scenario-preview?flex=0&change=${encodeURIComponent(JSON.stringify({ type: 'volume', customer: 'KBC', pct: -100, from: `${Y}-01`, to: `${Y}-01` }))}`);
+            assert.ok(pvZero.customer === 'KBC' && pvZero.months.length === 1 && pvZero.months[0].cust0 > 0 && pvZero.months[0].cust1 === 0, 'preview: −100% takes the customer to nothing (its own cards shown before → after)');
             const pvPct = await call('GET', `/cpm/scenario-preview?flex=0&change=${encodeURIComponent(JSON.stringify({ type: 'volume', customer: 'KBC', pct: 10, from: `${Y}-01`, to: `${Y}-01` }))}`);
             const kbcJan = 4000; // KBC's January in the test forecast
             assert.ok(pvPct.months.length === 1 && Math.abs(Object.values(pvPct.months[0].techs).reduce((b, x) => b + x.cards1 - x.cards0, 0) - kbcJan * 0.1) < 0.5, 'preview: 10% of KBC\'s January (4000 cards)');

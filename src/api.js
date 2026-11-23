@@ -3978,8 +3978,10 @@ router.get('/cpm/scenario-preview', h((req, res) => {
   const months = base.periods.map((p, i) => { const q = withIt.periods[i];
     const techs = Object.fromEntries(base.techs.map((t) => { const a = p.techs[t]; const b = q.techs[t];
       return [t, { cards0: a.demand, cards1: b.demand, need0: a.need, need1: b.need, capacity: b.capacity, load0: a.capacity ? a.need / a.capacity : null, load1: b.capacity ? b.need / b.capacity : null }]; }));
-    return { key: p.key, label: p.label, workdays: p.workdays, techs }; }).filter((m) => Object.values(m.techs).some((x) => Math.abs(x.cards1 - x.cards0) > 0.5 || Math.abs(x.need1 - x.need0) > 0.5));
-  res.json({ year, flex: useFlex, techs: base.techs, months, warnings: withIt.warnings.filter((w) => !base.warnings.includes(w)) });
+    // the customer's own cards, before and after (all customers' when the change is for every one)
+    const own = (plan) => plan.detail.filter((D) => !ch.customer || D.trigram === ch.customer).reduce((a, D) => { const x = D.months[i + 1]; return a + (x ? x.fc * x.split : 0); }, 0);
+    return { key: p.key, label: p.label, workdays: p.workdays, techs, cust0: own(base), cust1: own(withIt) }; }).filter((m) => Math.abs(m.cust1 - m.cust0) > 0.5 || Object.values(m.techs).some((x) => Math.abs(x.cards1 - x.cards0) > 0.5 || Math.abs(x.need1 - x.need0) > 0.5));
+  res.json({ year, flex: useFlex, techs: base.techs, months, customer: ch.customer || null, warnings: withIt.warnings.filter((w) => !base.warnings.includes(w)) });
 }));
 // 🏭 Theoretical site capacity per machine: run speed × available hours, no OEE (src/cpm.js)
 router.get('/cpm/site', h((req, res) => res.json(cpmCached(req, 'site', () => cpm.siteCapacity(Number(req.query.year) || new Date().getFullYear(), cpmCards())))));
