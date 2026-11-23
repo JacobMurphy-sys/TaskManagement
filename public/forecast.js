@@ -119,6 +119,8 @@ async function fcViz(kind, d0) {
     <tbody>${custs.map(([c, t]) => `<tr><td>${esc(c)}</td>${FC_MON.map((_, i) => { const x = cell(c, i + 1); return `<td class="num">${x ? fcN(x) : ''}</td>`; }).join('')}<td class="num"><b>${fcN(t)}</b></td>${cmpRows ? `<td class="num">${cmpCust(c) ? `${t >= cmpCust(c) ? '▲' : '▼'} ${pct(t, cmpCust(c))}` : 'new'}</td>` : ''}</tr>`).join('')}
     <tr class="fc-total"><td><b>Total</b></td>${totals.map((x) => `<td class="num"><b>${x ? fcN(x) : ''}</b></td>`).join('')}<td class="num"><b>${fcN(yearTot)}</b></td>${cmpRows ? `<td class="num"><b>${pct(yearTot, cmpYear)}</b></td>` : ''}</tr></tbody></table></div></details>`;
   box.innerHTML = `<div class="row"><h2 style="margin:0">The forecast</h2><div class="spacer"></div>
+      <input type="search" id="fc-find" list="fc-custs" placeholder="Find a customer…" value="${esc(store.get('fcCust', '') || '')}" autocomplete="off" style="width:220px" aria-label="Find a customer">
+      <datalist id="fc-custs">${ranked.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
       <span class="seg">${years.map((y) => `<button type="button" data-fc-year="${y}" class="${y === year ? 'on' : ''}">${y}</button>`).join('')}</span>
       ${kind ? `<label class="small">Compare with <select id="fc-cmp"><option value="">nothing</option>${versions.filter((u) => u.id !== d0.newest[kind] || v.current[kind]?.from !== 'sent_in').map((u) => `<option value="${u.id}" ${String(u.id) === cmp ? 'selected' : ''}>${esc(fmtDateTime(u.created_at))} · ${esc(u.submitter)}</option>`).join('')}</select></label>` : '<span class="small muted" title="Pick BeNeLux or Amex above to compare with an earlier version">compare: one forecast at a time</span>'}</div>
     <p class="small muted" style="margin:4px 0 8px">In use now — ${from}</p>
@@ -127,11 +129,56 @@ async function fcViz(kind, d0) {
       ${biggest ? tile('Biggest customer', esc(biggest[0]), `${fcQty(biggest[1])} · ${Math.round((biggest[1] / (yearTot || 1)) * 100)}% of the year`) : ''}
       ${tile('Busiest month', FC_MON[totals.indexOf(Math.max(...totals))], fcQty(Math.max(...totals)))}</div>
     <div class="fc-legend small">${series.map((x) => `<span><i class="fc-sw fc-s${x.n}"></i>${esc(x.label)}</span>`).join('')}${cmpTot ? `<span><i class="fc-sw fc-cmp"></i>${esc(cmpInfo)}</span>` : ''}</div>
+    <div id="fc-cust"></div>
     <div id="fc-chart"></div>${table}`;
   FC_LAST = { series, byM, totals, cmpTot, year, cmpInfo };
   fcDraw();
+  // 🔎 a customer: typing narrows the table (and opens it); a customer picked shows its own volumes
+  const find = $('#fc-find', box);
+  const narrow = () => { const q = find.value.trim().toLowerCase(); const t = $('.fc-table', box); if (!t) return;
+    $$('tbody tr:not(.fc-total)', t).forEach((tr) => { tr.hidden = !!q && !tr.cells[0].textContent.toLowerCase().includes(q); });
+    if (q) t.closest('details').open = true; };
+  const pick = () => { const q = find.value.trim(); const c = ranked.find((x) => x.toLowerCase() === q.toLowerCase()) || null; store.set('fcCust', c || ''); fcCustPanel(c, { rows, year, cmpRows, cmpInfo, labels: v.kinds, totalsByYear: (y) => rows.filter((r) => r.year === y).reduce((a, r) => a + r.qty, 0) }); };
+  find.addEventListener('input', () => { narrow(); pick(); });
+  narrow(); pick();
   $$('[data-fc-year]', box).forEach((b) => b.addEventListener('click', () => { store.set('fcYear', Number(b.dataset.fcYear)); fcViz(kind, d0); }));
   $('#fc-cmp', box)?.addEventListener('change', (e) => { store.set(`fcCompare_${kind}`, e.target.value); fcViz(kind, d0); });
+}
+// one customer's forecast: month by month for each year in the forecast, its share of the year, the change against
+// the version compared, and — when it's set up on Capacity planning — its cards by technology (its split there)
+let fcSplits = null;
+async function fcCustPanel(c, { rows, year, cmpRows, cmpInfo, labels = {}, totalsByYear }) {
+  const el = $('#fc-cust'); if (!el) return;
+  if (!c) { el.innerHTML = ''; return; }
+  const mine = rows.filter((r) => r.cust === c); const years = [...new Set(mine.map((r) => r.year))].sort();
+  const m = (y, k) => mine.filter((r) => r.year === y && r.month === k).reduce((a, r) => a + r.qty, 0);
+  const yt = (y) => mine.filter((r) => r.year === y).reduce((a, r) => a + r.qty, 0);
+  const cm = (k) => (cmpRows ? cmpRows.filter((r) => r.cust === c && r.month === k).reduce((a, r) => a + r.qty, 0) : null);
+  const cy = cmpRows ? cmpRows.filter((r) => r.cust === c).reduce((a, r) => a + r.qty, 0) : null;
+  const pct = (a, b) => (b ? `${a >= b ? '+' : '−'}${Math.abs(((a - b) / b) * 100).toFixed(1)}%` : '');
+  const kinds = [...new Set(mine.map((r) => r.kind))];
+  // its technology split (Capacity planning › Customers), if it can be seen and the customer is set up there
+  if (fcSplits === null) { try { const r = await api.get('/cpm/customers'); fcSplits = r.customers || []; } catch { fcSplits = []; } }
+  if (!$('#fc-cust') || store.get('fcCust', '') !== c) return;
+  const cu = fcSplits.find((x) => x.name === c || x.trigram === c);
+  const split = cu ? (cu.split && Object.keys(cu.split).length ? { from: 'set on Capacity planning', s: cu.split } : cu.learned && Object.keys(cu.learned).length ? { from: 'learned from what ran', s: cu.learned } : null) : null;
+  const sTot = split ? Object.values(split.s).reduce((a, b) => a + (Number(b) || 0), 0) : 0;
+  const techs = split && sTot ? Object.entries(split.s).filter(([, v]) => Number(v) > 0).map(([t, v]) => [t, Number(v) / sTot]) : [];
+  const yr = years.includes(year) ? year : years[years.length - 1];
+  const max = Math.max(1, ...FC_MON.map((_, i) => Math.max(m(yr, i + 1), cm(i + 1) || 0)));
+  const bars = `<div class="fc-cbars">${FC_MON.map((mn, i) => { const v = m(yr, i + 1); const w = cm(i + 1);
+    return `<div class="fc-cbar" title="${esc(`${mn} ${yr}: ${fcN(v)}${w !== null ? ` — ${cmpInfo}: ${fcN(w)}` : ''}`)}"><div class="fc-cbar-v">${v ? fcQty(v) : ''}</div><div class="fc-cbar-t"><i style="height:${(v / max) * 100}%"></i>${w !== null && w ? `<b style="bottom:${(w / max) * 100}%"></b>` : ''}</div><div class="fc-cbar-m">${mn}</div></div>`; }).join('')}</div>`;
+  el.innerHTML = `<div class="card fc-cust"><div class="row" style="gap:8px;align-items:baseline;flex-wrap:wrap"><h3 style="margin:0">${esc(c)}</h3><span class="small muted">${kinds.map((k) => esc(labels[k] || k)).join(' · ')}${cu ? ` · ${esc(cu.trigram)} on Capacity planning` : ''}</span><div class="spacer"></div><button type="button" class="link small" id="fc-cust-x">Clear</button></div>
+    <div class="kdb-tiles">${years.map((y) => `<div class="kdb-tile"><div class="kdb-tile-l">${y}</div><div class="kdb-tile-v">${fcQty(yt(y))}</div><div class="kdb-tile-s">${totalsByYear(y) ? `${((yt(y) / totalsByYear(y)) * 100).toFixed(1)}% of the forecast` : ''}</div></div>`).join('')}
+      ${cy !== null ? `<div class="kdb-tile"><div class="kdb-tile-l">Against the version before</div><div class="kdb-tile-v">${pct(yt(year), cy) || (cy ? '' : 'new')}</div><div class="kdb-tile-s">${fcQty(cy)} in ${esc(cmpInfo)}</div></div>` : ''}</div>
+    <div class="small muted" style="margin:6px 0 2px">${yr}, month by month${cmpRows ? ' — the line: the version compared' : ''}</div>${bars}
+    <div class="kdb-scroll"><table class="log small fc-table"><thead><tr><th></th>${FC_MON.map((x) => `<th class="num">${x}</th>`).join('')}<th class="num">Year</th></tr></thead><tbody>
+      ${years.map((y) => `<tr><th>${y}</th>${FC_MON.map((_, i) => { const v = m(y, i + 1); return `<td class="num">${v ? fcN(v) : ''}</td>`; }).join('')}<td class="num"><b>${fcN(yt(y))}</b></td></tr>`).join('')}
+      ${cmpRows ? `<tr class="muted"><th title="${esc(cmpInfo)}">${year} before</th>${FC_MON.map((_, i) => { const w = cm(i + 1); return `<td class="num">${w ? fcN(w) : ''}</td>`; }).join('')}<td class="num">${fcN(cy)}</td></tr>
+        <tr><th>Change</th>${FC_MON.map((_, i) => { const v = m(year, i + 1); const w = cm(i + 1); const dlt = v - w; return `<td class="num ${dlt > 0.5 ? 'pl-ok' : dlt < -0.5 ? 'pl-late' : 'muted'}">${Math.abs(dlt) > 0.5 ? `${dlt > 0 ? '+' : '−'}${fcN(Math.abs(dlt))}` : ''}</td>`; }).join('')}<td class="num"><b>${pct(yt(year), cy)}</b></td></tr>` : ''}
+      ${techs.map(([t, sh]) => `<tr class="fc-tech"><th title="${esc(`${Math.round(sh * 100)}% — the split ${split.from}`)}">${yr} ${esc(t)} <span class="muted">${Math.round(sh * 100)}%</span></th>${FC_MON.map((_, i) => { const v = m(yr, i + 1) * sh; return `<td class="num muted">${v ? fcN(v) : ''}</td>`; }).join('')}<td class="num muted">${fcN(yt(yr) * sh)}</td></tr>`).join('')}
+    </tbody></table></div>${techs.length ? `<p class="small muted" style="margin:4px 0 0">By technology: the forecast × its split ${esc(split.from)}.</p>` : ''}</div>`;
+  $('#fc-cust-x').onclick = () => { const f = $('#fc-find'); if (f) { f.value = ''; f.dispatchEvent(new Event('input')); } };
 }
 function fcDraw() {
   const el = $('#fc-chart'); if (!el || !FC_LAST) return;
