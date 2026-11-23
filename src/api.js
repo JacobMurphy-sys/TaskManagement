@@ -3972,7 +3972,7 @@ const cpmDayWork = (req) => {
   cpmRefresh();
   const year = Number(req.query.year) || new Date().getFullYear(); const month = Math.min(12, Math.max(1, Number(req.query.month) || new Date().getMonth() + 1));
   const sc = req.query.scenario ? cpmScenario(req, Number(req.query.scenario)) : null;
-  const full = req.query.full !== undefined ? req.query.full !== '0' : getSettings().cpm_hour_full !== '0';
+  const full = true; // capacity at full speed: the losses are in the OEE (counted once)
   return { ...require('./cpmday').day({ year, month, changes: sc?.changes || [], useFlex: req.query.flex !== '0', cards: cpmCards(), full }), scenario: sc ? { id: sc.id, name: sc.name, changes: sc.changes } : null };
 };
 router.get('/cpm/day', h((req, res) => res.json(cpmDayOf(req))));
@@ -3981,7 +3981,7 @@ router.get('/cpm/day/compare', h((req, res) => {
   res.json(cpmCached(req, 'day-compare', () => {
     cpmRefresh();
     const year = Number(req.query.year) || new Date().getFullYear(); const month = Math.min(12, Math.max(1, Number(req.query.month) || new Date().getMonth() + 1));
-    const full = req.query.full !== undefined ? req.query.full !== '0' : getSettings().cpm_hour_full !== '0';
+    const full = true;
     return require('./cpmday').compareShapes({ year, month, changes: sc?.changes || [], useFlex: req.query.flex !== '0', cards: cpmCards(), full });
   }));
 }));

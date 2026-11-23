@@ -359,7 +359,6 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
   const bonus = Number(setting('cpm_rnw_bonus', '0.05')) || 0;
   let windows = json(setting('cpm_rnw_hours', '{}'), {});
   for (const c of changes) if (c.type === 'rnw_window' && c.tech && (!c.from || `${year}-${pad(month)}` >= c.from) && (!c.to || `${year}-${pad(month)}` <= c.to)) windows = { ...windows, [cpm.normTech(c.tech)]: (c.hours || []).map(Number) };
-  if (full && changes.some((c) => c.type === 'shifts' && Number(c.hours) > 0)) warnings.push('This scenario changes the productive hours a shift — they only count with “Productive” capacity, not at full speed');
   if (!rs.length && !(arr && arr.orders)) warnings.push('No ⏱ timing report runs in the last months — each day is spread evenly over the hours worked');
   const prodProf = arr ? profiles(cards, rs) : prof;
   const days = P.workdays || 0;
@@ -367,7 +366,7 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
   const shifts = P.shifts ?? plan.shifts; const hph = P.hph ?? plan.hours;
   const first = Math.floor(hm(setting('plan_shift_morning', '05:45'), 345) / 60 + 0.5) % 24;
   const worked = new Set(Array.from({ length: Math.min(24, Math.round(shifts * 8)) }, (_, i) => (first + i) % 24));
-  const factor = full ? 1 : Math.min(1, hph / 8);
+  const factor = 1; // full speed over the hours worked: the losses are in the OEE the demand is divided by
   // customers
   // run periods set by hand: 'TRI|tech' / 'TRI|*' / '*|tech' / '*|*' → { periods: [{ from: '07:00', to: '12:00', share: 60 }] }
   // or { hours: [24 weights by the clock] } — made into a day's shares by the clock hour

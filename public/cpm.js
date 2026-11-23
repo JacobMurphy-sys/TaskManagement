@@ -306,7 +306,7 @@ async function cpmDay(body, settings = false) {
   const year = Number(store.get('cpmYear', new Date().getFullYear()));
   const month = Number(store.get('cpmDayMonth', new Date().getMonth() + 1));
   const flex = store.get('cpmFlex', true); const scId = settings ? 0 : Number(store.get('cpmDayScenario', 0)) || 0;
-  const full = store.get('cpmDayFull', null);
+  const full = null; // (capacity is always at full speed: the losses are in the OEE)
   const q = `year=${year}&month=${month}&flex=${flex ? 1 : 0}${scId ? `&scenario=${scId}` : ''}${full === null ? '' : `&full=${full ? 1 : 0}`}`;
   const [d, scs] = await Promise.all([(settings ? api.get(`/cpm/day?${q}&live=1`) : cpmGet(`/cpm/day?${q}`)).catch((err) => { if (scId) store.set('cpmDayScenario', 0); throw err; }), api.get('/cpm/scenarios')]);
   const H = d.hours; const T = d.techs; const hl = (h) => `${String(h).padStart(2, '0')}:00`;
@@ -515,7 +515,6 @@ async function cpmDay(body, settings = false) {
       ${ddMenu('⚙ View', `<div class="dd-h">Daily work</div>
       <select id="cpm-day-prof" title="How each customer's daily work is spread over the day"><option value="arrival" ${d.profile_source === 'arrival' ? 'selected' : ''}>Daily work: when it arrives</option><option value="produced" ${d.profile_source === 'produced' ? 'selected' : ''}>Daily work: when it was produced</option></select>
       <select id="cpm-day-shape" title="How the days learned from are put together: lined up on the customer's usual time (keeps each day's clump), or simply added up (spread wide, as each day comes in at slightly different times)"><option value="typical" ${d.day_shape === 'typical' ? 'selected' : ''}>Learned: a typical day (clumped)</option><option value="worst" ${d.day_shape === 'worst' ? 'selected' : ''}>Worst case: busiest day, most clumped</option><option value="average" ${d.day_shape === 'average' ? 'selected' : ''}>Learned: all days averaged (wide)</option></select>
-      <div class="seg" title="Capacity in an hour"><button type="button" data-cpm-full="1" class="${d.full ? 'on' : ''}">Full speed</button><button type="button" data-cpm-full="0" class="${d.full ? '' : 'on'}">Productive (${d.hph} of 8 h)</button></div>
         <hr><a href="/api/cpm/day/export?${q}" download>⬇ Download as Excel</a>`, { title: 'How the day is learned, capacity, Excel', cls: 'dd-wide' })}
     </div>
     <details class="cpm-about small muted"><summary>ⓘ ${esc(d.label)} · ${d.workdays} working days · ${d.shifts} shift${d.shifts === 1 ? '' : 's'}${d.scenario ? ` · scenario <b>${esc(d.scenario.name)}</b>` : ''} · ${d.day_shape === 'worst' ? 'worst case' : d.day_shape === 'average' ? 'all days averaged' : 'a typical day'}</summary> ${d.profile_source === 'arrival' ? `each customer's daily work spread by when its work orders arrive (${cpmN(d.arrivals_seen || 0)} seen arriving in the hourly export, last 4 months)` : `each customer's day spread as its cards were produced (⏱ timing report, ${cpmN(d.learned.runs)} runs, last 4 months)`} · ${d.day_shape === 'worst' ? `<b>worst case</b>: each customer's daily work × its busiest day ÷ its average day lately (${d.peak_source === 'produced' ? 'cards produced a day' : 'work orders submitted a day'}), in its most clumped day` : d.day_shape === 'average' ? 'all days learned from averaged' : 'a typical day'} · real cards: ${d.actual.days ? `${esc(d.actual.which)}, ${d.actual.days} working days` : 'no runs'} · renewals = Low priority work orders (${cpmK(d.learned.renewals)} cards seen) · renewal OEE + ${Math.round(d.bonus * 100)} points</details>
@@ -531,7 +530,6 @@ async function cpmDay(body, settings = false) {
   $('#cpm-day-month').onchange = (e) => { store.set('cpmDayMonth', Number(e.target.value)); renderCpm('day'); };
   $('#cpm-day-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('day'); };
   $('#cpm-day-sc').onchange = (e) => { store.set('cpmDayScenario', Number(e.target.value)); renderCpm('day'); };
-  $$('[data-cpm-full]').forEach((b) => { b.onclick = () => { store.set('cpmDayFull', b.dataset.cpmFull === '1'); renderCpm('day'); }; });
   const wireSm = () => $$('[data-cpm-sm]').forEach((b) => { b.onclick = () => { const t = b.dataset.cpmSm; store.set(`cpmDayMode_${t}`, b.dataset.v); const el = $(`[data-tech-card="${t}"]`); el.outerHTML = techCard(t); wireSm(); }; });
   wireSm();
   $$('[data-cpm-tsel]').forEach((b) => { b.onclick = () => { store.set('cpmDayTech', b.dataset.cpmTsel); $$('[data-cpm-tsel]').forEach((x) => x.classList.toggle('on', x === b)); $('#cpm-techs-body').innerHTML = techsBody(); wireSm(); wireSub(); wireAll(); }; });
@@ -829,18 +827,17 @@ async function cpmCustomers(body) {
   };
 }
 
-// ---- ⚙ Capacity: shifts, productive hours, holidays, machines --------------------------------------
+// ---- ⚙ Capacity: shifts, holidays, machines --------------------------------------
 async function cpmCapacity(body) {
   const d = await api.get(`/cpm/overview?year=${new Date().getFullYear()}&period=month&flex=0&live=1`);
   const st = d.settings; const opts = (() => { try { return JSON.parse(st.cpm_machines || '{}'); } catch { return {}; } })();
   body.innerHTML = `<div class="card"><h3 class="pl-h">Working time</h3><div class="form-grid">
       <label class="f">Shifts a day<input type="number" min="0" max="4" step="1" data-cpm-set="cpm_shifts" value="${esc(st.cpm_shifts)}"></label>
-      <label class="f" title="Breaks, change-overs and other non-productive time taken out">Productive hours a shift (breaks etc. out)<input type="number" min="0" max="12" step="0.25" data-cpm-set="cpm_hours" value="${esc(st.cpm_hours)}"></label>
       <label class="f" title="A customer with no OEE here or in Production › ⚙ Setup › OEE takes Production's OEE for customers without one; this only when Production has none either">OEE when a customer has none${d.oee_fallback_from === 'production' ? ` — Production's ${Math.round(d.oee_fallback * 100)}% is used` : ''}<input type="number" min="1" max="100" step="1" data-cpm-set="cpm_oee_default" data-pct value="${Math.round(Number(st.cpm_oee_default) * 100)}" ${d.oee_fallback_from === 'production' ? 'placeholder="only if Production has none"' : ''}></label>
       <label class="f full">Holidays — no production (YYYY-MM-DD, one a line)<textarea rows="3" data-cpm-set="cpm_holidays" placeholder="2026-01-01&#10;2026-04-06">${esc(String(st.cpm_holidays || '').split(/[\s,;]+/).filter(Boolean).join('\n'))}</textarea></label>
-      <div class="f full small muted">Working days are Production's (⚙ Setup). Capacity = speed × working days × shifts × productive hours × availability.</div></div></div>
+      <div class="f full small muted">Working days are Production's (⚙ Setup). Capacity = speed × working days × shifts × 8 hours × availability for perso — the whole shift: breaks, change-overs and other losses are in each customer's OEE, which the demand is divided by, so they aren't taken off twice.</div></div></div>
     <div class="card"><h3 class="pl-h">Machines <span class="muted small">— Production's machines and speeds (⚙ Setup); here only what's particular to capacity planning</span></h3>
-      <div class="kdb-scroll"><table class="log small"><thead><tr><th>Machine</th><th>Runs</th><th>Available for perso %</th>${d.techs.map((t) => `<th>${esc(t)} speed /h</th>`).join('')}</tr></thead><tbody>
+      <div class="kdb-scroll"><table class="log small"><thead><tr><th>Machine</th><th>Runs</th><th title="The share of the machine's time given to perso (the rest to other work) — not its uptime: breakdowns, breaks and other losses are in the OEE">Share for perso %</th>${d.techs.map((t) => `<th>${esc(t)} speed /h</th>`).join('')}</tr></thead><tbody>
       <tr class="muted"><td colspan="3"><i>Production › ⚙ Setup › speeds</i></td>${d.techs.map((t) => `<td title="${esc(d.speed_from?.[t] || 'no speed in Production')}">${d.speeds[t] ? `<b>${cpmN(d.speeds[t])}</b>/h<br><span class="small">${esc(d.speed_from[t])}</span>` : '<b class="pl-late">none</b>'}</td>`).join('')}</tr>
       ${d.machines.filter((m) => !m.added).map((m) => `<tr><td><b>${esc(m.name)}</b></td><td>${esc(m.techs.join(', '))}</td>
         <td><input type="number" min="0" max="100" step="1" data-cpm-m="${esc(m.name)}" data-f="avail" value="${opts[m.name]?.avail !== undefined ? Math.round(opts[m.name].avail * 100) : ''}" placeholder="100"></td>
@@ -881,7 +878,7 @@ async function cpmSite(body) {
     <div class="card"><div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><h3 style="margin:0">🏭 Theoretical site capacity</h3>
         <span class="row" style="gap:4px"><button type="button" class="icon" data-site-year="${year - 1}" title="${year - 1}">‹</button><b>${year}</b><button type="button" class="icon" data-site-year="${year + 1}" title="${year + 1}">›</button></span></div>
       <p class="small muted">Cards the machines could make running flat out at their run speed through every available hour: <b>no OEE</b> and no forecast.
-        <b>${d.workdays}</b> working days in ${year}${d.holidays ? ` (${d.holidays} holiday${d.holidays === 1 ? '' : 's'} out)` : ''} × <b>${cpmN(d.shifts)}</b> shift${d.shifts === 1 ? '' : 's'} × <b>${cpmN(d.hours, 2)}</b> productive hours = <b>${cpmN(d.hours_day, 2)} h</b> a working day, × each machine's availability for perso.
+        <b>${d.workdays}</b> working days in ${year}${d.holidays ? ` (${d.holidays} holiday${d.holidays === 1 ? '' : 's'} out)` : ''} × <b>${cpmN(d.shifts)}</b> shift${d.shifts === 1 ? '' : 's'} × <b>${cpmN(d.hours, 2)}</b> hours (the whole shift: the losses are in the OEE) = <b>${cpmN(d.hours_day, 2)} h</b> a working day, × each machine's availability for perso.
         <a href="#/cpm/capacity">Change these on ⚙ Capacity</a>.</p>
       ${d.warnings.length ? `<div class="kpi-actions">${d.warnings.map((w) => `<div class="kpi-action notice"><span>⚠ ${esc(w)}</span></div>`).join('')}</div>` : ''}
       <div class="cpm-site-tiles">
@@ -921,7 +918,7 @@ const CPM_CHANGES = {
   capabilities: { label: '🔁 Change what a machine runs', fields: ['machine', 'techs'] },
   restrict: { label: '🔒 Restrict a machine to customers / cards', fields: ['machine', 'customers', 'cards'] },
   rnw_window: { label: '🔁 Renewal window (🕐 Day by hour only)', fields: ['tech', 'hours'] },
-  shifts: { label: '🕐 Shifts and hours', fields: ['shifts', 'hours'] },
+  shifts: { label: '🕐 Shifts', fields: ['shifts'] },
   oee: { label: '🎯 OEE change', fields: ['customer', 'tech', 'points'] },
   volume: { label: '📦 Customer volume', fields: ['customer', 'pct'] },
   new_customer: { label: '🆕 New customer', fields: ['name', 'qty', 'split', 'oee'] },
