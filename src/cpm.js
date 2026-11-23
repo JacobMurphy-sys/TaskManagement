@@ -235,6 +235,16 @@ function forecastOf(year, asOf = null) {
   return { as_of: at || null, by, sources, unmapped: [...unmapped].map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty) };
 }
 
+// the forecast lines feeding each customer in a month: 'TRI' (or '~name' when not linked) → [{ name, source, qty }]
+function forecastNames(year, month) {
+  const at = db.get('SELECT MAX(as_of) AS a FROM cpm_forecast')?.a; if (!at) return new Map();
+  const rows = db.all('SELECT f.source, f.name, f.trigram, SUM(f.qty) AS qty FROM cpm_forecast f WHERE f.year = ? AND f.month = ? AND f.tech IS NULL AND f.as_of = (SELECT MAX(g.as_of) FROM cpm_forecast g WHERE g.as_of <= ? AND g.source = f.source) GROUP BY f.source, f.name, f.trigram', [year, month, at]);
+  const names = nameMap(); const out = new Map();
+  for (const r of rows) { const tri = r.trigram || names.get(String(r.name || '').trim().toLowerCase()) || `~${r.name}`; (out.get(tri) || out.set(tri, []).get(tri)).push({ name: r.name, source: r.source, qty: r.qty }); }
+  for (const l of out.values()) l.sort((a, b) => b.qty - a.qty);
+  return out;
+}
+
 // ---- actuals: DailyPersoData (else the timing runs), technology from the card's type ----------------
 function actuals(fromDay, toDay, cards) {
   const pdata = require('./persodata');
@@ -716,4 +726,4 @@ function siteCapacity(year, cards = null) {
     months, techs: TECHS, speed_from: Object.fromEntries(Object.entries(sp).map(([t, x]) => [t, x])), machines, total: sum((m) => m.counted), by_tech: byTech, counted_by_tech: countedBy, cards: !!cards, warnings: [...new Set(warnings)] };
 }
 
-module.exports = { calendarOf, forecastUnchanged, beneluxCompact, AMEX_ROWS, detectForecast, TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity, machineMix };
+module.exports = { forecastNames, calendarOf, forecastUnchanged, beneluxCompact, AMEX_ROWS, detectForecast, TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity, machineMix };

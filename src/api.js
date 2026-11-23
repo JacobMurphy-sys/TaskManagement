@@ -3883,6 +3883,39 @@ function cpmOverviewOf(req) {
   return { ...base, files: files.files, forecast_status: cpm.forecastStatus(), cards: !!cards, settings: Object.fromEntries(CPM_SETTINGS.map((k) => [k, getSettings()[k]])),
     scenarios: scenarios.map((sc) => ({ id: sc.id, name: sc.name, ...cpm.compute({ year, period, useFlex, cards, changes: sc.changes }) })) };
 }
+// 🔎 the forecast check: for a month, each customer and technology from the forecast line(s) to the capacity a
+// day 🕐 Day by hour counts — the customer's forecast, flex, split, cards, a working day, renewals, OEE, the worst
+// case factor — beside what really ran (the last 3 full months), with what looks out of line flagged
+router.get('/cpm/check', h((req, res) => {
+  cpmRefresh(); const cards = cpmCards(); const useFlex = req.query.flex !== '0';
+  const year = Number(req.query.year) || new Date().getFullYear(); const month = Math.min(12, Math.max(1, Number(req.query.month) || new Date().getMonth() + 1));
+  const day = require('./cpmday').day({ year, month, useFlex, cards, full: true });
+  const plan = cpm.compute({ year, period: 'month', useFlex: false, cards }); // the forecast as read (no flex), to show the flex apart
+  const names = cpm.forecastNames(year, month);
+  const now = new Date(); const to = new Date(now.getFullYear(), now.getMonth(), 0, 12); const from = new Date(to.getFullYear(), to.getMonth() - 2, 1, 12);
+  const ymdOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const act = new Map(); const actDays = new Set();
+  for (const a of cpm.actuals(ymdOf(from), ymdOf(to), cards)) { if (!a.trigram) continue; actDays.add(a.day); for (const k of [`${a.trigram}|${a.tech || '?'}`, a.trigram]) act.set(k, (act.get(k) || 0) + a.qty); }
+  const raw = new Map(plan.detail.map((D) => [`${D.trigram || D.name}|${D.tech}`, D.months[month]]));
+  const rows = day.rows.filter((r) => !r.added).map((r) => {
+    const key = `${r.trigram || r.name}|${r.tech}`; const x0 = raw.get(key); const custFc = x0 ? x0.raw : null; // the customer's forecast (all technologies)
+    const cardsMonth = r.month_volume; const noFlex = x0 ? x0.fc * x0.split : null; const flexF = noFlex ? cardsMonth / noFlex : null;
+    const actM = (act.get(`${r.trigram}|${r.tech}`) || 0) / 3; const actAll = (act.get(r.trigram) || 0) / 3;
+    const ratio = actM > 0 ? cardsMonth / actM : null; const peak = r.peak?.factor || 1;
+    const flags = [];
+    if (ratio !== null && ratio > 3) flags.push(`forecast ${ratio.toFixed(1)}× what ran`);
+    if (ratio !== null && ratio < 1 / 3) flags.push(`forecast ${Math.round(ratio * 100)}% of what ran`);
+    if (!actM && cardsMonth >= 1000) flags.push('nothing of it ran lately');
+    if (flexF !== null && (flexF > 2 || flexF < 0.5)) flags.push(`flex ×${flexF.toFixed(2)}`);
+    if (r.oee < 0.15) flags.push(`OEE ${Math.round(r.oee * 100)}% → ×${(1 / r.oee).toFixed(0)} capacity needed`);
+    if (peak > 3) flags.push(`worst case ×${peak.toFixed(1)}`);
+    if (!r.trigram) flags.push('forecast name not linked to a customer');
+    return { trigram: r.trigram, name: r.name, tech: r.tech, names: names.get(r.trigram || `~${r.name}`) || [], cust_fc: custFc, split: x0 ? x0.split : null, flex: flexF, cards_month: cardsMonth,
+      per_day: cardsMonth / (day.workdays || 1), rnw_pct: r.rnw_pct, oee: r.oee, peak, daily: r.daily, renew: r.renew, need_day: r.need_daily + r.need_rnw,
+      act_month: actM, act_cust_month: actAll, act_day: actDays.size ? (act.get(`${r.trigram}|${r.tech}`) || 0) / actDays.size : null, ratio, flags };
+  }).sort((a, b) => b.flags.length - a.flags.length || b.need_day - a.need_day);
+  res.json({ year, month, label: day.label, workdays: day.workdays, day_shape: day.day_shape, flex: useFlex, act_from: ymdOf(from), act_to: ymdOf(to), act_days: actDays.size, rows });
+}));
 // a scenario change (a customer volume) on its own against the base plan, month by month: the numbers it moves —
 // cards, capacity needed and the load, per technology (a GET, worked out live: it changes nothing)
 router.get('/cpm/scenario-preview', h((req, res) => {
