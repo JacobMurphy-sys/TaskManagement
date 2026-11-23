@@ -364,6 +364,15 @@ async function cpmDay(body, settings = false) {
   const addedOf = (t, i) => (view === 'cards' ? d.tech[t].cards_added?.[i] : d.tech[t].added?.[i]) || 0;
   const addedRnwOf = (t, i) => (view === 'cards' ? d.tech[t].cards_added_rnw?.[i] : d.tech[t].added_rnw?.[i]) || 0;
   const anyAdded = T.some((t) => H.some((_, i) => addedOf(t, i) > 0.5 || addedRnwOf(t, i) > 0.5));
+  // what's added, in the view shown (X = V(t, mode)): as it comes in, hour by hour; smoothed or as work orders (where the
+  // work moves to spare capacity), its share of the day's daily work / renewals in each hour — work is interchangeable there
+  const sumA = (a) => a.reduce((p2, q2) => p2 + (q2 || 0), 0);
+  const addedIn = (t, X, i) => {
+    if (!X.smoothed && !X.blocks) return { d: addedOf(t, i), r: addedRnwOf(t, i) };
+    const base = view === 'cards' ? d.tech[t].cards : d.tech[t]; const dAll = sumA(view === 'cards' ? base.daily : base.daily); const rAll = sumA(view === 'cards' ? base.renewals : base.renewals);
+    const dAdd = sumA(H.map((_, k) => addedOf(t, k))); const rAdd = sumA(H.map((_, k) => addedRnwOf(t, k)));
+    return { d: dAll ? (X.daily[i] || 0) * Math.min(1, dAdd / dAll) : 0, r: rAll ? (X.rnw[i] || 0) * Math.min(1, rAdd / rAll) : 0 };
+  };
   // what's added to the renewals: on top of the renewals part, lighter
   const addedRnwRect = (x0, w, a, r, ad, y, t, h) => (ad > 0.5 && r > 0 ? `<rect x="${x0}" y="${y(a + r)}" width="${w}" height="${Math.max(0, y(a + r - Math.min(ad, r)) - y(a + r))}" class="cpm-added cpm-added-rnw"><title>${esc(`${t} ${hl(h)}: ${cpmN(Math.min(ad, r))} renewals added — scenario volume / campaigns`)}</title></rect>` : '');
   const addedRect = (x0, w, a, ad, y, t, h) => (ad > 0.5 ? `<rect x="${x0}" y="${y(a)}" width="${w}" height="${Math.max(0, y(Math.max(0, a - Math.min(ad, a))) - y(a))}" class="cpm-added"><title>${esc(`${t} ${hl(h)}: ${cpmN(Math.min(ad, a))} added — scenario volume / campaigns`)}</title></rect>` : '');
@@ -379,9 +388,9 @@ async function cpmDay(body, settings = false) {
       ${H.map((h, i) => { const a = X.daily[i]; const r = X.rnw[i]; const over = X.need[i] > X.cap[i] + 0.5;
         return `<g><title>${esc(`${t} ${hl(h)}: daily ${cpmN(a)} + renewals ${cpmN(r)} = ${cpmN(X.need[i])} ${view === 'cards' ? 'cards' : 'needed'} · capacity ${cpmN(X.cap[i])}${X.act ? ` · really persoed ${cpmN(X.act[i])} on average` : ''}${X.backlog[i] > 0.5 ? ` · ${cpmN(X.backlog[i])} carried over` : ''}`)}</title>
           <rect x="${x(i) - bw / 2}" y="${y(a)}" width="${bw}" height="${Math.max(0, y(0) - y(a))}" style="fill:${cpmTc(t)}" class="cpm-allbar ${over ? 'cpm-over' : ''}"/>
-          ${addedRect(x(i) - bw / 2, bw, a, addedOf(t, i), y, t, h)}
+          ${addedRect(x(i) - bw / 2, bw, a, addedIn(t, X, i).d, y, t, h)}
           <rect x="${x(i) - bw / 2}" y="${y(a + r)}" width="${bw}" height="${Math.max(0, y(a) - y(a + r))}" style="fill:${cpmTc(t)}" class="cpm-rnw"/>
-          ${X.smoothed || X.blocks ? '' : addedRnwRect(x(i) - bw / 2, bw, a, r, addedRnwOf(t, i), y, t, h)}
+          ${addedRnwRect(x(i) - bw / 2, bw, a, r, addedIn(t, X, i).r, y, t, h)}
           ${X.need[i] >= 0.5 ? `<text x="${x(i)}" y="${y(X.need[i]) - 4}" text-anchor="middle" class="cpm-lbl ${over ? 'over' : ''}">${esc(cpmK(X.need[i]))}</text>` : ''}</g>`; }).join('')}
       ${X.ghost ? H.map((h, i) => (X.ghost[i] > 0.5 ? `<rect x="${x(i) - bw / 2}" y="${y(X.ghost[i])}" width="${bw}" height="${Math.max(0, y(0) - y(X.ghost[i]))}" class="cpm-ghost"><title>${esc(`${t} ${hl(h)}: ${cpmN(X.ghost[i])} as it comes in`)}</title></rect>` : '')).join('') : ''}
       ${(() => { if (X.blocks) return ''; const lt = lateOf(t); return H.map((h, i) => (lt[i] > 0.5 ? `${X.smoothed ? `<rect x="${x(i) - bw / 2}" y="${y(Math.min(lt[i], X.need[i]))}" width="${bw}" height="${Math.max(0, y(0) - y(Math.min(lt[i], X.need[i])))}" class="cpm-late-bar"/>` : ''}<g class="cpm-late-pill"><title>${esc(`${t} ${hl(h)}: ${cpmN(lt[i])} ${view === 'cards' ? 'cards' : 'needed'} done after its cut-off`)}</title><rect x="${x(i) - slot * 0.46}" y="${Hh - B - 15}" width="${slot * 0.92}" height="13" rx="3"/><text x="${x(i)}" y="${Hh - B - 5}" text-anchor="middle">⚠ ${esc(cpmK(lt[i]))}</text></g>` : '')).join(''); })()}
@@ -398,7 +407,7 @@ async function cpmDay(body, settings = false) {
     const cards = view === 'cards'; const dev = X.act ? X.need.map((v, i) => (v > 0.5 ? X.act[i] / v - 1 : null)) : null;
     const dayLoad = sum(X.cap) ? sum(X.need) / sum(X.cap) : null; const devCls = (v) => (v === null ? '' : `cpm-u ${Math.abs(v) <= 0.15 ? 'ok' : Math.abs(v) <= 0.35 ? 'warn' : 'bad'}`);
     return `<div class="kdb-scroll"><table class="log small cpm-t"><thead><tr><th></th>${H.map((h) => `<th class="num">${String(h).padStart(2, '0')}</th>`).join('')}<th class="num cpm-daytot">Day</th></tr></thead><tbody>
-      ${r(cards ? 'Daily cards' : 'Daily (÷ OEE)', X.daily)}${H.some((_, i) => addedOf(t, i) > 0.5) ? r('<span class="cpm-added-t">of which added</span>', H.map((_, i) => addedOf(t, i))) : ''}${r(cards ? 'Renewal cards' : 'Renewals (÷ OEE)', X.rnw)}${!X.smoothed && !X.blocks && H.some((_, i) => addedRnwOf(t, i) > 0.5) ? r('<span class="cpm-added-t">of which added</span>', H.map((_, i) => addedRnwOf(t, i))) : ''}${r(cards ? 'Cards' : 'Needed', X.need)}${r(cards ? 'Capacity × OEE' : 'Capacity', X.cap)}
+      ${r(cards ? 'Daily cards' : 'Daily (÷ OEE)', X.daily)}${H.some((_, i) => addedIn(t, X, i).d > 0.5) ? r('<span class="cpm-added-t">of which added</span>', H.map((_, i) => addedIn(t, X, i).d)) : ''}${r(cards ? 'Renewal cards' : 'Renewals (÷ OEE)', X.rnw)}${H.some((_, i) => addedIn(t, X, i).r > 0.5) ? r('<span class="cpm-added-t">of which added</span>', H.map((_, i) => addedIn(t, X, i).r)) : ''}${r(cards ? 'Cards' : 'Needed', X.need)}${r(cards ? 'Capacity × OEE' : 'Capacity', X.cap)}
       ${X.ghost ? r(view === 'cards' ? 'As it comes in' : 'As it comes in (÷ OEE)', X.ghost, cpmK, () => 'muted') : ''}
       ${r('Load', X.load, cpmPct, (v) => `cpm-u ${cpmUtilCls(v)}`, dayLoad)}${X.backlog.some((v) => v > 0.5) ? r(X.blocks ? '<span title="Day: what\'s left at the end of the day">Waiting (or running) at the hour\'s end</span>' : '<span title="Day: what\'s left at the end of the day">Carried over</span>', X.backlog, cpmK, (v) => (v > 0.5 ? 'pl-late' : ''), X.backlog[23]) : ''}
       ${!X.blocks && lateOf(t).some((v) => v > 0.5) ? r('<span title="Done after its customer\'s cut-off, the day worked in the order it comes in (each piece in the next hour with spare capacity) — by the hour it\'s done">⚠ After its cut-off</span>', lateOf(t), (v) => (v > 0.5 ? cpmK(v) : ''), (v) => (v > 0.5 ? 'pl-late' : '')) : ''}
@@ -466,9 +475,9 @@ async function cpmDay(body, settings = false) {
       ${H.map((h, i) => T.map((t, k) => { const X = XS[t]; const a = X.daily[i] || 0; const r = X.rnw[i] || 0; const over = X.need[i] > X.cap[i] + 0.5; const x0 = L + i * slot + (slot - gw) / 2 + k * bw;
         return `<g><title>${esc(`${t} ${hl(h)}: daily ${cpmN(a)} + renewals ${cpmN(r)} = ${cpmN(X.need[i])} ${view === 'cards' ? 'cards' : 'needed'} · capacity ${cpmN(X.cap[i])}${X.cap[i] ? ` (${cpmPct(X.need[i] / X.cap[i])})` : ''}`)}</title>
           <rect x="${x0}" y="${y(a)}" width="${bw * 0.92}" height="${Math.max(0, y(0) - y(a))}" style="fill:${cpmTc(t)}" class="cpm-allbar ${over ? 'cpm-over' : ''}"/>
-          ${addedRect(x0, bw * 0.92, a, addedOf(t, i), y, t, h)}
+          ${addedRect(x0, bw * 0.92, a, addedIn(t, X, i).d, y, t, h)}
           <rect x="${x0}" y="${y(a + r)}" width="${bw * 0.92}" height="${Math.max(0, y(a) - y(a + r))}" style="fill:${cpmTc(t)}" class="cpm-rnw"/>
-          ${X.smoothed || X.blocks ? '' : addedRnwRect(x0, bw * 0.92, a, r, addedRnwOf(t, i), y, t, h)}</g>`; }).join('')).join('')}
+          ${addedRnwRect(x0, bw * 0.92, a, r, addedIn(t, X, i).r, y, t, h)}</g>`; }).join('')).join('')}
       ${T.map((t) => `<path d="${step(XS[t].cap)}" fill="none" class="cpm-capt" style="stroke:${cpmTc(t)}"><title>${esc(`${t} capacity`)}</title></path>`).join('')}
       ${H.map((h, i) => `<text x="${L + (i + 0.5) * slot}" y="${Hh - 9}" text-anchor="middle" class="cpm-ax">${String(h).padStart(2, '0')}</text>`).join('')}
       ${H.map((h, i) => `<rect x="${L + i * slot}" y="${T0}" width="${slot}" height="${Hh - T0}" class="cpmdr-hit" data-drill-i="${i}" data-drill-t="all"><title>${esc(`${hl(h)} — click to see who feeds it`)}</title></rect>`).join('')}
