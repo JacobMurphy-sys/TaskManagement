@@ -2366,6 +2366,10 @@ async function waitForServer() {
             sqs.prepare("DELETE FROM prod_runs WHERE job IN ('SJ1', 'SJ2')").run(); sqs.close();
             await call('PATCH', '/settings', { plan_db: s0.plan_db || '' });
             await call('DELETE', `/plan/machines/${ma.id}`); await call('DELETE', `/plan/machines/${mb.id}`);
+            // the hours a shift counted can be set lower (time the machines aren't run at all); the old productive hours setting no longer counts
+            await call('PUT', '/cpm/settings', { cpm_shift_hours: '6' });
+            const st6 = await call('GET', `/cpm/site?year=${Y}&regen=1`); assert.equal(st6.hours_day, 12, '2 shifts × 6 hours counted');
+            await call('PUT', '/cpm/settings', { cpm_shift_hours: '8' });
             await call('PUT', '/cpm/settings', { cpm_shifts: s0.cpm_shifts ?? '3', cpm_hours: s0.cpm_hours ?? '6', cpm_holidays: s0.cpm_holidays ?? '' });
           }
           await call('PUT', '/cpm/settings', { cpm_machines: '{}' });
