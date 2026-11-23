@@ -464,9 +464,9 @@ function buildHeadcountWorkbook(d, { scenario = null, flex = true } = {}) {
 // days — as formulas over its inputs, the technologies' totals at each machine's split, with charts
 function buildSiteWorkbook(d) {
   const T = d.techs; const M = d.months; const L = (c) => colName(c - 1);
-  const sh = sheet(`Site capacity ${d.year}`); const SC = 7; const mc = (i) => SC + T.length + 1 + i; const YC = mc(12);
+  const sh = sheet(`Site Capacity ${d.year}`); const SC = 7; const mc = (i) => SC + T.length + 1 + i; const YC = mc(12);
   sh.width(1, 22).width(2, 14).width(3, 10).width(4, 11).width(5, 11).width(6, 11); for (let i = 0; i < T.length; i++) sh.width(SC + i, 9); sh.width(SC + T.length, 11); for (let i = 0; i < 12; i++) sh.width(mc(i), 11); sh.width(YC, 13);
-  sh.set(1, 1, `Site capacity ${d.year} — what the machines could make flat out`, 'title');
+  sh.set(1, 1, `Site Capacity ${d.year} — what the machines could make flat out`, 'title');
   sh.set(2, 1, 'Run speed × hours a day (shifts × 8 h × its share for perso) × working days — no OEE: the losses are counted in Capacity planning\'s OEE. Blue on yellow are inputs; change one and the rest follows, charts too.', 'note');
   sh.set(4, 1, 'Shifts a day', 'bold'); sh.set(4, 2, d.shifts, 'input'); sh.set(4, 3, 'Hours a shift', 'bold'); sh.set(4, 4, d.hours, 'input');
   const hr = 6; const head = [['Machine', 1], ['Runs', 2], ['Counted', 3], ['Speed /h', 4], ['Share for perso', 5], ['Hours a day', 6]];

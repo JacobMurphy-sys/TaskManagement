@@ -1,9 +1,9 @@
 // CPM — capacity planning (Prod Management): the forecasts against the machines' capacity per
 // technology by month or week, the forecasts against what was done (flex), the customers' split and
 // OEE, the capacity settings, and each person's scenarios (src/cpm.js does the sums).
-const CPM_TABS = [['overview', 'Overview'], ['site', 'Site capacity'], ['headcount', 'Headcount'], ['day', 'Day by hour'], ['flex', 'Forecast vs actual'], ['config', 'Configuration']];
+const CPM_TABS = [['overview', 'CPM Monthly'], ['day', 'CPM Daily'], ['site', 'Site Capacity'], ['headcount', 'Headcount'], ['flex', 'Flex'], ['config', 'Configuration']];
 // Configuration holds the set-up, each its own sub-tab (their addresses, #/cpm/customers…, still open them)
-const CPM_CONFIG = [['customers', 'Customers'], ['capacity', 'Capacity'], ['scenarios', 'Scenarios'], ['dayset', 'Day by hour'], ['check', 'Forecast check']];
+const CPM_CONFIG = [['customers', 'Customers'], ['capacity', 'Capacity'], ['scenarios', 'Scenarios'], ['dayset', 'CPM Daily'], ['check', 'Forecast check']];
 const cpmN = (v, d = 0) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: d }));
 // each machine's colour, the same on every chart (by its place among the machines)
 const CPM_MACH_COL = ['#e4572e', '#f3a712', '#3fa34d', '#2e86ab', '#9b5de5', '#f15bb5', '#00a6a6', '#8d6a9f', '#c0843b', '#5c8001'];
@@ -300,8 +300,8 @@ async function cpmOverview(body) {
 }
 
 // ---- Forecast vs actual: the flex -----------------------------------------------------------------
-// ---- Day by hour: a working day of a month, hour by hour (the CPM daily sheet) ----------------------
-// (settings: Configuration › Day by hour — only its renewal windows, run periods and shipment times, worked out live)
+// ---- CPM Daily: a working day of a month, hour by hour (the CPM daily sheet) ----------------------
+// (settings: Configuration › CPM Daily — only its renewal windows, run periods and shipment times, worked out live)
 async function cpmDay(body, settings = false) {
   const dayRegen = cpmRegenNext; // (its comparison, asked for later, is generated again with it)
   const year = Number(store.get('cpmYear', new Date().getFullYear()));
@@ -422,9 +422,9 @@ async function cpmDay(body, settings = false) {
       <div class="kdb-tile-s">${view === 'cards' ? (() => { const v = V(t); const a = d.tech[t].cards.actual; return `${cpmK(v.need.reduce((p, q) => p + q, 0))} cards of ${cpmK(v.cap.reduce((p, q) => p + q, 0))} it can do${a ? ` · <span title="An average working day (${esc(d.actual.which)})">really ${cpmK(a.reduce((p, q) => p + q, 0))}</span>` : ''}`; })() : `${cpmK(x.need)} needed of ${cpmK(x.capacity)}`} · <b class="${x.hours_over ? 'pl-late' : 'pl-ok'}">${x.hours_over} hour${x.hours_over === 1 ? '' : 's'} over</b>${x.end_backlog > 0.5 ? ` · <b class="pl-late">${cpmK(x.end_backlog)} left at the end of the day</b>` : ''}${(() => { const lc = d.tech[t].smooth.late_cards || 0; return lc > 0.5 ? ` · <b class="pl-late" title="${esc(lateCust(t).map((r) => `${r.trigram || r.name}: ${cpmN(r.late_cards)}`).join(' · '))}">⚠ ${cpmK(lc)} cards after their cut-off</b>` : ' · <span class="pl-ok">all before its cut-off</span>'; })()}${x.idle > 0.5 ? ` · <span class="muted">${cpmK(x.idle)} idle on restricted machines</span>` : ''}</div>${sumUp(t)}</div>`; }).join('');
   // the Gantt: where each customer's day lands
   const rowsShown = store.get('cpmDayAll', false) ? d.rows : d.rows.slice(0, 40); const hrs = (r) => (view === 'cards' ? r.cards_hours : r.hours); const top = Math.max(1, ...d.rows.flatMap(hrs));
-  const gantt = `<div class="kdb-scroll"><table class="log small cpm-gantt"><thead><tr><th>Customer</th><th>Tech</th><th class="num" title="The month's forecast for this technology (× split${flex ? ' × flex' : ''})">Month</th><th class="num" title="Renewals: Low priority work orders — learned on an average day, or set in Configuration › Day by hour (bold)">Renewals %</th><th class="num">OEE</th><th class="num" title="Daily cards a day ÷ OEE">Daily /day</th><th class="num" title="Renewal cards a day ÷ (OEE + ${Math.round(d.bonus * 100)} points)">RNW /day</th><th class="num" title="Its usual work order (median, lately) — Work orders cuts its day into blocks of this size">Order</th><th class="num" title="When its daily work typically comes in (its work orders' arrival in the hourly export, a weighted average) — and how many of its orders were timed; else when it was produced">Arrives</th><th class="num" title="Its commonest shipping cut-off lately — work done after it counts as late">Cut-off</th><th class="num" title="Its cards done after its cut-off, the day worked in the order it comes in (each piece in the next hour with spare capacity)">Late</th>${H.map((h) => `<th class="num">${String(h).padStart(2, '0')}</th>`).join('')}</tr></thead><tbody>
+  const gantt = `<div class="kdb-scroll"><table class="log small cpm-gantt"><thead><tr><th>Customer</th><th>Tech</th><th class="num" title="The month's forecast for this technology (× split${flex ? ' × flex' : ''})">Month</th><th class="num" title="Renewals: Low priority work orders — learned on an average day, or set in Configuration › CPM Daily (bold)">Renewals %</th><th class="num">OEE</th><th class="num" title="Daily cards a day ÷ OEE">Daily /day</th><th class="num" title="Renewal cards a day ÷ (OEE + ${Math.round(d.bonus * 100)} points)">RNW /day</th><th class="num" title="Its usual work order (median, lately) — Work orders cuts its day into blocks of this size">Order</th><th class="num" title="When its daily work typically comes in (its work orders' arrival in the hourly export, a weighted average) — and how many of its orders were timed; else when it was produced">Arrives</th><th class="num" title="Its commonest shipping cut-off lately — work done after it counts as late">Cut-off</th><th class="num" title="Its cards done after its cut-off, the day worked in the order it comes in (each piece in the next hour with spare capacity)">Late</th>${H.map((h) => `<th class="num">${String(h).padStart(2, '0')}</th>`).join('')}</tr></thead><tbody>
     ${rowsShown.map((r) => `<tr class="${r.late_cards > 0.5 ? 'cpm-g-late' : ''} ${r.added ? 'cpm-g-added' : ''}"><td class="cpm-g-name" title="${esc(r.name)}"><b>${esc(r.trigram || '—')}</b> <span class="muted">${esc(r.name)}</span></td><td style="color:${cpmTc(r.tech)}"><b>${esc(r.tech)}</b></td><td class="num">${cpmK(r.month_volume)}</td>
-      <td class="num ${r.rnw_typed !== null && r.rnw_typed !== undefined ? 'cpm-manual' : 'muted'}" title="${r.rnw_typed !== null && r.rnw_typed !== undefined ? 'Set in Configuration › Day by hour' : `Learned: an average day's renewals${r.rnw_learned_days ? ` (${r.rnw_learned_days} days)` : ''} — set it in Configuration › Day by hour`}">${cpmPct(r.rnw_pct)}</td>
+      <td class="num ${r.rnw_typed !== null && r.rnw_typed !== undefined ? 'cpm-manual' : 'muted'}" title="${r.rnw_typed !== null && r.rnw_typed !== undefined ? 'Set in Configuration › CPM Daily' : `Learned: an average day's renewals${r.rnw_learned_days ? ` (${r.rnw_learned_days} days)` : ''} — set it in Configuration › CPM Daily`}">${cpmPct(r.rnw_pct)}</td>
       <td class="num">${cpmPct(r.oee)}</td><td class="num" ${r.peak ? `title="${esc(`Worst case: × ${r.peak.factor.toFixed(2)} — ${r.peak.own ? 'its' : 'everyone\'s'} busiest day lately (${r.peak.day}, ${cpmN(r.peak.peak)} cards) ÷ the average day (${cpmN(r.peak.avg)})`)}"` : ''}>${cpmK(r.need_daily)}${r.peak && r.peak.factor > 1.005 ? ` <span class="small pl-warn">×${r.peak.factor.toFixed(1)}</span>` : ''}</td><td class="num">${r.need_rnw ? cpmK(r.need_rnw) : ''}</td><td class="num">${d.blocks?.sizes?.[`${r.trigram || r.name}|${r.tech}`] ? cpmK(d.blocks.sizes[`${r.trigram || r.name}|${r.tech}`]) : '—'}</td><td class="num" title="${esc({ manual: 'set by hand in Run periods', 'manual-default': 'set by hand in Run periods (everyone else)', 'arrivals-own': `its own work orders' arrival${r.arrive_seen ? ` (${r.arrive_seen} timed)` : ''}`, 'arrivals-technology': `not enough of its own orders timed — all ${r.tech} arrivals`, own: 'when its cards were produced', technology: `when ${r.tech} cards were produced`, even: 'no data — spread evenly' }[r.profile] || '')}">${r.arrive_avg === null || r.arrive_avg === undefined ? '—' : `${String(Math.floor(r.arrive_avg)).padStart(2, '0')}:${String(Math.floor((r.arrive_avg % 1) * 60)).padStart(2, '0')}`}<span class="muted small">${r.profile === 'manual' || r.profile === 'manual-default' ? ' · manual' : r.profile === 'arrivals-own' ? (r.arrive_seen ? ` · ${r.arrive_seen}` : '') : r.profile === 'arrivals-technology' ? ' · tech' : r.profile === 'even' ? '' : ' · prod.'}</span></td><td class="num">${r.trigram ? `<input type="time" class="cpm-cut-in ${r.cutoff_typed ? 'cpm-manual' : r.cutoff_default ? 'cpm-cut-def' : ''}" data-tri="${esc(r.trigram)}" value="${esc(r.cutoff_typed || hhmm(r.cutoff_learned) || d.cutoff_default)}" title="${r.cutoff_typed ? `Set here — ${r.cutoff_learned === null ? `none learned, the default is ${d.cutoff_default}` : `learned: ${hhmm(r.cutoff_learned)}`} (clear to go back)` : r.cutoff_default ? `None registered — the default shipment time (${d.cutoff_default}, set in Shipment times); type a time to set its own` : 'Learned from its work orders — type a time to set it'}">` : hhmm(r.cutoff) || '—'}</td><td class="num" style="white-space:nowrap">${r.late_cards > 0.5 ? `<b class="pl-late" title="${esc(`${cpmN(r.late_cards)} cards (${cpmPct(r.late_cards / (r.daily || 1))} of its daily work) done after ${hhmm(r.cutoff) || 'its cut-off'}`)}">⚠ ${cpmK(r.late_cards)}</b>` : ''}</td>
       ${hrs(r).map((v, i) => `<td class="cpm-heat" data-drill-i="${i}" data-drill-t="${esc(r.tech)}" data-drill-c="${esc(r.trigram || r.name)}" style="--a:${Math.min(1, v / top).toFixed(3)};--c:${cpmTc(r.tech)}" title="${esc(`${r.trigram || r.name} ${r.tech} ${hl(H[i])}: ${cpmN(v)} (${cpmPct(r.shares[i])} of its day — ${{ manual: 'its run periods, set by hand', 'manual-default': 'the run periods set for everyone else', 'arrivals-own': 'when its work orders arrive', 'arrivals-technology': `when ${r.tech} work orders arrive`, own: 'its own runs', technology: `all ${r.tech} runs` }[r.profile] || 'spread evenly'})`)}">${v >= 0.5 && v / top > 0.08 ? esc(cpmK(v)) : ''}</td>`).join('')}</tr>`).join('')}
     </tbody><tfoot>${[...T.filter((t) => d.rows.some((r) => r.tech === t)).map((t) => [t, d.rows.filter((r) => r.tech === t)]), ...(T.filter((t) => d.rows.some((r) => r.tech === t)).length > 1 ? [['', d.rows]] : [])].map(([t, rs]) => {
@@ -544,12 +544,12 @@ async function cpmDay(body, settings = false) {
       <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><button class="small" id="cpm-ship-add">+ Add a time</button>${d.ship_times.own ? `<button class="small" id="cpm-ship-learned" title="Drop the times set here and show the learned ones (${esc(d.ship_times.learned.map((x) => x.time).join(', ') || 'none')})">↺ Use the learned times</button>` : ''}
         <div class="spacer"></div><span class="small pl-warn" id="cpm-ship-dirty" hidden>Not saved yet</span><button class="small" id="cpm-ship-undo" disabled>Undo changes</button><button class="small primary" id="cpm-ship-save" disabled>💾 Save</button></div>
       <div class="row small" style="gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap"><label class="row" style="gap:6px;align-items:center">Default shipment time <input type="time" id="cpm-cut-def" value="${esc(d.cutoff_default)}" style="width:110px"></label><span class="muted">— for customers with none registered (none typed below, none learned from their work orders)</span></div>
-      <p class="small muted" style="margin:6px 0 0">Each customer's own cut-off (what counts as late) is in Day by hour's customer table — learned from its work orders, or typed there; greyed: the default. A deadline at 23:59 or 00:00 (a date with no time) doesn't count as a shipment time.</p></div>
+      <p class="small muted" style="margin:6px 0 0">Each customer's own cut-off (what counts as late) is in CPM Daily's customer table — learned from its work orders, or typed there; greyed: the default. A deadline at 23:59 or 00:00 (a date with no time) doesn't count as a shipment time.</p></div>
 `;
   if (settings) {
     body.innerHTML = `<div class="row pl-filters" style="gap:10px;flex-wrap:wrap;align-items:center">
       <select id="cpm-dayset-month" title="The month whose customers and renewals are shown">${MONTHS.map((m, i) => `<option value="${i + 1}" ${i + 1 === month ? 'selected' : ''}>${m} ${year}</option>`).join('')}</select>
-      <span class="small muted">The hours renewals run, when each customer's day is produced and the shipment cut-offs used by Day by hour. Saving here marks it out of date — ⟳ Regenerate it there.</span></div>${editCards}`;
+      <span class="small muted">The hours renewals run, when each customer's day is produced and the shipment cut-offs used by CPM Daily. Saving here marks it out of date — ⟳ Regenerate it there.</span></div>${editCards}`;
     $('#cpm-dayset-month').onchange = (e) => { store.set('cpmDayMonth', Number(e.target.value)); renderCpm('dayset'); };
   } else {
   body.innerHTML = `
@@ -572,7 +572,7 @@ async function cpmDay(body, settings = false) {
     ${campCard()}
     ${techsCard()}
     <div class="card" id="cpm-cmp"><h3 class="pl-h">Typical day · worst case · all days averaged <span class="muted small">— the same day with each way of learning when the work comes in: a typical day (each day's clump, at its usual time), the worst case (each customer's busiest day lately — its peak ÷ average day applied to the forecast — the most clumped day seen, at its usual time) and all days averaged (wide). Customers whose run periods are set by hand are the same in all three.</span></h3><p class="small muted">Working it out…</p></div>
-    <div class="small muted cpm-set-link">Renewal windows, run periods and shipment times are set in <a href="#/cpm/dayset">Configuration › Day by hour</a>.</div>
+    <div class="small muted cpm-set-link">Renewal windows, run periods and shipment times are set in <a href="#/cpm/dayset">Configuration › CPM Daily</a>.</div>
     <div class="card"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h3 class="pl-h" style="margin:0">Customers hour by hour <span class="muted small">— ${view === 'cards' ? 'cards' : 'capacity needed (÷ OEE)'} per hour of daily work; renewals go in their windows (set in Configuration)</span></h3><span class="row" style="gap:6px"><button type="button" class="small primary" data-cpm-drill title="Open the day up: click an hour to see who and what feeds it, a customer for its day">🔎 Drill down</button><a class="button small" href="/api/cpm/day/customers.xlsx?${q}&view=${view}" download title="This table as an Excel workbook: every customer and technology (not only those shown), its hours as shown here, and the totals">⬇ Excel</a></span></div>${gantt}</div>`;
   $('#cpm-day-month').onchange = (e) => { store.set('cpmDayMonth', Number(e.target.value)); renderCpm('day'); };
   $('#cpm-day-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('day'); };
@@ -633,7 +633,7 @@ async function cpmDay(body, settings = false) {
   }
   // redraw the tab where it was (not back at the top)
   const redraw = async () => { const sc = document.scrollingElement; const m = main(); const y = [sc?.scrollTop || 0, m?.scrollTop || 0]; await renderCpm(settings ? 'dayset' : 'day'); if (sc) sc.scrollTop = y[0]; if (m) m.scrollTop = y[1]; };
-  if (settings) { // the editors (Configuration › Day by hour)
+  if (settings) { // the editors (Configuration › CPM Daily)
   // renewals vs daily: typed here, saved together; blank goes back to learned
   const rnw0 = JSON.stringify(d.rnw_share_typed || {});
   const rnwNow = () => { const o = { ...(d.rnw_share_typed || {}) };
@@ -700,8 +700,8 @@ async function cpmDay(body, settings = false) {
     try { await api.put('/cpm/settings', { cpm_cutoff_cust: JSON.stringify(o) }); await redraw(); } catch (err) { toast(err.message, 'error'); } }; });
 }
 
-// ---- Day by hour drill-down: who and what feeds each hour --------------------------------------------
-// A window over the day as it comes in (the Day by hour figures, before smoothing): the day by the hour →
+// ---- CPM Daily drill-down: who and what feeds each hour --------------------------------------------
+// A window over the day as it comes in (the CPM Daily figures, before smoothing): the day by the hour →
 // an hour (who feeds it: each customer's daily work and renewals, the machines that give its capacity, what's
 // carried in from earlier hours) → a customer (its day by the hour). ← Back steps back through what was opened.
 let cpmDr = null;
@@ -820,7 +820,7 @@ function cpmDrDraw() {
     ${html}`;
 }
 
-// 🔎 Forecast check: each customer and technology, from the forecast line to the capacity a day Day by hour counts,
+// 🔎 Forecast check: each customer and technology, from the forecast line to the capacity a day CPM Daily counts,
 // beside what really ran — the steps in a row, so a volume that's out of line shows where it went wrong
 async function cpmCheck(body) {
   const year = Number(store.get('cpmYear', new Date().getFullYear())); const month = Number(store.get('cpmDayMonth', new Date().getMonth() + 1));
@@ -833,16 +833,16 @@ async function cpmCheck(body) {
       <select id="cpm-ck-month">${MONTHS.map((m, i) => `<option value="${i + 1}" ${i + 1 === month ? 'selected' : ''}>${m} ${year}</option>`).join('')}</select>
       <label class="row small"><input type="checkbox" id="cpm-ck-flex" ${flex ? 'checked' : ''}> apply flex</label>
       <label class="row small"><input type="checkbox" id="cpm-ck-only" ${only ? 'checked' : ''}> only what's flagged (${nFlag} of ${d.rows.length})</label></div>
-    <div class="card"><h3 class="pl-h">Forecast check <span class="muted small">— ${esc(d.label)}, ${d.workdays} working days${d.day_shape === 'worst' ? ', worst case day shape' : ''}: each customer and technology from its forecast line(s) to the capacity a day Day by hour counts, beside what really ran (${esc(d.act_from)} – ${esc(d.act_to)}, a month on average). Flagged: forecast over 3× or under a third of what ran, flex outside ×0.5–2, OEE under 15%, worst case over ×3, a name not linked.</span></h3>
+    <div class="card"><h3 class="pl-h">Forecast check <span class="muted small">— ${esc(d.label)}, ${d.workdays} working days${d.day_shape === 'worst' ? ', worst case day shape' : ''}: each customer and technology from its forecast line(s) to the capacity a day CPM Daily counts, beside what really ran (${esc(d.act_from)} – ${esc(d.act_to)}, a month on average). Flagged: forecast over 3× or under a third of what ran, flex outside ×0.5–2, OEE under 15%, worst case over ×3, a name not linked.</span></h3>
       <div class="kdb-scroll"><table class="log small cpm-ck"><thead><tr><th>Customer</th><th>Tech</th><th>Forecast line(s)</th><th class="num" title="The customer's forecast for the month, all technologies">Forecast</th><th class="num">Split</th><th class="num">Flex</th><th class="num" title="Forecast × split × flex">Cards this month</th>
-        <th class="num" title="What ran a month on average, the last 3 full months, this customer and technology">Ran a month</th><th class="num" title="Cards this month ÷ what ran">Forecast ÷ ran</th><th class="num">A working day</th><th class="num">Renewals</th><th class="num">OEE</th><th class="num" title="Worst case: its busiest day ÷ its average day">Worst case</th><th class="num" title="Daily ÷ OEE (× worst case) + renewals ÷ renewal OEE: what Day by hour counts">Needed a day</th><th>Flags</th></tr></thead><tbody>
+        <th class="num" title="What ran a month on average, the last 3 full months, this customer and technology">Ran a month</th><th class="num" title="Cards this month ÷ what ran">Forecast ÷ ran</th><th class="num">A working day</th><th class="num">Renewals</th><th class="num">OEE</th><th class="num" title="Worst case: its busiest day ÷ its average day">Worst case</th><th class="num" title="Daily ÷ OEE (× worst case) + renewals ÷ renewal OEE: what CPM Daily counts">Needed a day</th><th>Flags</th></tr></thead><tbody>
       ${rows.map((r) => `<tr class="${r.flags.length ? 'cpm-ck-flag' : ''}"><td><b>${esc(r.trigram || '—')}</b> <span class="muted">${esc(r.name || '')}</span></td><td style="color:${cpmTc(r.tech)}"><b>${esc(r.tech)}</b></td>
         <td class="small">${r.names.length ? r.names.slice(0, 4).map((n) => `<div title="${esc(n.source)}">${esc(n.name)} <span class="muted">${cpmK(n.qty)}</span></div>`).join('') + (r.names.length > 4 ? `<div class="muted">and ${r.names.length - 4} more</div>` : '') : '<span class="muted">—</span>'}</td>
         <td class="num">${cpmK(r.cust_fc)}</td><td class="num">${r.split === null ? '—' : cpmPct(r.split)}</td><td class="num ${r.flex !== null && (r.flex > 2 || r.flex < 0.5) ? 'pl-late' : ''}">${x(r.flex)}</td><td class="num"><b>${cpmK(r.cards_month)}</b></td>
         <td class="num">${r.act_month ? cpmK(r.act_month) : '<span class="muted">0</span>'}</td><td class="num ${r.ratio !== null && (r.ratio > 3 || r.ratio < 1 / 3) ? 'pl-late' : ''}">${r.ratio === null ? '—' : `${r.ratio.toFixed(1)}×`}</td>
         <td class="num">${cpmK(r.per_day)}</td><td class="num">${cpmPct(r.rnw_pct)}</td><td class="num ${r.oee < 0.15 ? 'pl-late' : ''}">${cpmPct(r.oee)}</td><td class="num ${r.peak > 3 ? 'pl-late' : ''}">${r.peak > 1.005 ? x(r.peak, 1) : '—'}</td>
         <td class="num"><b>${cpmK(r.need_day)}</b></td><td class="small pl-late">${r.flags.map(esc).join('<br>')}</td></tr>`).join('') || `<tr><td colspan="15" class="muted">${only ? 'Nothing flagged this month.' : 'No customers in the forecast this month.'}</td></tr>`}</tbody></table></div>
-      <p class="small muted" style="margin:6px 0 0">Fix at the step that's out: the forecast line linked to the customer and its split (Customers), the flex (Forecast vs actual), the renewal share (Day by hour settings), the OEE (Customers), or the day shape (Day by hour › View: a typical day instead of the worst case).</p></div>`;
+      <p class="small muted" style="margin:6px 0 0">Fix at the step that's out: the forecast line linked to the customer and its split (Customers), the flex (Forecast vs actual), the renewal share (CPM Daily settings), the OEE (Customers), or the day shape (CPM Daily › View: a typical day instead of the worst case).</p></div>`;
   $('#cpm-ck-month').onchange = (e) => { store.set('cpmDayMonth', Number(e.target.value)); renderCpm('check'); };
   $('#cpm-ck-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('check'); };
   $('#cpm-ck-only').onchange = (e) => { store.set('cpmCheckFlagged', e.target.checked); renderCpm('check'); };
@@ -862,7 +862,7 @@ async function cpmFlex(body) {
         <input type="number" id="cpm-hyear" placeholder="Year: from the file" style="width:150px">
         <label class="button small">⬆ Upload Excel files…<input type="file" accept=".xlsx,.xlsm" multiple hidden id="cpm-hfile"></label>
         <span class="muted">A row of months (JAN … DEC) with customers down the side (Trigram or Customer); the year and FORECAST / ACTUAL above the months, as in the CPM workbook — or chosen here. A newer upload replaces the same year, months and kind.</span></div></div>
-    <div class="card"><h3 class="pl-h">Flex — actual ÷ forecast, by month <span class="muted small">— from ${cpmN(d.pairs)} customer-months (uploaded years, and the months gone by since the forecasts have been read here) · used on Overview as the expected flex</span></h3>
+    <div class="card"><h3 class="pl-h">Flex — actual ÷ forecast, by month <span class="muted small">— from ${cpmN(d.pairs)} customer-months (uploaded years, and the months gone by since the forecasts have been read here) · used on CPM Monthly as the expected flex</span></h3>
       <div class="kdb-scroll"><table class="log small cpm-t"><thead><tr><th>Customer</th>${M.map((m) => `<th class="num">${m}</th>`).join('')}<th class="num">Year</th><th>By year</th></tr></thead><tbody>
       <tr class="pl-load-total"><td><b>Everyone</b></td>${d.overall.months.map(cell).join('')}${cell(d.overall.year)}<td></td></tr>
       ${d.customers.map((c) => `<tr><td><b>${esc(c.trigram)}</b></td>${c.months.map(cell).join('')}${cell(c.year)}<td class="small">${c.years.map((y) => `${y.year}: ${y.ratio >= 1 ? '+' : ''}${cpmPct(y.ratio - 1)}`).join(' · ')}</td></tr>`).join('') || `<tr><td colspan="15" class="muted">No months with both a forecast and an actual yet.</td></tr>`}
@@ -963,7 +963,7 @@ async function cpmCapacity(body) {
   }; });
 }
 
-// ---- Site capacity: what the machines could make flat out — run speed × available hours, no OEE ----
+// ---- Site Capacity: what the machines could make flat out — run speed × available hours, no OEE ----
 async function cpmSite(body) {
   const year = Number(store.get('cpmSiteYear', new Date().getFullYear())) || new Date().getFullYear();
   const d = await cpmGet(`/cpm/site?year=${year}`);
@@ -1021,7 +1021,7 @@ const CPM_CHANGES = {
   remove_machine: { label: '➖ Remove a machine / downtime', fields: ['machine'] },
   capabilities: { label: 'Change what a machine runs', fields: ['machine', 'techs'] },
   restrict: { label: 'Restrict a machine to customers / cards', fields: ['machine', 'customers', 'cards'] },
-  rnw_window: { label: 'Renewal window (Day by hour only)', fields: ['tech', 'hours'] },
+  rnw_window: { label: 'Renewal window (CPM Daily only)', fields: ['tech', 'hours'] },
   shifts: { label: 'Shifts', fields: ['shifts'] },
   oee: { label: 'OEE change', fields: ['customer', 'tech', 'points'] },
   volume: { label: 'Customer volume', fields: ['customer', 'pct', 'flat'] },
@@ -1079,7 +1079,7 @@ async function cpmScenarios(body) {
     <div class="cpm-scen-edit">${sc ? `<div class="card"><div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
         <input type="text" id="cpm-sc-title" value="${esc(sc.name)}" ${sc.mine ? '' : 'disabled'} style="font-weight:700;flex:1;min-width:220px">
         ${sc.mine ? `<label class="row small"><input type="checkbox" id="cpm-sc-share" ${sc.shared ? 'checked' : ''}> share with Prod Management</label>` : `<span class="small muted">${esc(sc.owner_name || 'Someone')}'s — read only</span>`}
-        <button class="small" id="cpm-sc-compare">📊 Compare on Overview</button>${ddMenu('⋯', `<button id="cpm-sc-copy">⧉ Make a copy</button>${sc.mine ? '<hr><button class="danger" id="cpm-sc-del">🗑 Delete this scenario</button>' : ''}`, { title: 'Copy or delete' })}</div>
+        <button class="small" id="cpm-sc-compare">📊 Compare on CPM Monthly</button>${ddMenu('⋯', `<button id="cpm-sc-copy">⧉ Make a copy</button>${sc.mine ? '<hr><button class="danger" id="cpm-sc-del">🗑 Delete this scenario</button>' : ''}`, { title: 'Copy or delete' })}</div>
         <textarea id="cpm-sc-notes" rows="2" placeholder="Notes — what it's for" ${sc.mine ? '' : 'disabled'} style="margin-top:6px">${esc(sc.notes || '')}</textarea></div>
       <div id="cpm-sc-warn">${scWarn.length ? `<div class="kc-note">⚠ ${scWarn.map(esc).join('<br>⚠ ')}</div>` : ''}</div>
       <div id="cpm-changes">${sc.changes.map(changeHtml).join('') || '<p class="muted">No changes yet — add one below.</p>'}</div>

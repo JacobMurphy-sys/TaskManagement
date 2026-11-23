@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'cpm-names', date: '2026-11-23', area: 'capacity', title: 'Capacity planning: CPM Monthly and CPM Daily',
+    text: 'The month view is now CPM Monthly and the hour-by-hour day CPM Daily, side by side; Forecast vs actual is Flex, and Site Capacity is capitalised.' },
   { id: 'cpm-excel', date: '2026-11-23', area: 'capacity', title: 'Capacity planning in Excel, charts and all',
     text: 'Day by hour, Headcount and Site capacity download as Excel workbooks whose figures are formulas over their inputs and whose charts read them, so a number changed in Excel carries through.',
     points: ['Day by hour: campaigns and scenario additions marked and drawn in orange; the customers\' hours as a heat map', 'Headcount: hours and people needed against there, by month and by customer', 'Site capacity: each machine and the site, month by month'] },
@@ -279,6 +281,7 @@ window.TIMELINE = {
 
   // 🎬 The blooper reel: the hidden easter egg (click the logo five times, type "oops", or find the 🐞)
   BLOOPERS: [
+  { date: '2026-11-23', title: 'Names, again', text: 'Overview became CPM Monthly, Day by hour became CPM Daily and Forecast vs actual became Flex — the names the team had been using for them all along.', lesson: 'Ask what people call a thing before naming it.' },
   { date: '2026-11-23', title: 'Nothing to sort. in the top bar', text: 'Taking the emoji out of the names also took one out of the middle of a sentence: the hint that pointed at the note icon in the top bar suddenly read "Nothing to sort. in the top bar". The sweep was taught that names start with a capital letter; icons used as words in a sentence were put back.', lesson: 'A find-and-replace across a whole app needs a read-through, not just a test run.' },
   { date: '2026-11-23', title: 'The losses that were taken off twice', text: 'The day model divided the work by OEE to allow for breaks and stoppages, then took the breaks off the machines\' hours as well, so every hour looked fuller than it was. Putting it next to the old spreadsheet gave it away.', lesson: 'Count a loss in one place, and check new models against the old one before trusting them.' },
   { date: '2026-11-17', title: 'Seeing double', text: 'A bar list made for "this month and this year" was reused for delays with the same total in both columns, so every customer had its number printed twice, side by side.', lesson: 'When reusing a widget, give each column something of its own to say.' },

@@ -4049,7 +4049,7 @@ router.get('/cpm/headcount/export', h((req, res) => {
 }));
 router.get('/cpm/site/export', h((req, res) => {
   const d = cpmCached(req, 'site', () => cpm.siteCapacity(Number(req.query.year) || new Date().getFullYear(), cpmCards()));
-  sendXlsx(res, `Site capacity ${d.year}`, require('./cpmexport').buildSiteWorkbook(d));
+  sendXlsx(res, `Site Capacity ${d.year}`, require('./cpmexport').buildSiteWorkbook(d));
 }));
 router.get('/cpm/day/export', h((req, res) => {
   const d = cpmDayOf(req);

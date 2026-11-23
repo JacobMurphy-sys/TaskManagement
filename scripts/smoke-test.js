@@ -2523,7 +2523,7 @@ async function waitForServer() {
           assert.equal(dx.status, 200);
           assert.deepEqual(require('../src/xlsxread').readBook(Buffer.from(await dx.arrayBuffer())).sheets.map((x) => x.name), [`Day January ${Y}`, 'Hour profile', 'Charts']);
           // 👷 Headcount and 🏭 Site capacity as workbooks: formulas over inputs, with charts
-          for (const [u, names, nCharts] of [[`/cpm/headcount/export?year=${Y}&flex=0`, [`Headcount ${Y}`, 'By customer'], 2], [`/cpm/site/export?year=${Y}`, [`Site capacity ${Y}`], 1]]) {
+          for (const [u, names, nCharts] of [[`/cpm/headcount/export?year=${Y}&flex=0`, [`Headcount ${Y}`, 'By customer'], 2], [`/cpm/site/export?year=${Y}`, [`Site Capacity ${Y}`], 1]]) {
             const xr = await fetch(`${BASE}${u}`, { headers: { 'X-Requested-With': 'TaskManager' } }); assert.equal(xr.status, 200, u);
             const buf = Buffer.from(await xr.arrayBuffer()); const bk = require('../src/xlsxread').readBook(buf);
             assert.deepEqual(bk.sheets.map((x) => x.name), names, `${u}: its sheets`);
