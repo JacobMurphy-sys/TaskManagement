@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'cpm-day-model', date: '2026-11-23', area: 'capacity', title: 'Capacity planning: the day model checked against the old workbook',
+    text: 'Day by hour was gone through line by line against the original daily capacity workbook, and its logic brought into line where they differed.',
+    points: ['Machine losses counted once: capacity is full speed over the whole shift, the losses are in the OEE', 'Each customer\'s renewal and daily split can be set, learned from an average day when left blank', 'Learned renewal shares no longer swamped by bulk renewal runs', 'Run periods filled from when the cards were really produced'] },
   { id: 'cpm-kept', date: '2026-11-23', area: 'capacity', title: 'Capacity planning: quick to move around',
     text: 'Capacity planning\'s report tabs keep what they last worked out, like the weekly report, and are worked out again only with Regenerate, so moving between tabs is quick.',
     points: ['When each tab was generated, shown in its header', 'Marked out of date when a setting, customer, scenario or forecast changes', 'Forecast files read again only when they\'ve changed', 'Customers, Capacity and Scenarios together under one Configuration tab', 'Day by hour\'s renewal windows, run periods and shipment times set in Configuration too', 'Day by hour\'s technology charts in one card with a small tab: all technologies in one chart, each with its capacity as a line, or one technology', 'Customers hour by hour (each customer\'s day by the hour) downloads to Excel', 'A drill-down window: pick an hour to see which customers and machines feed it, then any customer\'s whole day'] },
@@ -266,6 +269,7 @@ window.TIMELINE = {
 
   // 🎬 The blooper reel: the hidden easter egg (click the logo five times, type "oops", or find the 🐞)
   BLOOPERS: [
+  { date: '2026-11-23', title: 'The losses that were taken off twice', text: 'The day model divided the work by OEE to allow for breaks and stoppages, then took the breaks off the machines\' hours as well, so every hour looked fuller than it was. Putting it next to the old spreadsheet gave it away.', lesson: 'Count a loss in one place, and check new models against the old one before trusting them.' },
   { date: '2026-11-17', title: 'Seeing double', text: 'A bar list made for "this month and this year" was reused for delays with the same total in both columns, so every customer had its number printed twice, side by side.', lesson: 'When reusing a widget, give each column something of its own to say.' },
   { date: '2026-11-17', title: 'Four slides for the price of one', text: '"Slides 13 to 16 are usually unified from screenshots of the model" was read as "fill in each of the four slides". Four tidy slides later, a screenshot showed the one slide they were always meant to be.',
     lesson: 'Ask for a picture of the finished thing before building it.' },

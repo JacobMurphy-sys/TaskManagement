@@ -148,16 +148,26 @@ function machineHours(cards, rs = runs(cards)) {
 }
 // the share of each customer's volume (and technology, where the cards tell) that's renewals: the export's
 // Low priority work orders over the last months. 'TRI|tech' and 'TRI' → { share, qty }
+// each customer's (and customer and technology's) share of renewals (Low priority work orders) on an average day:
+// each day's renewals ÷ its cards, averaged over the days it had work — every day counts the same, so a bulk
+// renewal run (a few days of nearly all renewals) doesn't swamp the ordinary days the way one total over the
+// months would. { share, days, whole } — whole: the old way (all renewals ÷ all cards), shown beside it
 function renewalShares(cards) {
   const from = new Date(); from.setDate(from.getDate() - LOOKBACK);
-  const out = new Map(); const add = (k, low, q) => { const x = out.get(k) || out.set(k, { low: 0, qty: 0 }).get(k); x.qty += q; if (low) x.low += q; };
-  let jobs = []; try { jobs = db.all('SELECT key, customer, qty, prio FROM plan_history_jobs WHERE first_seen >= ? AND customer IS NOT NULL', [ymd(from)]); } catch { return out; }
-  const lines = new Map(); try { for (const l of db.all('SELECT key, article, qty FROM plan_history_lines WHERE key IN (SELECT key FROM plan_history_jobs WHERE first_seen >= ?)', [ymd(from)])) (lines.get(l.key) || lines.set(l.key, []).get(l.key)).push(l); } catch { /* none */ }
+  const byDay = new Map(); // key → day → { low, qty }
+  const add = (k, day, low, q) => { if (!(q > 0)) return; const m = byDay.get(k) || byDay.set(k, new Map()).get(k); const x = m.get(day) || m.set(day, { low: 0, qty: 0 }).get(day); x.qty += q; if (low) x.low += q; };
+  let jobs = []; try { jobs = db.all('SELECT key, customer, qty, prio, first_seen FROM plan_history_jobs WHERE first_seen >= ? AND customer IS NOT NULL', [ymd(from)]); } catch { return new Map(); }
+  const lines = new Map(); try { for (const l of db.all('SELECT key, article, qty FROM plan_history_lines WHERE key IN (SELECT key FROM plan_history_jobs WHERE first_seen >= ?)', [ymd(from)])) (lines.get(l.key) || lines.set(l.key, []).get(l.key)).push(l); } catch { /* no lines kept */ }
   for (const j of jobs) {
-    const low = /^low/i.test(String(j.prio || '')); const tri = String(j.customer).toUpperCase(); add(tri, low, Number(j.qty) || 0);
-    for (const l of lines.get(j.key) || []) { const t = cpm.normTech(cards?.get(planning.axKey(l.article))?.type); if (t) add(`${tri}|${t}`, low, Number(l.qty) || 0); }
+    const low = /^low/i.test(String(j.prio || '')); const tri = String(j.customer).toUpperCase(); const day = String(j.first_seen || '').slice(0, 10);
+    add(tri, day, low, Number(j.qty) || 0);
+    for (const l of lines.get(j.key) || []) { const t = cpm.normTech(cards?.get(planning.axKey(l.article))?.type); if (t) add(`${tri}|${t}`, day, low, Number(l.qty) || 0); }
   }
-  for (const x of out.values()) x.share = x.qty ? x.low / x.qty : 0;
+  const out = new Map();
+  for (const [k, m] of byDay) {
+    const ds = [...m.values()]; const low = ds.reduce((a, x) => a + x.low, 0); const qty = ds.reduce((a, x) => a + x.qty, 0);
+    out.set(k, { share: ds.reduce((a, x) => a + x.low / x.qty, 0) / ds.length, days: ds.length, whole: qty ? low / qty : 0, low, qty });
+  }
   return out;
 }
 // the shipping cut-offs work orders had lately: ['08:00', '12:00', …], the commonest first (at most 6)
@@ -391,10 +401,13 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
     if (!p && arr && arr.orders) { for (const [k, f] of [[`${tri}|${D.tech}`, 'own'], [`${tri}|*`, 'own'], [`*|${D.tech}`, 'technology'], ['*|*', 'technology']]) if (!p && prof.get(k)) { p = prof.get(k); from = `arrivals-${f}`; if (f === 'own') seen = arr.counts.get(`${tri}|*`) || arr.counts.get(k) || null; } }
     if (!p) for (const [k, f] of [[`${tri}|${D.tech}`, 'own'], [`*|${D.tech}`, 'technology'], ['*|*', 'technology']]) if (!p && prodProf.get(k)) { p = prodProf.get(k); from = f; }
     const learnedShares = H.map((h) => (p ? p[h] : worked.has(h) ? 1 / worked.size : 0)); const learnedFrom = from;
+    // when its cards were produced (⏱ timing report) — what ⏰ Run periods shows greyed, whatever the day is spread by
+    let pp = null; for (const k of [`${tri}|${D.tech}`, `${tri}|*`, `*|${D.tech}`, '*|*']) if (!pp && prodProf.get(k)) pp = prodProf.get(k);
+    const producedShares = H.map((h) => (pp ? pp[h] : worked.has(h) ? 1 / worked.size : 0));
     if (manualP) { p = manualP; from = manualFrom; }
     const shares = H.map((h) => (p ? p[h] : worked.has(h) ? 1 / worked.size : 0));
-    rows.push({ trigram: tri, name: D.name, tech: D.tech, month_volume: vol, daily_pct: 1 - rShare, rnw_pct: rShare, rnw_learned: learned ? learned.share : null, rnw_typed: typed ?? null,
-      oee, oee_rnw: oeeR, workdays: days, daily, renew, need_daily: daily / oee, need_rnw: renew / oeeR, profile: from, peak: pk ? { factor: pk.factor, day: pk.day, peak: pk.peak, avg: pk.avg, days: pk.days, own: !!pv.by.get(tri) } : null, learned_shares: learnedShares, learned_from: learnedFrom, arrive_avg: p ? meanHour(p) : null, arrive_seen: seen, shares,
+    rows.push({ trigram: tri, name: D.name, tech: D.tech, month_volume: vol, daily_pct: 1 - rShare, rnw_pct: rShare, rnw_learned: learned ? learned.share : null, rnw_learned_days: learned ? learned.days : null, rnw_learned_whole: learned ? learned.whole : null, rnw_typed: typed ?? null,
+      oee, oee_rnw: oeeR, workdays: days, daily, renew, need_daily: daily / oee, need_rnw: renew / oeeR, profile: from, peak: pk ? { factor: pk.factor, day: pk.day, peak: pk.peak, avg: pk.avg, days: pk.days, own: !!pv.by.get(tri) } : null, learned_shares: learnedShares, learned_from: learnedFrom, produced_shares: producedShares, arrive_avg: p ? meanHour(p) : null, arrive_seen: seen, shares,
       hours: shares.map((s) => (daily / oee) * s), cards_hours: shares.map((s) => daily * s) });
   }
   rows.sort((a, b) => T.indexOf(a.tech) - T.indexOf(b.tech) || b.need_daily - a.need_daily);
@@ -487,7 +500,7 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
       rnwHours: Object.fromEntries(T.map((t) => [t, rnwByTech[t].window ? rnwByTech[t].hours : []])), sizes: orderSizes(cards), allowed: (m, r) => (m.only?.length ? allowed(m, r) : 1), cutoffOf });
   } catch (err) { warnings.push(`The work-order run couldn't be worked out: ${err.message}`); }
   return { blocks, year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), shifts, hph, full,
-    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, day_shape: shape, peak_source: pv ? pv.source : null, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, capacity_by_machine: Object.fromEntries(T.map((t) => [t, [...byM[t]].map(([name, per]) => ({ name, per }))])), tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, cutoff_default: defCut, manual: json(setting('cpm_day_manual', '{}'), {}), warnings: [...new Set(warnings)],
+    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, day_shape: shape, peak_source: pv ? pv.source : null, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, capacity_by_machine: Object.fromEntries(T.map((t) => [t, [...byM[t]].map(([name, per]) => ({ name, per }))])), tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, cutoff_default: defCut, rnw_share_typed: over, manual: json(setting('cpm_day_manual', '{}'), {}), warnings: [...new Set(warnings)],
     learned: { runs: rs.length, renewals: [...rnw.values()].reduce((a, x) => a + x.qty, 0) }, forecast_as_of: plan.forecast_as_of, flex: useFlex };
 }
 
