@@ -3869,7 +3869,7 @@ function cpmRefresh(force = false) {
 // out when it's first asked for, or on ⟳ Regenerate (?regen=1), and kept until then — not on every visit. ?live=1:
 // worked out and not kept (the editing tabs' own checks). Anything it's worked out from changing marks them stale.
 function cpmCached(req, kind, work) {
-  const q = new URLSearchParams(Object.entries(req.query).filter(([k]) => !['regen', 'reread', 'live'].includes(k)).map(([k, v]) => [k, String(v)])); q.sort();
+  const q = new URLSearchParams(Object.entries(req.query).filter(([k]) => !['regen', 'reread', 'live', 'view'].includes(k)).map(([k, v]) => [k, String(v)])); q.sort();
   const key = `${kind}?${q}`;
   if (req.query.live === '1') return work();
   if (req.query.regen !== '1' && req.query.reread !== '1') {
@@ -4043,6 +4043,28 @@ router.get('/cpm/day/export', h((req, res) => {
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '')}.xlsx"; filename*=UTF-8''${encodeURIComponent(name)}.xlsx`);
   res.send(buf);
+}));
+// 🕐 Day by hour's customer table (👥 Customers hour by hour) as a plain workbook: a row per customer and technology,
+// its hours as shown (?view=cards: cards; else capacity needed, ÷ OEE), then a total per technology and for all of them
+router.get('/cpm/day/customers.xlsx', h((req, res) => {
+  const d = cpmDayOf(req); const cards = req.query.view === 'cards'; const H = d.hours;
+  const hhmm = (v) => (v === null || v === undefined ? '' : `${String(Math.floor(v)).padStart(2, '0')}:${String(Math.floor((v % 1) * 60)).padStart(2, '0')}`);
+  const r0 = (v) => Math.round((Number(v) || 0) * 10) / 10; const pc = (v) => (v === null || v === undefined ? '' : Math.round(v * 1000) / 10);
+  const hrs = (r) => (cards ? r.cards_hours : r.hours) || [];
+  const rows = d.rows.map((r) => [r.trigram || '', r.name || '', r.tech, r0(r.month_volume), pc(r.rnw_pct), pc(r.oee), r0(r.daily), r0(r.need_daily), r0(r.need_rnw),
+    r0(d.blocks?.sizes?.[`${r.trigram || r.name}|${r.tech}`]) || '', hhmm(r.arrive_avg), hhmm(r.cutoff), r.late_cards > 0.5 ? r0(r.late_cards) : '', ...H.map((_, i) => r0(hrs(r)[i]))]);
+  const techs = d.techs.filter((t) => d.rows.some((r) => r.tech === t));
+  for (const [t, rs] of [...techs.map((t) => [t, d.rows.filter((r) => r.tech === t)]), ...(techs.length > 1 ? [['', d.rows]] : [])]) {
+    const sum = (f) => rs.reduce((a, r) => a + (Number(f(r)) || 0), 0); const month = sum((r) => r.month_volume);
+    rows.push([t ? `${t} total` : 'All technologies', `${rs.length} lines`, t, r0(month), month ? pc(sum((r) => r.month_volume * r.rnw_pct) / month) : '', '', r0(sum((r) => r.daily)), r0(sum((r) => r.need_daily)), r0(sum((r) => r.need_rnw)), '', '', '', r0(sum((r) => r.late_cards)) || '', ...H.map((_, i) => r0(sum((r) => hrs(r)[i])))]);
+  }
+  const n = (header, width = 10) => ({ header, width, type: 'number' });
+  const columns = [{ header: 'Customer', width: 10 }, { header: 'Name', width: 26 }, { header: 'Technology', width: 11 }, n('Month (cards)', 13), n('Renewals %'), n('OEE %', 8), n('Cards a day', 12), n('Daily needed /day (÷ OEE)', 14), n('Renewals needed /day', 14), n('Usual order', 11),
+    { header: 'Arrives', width: 9 }, { header: 'Cut-off', width: 9 }, n('Late cards', 10), ...H.map((h) => n(`${String(h).padStart(2, '0')}:00`, 8))];
+  const name = `Customers hour by hour ${d.label}${d.scenario ? ` - ${d.scenario.name}` : ''}${cards ? ' (cards)' : ' (capacity needed)'}`.replace(/[\\/:*?"<>|]/g, ' ').slice(0, 120);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '')}.xlsx"; filename*=UTF-8''${encodeURIComponent(name)}.xlsx`);
+  res.send(require('./xlsx').buildXlsx([{ name: cards ? 'Cards by hour' : 'Needed by hour', columns, rows }]));
 }));
 // a customer's renewal share typed in (blank: learned again)
 router.put('/cpm/day/renewals', h((req, res) => {

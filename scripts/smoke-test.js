@@ -2530,6 +2530,17 @@ async function waitForServer() {
           const dx = await fetch(`${BASE}/cpm/day/export?year=${Y}&month=1&flex=0`, { headers: { 'X-Requested-With': 'TaskManager' } });
           assert.equal(dx.status, 200);
           assert.deepEqual(require('../src/xlsxread').readBook(Buffer.from(await dx.arrayBuffer())).sheets.map((x) => x.name), [`Day January ${Y}`, 'Hour profile', 'Charts']);
+          // 👥 Customers hour by hour as a workbook: a row per line, then the totals; the hours as shown (cards or needed)
+          for (const view of ['need', 'cards']) {
+            const cx = await fetch(`${BASE}/cpm/day/customers.xlsx?year=${Y}&month=1&flex=0&view=${view}`, { headers: { 'X-Requested-With': 'TaskManager' } });
+            assert.equal(cx.status, 200);
+            const bk = require('../src/xlsxread').readBook(Buffer.from(await cx.arrayBuffer())); const nm = view === 'cards' ? 'Cards by hour' : 'Needed by hour';
+            assert.deepEqual(bk.sheets.map((x) => x.name), [nm]);
+            const rowsX = []; for (const c of bk.sheet(nm).cells.values()) { (rowsX[c.row - 1] ||= [])[c.col - 1] = c.v; } const hcol = rowsX[0].indexOf(`${String(dy.hours[0]).padStart(2, '0')}:00`); assert.ok(hcol > 0, 'hour columns');
+            const kx = rowsX.find((r) => r[0] === kd2.trigram && r[2] === kd2.tech); assert.ok(kx, 'a row per customer and technology');
+            const want = (view === 'cards' ? kd2.cards_hours : kd2.hours)[0]; assert.ok(Math.abs(Number(kx[hcol] || 0) - want) <= 0.06, 'its hours as shown');
+            assert.ok(rowsX.some((r) => r[0] === 'All technologies' || /total$/.test(String(r[0]))), 'the totals');
+          }
           // the day with a machine kept for KBC: it counts only KBC's work in an hour, the rest is idle
           const dm = await call('POST', '/plan/machines', { name: 'CPM D1', types: 'DOD' });
           const rsd = await call('POST', '/cpm/scenarios', { name: 'D1 for KBC', changes: [{ type: 'restrict', machine: 'CPM D1', customers: ['KBC'] }] });
