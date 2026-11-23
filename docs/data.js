@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'no-emoji-names', date: '2026-11-23', area: 'look', title: 'Calmer names and headings',
+    text: 'Page names, tabs, section and window headings lost their emoji across the whole app, for a cleaner, more businesslike look. The icons stay in the main bar, where they stand in for the names on narrow screens, and on buttons and small markers where they help.' },
   { id: 'cpm-campaigns', date: '2026-11-23', area: 'capacity', title: 'Capacity planning: campaigns and flat volumes',
     text: 'A scenario can add a flat number of cards for a customer as well as a percentage, spread over the working days, and Day by hour takes campaigns: a customer\'s extra cards over some days, to see what they do to each hour.',
     points: ['Added work lands on the customer\'s own technologies', 'Drawn in its own colour, with its own line in the tables', 'Campaigns can be ticked off to compare'] },
@@ -274,6 +276,7 @@ window.TIMELINE = {
 
   // 🎬 The blooper reel: the hidden easter egg (click the logo five times, type "oops", or find the 🐞)
   BLOOPERS: [
+  { date: '2026-11-23', title: 'Nothing to sort. in the top bar', text: 'Taking the emoji out of the names also took one out of the middle of a sentence: the hint that pointed at the note icon in the top bar suddenly read "Nothing to sort. in the top bar". The sweep was taught that names start with a capital letter; icons used as words in a sentence were put back.', lesson: 'A find-and-replace across a whole app needs a read-through, not just a test run.' },
   { date: '2026-11-23', title: 'The losses that were taken off twice', text: 'The day model divided the work by OEE to allow for breaks and stoppages, then took the breaks off the machines\' hours as well, so every hour looked fuller than it was. Putting it next to the old spreadsheet gave it away.', lesson: 'Count a loss in one place, and check new models against the old one before trusting them.' },
   { date: '2026-11-17', title: 'Seeing double', text: 'A bar list made for "this month and this year" was reused for delays with the same total in both columns, so every customer had its number printed twice, side by side.', lesson: 'When reusing a widget, give each column something of its own to say.' },
   { date: '2026-11-17', title: 'Four slides for the price of one', text: '"Slides 13 to 16 are usually unified from screenshots of the model" was read as "fill in each of the four slides". Four tidy slides later, a screenshot showed the one slide they were always meant to be.',

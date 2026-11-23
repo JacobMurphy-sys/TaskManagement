@@ -36,7 +36,7 @@ function contactsBook({ groups = [], selected = [], title = 'Contacts', multiple
   const known = new Set(groups.flatMap((g) => g.names.map((n) => n.toLowerCase())));
   const extra = chosen.filter((n) => !known.has(n.toLowerCase()));
   const all = [...(extra.length ? [{ label: 'Chosen (not in a list)', names: extra, details: {} }] : []), ...groups];
-  dlg.innerHTML = `<div class="cb-head"><h2 style="margin:0">📇 ${esc(title)}</h2><button class="icon" data-cb="cancel" title="Close">✕</button></div>
+  dlg.innerHTML = `<div class="cb-head"><h2 style="margin:0">${esc(title)}</h2><button class="icon" data-cb="cancel" title="Close">✕</button></div>
     <input type="search" class="cb-search" placeholder="Search names, roles, departments…" autocomplete="off">
     <div class="cb-list"></div>
     <div class="cb-foot row"><span class="small muted cb-count"></span><div class="spacer"></div>
@@ -62,7 +62,7 @@ function contactsBook({ groups = [], selected = [], title = 'Contacts', multiple
     const typed = search.value.trim();
     const exact = typed && all.some((g) => g.names.some((n) => n.toLowerCase() === typed.toLowerCase()));
     $('.cb-list', dlg).innerHTML = html + (typed && !exact ? `<button type="button" class="cb-add" data-cb-new="${esc(typed)}">＋ Use “${esc(typed)}” (not in your contacts)</button>` : '')
-      || '<div class="empty small">No contacts yet — add names on the 📇 Contacts page, or type one above.</div>';
+      || '<div class="empty small">No contacts yet — add names on the Contacts page, or type one above.</div>';
     $('.cb-count', dlg).textContent = multiple ? `${chosen.length} chosen` : '';
   };
   draw();
@@ -132,7 +132,7 @@ function ownerPicker(root, { value = '', groups = [], placeholder = 'Add owner�
   const has = (n) => owners.some((o) => o.toLowerCase() === n.toLowerCase());
   const emit = () => onChange(owners.length ? owners.join(', ') : null);
   const drawChips = () => {
-    $('.op-chips', root).innerHTML = owners.map((o, i) => `<span class="op-chip">👤 ${esc(o)}<button type="button" data-op-remove="${i}" title="Remove ${esc(o)}">✕</button></span>`).join('');
+    $('.op-chips', root).innerHTML = owners.map((o, i) => `<span class="op-chip">${esc(o)}<button type="button" data-op-remove="${i}" title="Remove ${esc(o)}">✕</button></span>`).join('');
     input.placeholder = owners.length ? (single ? 'change…' : '+ another') : placeholder;
   };
   // Each option: { add: names to add, label, info }.
@@ -244,7 +244,7 @@ async function renderPeopleSettings(root) {
   const open = store.get('contactsListsOpen', false);
   const nNames = lists.reduce((a, l) => a + l.items.length, 0);
   root.innerHTML = `<details class="card people-card pl-fold" ${open ? 'open' : ''}>
-    <summary><h2 style="display:inline">📇 Lists</h2> <span class="small muted">${lists.length} list${lists.length === 1 ? '' : 's'} · ${nNames} name${nNames === 1 ? '' : 's'} — click to ${open ? 'fold' : 'open'}</span></summary>
+    <summary><h2 style="display:inline">Lists</h2> <span class="small muted">${lists.length} list${lists.length === 1 ? '' : 's'} · ${nNames} name${nNames === 1 ? '' : 's'} — click to ${open ? 'fold' : 'open'}</span></summary>
     <p class="small muted">Names offered in the 📇 contacts book when you choose a task's <b>owners</b>, a meeting's <b>attendees</b> or a project's team, after the project's own team.
       Make as many lists as you like (e.g. <i>People</i>, <i>Departments</i>, <i>Suppliers</i>). Untick <b>Active</b> to stop offering a name
       without touching tasks that already use it. Tasks can still have names that aren't in any list.
@@ -317,10 +317,10 @@ async function renderPeopleSettings(root) {
   $('#pl-new-list', root).addEventListener('keydown', (e) => { if (e.key === 'Enter') addList(); });
 }
 
-// ---- 📇 Contacts page: the name lists, plus everyone on a project team -----------------
+// ---- Contacts page: the name lists, plus everyone on a project team -----------------
 
 async function renderContacts() {
-  main().innerHTML = `<div class="kanban-tools"><h1 style="margin:0">📇 Contacts</h1>
+  main().innerHTML = `<div class="kanban-tools"><h1 style="margin:0">Contacts</h1>
       <span class="muted small">People and departments offered when choosing owners, attendees and team members</span>
       <div class="spacer"></div>
       <select id="contacts-dept" title="Show one department" hidden></select>

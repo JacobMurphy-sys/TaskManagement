@@ -148,10 +148,10 @@ function meetingsCard(p, list) {
   const shown = showAll ? past : past.slice(0, 5);
   const row = (m) => `<li class="meeting-row" data-action="open-meeting" data-id="${m.id}" title="Open meeting">
       <div><b>${esc(m.title)}</b>${m.task_title ? ` <span class="small muted">re: ${esc(m.task_title)}</span>` : ''}
-        <div class="small muted">🗓 ${esc(meetingWhen(m))}${m.location ? ` · ${esc(m.location)}` : ''}</div></div>
+        <div class="small muted">${esc(meetingWhen(m))}${m.location ? ` · ${esc(m.location)}` : ''}</div></div>
       <span class="small muted nowrap">${actionsLabel(m)}</span></li>`;
   return `<div class="card">
-    <div class="list-tools"><h2 style="margin:0">🗓 Meetings <span class="muted small">${list.length}</span></h2>
+    <div class="list-tools"><h2 style="margin:0">Meetings <span class="muted small">${list.length}</span></h2>
       <button data-action="new-meeting" data-project="${p.id}">＋ New meeting</button></div>
     ${upcoming.length ? `<div class="small muted" style="margin-top:6px">Coming up</div><ul class="meeting-list">${upcoming.map(row).join('')}</ul>` : ''}
     ${past.length ? `${upcoming.length ? '<div class="small muted" style="margin-top:6px">Held</div>' : ''}<ul class="meeting-list">${shown.map(row).join('')}</ul>
@@ -164,7 +164,7 @@ function meetingsCard(p, list) {
 function taskMeetingsHtml(t) {
   return `<div class="section">
     <h3>Meetings <span class="muted small">${t.meetings.length || ''}</span></h3>
-    <ul class="mini">${t.meetings.map((m) => `<li><span class="t" data-action="open-meeting" data-id="${m.id}" data-return-task="${t.id}">🗓 ${esc(m.title)}
+    <ul class="mini">${t.meetings.map((m) => `<li><span class="t" data-action="open-meeting" data-id="${m.id}" data-return-task="${t.id}">${esc(m.title)}
       <span class="small muted">${esc(meetingWhen(m))}</span></span> <span class="small muted">${actionsLabel(m)}</span></li>`).join('') || '<li class="empty">None yet</li>'}</ul>
     <button data-action="new-meeting" data-task="${t.id}" style="margin-top:6px">＋ New meeting</button>
   </div>`;
@@ -182,7 +182,7 @@ function newMeetingDialog({ projectId, taskId, at, duration = 60, pickProject = 
   if (!at) now.setMinutes(Math.floor(now.getMinutes() / 15) * 15, 0, 0);
   const projects = state.projects.filter((p) => p.status === 'active' || p.status === 'on_hold');
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">🗓 New meeting</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0">New meeting</h2><button class="icon" data-action="close-modal">✕</button></div>
     <form id="meeting-new" class="form-grid">
       <label class="f full">Title<input type="text" name="title" required placeholder="e.g. Weekly progress review" value="Progress meeting"></label>
       ${whenFieldHtml(now.toISOString())}
@@ -221,7 +221,7 @@ async function meetingEditor(id, opts = {}) {
       <td>${statusChip(a.status)}</td></tr>`;
   openModal(`
     <div class="modal-head">
-      <div class="small muted">🗓 Meeting${where ? ` · ${where}` : ''}</div>
+      <div class="small muted">Meeting${where ? ` · ${where}` : ''}</div>
       <div class="row"><span class="saved-flag" id="saved-flag">✓ Saved</span><button class="icon" data-action="history" data-kind="meetings" data-id="${m.id}" data-title="${esc(m.title)}" title="History: every change, with who made it">🕘</button><button class="icon" data-action="close-modal">✕</button></div>
     </div>
     <div class="form-grid" id="meeting-form">

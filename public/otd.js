@@ -1,5 +1,5 @@
 'use strict';
-// 🚚 OTD: Reporting's tab for logging late deliveries (the Despatch module, src/otdentry.js). Logistics types a
+// OTD: Reporting's tab for logging late deliveries (the Despatch module, src/otdentry.js). Logistics types a
 // work order (or a customer) and picks it from what the planner knows; the customer, cards, due out and so the
 // reporting week fill themselves in. They say internal or external, and why. The week's delays are listed beside.
 // Loaded after quality.js; uses app.js's helpers and kpi.js's kpiTabsHtml.
@@ -17,7 +17,7 @@ const otdPickup = (x, { long = false } = {}) => {
 };
 const otdDay = (s) => new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 const otdStamp = (s) => { const d = new Date(s); return `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
-const otdTypePill = (t) => `<span class="otd-pill ${t === 'Internal' ? 'int' : 'ext'}">${t === 'Internal' ? '🏭 Internal' : '👤 External'}</span>`;
+const otdTypePill = (t) => `<span class="otd-pill ${t === 'Internal' ? 'int' : 'ext'}">${t === 'Internal' ? 'Internal' : 'External'}</span>`;
 
 async function renderOtdTab() {
   let d;
@@ -27,11 +27,11 @@ async function renderOtdTab() {
   const sourcesLink = modOk('kpi_sources') ? '<a class="button small" href="#/kpi/sources">Change it on Sources</a>' : '<span class="small muted">an admin can change it on Reporting › Sources</span>';
   const note = d.counted ? '' : `<div class="kpi-action notice"><span>ℹ These delays are kept, but OTD is still counted from the Excel OTD report, so they don't reach the Weekly SC Report yet.</span>${sourcesLink}</div>`;
   main().innerHTML = `
-    <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
+    <div class="kanban-tools kpi-tools"><h1 style="margin:0">Reporting</h1>
       <select id="otd-week" class="kpi-pick" title="The reporting week to show (how many delays are logged in it)">${d.weeks.map((w) => `<option value="${w.week}" ${w.week === d.week ? 'selected' : ''}>${esc(w.week)} · ${esc(w.month)}${w.n ? ` (${w.n})` : ''}</option>`).join('')}</select>
       ${kpiTabsHtml('otd')}
       <div class="spacer"></div>
-      <span class="small muted">${d.counted ? '🚚 OTD is counted from these entries' : '🚚 Not counted yet (OTD report in use)'}</span>
+      <span class="small muted">${d.counted ? 'OTD is counted from these entries' : 'Not counted yet (OTD report in use)'}</span>
     </div>
     ${note}
     <div class="otd-grid">
@@ -44,7 +44,7 @@ async function renderOtdTab() {
 
 function otdFormHtml(d) {
   const e = otdState.editing;
-  return `<h2 style="margin-top:0">${e ? `✎ Change the delay on ${esc(e.wo)}` : '➕ Log a late delivery'}</h2>
+  return `<h2 style="margin-top:0">${e ? `Change the delay on ${esc(e.wo)}` : 'Log a late delivery'}</h2>
     <label class="otd-l">Work order
       <div class="otd-search"><input id="otd-wo" type="text" autocomplete="off" spellcheck="false" placeholder="Type a work order or customer, e.g. CADXS…" value="${esc(otdState.wo?.wo || '')}">
         <div class="otd-sugg" id="otd-sugg" hidden></div></div></label>
@@ -52,8 +52,8 @@ function otdFormHtml(d) {
     <div class="otd-fields" ${otdState.wo ? '' : 'hidden'}>
       <div class="otd-l">Whose delay?
         <div class="otd-type">
-          <button type="button" data-otd-type="Internal" class="${otdState.type === 'Internal' ? 'on' : ''}"><b>🏭 Internal</b><span>the Service Center's own (counts against OTD SC)</span></button>
-          <button type="button" data-otd-type="External" class="${otdState.type === 'External' ? 'on' : ''}"><b>👤 External</b><span>the customer's (counts against OTD C)</span></button>
+          <button type="button" data-otd-type="Internal" class="${otdState.type === 'Internal' ? 'on' : ''}"><b>Internal</b><span>the Service Center's own (counts against OTD SC)</span></button>
+          <button type="button" data-otd-type="External" class="${otdState.type === 'External' ? 'on' : ''}"><b>External</b><span>the customer's (counts against OTD C)</span></button>
         </div></div>
       <div class="otd-row">
         <label class="otd-l">Cards delayed <input id="otd-qty" type="number" min="1" step="1" value="${esc(e ? e.qty : otdState.wo?.qty || '')}"><span class="small muted" id="otd-qty-of">${otdState.wo ? `of ${OTDN(otdState.wo.qty)} on the work order` : ''}</span></label>
@@ -83,7 +83,7 @@ function otdWoCard() {
       <div><span>Due out</span><b>${esc(otdDue(w.deadline))}</b></div>
       <div><span>Week</span><b>${esc(w.week || '—')}</b>${w.week ? `<i>${esc(otdMonthOf(w.week))}</i>` : ''}</div>
     </div>
-    <div class="otd-pickline"><span>${w.pickup_kind === 'went' ? '🚚 Pickup after it was finished' : '🚚 Next possible pickup'}</span>${otdPickup(w)}</div>
+    <div class="otd-pickline"><span>${w.pickup_kind === 'went' ? 'Pickup after it was finished' : 'Next possible pickup'}</span>${otdPickup(w)}</div>
     ${w.logged ? `<div class="small" style="color:var(--warn);margin-top:6px">⚠ Already logged ${w.logged.n}× (${OTDN(w.logged.q)} cards): check it isn't a second entry for the same delay.</div>` : ''}
   </div>`;
 }
@@ -95,8 +95,8 @@ function otdWeekHtml(d) {
   return `<div class="row" style="align-items:baseline;gap:8px;flex-wrap:wrap"><h2 style="margin:0">${esc(d.week)} <span class="muted small">${esc(d.month || '')}</span></h2><div class="spacer"></div>
       <span class="small muted">${d.entries.length} delay${d.entries.length === 1 ? '' : 's'} logged</span></div>
     <div class="otd-sum">
-      <div class="q-tile"><div class="q-tile-l">🏭 Internal</div><div class="q-tile-v">${OTDN(d.internal)}</div><div class="q-tile-s">cards late, the Service Center's</div></div>
-      <div class="q-tile"><div class="q-tile-l">👤 External</div><div class="q-tile-v">${OTDN(d.external)}</div><div class="q-tile-s">cards late, the customer's</div></div>
+      <div class="q-tile"><div class="q-tile-l">Internal</div><div class="q-tile-v">${OTDN(d.internal)}</div><div class="q-tile-s">cards late, the Service Center's</div></div>
+      <div class="q-tile"><div class="q-tile-l">External</div><div class="q-tile-v">${OTDN(d.external)}</div><div class="q-tile-s">cards late, the customer's</div></div>
       <div class="q-tile"><div class="q-tile-l">OTD SC this week</div><div class="q-tile-v">${pct(d.otd_sc)}</div><div class="q-tile-s">${d.shipped ? `of ${OTDN(d.shipped)} cards shipped · OTD C ${pct(d.otd_c)}` : 'cards shipped not read yet'}</div></div>
     </div>
     ${d.entries.length ? `<div class="kdb-scroll"><table class="log otd-table"><thead><tr><th>Work order</th><th title="Daily, or renewal (the planner's Low priority)">Kind</th><th>Customer</th><th class="num">Cards</th><th>Due out</th><th title="The shipper's next cut-off on a working day (or, once finished, the one it went with)">Next pickup</th><th>Delay</th><th>Reason</th><th>Logged</th><th></th></tr></thead><tbody>
@@ -117,7 +117,7 @@ function otdDaysHtml(d) {
   const pct = (v) => (v === null || v === undefined ? '<span class="muted">—</span>' : `<span class="ops-pct ${v >= 0.98 ? 'good' : v >= 0.9 ? 'warn' : 'bad'}">${(v * 100).toFixed(1)}%</span>`);
   const dayName = (s) => new Date(`${s}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
   return `<h3 class="otd-days-h">Day by day</h3>
-    <div class="kdb-scroll"><table class="log otd-days"><thead><tr><th>Day</th><th class="num">Cards shipped</th><th class="num">🏭 Internal</th><th class="num">👤 External</th><th class="num">OTD SC</th><th class="num">OTD C</th>
+    <div class="kdb-scroll"><table class="log otd-days"><thead><tr><th>Day</th><th class="num">Cards shipped</th><th class="num">Internal</th><th class="num">External</th><th class="num">OTD SC</th><th class="num">OTD C</th>
       <th class="num" title="From the planner: of the cards on work orders due out that day and finished, the share finished by their deadline">Planner on time</th></tr></thead><tbody>
       ${days.map((x) => `<tr class="${x.future ? 'muted' : ''}"><td class="nowrap"><b>${esc(dayName(x.day))}</b></td>
         <td class="num">${x.shipped ? OTDN(x.shipped) : '<span class="muted">—</span>'}</td><td class="num">${x.internal ? OTDN(x.internal) : ''}</td><td class="num">${x.external ? OTDN(x.external) : ''}</td>

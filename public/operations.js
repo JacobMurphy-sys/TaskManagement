@@ -1,5 +1,5 @@
 'use strict';
-// 🏭 Operations: Reporting's month-by-month operations dashboard (Prod Management, src/operations.js): OTD from the
+// Operations: Reporting's month-by-month operations dashboard (Prod Management, src/operations.js): OTD from the
 // OTD report and the planner's work orders on time (dailies and renewals), cards persoed and shipped, and scrap, on
 // one screen like Quality and EHS. Loaded after quality.js; uses its dashboard pieces (tiles, mini-tabs, bar lists).
 
@@ -119,7 +119,7 @@ const opsLegend = (items) => `<div class="q-legend">${items.map(([cls, label, li
 function opsSourcesLine(d) {
   const s = d.sources || {}; const read = Object.values(s).filter(Boolean).map((x) => x.imported_at).sort().pop();
   const names = [['perso', 'perso'], ['shipped', 'shipped'], ['otd', 'OTD report'], ['scrap', d.scrap_from === 'consumption' ? 'goods consumption' : 'machine rejections']].filter(([k]) => s[k]).map(([, l]) => l);
-  return names.length ? `🏭 ${esc(names.join(' · '))}${read ? ` · read ${esc(fmtDateTime(read))}` : ''}` : '';
+  return names.length ? `${esc(names.join(' · '))}${read ? ` · read ${esc(fmtDateTime(read))}` : ''}` : '';
 }
 
 // 👥 headcount: Direct, Temps and their total as rows, a column a month (or a week, for one month), the period's average last
@@ -135,13 +135,13 @@ function opsHeadcount(hc) {
     <thead><tr><th></th>${all.map((c) => `<th class="num${c.avg ? ' hc-avg' : ''}">${esc(name(c))}</th>`).join('')}</tr></thead>
     <tbody>${row('<i class="q-sw hc-sw-d"></i>Direct', 'hc-direct', (c) => f(c.direct))}${row('<i class="q-sw hc-sw-t"></i>Temps', 'hc-temps', (c) => f(c.temps))}${row('Total', 'hc-total', (c) => `<b>${f(total(c))}</b>`)}</tbody></table></div>`;
 }
-// a customer's delays as dailies and renewals (known for delays logged against a work order on 🚚 OTD)
+// a customer's delays as dailies and renewals (known for delays logged against a work order on OTD)
 function opsKindCell(c) {
   const bits = [c.daily ? `<span class="chip">Daily</span> ${ON(c.daily)}` : '', c.renewal ? `<span class="chip ops-renewal">Renewal</span> ${ON(c.renewal)}` : ''].filter(Boolean);
   if (c.kind_unknown > 0) bits.push(`<span class="muted" title="From the OTD report, which doesn't say">${bits.length ? `${ON(c.kind_unknown)} not known` : '—'}</span>`);
   return bits.join('<br>') || '<span class="muted">—</span>';
 }
-// ---- the site KPIs: a tile each along the top (src/sitekpis.js), its target set on ⚙ KPIs -----------------------
+// ---- the site KPIs: a tile each along the top (src/sitekpis.js), its target set on KPIs -----------------------
 // A KPI's figure as it's written: percentages from fractions, money, cards an hour …
 function opsKpiFmt(k, v, { unit = false } = {}) {
   if (v === null || v === undefined || !Number.isFinite(Number(v))) return '—';
@@ -188,16 +188,16 @@ function opsKpiTile(d, k, focus) {
 }
 const addMonthsJs = (m, n) => { const dt = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 1 + n, 1)); return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`; };
 
-// ⚙ KPIs: which are shown, each one's target, and how OTD is counted (the setup right)
+// KPIs: which are shown, each one's target, and how OTD is counted (the setup right)
 function opsKpiSettings(d) {
-  openModal(`<div class="modal-head"><h2 style="margin:0">⚙ Site KPIs</h2><button class="icon" data-action="close-modal">✕</button></div>
-    <p class="small muted">Tick the KPIs to show along the top of 🏭 Operations, in this order, and set each one's target (blank: none). A tile turns green when it meets its target and amber when it doesn't. Percentages are typed as they read (99.6 for 99.6%).</p>
+  openModal(`<div class="modal-head"><h2 style="margin:0">Site KPIs</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <p class="small muted">Tick the KPIs to show along the top of Operations, in this order, and set each one's target (blank: none). A tile turns green when it meets its target and amber when it doesn't. Percentages are typed as they read (99.6 for 99.6%).</p>
     <div class="kdb-scroll"><table class="log small ops-kset"><thead><tr><th>Show</th><th>KPI</th><th>Target</th><th>Good when</th><th>From</th></tr></thead><tbody>
     ${d.site.config.map((k) => `<tr><td><input type="checkbox" data-ks-on="${k.key}" ${k.on ? 'checked' : ''} aria-label="Show ${esc(k.label)}"></td>
       <td><b>${esc(k.label)}</b>${k.sub ? ` <span class="muted">${esc(k.sub)}</span>` : ''}${k.key === 'otd' ? `<br><select data-ks-measure="otd">${Object.entries(k.measures).map(([m, l]) => `<option value="${m}" ${k.measure === m ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>` : ''}</td>
       <td><span class="row" style="gap:4px;flex-wrap:nowrap">${k.key === 'transfo' ? '€' : ''}<input type="number" step="any" style="width:90px" data-ks-target="${k.key}" value="${k.target ?? ''}" placeholder="none">${k.pct ? '%' : k.key === 'capex' || k.key === 'inventory' ? 'k€' : k.key === 'productivity' ? 'c/h' : ''}</span></td>
       <td>${k.better === 'down' ? '▼ lower' : '▲ higher'}</td>
-      <td class="small muted">${k.typed ? `✎ typed in each month${k.key === 'mir' ? ' (until the safety concern forms are linked on Sources)' : ''}` : { mir: 'accidents (AC) on the safety concern forms (⛑ EHS)', cpms: 'complaints (Salesforce, else typed weekly) ÷ cards shipped', otd: 'the OTD report ÷ cards shipped', wastage: 'scrap ÷ cards persoed', productivity: 'cards persoed ÷ Protime hours', capex: '💶 CAPEX: approved and on, this year', volume: 'the perso export', ontime: 'the planner\'s work orders', openlate: 'the planner\'s work orders' }[k.key] || ''}</td></tr>`).join('')}
+      <td class="small muted">${k.typed ? `✎ typed in each month${k.key === 'mir' ? ' (until the safety concern forms are linked on Sources)' : ''}` : { mir: 'accidents (AC) on the safety concern forms (EHS)', cpms: 'complaints (Salesforce, else typed weekly) ÷ cards shipped', otd: 'the OTD report ÷ cards shipped', wastage: 'scrap ÷ cards persoed', productivity: 'cards persoed ÷ Protime hours', capex: 'CAPEX: approved and on, this year', volume: 'the perso export', ontime: 'the planner\'s work orders', openlate: 'the planner\'s work orders' }[k.key] || ''}</td></tr>`).join('')}
     </tbody></table></div>
     <div class="row" style="justify-content:flex-end;gap:8px;margin-top:12px"><button data-action="close-modal">Cancel</button><button class="primary" id="ks-save">Save</button></div>`, { wide: true });
   $('#ks-save').onclick = async () => {
@@ -286,7 +286,7 @@ function opsHtml(d) {
         return `<tr><td><b>${esc(c.customer)}</b>${c.name ? `<div class="small muted">${esc(c.name)}</div>` : ''}</td><td>${pctCell(c.daily)}</td><td>${pctCell(c.renewal)}</td>
           <td class="num">${dl ? `${dl.internal ? `${ON(dl.internal)} SC` : ''}${dl.internal && dl.external ? ' · ' : ''}${dl.external ? `${ON(dl.external)} customer` : ''}` : '<span class="muted">—</span>'}</td></tr>`; }).join('')}</tbody></table></div>`
     : `<div class="empty small">${d.planner ? `No work orders were due in ${esc(d.label)}.` : 'The planner has no history yet: work orders are recorded from the open perso export (Production) as it\'s read.'}</div>`;
-  const otdTable = d.otd_customers.length ? `<div class="kdb-scroll"><table class="log q-cases ops-table"><thead><tr><th>Customer</th><th title="Delays logged on 🚚 OTD against a work order: daily, or renewal (the planner's Low priority). The OTD report's own rows don't say.">Daily / renewal</th><th class="num">Shipped</th><th class="num">SC delays</th><th class="num">OTD SC</th><th class="num">Customer delays</th><th class="num">OTD C</th><th>Main reasons</th></tr></thead><tbody>
+  const otdTable = d.otd_customers.length ? `<div class="kdb-scroll"><table class="log q-cases ops-table"><thead><tr><th>Customer</th><th title="Delays logged on OTD against a work order: daily, or renewal (the planner's Low priority). The OTD report's own rows don't say.">Daily / renewal</th><th class="num">Shipped</th><th class="num">SC delays</th><th class="num">OTD SC</th><th class="num">Customer delays</th><th class="num">OTD C</th><th>Main reasons</th></tr></thead><tbody>
       ${d.otd_customers.map((c) => `<tr><td><b>${esc(c.customer || '?')}</b></td><td class="small">${opsKindCell(c)}</td><td class="num">${c.shipped ? ON(c.shipped) : '<span class="muted" title="No cards shipped under this name this month">—</span>'}</td>
         <td class="num">${c.internal ? ON(c.internal) : ''}</td><td class="num">${OP(c.otd_sc)}</td><td class="num">${c.external ? ON(c.external) : ''}</td><td class="num">${OP(c.otd_c)}</td>
         <td class="small">${c.reasons.map((r) => `${esc(r.reason)} <span class="muted">${ON(r.qty)}</span>`).join(' · ')}</td></tr>`).join('')}</tbody></table></div>`
@@ -325,29 +325,29 @@ function opsHtml(d) {
     otd: () => {
       const k = kOf('otd');
       const lines = [{ key: 'otd_sc', cls: 'q-c3', label: 'OTD SC' }, { key: 'otd_c', cls: 'q-c2', label: 'OTD C' }, ...(k.measure === 'all' ? [{ key: 'otd_all', cls: 'q-c1', label: 'OTD' }] : [])];
-      return `<div class="qd-top">${panel('qd-charts', head('🚚 Service level, month by month', `counted as ${esc(k.measures[k.measure])}`), chartBox(opsLegend(lines.map((l) => [l.cls, l.label, true])), opsChart({ aria: 'OTD by month', cats: monCats, values: otdVals, bars: [], lines, fmt: pctFmt, min: otdMin, max: 1, ...otdTarget })))}
+      return `<div class="qd-top">${panel('qd-charts', head('Service level, month by month', `counted as ${esc(k.measures[k.measure])}`), chartBox(opsLegend(lines.map((l) => [l.cls, l.label, true])), opsChart({ aria: 'OTD by month', cats: monCats, values: otdVals, bars: [], lines, fmt: pctFmt, min: otdMin, max: 1, ...otdTarget })))}
         ${panel('qd-where', head('Delays by customer', `${esc(d.label)} · SC delays (dark, they count against OTD SC), customer delays (C, light) and all`), d.otd_customers.length ? qBarsList(d.otd_customers.map((c) => ({ name: c.customer || '?', month: c.internal || 0, ytd: (c.internal || 0) + (c.external || 0), cols: [c.internal || 0, c.external || 0, (c.internal || 0) + (c.external || 0)] })), d.label, OK, { heads: ['SC', 'C', 'All'] }) : `<div class="empty small">No delays in the OTD report for ${esc(d.label)}.</div>`)}</div>
         ${panel('qd-cases', `<div class="seg qd-tabs">${tab('f_otd', 'otd', `OTD report <span class="tm-count">${d.otd_customers.length}</span>`)}${tab('f_otd', 'ontime', 'On time by customer')}${tab('f_otd', 'late', `Late work orders <span class="tm-count">${d.late.length}</span>`)}</div>${back}`,
           `${pane('f_otd', 'otd', otdTable)}${pane('f_otd', 'ontime', onTime)}${pane('f_otd', 'late', lateTable)}`)}`;
     },
-    wastage: () => `<div class="qd-top">${panel('qd-charts', head('🗑 Wastage, month by month', 'scrap ÷ cards persoed'), chartBox(...charts.scrap))}
+    wastage: () => `<div class="qd-top">${panel('qd-charts', head('Wastage, month by month', 'scrap ÷ cards persoed'), chartBox(...charts.scrap))}
         ${panel('qd-where', `<h3>By</h3><div class="seg qd-tabs">${tab('f_waste', 'cause', 'Cause')}${tab('f_waste', 'cust', 'Customer')}${tab('f_waste', 'day', 'Day')}</div>`,
           `${pane('f_waste', 'cause', qBarsList(d.customers.causes, d.label, OK, { single: ytd }))}${pane('f_waste', 'cust', qBarsList(d.customers.scrap, d.label, OK, { single: ytd }))}${pane('f_waste', 'day', qBarsList(d.by_day.filter((x) => x.scrap).map((x) => ({ name: fmtShortDate(x.day), month: x.scrap, ytd: x.scrap })), d.label, OK, { single: true }))}`, barsKey)}</div>
         ${panel('qd-cases', `${head(`Scrap by cause <span class="tm-count">${d.scrap_detail.length}</span>`)}${back}`, scrapTable)}`,
-    volume: () => `<div class="qd-top">${panel('qd-charts', `<h3>📦</h3><div class="seg qd-tabs">${tab('ochart', 'day', 'By day')}${tab('ochart', 'month', 'By month')}</div>`, ['day', 'month'].map((c) => pane('ochart', c, chartBox(...charts[c]))).join(''))}
+    volume: () => `<div class="qd-top">${panel('qd-charts', `<h3>Volume</h3><div class="seg qd-tabs">${tab('ochart', 'day', 'By day')}${tab('ochart', 'month', 'By month')}</div>`, ['day', 'month'].map((c) => pane('ochart', c, chartBox(...charts[c]))).join(''))}
         ${panel('qd-where', `<h3>Customers</h3><div class="seg qd-tabs">${tab('f_vol', 'persoed', 'Persoed')}${tab('f_vol', 'shipped', 'Shipped')}</div>`, `${pane('f_vol', 'persoed', qBarsList(d.customers.persoed, d.label, OK, { single: ytd }))}${pane('f_vol', 'shipped', qBarsList(d.customers.shipped, d.label, OK, { single: ytd }))}`, barsKey)}</div>
         ${panel('qd-cases', `${head('Cards each day')}${back}`, `<div class="kdb-scroll"><table class="log q-cases ops-table"><thead><tr><th>Day</th><th class="num">Persoed</th><th class="num">Shipped</th><th class="num">Scrap</th></tr></thead><tbody>${d.by_day.filter((x) => x.persoed || x.shipped || x.scrap).map((x) => `<tr><td>${esc(fmtShortDate(x.day))}</td><td class="num">${ON(x.persoed)}</td><td class="num">${ON(x.shipped)}</td><td class="num">${x.scrap ? ON(x.scrap) : ''}</td></tr>`).join('') || `<tr><td colspan="4" class="muted">Nothing in ${esc(d.label)}.</td></tr>`}</tbody></table></div>`)}`,
     productivity: () => {
       const p = d.site.detail.productivity; const k = kOf('productivity');
       const mach = p.machines.length ? `<div class="kdb-scroll"><table class="log q-cases ops-table"><thead><tr><th>Machine</th><th class="num">Cards an hour</th><th class="num">Cards</th><th class="num">Run hours</th><th class="num">Runs</th></tr></thead><tbody>
         ${p.machines.slice().sort((a, b) => b.per_hour - a.per_hour).map((x) => `<tr><td><b>${esc(x.machine)}</b></td><td class="num"><span class="ops-pct ${opsMeets(k, x.per_hour) === null ? '' : opsMeets(k, x.per_hour) ? 'good' : 'warn'}">${opsKpiFmt(k, x.per_hour)}</span></td><td class="num">${ON(x.cards)}</td><td class="num">${x.hours.toLocaleString('en-GB')}</td><td class="num">${ON(x.runs)}</td></tr>`).join('')}</tbody></table></div>`
-        : `<div class="empty small">No runs with start and end times in ${esc(d.label)}: each machine's cards an hour come from the timing reports (Production › Insights › ⏱ Timing).</div>`;
+        : `<div class="empty small">No runs with start and end times in ${esc(d.label)}: each machine's cards an hour come from the timing reports (Production › Insights › Timing).</div>`;
       const weeks = p.weeks.length ? `<div class="kdb-scroll"><table class="log q-cases ops-table"><thead><tr><th>Week</th><th class="num">Cards shipped</th><th class="num">Working hours</th><th class="num">Cards an hour</th></tr></thead><tbody>
         ${p.weeks.map((w) => `<tr><td>${esc(w.week)}</td><td class="num">${ON(w.cards)}</td><td class="num">${w.hours === null ? '<span class="muted" title="Not typed in on the Weekly SC Report">—</span>' : ON(w.hours)}</td><td class="num">${opsKpiFmt(k, w.productivity)}</td></tr>`).join('')}</tbody></table></div>`
         : `<div class="empty small">No reporting weeks in ${esc(d.label)}.</div>`;
-      return `<div class="qd-top">${panel('qd-charts', head('⚙ Productivity, month by month', 'cards shipped ÷ working hours (Protime, typed in each week)'), kpiChart('productivity', { right: { label: 'Cards shipped (right-hand scale)', values: d.trend.map((t) => t.shipped) } }))}
+      return `<div class="qd-top">${panel('qd-charts', head('Productivity, month by month', 'cards shipped ÷ working hours (Protime, typed in each week)'), kpiChart('productivity', { right: { label: 'Cards shipped (right-hand scale)', values: d.trend.map((t) => t.shipped) } }))}
         ${panel('qd-where', head('Machines', `cards an hour of run time${p.range ? ` · ${opsKpiFmt(k, p.range[0])} – ${opsKpiFmt(k, p.range[1])}` : ''}`), mach)}</div>
-        ${panel('qd-cases ops-hc-panel', head('👥 Headcount', `direct and temps, as typed in each week${p.headcount?.by === 'month' ? ' · each month the average of its weeks' : ''}`), opsHeadcount(p.headcount))}
+        ${panel('qd-cases ops-hc-panel', head('Headcount', `direct and temps, as typed in each week${p.headcount?.by === 'month' ? ' · each month the average of its weeks' : ''}`), opsHeadcount(p.headcount))}
         ${panel('qd-cases', `${head(`Weeks in ${esc(perShort)}`, p.hours_typed ? '' : 'no working hours typed in yet: ✎ on the Weekly SC Report\'s weeks')}${back}`, weeks)}`;
     },
     cpms: () => {
@@ -357,7 +357,7 @@ function opsHtml(d) {
         : `<div class="empty small">${c.from === 'salesforce' ? `No customer complaints opened in ${esc(d.label)}.` : 'Complaints are typed in each week (✎ on the Weekly SC Report) until the Salesforce export is linked on Sources; their cases show here once it is.'}</div>`;
       const rows = `<div class="kdb-scroll"><table class="log q-cases ops-table"><thead><tr><th>Month</th><th class="num">Complaints</th><th class="num">Cards shipped</th><th class="num">CPMS</th></tr></thead><tbody>
         ${c.trend.slice().reverse().map((x) => { const v = d.site.values.cpms.trend.find((y) => y.month === x.month)?.value; return `<tr><td>${esc(qShort(x.month))} ${x.month.slice(0, 4)}</td><td class="num">${x.cc ?? '—'}</td><td class="num">${OK(x.shipped)}</td><td class="num">${opsKpiFmt(kOf('cpms'), v)}</td></tr>`; }).join('')}</tbody></table></div>`;
-      return `<div class="qd-top">${panel('qd-charts', head('🧪 Quality, month by month', 'CPMS: customer complaints per million cards shipped'), kpiChart('cpms'))}${panel('qd-where', head('By month'), rows)}</div>
+      return `<div class="qd-top">${panel('qd-charts', head('Quality, month by month', 'CPMS: customer complaints per million cards shipped'), kpiChart('cpms'))}${panel('qd-where', head('By month'), rows)}</div>
         ${panel('qd-cases', `${head(`Complaints opened in ${esc(perShort)}`)}${modOk('quality') ? '<a class="button small" href="#/kpi/quality">🧪 Quality</a>' : ''}${back}`, cases)}`;
     },
     capex: () => {
@@ -367,11 +367,11 @@ function opsHtml(d) {
       const st = { draft: 'Draft', submitted: 'Submitted', approved: 'Approved', ordered: 'Ordered', installed: 'Installed', closed: 'Closed', on_hold: 'On hold' };
       const items = c.items.length ? `<div class="kdb-scroll"><table class="log q-cases ops-table"><thead><tr><th>Ref</th><th>Investment</th><th>Category</th><th>Owner</th><th>Planned</th><th>Status</th><th class="num">Amount</th></tr></thead><tbody>
         ${c.items.map((x) => `<tr><td>${esc(x.ref || '')}</td><td><b>${esc(x.title)}</b></td><td>${esc(x.category || '')}</td><td>${esc(x.owner || '')}</td><td>${esc(fmtShortDate(x.planned_date))}</td><td><span class="chip">${esc(st[x.status] || x.status)}</span></td><td class="num">${esc(x.currency || '')}${ON(x.amount)}</td></tr>`).join('')}</tbody></table></div>`
-        : `<div class="empty small">${c.hidden ? `None of ${c.year}'s investments are shared with you.` : `Nothing planned for ${c.year} in 💶 CAPEX.`}</div>`;
-      const hiddenNote = c.hidden ? `<div class="small muted" style="margin-top:6px">🔒 The figures count all ${c.year}'s investments; ${c.hidden} more aren't listed here: CAPEX entries are seen by whoever raised, requested or sponsors them, and by managers.</div>` : '';
+        : `<div class="empty small">${c.hidden ? `None of ${c.year}'s investments are shared with you.` : `Nothing planned for ${c.year} in CAPEX.`}</div>`;
+      const hiddenNote = c.hidden ? `<div class="small muted" style="margin-top:6px">The figures count all ${c.year}'s investments; ${c.hidden} more aren't listed here: CAPEX entries are seen by whoever raised, requested or sponsors them, and by managers.</div>` : '';
       const sum = `<div class="ops-capex-sum"><div><span class="small muted">Committed</span><b>${OK(c.committed)}</b><span class="small muted">approved, ordered, installed, closed</span></div><div><span class="small muted">Pipeline</span><b>${OK(c.pipeline)}</b><span class="small muted">submitted, on hold</span></div><div><span class="small muted">Draft</span><b>${OK(c.draft)}</b></div>${t0 !== null ? `<div><span class="small muted">Budget (target)</span><b>${OK(t0 * 1000)}</b><span class="small muted">${t0 ? `${Math.round((c.committed / (t0 * 1000)) * 100)}% committed` : ''}</span></div>` : ''}</div>
         ${c.currencies.length > 1 ? `<p class="small muted">⚠ In more than one currency (${esc(c.currencies.join(', '))}): added up as they are.</p>` : ''}`;
-      return `<div class="qd-top">${panel('qd-charts', head(`💶 CAPEX ${c.year}, by planned month`, 'k, committed and in the pipeline'), chartBox(opsLegend([['q-c3', 'Committed'], ['q-c2', 'Pipeline']]), opsChart({ aria: 'CAPEX by month', cats, values: vals, bars: [{ key: 'committed', cls: 'q-c3', label: 'Committed (k)' }, { key: 'pipeline', cls: 'q-c2', label: 'Pipeline (k)' }], fmt: (x) => `${Math.round(x)}k` })))}
+      return `<div class="qd-top">${panel('qd-charts', head(`CAPEX ${c.year}, by planned month`, 'k, committed and in the pipeline'), chartBox(opsLegend([['q-c3', 'Committed'], ['q-c2', 'Pipeline']]), opsChart({ aria: 'CAPEX by month', cats, values: vals, bars: [{ key: 'committed', cls: 'q-c3', label: 'Committed (k)' }, { key: 'pipeline', cls: 'q-c2', label: 'Pipeline (k)' }], fmt: (x) => `${Math.round(x)}k` })))}
         ${panel('qd-where', head(`The year ${c.year}`), sum)}</div>
         ${panel('qd-cases', `${head(`Investments planned in ${c.year} <span class="tm-count">${c.items.length}</span>`)}${modOk('capex') ? '<a class="button small" href="#/capex">💶 CAPEX</a>' : ''}${back}`, items + hiddenNote)}`;
     },
@@ -380,7 +380,7 @@ function opsHtml(d) {
       const rows = list.length ? `<div class="kdb-scroll"><table class="log q-cases ops-table"><thead><tr><th>Form</th><th>Day</th><th>Where</th><th>What happened</th><th>First aid</th><th>Status</th></tr></thead><tbody>
         ${list.map((x) => `<tr><td><b>${esc(x.num ?? '')}</b></td><td>${esc(fmtShortDate(x.day))}</td><td>${esc(x.location || '')}</td><td class="small">${esc(x.description || x.detail || '')}</td><td class="small">${esc(x.first_aid || '')}</td><td class="small">${esc(x.status || '')}</td></tr>`).join('')}</tbody></table></div>`
         : `<div class="empty small">No accidents in ${esc(d.label)}.${a?.last ? ` The last was on ${esc(fmtShortDate(a.last))}.` : ''}</div>`;
-      return `<div class="qd-top">${panel('qd-charts', head('⛑ MIR, month by month', 'medical incidents: accidents on the safety concern forms'), kpiChart('mir', { max: Math.max(6, ...d.site.values.mir.trend.map((x) => x.value || 0)) }))}
+      return `<div class="qd-top">${panel('qd-charts', head('MIR, month by month', 'medical incidents: accidents on the safety concern forms'), kpiChart('mir', { max: Math.max(6, ...d.site.values.mir.trend.map((x) => x.value || 0)) }))}
         ${panel('qd-where', head('By month'), `<div class="kdb-scroll"><table class="log q-cases ops-table"><thead><tr><th>Month</th><th class="num">Accidents</th></tr></thead><tbody>${d.site.values.mir.trend.slice().reverse().map((x) => `<tr><td>${esc(qShort(x.month))} ${x.month.slice(0, 4)}</td><td class="num">${x.value ?? 0}</td></tr>`).join('')}</tbody></table></div>`)}</div>
         ${panel('qd-cases', `${head(`Accidents in ${esc(perShort)} <span class="tm-count">${list.length}</span>`)}${modOk('quality') ? '<a class="button small" href="#/kpi/ehs">⛑ EHS</a>' : ''}${back}`, rows)}`;
     },
@@ -397,7 +397,7 @@ function opsHtml(d) {
   };
 
   const overview = `<div class="qd-top">
-      ${panel('qd-charts', `<h3>📈</h3><div class="seg qd-tabs">${tab('ochart', 'day', 'By day', `Cards persoed and shipped each day of ${d.label}`)}${tab('ochart', 'month', 'By month', 'Cards persoed and shipped, the 12 months up to it')}${tab('ochart', 'otd', 'OTD', 'OTD SC and OTD C, the 12 months up to it')}${tab('ochart', 'scrap', 'Scrap rate', 'Scrap ÷ cards persoed, the 12 months up to it')}</div>`,
+      ${panel('qd-charts', `<h3>Charts</h3><div class="seg qd-tabs">${tab('ochart', 'day', 'By day', `Cards persoed and shipped each day of ${d.label}`)}${tab('ochart', 'month', 'By month', 'Cards persoed and shipped, the 12 months up to it')}${tab('ochart', 'otd', 'OTD', 'OTD SC and OTD C, the 12 months up to it')}${tab('ochart', 'scrap', 'Scrap rate', 'Scrap ÷ cards persoed, the 12 months up to it')}</div>`,
         Object.entries(charts).map(([k, [legend, chart]]) => pane('ochart', k, chartBox(legend, chart))).join(''))}
       ${panel('qd-where', `<h3>Customers</h3><div class="seg qd-tabs">${custTabs.map(([k, l]) => tab('ocust', k, l)).join('')}</div>`, custTabs.map(([k]) => pane('ocust', k, qBarsList(d.customers[k], d.label, OK, { single: ytd }))).join(''), barsKey)}
     </div>
@@ -412,7 +412,7 @@ function opsHtml(d) {
       <div class="q-tiles qd-tiles ops-kpis" style="--ops-n:${Math.max(1, kpis.length)}">${kpis.map((k) => opsKpiTile(d, k, focus)).join('')}</div>
       ${(() => { const n = hidden.filter((k) => k.startsWith(`${view}:`)).length; return n ? `<button type="button" class="ops-unhide" data-ops-unhide="${esc(view)}" title="Show the hidden panels again">${OPS_EYE} ${n} hidden</button>` : ''; })()}
       <button type="button" class="icon ops-labels${opsLabelsOn() ? ' on' : ''}" data-ops-labels title="${opsLabelsOn() ? 'Hide' : 'Show'} the values on the charts">🏷</button>
-      ${acctAdmin() ? '<button type="button" class="icon ops-kset" data-ops-kset title="⚙ Site KPIs: which are shown and their targets">⚙</button>' : ''}
+      ${acctAdmin() ? '<button type="button" class="icon ops-kset" data-ops-kset title="Site KPIs: which are shown and their targets">⚙</button>' : ''}
     </div>
     ${body}
     </div>`;

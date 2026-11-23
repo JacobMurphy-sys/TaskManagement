@@ -1,5 +1,5 @@
 'use strict';
-// 📚 Library: read-only instructions and procedures imported from an Obsidian vault.
+// Library: read-only instructions and procedures imported from an Obsidian vault.
 // The server renders each note's Markdown (see src/markdown.js); this page shows the
 // folder tree, search, the note, and what links to it. Loaded before app.js.
 
@@ -23,7 +23,7 @@ async function renderLibrary(arg, extra) {
   const lib = await api.get('/library');
   state.library = lib;
   if (!lib.docs.length) {
-    main().innerHTML = `<h1>📚 Library</h1>
+    main().innerHTML = `<h1>Library</h1>
       <div class="card lib-empty"><h2>Bring in your Obsidian vault</h2>
         <p>Instructions, procedures and reference notes from Obsidian, kept with their folders and formatting —
           headings, lists and checklists, tables, callouts, highlights, images, PDFs and the links between notes.
@@ -37,7 +37,7 @@ async function renderLibrary(arg, extra) {
     try { doc = await api.get(`/library/docs/${id}`); } catch (err) { toast(err.message, 'error'); }
   }
   main().innerHTML = `
-    <div class="kanban-tools"><h1 style="margin:0">📚 Library</h1>
+    <div class="kanban-tools"><h1 style="margin:0">Library</h1>
       <span class="muted small">${lib.docs.length} note${lib.docs.length === 1 ? '' : 's'}${lib.source ? ` from “${esc(lib.source)}”` : ''}
         · updated ${esc(fmtDateTime(lib.imported_at))} · read-only</span>
       <div class="spacer"></div><button data-action="library-import" title="Import the vault again to pick up changes">📥 Update from vault…</button></div>
@@ -221,12 +221,12 @@ function libTreeHtml(docs, currentId, folderNames = {}) {
   const draw = (node, prefix) => [...node.folders.entries()].map(([name, child]) => [name, child, prefix ? `${prefix}/${name}` : name])
     .sort((a, b) => cmp(label(a[2], a[0]), label(b[2], b[0]))).map(([name, child, p]) => {
     const open = !closed.has(p) || (cur && (cur.folder === p || cur.folder.startsWith(`${p}/`)));
-    return `<details class="lib-folder" data-folder="${esc(p)}" ${open ? 'open' : ''}><summary>📁 <span ${folderNames[p] ? `title="In the vault: ${esc(name)}"` : ''}>${esc(label(p, name))}</span> <span class="muted small">${count(child)}</span>
+    return `<details class="lib-folder" data-folder="${esc(p)}" ${open ? 'open' : ''}><summary><span ${folderNames[p] ? `title="In the vault: ${esc(name)}"` : ''}>${esc(label(p, name))}</span> <span class="muted small">${count(child)}</span>
       <button class="icon lib-folder-del lib-folder-ren" data-lib-ren-folder="${esc(p)}" data-name="${esc(label(p, name))}" data-vault="${esc(name)}" title="Rename this folder (in the app; the vault keeps its own name)">✎</button>
       <button class="icon lib-folder-del" data-lib-del-folder="${esc(p)}" data-count="${count(child)}" title="Remove this folder from the library">🗑</button></summary>
       <div class="lib-children">${draw(child, p)}</div></details>`;
   }).join('') + node.docs.sort((a, b) => cmp(a.title, b.title)).map((d) =>
-    `<a class="lib-item ${d.id === currentId ? 'on' : ''}" href="#/library/${d.id}" title="${esc(d.path)}${d.renamed ? ` — renamed in the app (in the vault: ${esc(d.vault_title)})` : ''}">📄 ${esc(d.title)}</a>`).join('');
+    `<a class="lib-item ${d.id === currentId ? 'on' : ''}" href="#/library/${d.id}" title="${esc(d.path)}${d.renamed ? ` — renamed in the app (in the vault: ${esc(d.vault_title)})` : ''}">${esc(d.title)}</a>`).join('');
   return draw(root, '');
 }
 
@@ -240,7 +240,7 @@ function libHomeHtml(lib) {
       Pick a note on the left, or search. To link a procedure from a task or project, put its name in double square brackets in the
       description, e.g. <code>[[Lockout procedure]]</code> (🔗 on a note copies it for you).</p>
     <h3>Recently changed in the vault</h3>
-    <ul class="mini">${recent.map((d) => `<li><a href="#/library/${d.id}">📄 ${esc(d.title)}</a> <span class="small muted">${esc(d.folder.split('/').map((x, i, a) => lib.folder_names?.[a.slice(0, i + 1).join('/')] || x).join(' › '))} · ${esc(fmtDate(d.updated_at))}</span></li>`).join('')}</ul>
+    <ul class="mini">${recent.map((d) => `<li><a href="#/library/${d.id}">${esc(d.title)}</a> <span class="small muted">${esc(d.folder.split('/').map((x, i, a) => lib.folder_names?.[a.slice(0, i + 1).join('/')] || x).join(' › '))} · ${esc(fmtDate(d.updated_at))}</span></li>`).join('')}</ul>
     ${tags.size ? `<h3>Tags</h3><div class="lib-tags">${[...tags].sort((a, b) => b[1] - a[1]).map(([t, n]) =>
       `<button class="md-tag" data-lib-tag="${esc(t)}">#${esc(t)} <span class="muted">${n}</span></button>`).join(' ')}</div>` : ''}`;
 }
@@ -253,11 +253,11 @@ function libDocHtml(d) {
   const titleInBody = first && first.level === 1 && first.text.toLowerCase() === d.title.toLowerCase();
   const top = Math.min(...d.headings.map((h) => h.level));
   const val = (v) => (Array.isArray(v) ? v.map((x) => esc(x)).join(', ') : esc(v));
-  const linked = [...d.linked_projects.map((p) => `<li><a href="#/project/${p.id}">📁 ${esc(p.name)}</a></li>`),
+  const linked = [...d.linked_projects.map((p) => `<li><a href="#/project/${p.id}">${esc(p.name)}</a></li>`),
     ...d.linked_tasks.map((t) => `<li><span class="t" data-action="open-task" data-id="${t.id}">${t.status === 'done' ? '✅' : '☐'} ${esc(t.title)}</span>
       ${t.project_name ? `<a class="small" href="#/project/${t.project_id}">${esc(t.project_name)}</a>` : ''}</li>`)];
   return `<div class="lib-toolbar row">
-      ${(d.audience || []).length ? `<span class="chip" title="Shown only to people with ${esc(d.audience.join(' or '))} (set in the note's properties: modules / rights)">🧩 For ${esc(d.audience.join(', '))}</span>` : ''}
+      ${(d.audience || []).length ? `<span class="chip" title="Shown only to people with ${esc(d.audience.join(' or '))} (set in the note's properties: modules / rights)">For ${esc(d.audience.join(', '))}</span>` : ''}
       <span class="small muted">📚${d.folder ? ` ${(d.folder_label || d.folder.split('/').join(' › ')).split(' › ').map(esc).join(' <span>›</span> ')}` : ''}</span><div class="spacer"></div>
       <button class="icon" data-lib-ren-doc="${esc(d.path)}" data-name="${esc(d.title)}" data-vault="${esc(d.vault_title || d.title)}" title="Rename this note (in the app; the vault keeps its own name)">✎ Rename</button>
       <button class="icon" data-action="library-copy-link" data-title="${esc(d.title)}" title="Copy a [[link]] to this note for a task or project description">🔗 Link</button>
@@ -272,7 +272,7 @@ function libDocHtml(d) {
       `<a data-scroll="h-${esc(h.slug)}" style="padding-left:${(h.level - top) * 14 + 4}px">${esc(h.text)}</a>`).join('')}</details>` : ''}
     <div class="md">${d.html}</div>
     <div class="lib-foot">
-      ${d.backlinks.length ? `<div><h3>Linked from</h3><ul class="mini">${d.backlinks.map((b) => `<li><a href="#/library/${b.id}">📄 ${esc(b.title)}</a>
+      ${d.backlinks.length ? `<div><h3>Linked from</h3><ul class="mini">${d.backlinks.map((b) => `<li><a href="#/library/${b.id}">${esc(b.title)}</a>
         ${b.folder ? `<span class="small muted">${esc(b.folder)}</span>` : ''}</li>`).join('')}</ul></div>` : ''}
       ${linked.length ? `<div><h3>Used in</h3><ul class="mini">${linked.join('')}</ul></div>` : ''}
       <div class="small muted">${esc(d.path)} · last changed in the vault ${esc(fmtDateTime(d.updated_at))} · imported ${esc(fmtDateTime(d.imported_at))}</div>
@@ -315,7 +315,7 @@ document.addEventListener('click', (e) => {
   const folder = b.dataset.libRenFolder !== undefined;
   const p = folder ? b.dataset.libRenFolder : b.dataset.libRenDoc;
   const vault = b.dataset.vault; const now = b.dataset.name;
-  openModal(`<div class="modal-head"><h2 style="margin:0">✎ Rename ${folder ? 'folder' : 'note'}</h2><button class="icon" data-action="close-modal">✕</button></div>
+  openModal(`<div class="modal-head"><h2 style="margin:0">Rename ${folder ? 'folder' : 'note'}</h2><button class="icon" data-action="close-modal">✕</button></div>
     <label class="f">New name<input id="lib-ren-name" maxlength="200" value="${esc(now)}"></label>
     <p class="small muted">Changes the name in SITHUB only: the ${folder ? 'folder' : 'note'} keeps its name in your Obsidian vault, and updates from the vault keep this one.
       ${folder ? '' : `Links to it work with both names.`}${now !== vault ? ` In the vault it's called <b>${esc(vault)}</b>.` : ''}</p>
@@ -356,7 +356,7 @@ document.addEventListener('click', async (e) => {
 function libraryImportDialog() {
   const has = state.library?.docs?.length;
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">📥 ${has ? 'Update from' : 'Import'} your Obsidian vault</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0">${has ? 'Update from' : 'Import'} your Obsidian vault</h2><button class="icon" data-action="close-modal">✕</button></div>
     <p>Choose the vault folder (the one that contains the hidden <code>.obsidian</code> folder). Every note (<code>.md</code>) is copied in
       with its folders, together with images, PDFs and other attachments. Obsidian's settings, plugins and trash are left out,
       and nothing in your vault is changed.</p>
@@ -432,7 +432,7 @@ async function importVaultFiles(all) {
     }
     await flush();
     const r = await api.post(`/library/import/${id}/finish`);
-    box.innerHTML = `<div class="ok-note">✅ <b>${r.notes} notes</b> and ${r.files} attachments are in the library.
+    box.innerHTML = `<div class="ok-note"><b>${r.notes} notes</b> and ${r.files} attachments are in the library.
       ${state.library?.docs?.length ? `<br><span class="small">${r.added} new · ${r.updated} changed · ${r.unchanged} unchanged · ${r.removed} removed</span>` : ''}
       ${r.left_out ? `<br><span class="small">${r.left_out} file${r.left_out === 1 ? '' : 's'} left out because you removed them from the library earlier</span>` : ''}
       ${tooBig.length ? `<br><span class="small">Left out (over 55 MB): ${tooBig.map(esc).join(', ')}</span>` : ''}</div>

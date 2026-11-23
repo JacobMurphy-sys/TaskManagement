@@ -141,7 +141,7 @@ function compactHints() {
   }
 }
 document.addEventListener('click', (e) => { for (const d of $$('details.hint[open]')) if (!d.contains(e.target)) d.open = false; }, true);
-// ⚙ Settings, one group at a time: tabs over its cards, grouped by what they're about
+// Settings, one group at a time: tabs over its cards, grouped by what they're about
 function settingsTabs() {
   const GROUPS = [['general', 'General', /^(areas|general)\b/i], ['accounts', 'Accounts & server', /account|server|sign|update/i], ['lists', 'Lists & team pack', /team pack|categor|policy/i], ['charter', 'Charter template', /charter/i]];
   const cards = $$('#main .card').filter((c) => c.querySelector(':scope > h2') && !c.parentElement.closest('.card'));
@@ -155,7 +155,7 @@ function settingsTabs() {
   $('#main h1').insertAdjacentHTML('afterend', `<div class="seg settings-tabs">${used.map(([k, l]) => `<button type="button" data-set-tab="${k}">${l}</button>`).join('')}</div>`);
   $$('[data-set-tab]').forEach((b) => { b.onclick = () => { tab = b.dataset.setTab; store.set('settingsTab', tab); show(); }; });
   show();
-  // 🧭 Go to: something on another tab is shown by switching to its tab
+  // Go to: something on another tab is shown by switching to its tab
   settingsTabs.reveal = (el) => { const c = cards.find((x) => x.contains(el)); if (!c) return false; tab = groupOf(c); store.set('settingsTab', tab); show(); return true; };
 }
 // a label's text and its hint kept together above its box (so boxes side by side line up)
@@ -313,7 +313,7 @@ function dueChip(t) {
     if (n < 0) cls = 'overdue';
     else if (n <= 1) cls = 'soon';
   }
-  return `<span class="chip ${cls}" title="Due ${esc(fmtDate(t.due_at))}${t.moved ? ` — moved ${t.moved}× (see the task)` : ''}">📅 ${esc(fmtShortDate(t.due_at))}${cls ? ` (${dueLabel(t.due_at)})` : ''}${t.moved ? ` <span class="moved">↻${t.moved}</span>` : ''}</span>`;
+  return `<span class="chip ${cls}" title="Due ${esc(fmtDate(t.due_at))}${t.moved ? ` — moved ${t.moved}× (see the task)` : ''}">${esc(fmtShortDate(t.due_at))}${cls ? ` (${dueLabel(t.due_at)})` : ''}${t.moved ? ` <span class="moved">↻${t.moved}</span>` : ''}</span>`;
 }
 function statusChip(s) {
   return s === 'in_progress' || s === 'blocked' || s === 'on_hold' ? `<span class="pill status-${s}">${STATUS[s]}</span>` : '';
@@ -329,7 +329,7 @@ function waitingChip(t) {
   const d = t.waiting_since ? daysSince(t.waiting_since) : null;
   return `<span class="chip waiting" title="Waiting on ${esc(t.waiting_on)}${t.waiting_since ? ` since ${esc(fmtDate(t.waiting_since))}` : ''}">⏳ ${esc(t.waiting_on)}${d !== null ? ` · ${d}d` : ''}</span>`;
 }
-// 🎨 each person a colour of their own: set by hand on 👥 People, else picked from their name (the same
+// 🎨 each person a colour of their own: set by hand on People, else picked from their name (the same
 // name always gets the same colour), shown as a small coloured badge with their initials
 const PERSON_COLS = ['#430099', '#7382e6', '#0e7490', '#b45309', '#be185d', '#15803d', '#6d28d9', '#0369a1', '#c2410c', '#4d7c0f', '#a21caf', '#9f1239', '#0f766e', '#7c2d12'];
 function personColour(name) {
@@ -360,9 +360,9 @@ const SHORTCUTS_HELP = 'Shortcuts: <code>!high</code> <code>!crit</code> · <cod
 // wrap in "quotes" if they contain spaces) open in File Explorer via the server.
 const LINK_RE = /(\[\[[^\]\n]+\]\]|https?:\/\/[^\s<>"']*[^\s<>"'.,;:!?)\]]|mailto:[^\s<>"']+|onenote:[^\s<>"']+|"(?:[A-Za-z]:\\|\\\\)[^"\r\n]+"|(?:[A-Za-z]:\\|\\\\)[^\s<>"']+)/g;
 function linkHtml(raw) {
-  if (raw.startsWith('[[')) { // [[Procedure name]] -> the note in the 📚 Library
+  if (raw.startsWith('[[')) { // [[Procedure name]] -> the note in the Library
     const [target, alias] = raw.slice(2, -2).split('|');
-    return `<a class="wikilink" href="#/library/find/${encodeURIComponent(target.trim())}" title="Open in the library">📚 ${esc((alias || target).trim())}</a>`;
+    return `<a class="wikilink" href="#/library/find/${encodeURIComponent(target.trim())}" title="Open in the library">${esc((alias || target).trim())}</a>`;
   }
   if (/^(https?|mailto|onenote):/i.test(raw)) {
     return `<a href="${esc(raw)}" target="_blank" rel="noopener noreferrer">${esc(raw)}</a>`;
@@ -383,7 +383,7 @@ function linkify(text) {
 // Links found in an editable description, shown under the text box.
 function linkList(text) {
   const found = [...String(text ?? '').matchAll(LINK_RE)].map((m) => linkHtml(m[0]));
-  return found.length ? `<div class="link-list small">🔗 ${found.join(' · ')}</div>` : '';
+  return found.length ? `<div class="link-list small">${found.join(' · ')}</div>` : '';
 }
 
 // ======================================================================
@@ -423,7 +423,7 @@ async function route() {
   if (leaveGuard && location.hash !== lastHash && !leaveGuard()) { history.replaceState(null, '', lastHash || '#/'); return; }
   leaveGuard = null; lastHash = location.hash;
   document.body.classList.remove('sidebar-open');
-  main().classList.remove('cockpit-main', 'kpi-dash'); // 🏠 Home (and Reporting's Quality and EHS) fit the screen; every other page scrolls
+  main().classList.remove('cockpit-main', 'kpi-dash'); // Home (and Reporting's Quality and EHS) fit the screen; every other page scrolls
   let [view = 'dashboard', ...rest] = location.hash.replace(/^#\/?/, '').split('/');
   // the planner on its own: Planning, the activity log and backups only
   if (state.mode === 'planner' && !['planning', 'log', 'backups'].includes(view)) { view = 'planning'; rest = []; }
@@ -431,13 +431,13 @@ async function route() {
   if (view === 'backups' && !acctRight('backups')) {
     toast('That\'s part of the setup — only an admin can open it', 'error'); location.replace('#/dashboard'); view = 'dashboard'; rest = [];
   }
-  // 📊 Reporting: each tab has its own module; a tab the account doesn't have goes to one it does
+  // Reporting: each tab has its own module; a tab the account doesn't have goes to one it does
   if (view === 'kpi' && rest[0] !== 'production' && !kpiTabOk(kpiTabOf(rest))) {
     const first = KPI_TABS.find(([k]) => kpiTabOk(k));
     if (!first) { toast(`Your account doesn't include Reporting — ask an admin`, 'error'); location.replace('#/dashboard'); view = 'dashboard'; rest = []; }
     else { location.replace(first[3]); rest = first[3].split('/').slice(2); }
   }
-  // ⏱ Timing moved from Reporting to Production › Insights: old links go there
+  // Timing moved from Reporting to Production › Insights: old links go there
   if (view === 'kpi' && rest[0] === 'production') { store.set('planHalf', 'insights'); store.set('planInsight', 'timing'); location.replace('#/planning'); view = 'planning'; rest = []; }
   const mod = MOD_OF_VIEW[view];
   if (mod && !modOk(mod)) { toast(`Your account doesn't include ${ACCT.modules.find((m) => (m.areas || []).includes(mod))?.label || mod} — ask an admin`, 'error'); location.replace('#/dashboard'); view = 'dashboard'; rest = []; }
@@ -488,13 +488,13 @@ async function refresh() {
 // Dashboard
 // ======================================================================
 
-// "🧭 Phase 2/3: Roll-out · ends 12 Dec" for projects split into phases.
+// "Phase 2/3: Roll-out · ends 12 Dec" for projects split into phases.
 function phaseLine(p) {
   if (!p.phase_count) return '';
-  if (!p.current_phase) return `🧭 All ${p.phase_count} phases complete`;
+  if (!p.current_phase) return `All ${p.phase_count} phases complete`;
   const ph = p.current_phase;
   const late = ph.due_at && p.status !== 'completed' && dayDiff(ph.due_at) < 0;
-  return `🧭 Phase ${ph.position}/${p.phase_count}: ${esc(ph.name)}${ph.due_at
+  return `Phase ${ph.position}/${p.phase_count}: ${esc(ph.name)}${ph.due_at
     ? ` · <span class="${late ? 'status-blocked' : ''}">${late ? 'was due' : 'ends'} ${esc(fmtShortDate(ph.due_at))}</span>` : ''}`;
 }
 
@@ -502,7 +502,7 @@ function miniTask(t) {
   return `<li class="${t.status === 'done' ? 'done' : ''} ${t.parent_id ? 'is-sub' : ''}">
     <input type="checkbox" data-action="toggle-task" data-id="${t.id}" data-subs="${t.subtask_count - t.subtask_done}" ${t.status === 'done' ? 'checked' : ''}>
     <span class="t" data-action="open-task" data-id="${t.id}">${t.parent_id ? `<span class="sub-mark" title="Subtask of ${esc(t.parent_title || '')}">↳ ${esc(t.parent_title || 'subtask')} ›</span> ` : ''}${esc(t.title)}</span>
-    ${t.project_id ? `<a class="small" href="#/project/${t.project_id}">${esc(t.project_name)}</a>` : '<a class="small muted" href="#/tasks">✅ Tasks</a>'}
+    ${t.project_id ? `<a class="small" href="#/project/${t.project_id}">${esc(t.project_name)}</a>` : '<a class="small muted" href="#/tasks">Tasks</a>'}
     ${prioPill(t.priority)} ${dueChip(t)} ${ownerChip(t)} ${waitingChip(t)} ${repeatChip(t)}
   </li>`;
 }
@@ -575,7 +575,7 @@ async function renderDashboard() {
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString();
   const recentlyDone = state.projects.filter((p) => p.status === 'completed' && p.completed_at > monthAgo).length;
 
-  // ---- 🏠 Home in one view: everything on one screen, each panel scrolling on its own if it's long ----
+  // ---- Home in one view: everything on one screen, each panel scrolling on its own if it's long ----
   const TABS = [['overdue', '⚠', 'Overdue', d.overdue, 'Nothing overdue 🎉'], ['today', '📅', 'Today', d.today, 'Nothing else due today'],
     ['week', '🗓', '7 days', d.week, 'Nothing due in the next 7 days'], ['blocked', '⛔', 'Blocked', d.blocked, 'Nothing blocked'],
     ['waiting', '⏳', 'Waiting', d.waiting, 'Not waiting on anyone'], ['high', '🔥', 'High', d.high_priority, 'No open high-priority tasks']];
@@ -600,7 +600,7 @@ async function renderDashboard() {
   const focusRow = (x) => (x.kind === 'project'
     ? `<li class="ck-row ck-projrow"><span class="ck-st">🗂</span><a class="ck-t" href="#/project/${x.id}" title="A project to talk about">${esc(x.title)}</a>${why(x)}</li>`
     : row({ ...x, status: x.status || 'todo' }, why(x)));
-  // 🎯 Focus, full height: Today and This week, each with what's been set out to do (＋ adds to it; not done carries
+  // Focus, full height: Today and This week, each with what's been set out to do (＋ adds to it; not done carries
   // on), the suggestions worked out from the tasks and projects (＋ takes one in), and the meetings planned
   const fi = d.focus_items || { day: [], week: [] };
   const todayKey = fi.today || new Date().toISOString().slice(0, 10);
@@ -623,9 +623,9 @@ async function renderDashboard() {
       <button type="button" class="icon fx-edit" data-fx-edit="${f.id}" title="Change">✎</button><button type="button" class="icon fx-del" data-fx-del="${f.id}" title="Remove from the focus">✕</button></li>`;
   const picked = new Set([...fi.day, ...fi.week].filter((f) => !f.done_at).map((f) => (f.task_id ? `t${f.task_id}` : f.project_id ? `p${f.project_id}` : '')));
   const sugg = (k, items) => { const left = (items || []).filter((x) => !picked.has(`${x.kind === 'project' ? 'p' : 't'}${x.id}`));
-    return left.length ? `<details class="fx-sugg" ${store.get(`fxSugg:${k}`, false) ? 'open' : ''} data-fx-sugg="${k}"><summary>💡 Suggested <b>${left.length}</b> <span class="muted small">— worked out from due dates, blockers and projects</span></summary><ul class="fx-slist">${left.map((x) => `<li class="fx-srow">
+    return left.length ? `<details class="fx-sugg" ${store.get(`fxSugg:${k}`, false) ? 'open' : ''} data-fx-sugg="${k}"><summary>Suggested <b>${left.length}</b> <span class="muted small">— worked out from due dates, blockers and projects</span></summary><ul class="fx-slist">${left.map((x) => `<li class="fx-srow">
         <button type="button" class="icon fx-pick" data-fx-pick="${k}" data-kind="${x.kind === 'project' ? 'project' : 'task'}" data-id="${x.id}" title="Add to the focus">＋</button>
-        <span class="fx-stitle" data-action="${x.kind === 'project' ? 'open-project' : 'open-task'}" data-id="${x.id}">${x.kind === 'project' ? '🗂 ' : ''}${esc(x.title)}</span>${why(x)}</li>`).join('')}</ul></details>` : ''; };
+        <span class="fx-stitle" data-action="${x.kind === 'project' ? 'open-project' : 'open-task'}" data-id="${x.id}">${x.kind === 'project' ? '' : ''}${esc(x.title)}</span>${why(x)}</li>`).join('')}</ul></details>` : ''; };
   const meetRow = (m, withDay) => { const past = new Date(m.held_at) < new Date(); return `<li class="fx-mrow ${past ? 'past' : ''}">
       <span class="fx-mwhen">${withDay ? `${esc(new Date(m.held_at).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' }))} · ` : ''}${esc(new Date(m.held_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }))}</span>
       <span class="fx-mt" data-action="open-meeting" data-id="${m.id}" title="Open the meeting">${esc(m.title)}</span>${m.project_name ? `<a class="ck-proj" href="#/project/${m.project_id}">${esc(m.project_name)}</a>` : ''}</li>`; };
@@ -645,7 +645,7 @@ async function renderDashboard() {
         <form class="fx-new" data-fx-new="${k}" data-period="${k === 'day' ? dayP : weekP}" hidden><input type="text" maxlength="300" placeholder="What ${k === 'day' ? `needs doing ${isToday ? 'today' : 'that day'}` : `matters ${isThisWeek ? 'this week' : 'that week'}`}? (Enter · Esc)" autocomplete="off"></form>
         <ul class="fx-list">${items.length ? items.map(fxItem).join('') : `<li class="fx-none">${emptyMsg}</li>`}</ul>
         ${sugg(k, suggItems)}
-        <div class="fx-meet"><h4>🗓 ${meetTitle} <span class="ck-n">${meets.length}</span></h4>${meets.length ? `<ul class="fx-mlist">${meets.map((m) => meetRow(m, withDay)).join('')}</ul>` : '<div class="ck-empty">No meetings planned.</div>'}</div>
+        <div class="fx-meet"><h4>${meetTitle} <span class="ck-n">${meets.length}</span></h4>${meets.length ? `<ul class="fx-mlist">${meets.map((m) => meetRow(m, withDay)).join('')}</ul>` : '<div class="ck-empty">No meetings planned.</div>'}</div>
       </div></div>`;
   const focusPanel = `<section class="ck-panel ck-focus2" id="ck-focus">
       ${(() => { const dl = new Date(`${dayP}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }); const dd = dayDiff(dayP);
@@ -654,8 +654,8 @@ async function renderDashboard() {
       ${fxSec('week', `${isoYear(weekP)}-W${String(isoWeek(weekP)).padStart(2, '0')} · ${dShort(mon)} – ${dShort(sun)}`, isThisWeek ? 'This week’s focus' : weekP > (fi.monday || '') && (new Date(`${weekP}T12:00:00`) - new Date(`${fi.monday}T12:00:00`)) / 86400000 < 8 ? 'Next week’s focus' : `Focus for week ${isoWeek(weekP)}`,
         fi.week, isThisWeek ? d.focus?.week : null, isThisWeek ? 'Meetings this week' : 'Meetings that week', mRest, true, isThisWeek ? 'Nothing set yet — ＋ adds what this week is for.' : 'Nothing set for that week — ＋ adds to it.', isThisWeek ? 'this week' : `week ${isoWeek(weekP)}`)}
     </section>`;
-  const tasksPanel = panel('ck-tasks', '✅ Tasks', TABS.map(([k, , , l, msg]) => `<ul class="ck-list" data-ck-list="${k}" ${tab === k ? '' : 'hidden'}>${l.length ? l.map((t) => row(t)).join('') : `<li>${empty(msg)}</li>`}</ul>`).join(''),
-    { tools: `<div class="ck-tabs" role="tablist">${TABS.map(([k, ic, label, l]) => `<button type="button" role="tab" data-ck-tab="${k}" class="${tab === k ? 'on' : ''} ${l.length ? '' : 'zero'} ${k === 'overdue' || k === 'blocked' ? 'bad' : ''}" aria-selected="${tab === k}">${ic} ${label} <b>${l.length}</b></button>`).join('')}</div>`, cls: 'ck-tasks' });
+  const tasksPanel = panel('ck-tasks', 'Tasks', TABS.map(([k, , , l, msg]) => `<ul class="ck-list" data-ck-list="${k}" ${tab === k ? '' : 'hidden'}>${l.length ? l.map((t) => row(t)).join('') : `<li>${empty(msg)}</li>`}</ul>`).join(''),
+    { tools: `<div class="ck-tabs" role="tablist">${TABS.map(([k, , label, l]) => `<button type="button" role="tab" data-ck-tab="${k}" class="${tab === k ? 'on' : ''} ${l.length ? '' : 'zero'} ${k === 'overdue' || k === 'blocked' ? 'bad' : ''}" aria-selected="${tab === k}">${label} <b>${l.length}</b></button>`).join('')}</div>`, cls: 'ck-tasks' });
   // 🗂 projects: two lines each — health, name, leader, progress, issues, due; then the next action
   const projRow = (p) => {
     const pct = p.task_count ? Math.round((p.done_count / p.task_count) * 100) : 0;
@@ -664,25 +664,25 @@ async function renderDashboard() {
         ${p.overdue_count ? `<span class="ck-iss bad" title="Overdue tasks">⚠ ${p.overdue_count}</span>` : ''}${p.blocked_count ? `<span class="ck-iss bad" title="Blocked tasks">⛔ ${p.blocked_count}</span>` : ''}
         <span class="ck-who">${splitOwners(p.leader).slice(0, 1).map(personDot).join('')}</span></div>
       <div class="ck-pl2"><span class="ck-meter" title="${p.done_count} of ${p.task_count} tasks done"><i style="width:${pct}%"></i></span><span class="ck-pct">${p.done_count}/${p.task_count}</span>
-        ${p.due_at ? `<span class="ck-due ${p.health.key === 'risk' && dayDiff(p.due_at) < 0 ? 'bad' : ''}" title="Project due ${esc(fmtDate(p.due_at))}">📅 ${esc(fmtShortDate(p.due_at))}</span>` : ''}
+        ${p.due_at ? `<span class="ck-due ${p.health.key === 'risk' && dayDiff(p.due_at) < 0 ? 'bad' : ''}" title="Project due ${esc(fmtDate(p.due_at))}">${esc(fmtShortDate(p.due_at))}</span>` : ''}
         <span class="ck-next" title="${esc(p.next_action || autoText(p.next_auto) || '')}">${phaseLine(p) ? `<span class="ck-phase">${phaseLine(p)}</span> · ` : ''}${p.next_action ? `▶ ${esc(p.next_action)}` : p.next_auto ? `<span class="muted">▶ ${esc(autoText(p.next_auto))} <i>auto</i></span>` : '<span class="muted">No next action</span>'}</span></div></li>`;
   };
-  const projPanel = !modOk('projects') ? '' : panel('ck-projects', `🗂 Projects${who ? ` <span class="ck-sub">${esc(who)}</span>` : ''}`,
+  const projPanel = !modOk('projects') ? '' : panel('ck-projects', `Projects${who ? ` <span class="ck-sub">${esc(who)}</span>` : ''}`,
     ongoing.length ? `<ul class="ck-plist">${ongoing.map(projRow).join('')}</ul>` : empty('No ongoing projects. <button class="link" data-action="new-project">Create one</button>'),
     { count: ongoing.length, tools: '<a class="small" href="#/kanban" title="Health: ⚠ at risk (overdue tasks or past its due date) · ◐ watch (blocked, or due within 7 days) · ✓ on track">Board →</a>', cls: 'ck-projects' });
   const qn = d.quick_notes || [];
-  const qnPanel = panel('dash-quick-notes', '📝 Quick notes', qn.length ? `<ul class="ck-list ck-qn">${qn.map((n) => `<li class="ck-qrow">
+  const qnPanel = panel('dash-quick-notes', 'Quick notes', qn.length ? `<ul class="ck-list ck-qn">${qn.map((n) => `<li class="ck-qrow">
       <div class="ck-qtext"><b title="Written ${esc(fmtDateTime(n.created_at))}">${esc(n.title || 'Quick note')}</b><span>${esc(n.body)}</span></div>
       <button class="small primary" data-action="qn-assign" data-id="${n.id}" title="Put it on a task, a new task or a project">→ Assign</button>
       ${ddMenu('⋯', `<button data-action="qn-edit" data-id="${n.id}">✎ Edit</button><button class="danger" data-action="qn-delete" data-id="${n.id}">🗑 Delete</button>`, { right: true })}</li>`).join('')}</ul>` : empty('Nothing to sort. 📝 in the top bar (or N) writes one.'),
     { count: qn.length, tools: '<button class="link small" data-action="quick-note">+ New</button>', cls: qn.length ? 'has-qn' : 'no-qn' });
-  const remPanel = panel('ck-reminders', '🔔 Reminders', d.reminders.length ? `<ul class="ck-list">${d.reminders.map((r) => `<li class="ck-row">
-      <span class="ck-when">⏰ ${esc(fmtDateTime(r.remind_at, { weekday: false }))}</span>
+  const remPanel = panel('ck-reminders', 'Reminders', d.reminders.length ? `<ul class="ck-list">${d.reminders.map((r) => `<li class="ck-row">
+      <span class="ck-when">${esc(fmtDateTime(r.remind_at, { weekday: false }))}</span>
       <span class="ck-t" ${r.task_id ? `data-action="open-task" data-id="${r.task_id}"` : ''}>${esc(r.message || r.task_title || 'Reminder')}</span>
       <button class="icon" data-action="delete-reminder" data-id="${r.id}" title="Delete reminder">✕</button></li>`).join('')}</ul>` : empty('No reminders set'),
     { count: d.reminders.length, cls: d.reminders.length ? '' : 'ck-small' });
-  const notesPanel = panel('ck-notes', '🗒 Latest notes', d.recent_notes.length ? `<ul class="ck-list">${d.recent_notes.map((n) => `<li class="ck-note">
-      <div class="ck-nmeta">${esc(fmtRelative(n.created_at))} · ${n.project_id ? `<a href="#/project/${n.project_id}">${esc(n.project_name)}</a>` : '<a href="#/tasks">✅ Tasks</a>'}${n.task_title ? ` · <a href="javascript:void 0" data-action="open-task" data-id="${n.task_id}">${esc(n.task_title)}</a>` : ''}</div>
+  const notesPanel = panel('ck-notes', 'Latest notes', d.recent_notes.length ? `<ul class="ck-list">${d.recent_notes.map((n) => `<li class="ck-note">
+      <div class="ck-nmeta">${esc(fmtRelative(n.created_at))} · ${n.project_id ? `<a href="#/project/${n.project_id}">${esc(n.project_name)}</a>` : '<a href="#/tasks">Tasks</a>'}${n.task_title ? ` · <a href="javascript:void 0" data-action="open-task" data-id="${n.task_id}">${esc(n.task_title)}</a>` : ''}</div>
       <div class="ck-nbody">${linkify(n.body)}</div></li>`).join('')}</ul>` : empty('No notes yet'), { count: d.recent_notes.length });
 
   main().classList.add('cockpit-main');
@@ -700,7 +700,7 @@ async function renderDashboard() {
         ${modOk('ideas') ? chip('', '💡', d.ideas.open, 'ideas', 'ideas', d.ideas.cost ? `Open ideas — ${money(d.ideas.cost)} total cost` : 'Open ideas') : ''}
       </div>
       <span class="ck-date">${esc(fmtDate(new Date()))}</span>
-      ${modOk('report') || modOk('projects') ? ddMenu('⋯', `${modOk('report') ? '<a href="#/report">📰 Status report</a>' : ''}${modOk('projects') ? '<a href="/api/export.xlsx">⬇ Everything as an Excel workbook</a>' : ''}`, { title: 'Status report, Excel export', right: true }) : ''}
+      ${modOk('report') || modOk('projects') ? ddMenu('⋯', `${modOk('report') ? '<a href="#/report">Status report</a>' : ''}${modOk('projects') ? '<a href="/api/export.xlsx">⬇ Everything as an Excel workbook</a>' : ''}`, { title: 'Status report, Excel export', right: true }) : ''}
     </div>
     <div class="ck-grid">
       <div class="ck-col ck-col1">${focusPanel}</div>
@@ -809,7 +809,7 @@ function taskRow(t, p, hideDone, o = {}) {
         </span>
       </div>
       <div class="tl-meta">
-        ${o.project ? `<span class="tl-proj">${depth ? '' : t.project_id ? `<a href="#/project/${t.project_id}" title="${esc(t.project_name)}">${esc(t.project_name)}</a>` : '<span class="muted">✅ Standalone</span>'}</span>` : ''}
+        ${o.project ? `<span class="tl-proj">${depth ? '' : t.project_id ? `<a href="#/project/${t.project_id}" title="${esc(t.project_name)}">${esc(t.project_name)}</a>` : '<span class="muted">Standalone</span>'}</span>` : ''}
         <span class="tl-due">${dueChip(t)}</span>
         <span class="tl-owner">${ownerChip(t)}</span>
         ${statusBtn(t, open)}
@@ -954,13 +954,13 @@ function baselineBox(p) {
 function timelineItem(i) {
   if (i.type === 'meeting') {
     return `<li class="note meeting-item" data-action="open-meeting" data-id="${i.id}" title="Open meeting">
-      <div class="when"><span class="when-at">🗓 ${esc(fmtDateTime(i.held_at))}</span> <b class="when-what" title="${esc(i.title)}">${esc(i.title)}</b>
+      <div class="when"><span class="when-at">${esc(fmtDateTime(i.held_at))}</span> <b class="when-what" title="${esc(i.title)}">${esc(i.title)}</b>
         ${i.task_title ? `<span class="badge baseline" title="${esc(i.task_title)}">${esc(i.task_title)}</span>` : ''}
         <span class="spacer"></span><span class="small muted">${actionsLabel(i)}</span></div>
       ${i.attendees ? `<div class="small muted">With ${esc(i.attendees)}</div>` : ''}</li>`;
   }
   if (i.type === 'note') {
-    return `<li class="note"><div class="when"><span class="when-at">🕘 ${esc(fmtDateTime(i.created_at))}</span>
+    return `<li class="note"><div class="when"><span class="when-at">${esc(fmtDateTime(i.created_at))}</span>
         ${i.task_title ? `<span class="badge baseline" data-action="open-task" data-id="${i.task_id}" style="cursor:pointer" title="${esc(i.task_title)} — open the task">${esc(i.task_title)}</span>` : ''}
         <span class="spacer"></span><button class="icon" data-action="delete-note" data-id="${i.id}" title="Delete note">✕</button></div>
       <div class="note-body pre">${linkify(i.body)}</div></li>`;
@@ -989,27 +989,27 @@ function teamCard(p) {
   const fixed = (name, role) => (name ? `<li class="team-row"><div><b>${esc(name)}</b> <span class="small muted">${role}</span></div>
     <div>${load(name)}</div></li>` : '');
   return `<div class="card team-card">
-    <div class="list-tools"><h2 style="margin:0">👥 Project team <span class="muted small">${team.length + [p.leader, p.sponsor].filter(Boolean).length}</span></h2>
+    <div class="list-tools"><h2 style="margin:0">Project team <span class="muted small">${team.length + [p.leader, p.sponsor].filter(Boolean).length}</span></h2>
       <button data-action="add-member">＋ Add person</button></div>
     <ul class="team-list">
       ${fixed(p.leader, 'Project leader')}${fixed(p.sponsor, 'Management sponsor')}
       ${team.map((m) => `<li class="team-row clickable" data-action="edit-member" data-id="${m.id}" title="Edit">
         <div><b>${esc(m.name)}</b>${m.role ? ` <span class="small muted">${esc(m.role)}</span>` : ''}
-          <div class="small muted">${[m.department && `🏢 ${esc(m.department)}`, m.capacity && `⏱ ${esc(m.capacity)}`, contactLink(m.contact)].filter(Boolean).join(' · ')}</div></div>
+          <div class="small muted">${[m.department && `${esc(m.department)}`, m.capacity && `${esc(m.capacity)}`, contactLink(m.contact)].filter(Boolean).join(' · ')}</div></div>
         <div class="row">${load(m.name)}<button class="icon" data-action="del-member" data-id="${m.id}" title="Remove from the team">✕</button></div>
       </li>`).join('')}
     </ul>
     ${team.length ? '' : '<div class="small muted">Add the people working on this project. Their names are offered as task owners, and appear in the charter.</div>'}
     ${others.length ? `<div class="small muted" style="margin-top:8px">Also own tasks here: ${others.map((o) =>
       `<button class="link small" data-action="add-member" data-name="${esc(o)}" title="Add to the team">＋ ${esc(o)}</button>`).join(' ')}</div>` : ''}
-    <div class="small muted" style="margin-top:6px">Leader and sponsor are set in <a href="#/project/${p.id}/charter">📋 Charter</a>.</div>
+    <div class="small muted" style="margin-top:6px">Leader and sponsor are set in <a href="#/project/${p.id}/charter">Charter</a>.</div>
   </div>`;
 }
 
 function memberDialog(p, m, presetName = '') {
   const people = [...new Set([...state.projects.flatMap((x) => [x.sponsor, x.leader]), ...p.tasks.flatMap((t) => splitOwners(t.owner))].filter(Boolean))];
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">👥 ${m ? 'Team member' : 'Add to the team'} — ${esc(p.name)}</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0">${m ? 'Team member' : 'Add to the team'} — ${esc(p.name)}</h2><button class="icon" data-action="close-modal">✕</button></div>
     <form id="member-form" class="form-grid">
       <label class="f">Name<span class="row" style="flex-wrap:nowrap;gap:4px"><input type="text" name="name" required list="member-people" autocomplete="off" value="${esc(m?.name || presetName)}" style="flex:1">
         <button type="button" id="member-book" title="Choose from the contacts book">📇</button></span></label>
@@ -1068,7 +1068,7 @@ function phaseSlip(ph) {
 function phasesBox(p) {
   const phases = p.charter.phases;
   if (!phases.length) {
-    return `<div class="baseline-box"><span>🧭 Bigger project? Split it into phases or milestones (e.g. <i>Phase 1: pilot</i>, <i>Phase 2: roll-out</i>)
+    return `<div class="baseline-box"><span>Bigger project? Split it into phases or milestones (e.g. <i>Phase 1: pilot</i>, <i>Phase 2: roll-out</i>)
       and group its tasks under them.</span><button class="link" data-action="add-phase">＋ Add a phase</button></div>`;
   }
   const current = phases.find((ph) => ph.status !== 'done');
@@ -1095,7 +1095,7 @@ function phaseDialog(p, phase) {
   const idx = phase ? phases.findIndex((x) => x.id === phase.id) : -1;
   const free = p.tasks.filter((t) => !t.parent_id && !t.phase_id);
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">🧭 ${phase ? `Phase ${idx + 1}` : 'New phase'} — ${esc(p.name)}</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0">${phase ? `Phase ${idx + 1}` : 'New phase'} — ${esc(p.name)}</h2><button class="icon" data-action="close-modal">✕</button></div>
     <form id="phase-form" class="form-grid">
       <label class="f full">Name<input type="text" name="name" required value="${esc(phase?.name || '')}" placeholder="e.g. Phase ${phases.length + 1}: roll-out to site B"></label>
       <label class="f">Start<input type="date" name="start_date" value="${esc(phase?.start_date || '')}"></label>
@@ -1180,7 +1180,7 @@ async function renderProject(id, tab) {
     api.get(`/meetings?project_id=${id}`), loadLookups()]);
   state.project = p;
   const tabs = `<div class="tabs"><a href="#/project/${p.id}" class="${tab === 'charter' ? '' : 'on'}">Overview</a>
-    <a href="#/project/${p.id}/charter" class="${tab === 'charter' ? 'on' : ''}">📋 Charter <span class="small muted">${p.charter.completeness.pct}%</span></a></div>`;
+    <a href="#/project/${p.id}/charter" class="${tab === 'charter' ? 'on' : ''}">Charter <span class="small muted">${p.charter.completeness.pct}%</span></a></div>`;
   const hideDone = store.get('hideDone', false);
   const view = store.get('projTaskView', 'board'); // ▦ the board first
   const board = view === 'board';
@@ -1214,11 +1214,11 @@ async function renderProject(id, tab) {
           <button data-action="add-phase">🧭 Add a phase</button>
           <button data-action="set-baseline">📌 ${p.baseline_set_at ? 'Re-baseline' : 'Set the baseline'}</button>
           <hr>
-          <a href="#/report/${p.id}">📰 Status report</a>
+          <a href="#/report/${p.id}">Status report</a>
           <a href="/api/projects/${p.id}/charter.xlsx" title="The charter: your standard template filled in (set it up under Settings)">⬇ Charter (Excel)</a><a href="/api/export.xlsx?scope=project&id=${p.id}" title="Everything in the project: tasks, notes, costs, phases, team…">⬇ All the project's data (Excel)</a>`, { title: 'More: history, reminder, costs, phases, baseline, report, Excel' })}
       </div>
     </div>
-    <label class="na-line" title="The talking point for this project's next review — one line, shown on Home, the board and 👥 People. Empty: its most pressing open task, worked out (type to set your own)">▶ <input type="text" id="proj-next" maxlength="300" value="${esc(p.next_action || '')}" placeholder="${esc(autoPlaceholder(p.next_auto, 'Next action — the talking point for the next review'))}"></label>
+    <label class="na-line" title="The talking point for this project's next review — one line, shown on Home, the board and People. Empty: its most pressing open task, worked out (type to set your own)">▶ <input type="text" id="proj-next" maxlength="300" value="${esc(p.next_action || '')}" placeholder="${esc(autoPlaceholder(p.next_auto, 'Next action — the talking point for the next review'))}"></label>
     ${tabs}
     ${tab === 'charter' ? '<div id="charter-root"></div>' : `
     ${projSummary(p)}
@@ -1238,9 +1238,9 @@ async function renderProject(id, tab) {
           <div class="row">
             ${board ? subCardsToggle() : `<label class="small muted row"><input type="checkbox" data-action="toggle-hide-done" ${hideDone ? 'checked' : ''}> Hide completed</label>`}
             <div class="seg" role="group" aria-label="Task view">
-              <button data-action="tasks-view" data-view="board" class="${board ? 'on' : ''}" title="A column per status">▦ Board</button>
-              <button data-action="tasks-view" data-view="list" class="${view === 'list' ? 'on' : ''}" title="Checklist">☰ List</button>
-              <button data-action="tasks-view" data-view="gantt" class="${gantt ? 'on' : ''}" title="Gantt chart">▤ Gantt</button>
+              <button data-action="tasks-view" data-view="board" class="${board ? 'on' : ''}" title="A column per status">Board</button>
+              <button data-action="tasks-view" data-view="list" class="${view === 'list' ? 'on' : ''}" title="Checklist">List</button>
+              <button data-action="tasks-view" data-view="gantt" class="${gantt ? 'on' : ''}" title="Gantt chart">Gantt</button>
             </div>
           </div>
         </div>
@@ -1303,16 +1303,16 @@ const noteToast = (note) => (note.created_tasks?.length
 function projSummary(p) {
   const c = p.charter.completeness; const cur = projCur(p);
   const charter = `<a class="ps-tile ${c.pct < 100 ? 'ps-warn' : ''}" href="#/project/${p.id}/charter" title="${c.missing_required.length ? `Missing: ${esc(c.missing_required.join(', '))}` : 'Open the charter'}">
-    <span class="ps-l">📋 Charter</span><span class="ps-v">${c.pct}%</span>${charterMeter(c)}</a>`;
+    <span class="ps-l">Charter</span><span class="ps-v">${c.pct}%</span>${charterMeter(c)}</a>`;
   let baseline;
-  if (!p.baseline_set_at) baseline = `<div class="ps-tile"><span class="ps-l">📌 Baseline</span><span class="ps-v muted">none</span><button class="link small" data-action="set-baseline">Set it</button></div>`;
+  if (!p.baseline_set_at) baseline = `<div class="ps-tile"><span class="ps-l">Baseline</span><span class="ps-v muted">none</span><button class="link small" data-action="set-baseline">Set it</button></div>`;
   else { const snap = p.baseline_snapshot || {}; const baseIds = new Set((snap.tasks || []).map((t) => t.id)); const added = p.tasks.filter((t) => !t.is_baseline).length;
     const days = p.baseline_due_at && p.due_at && p.baseline_due_at !== p.due_at ? Math.round((new Date(p.due_at) - new Date(p.baseline_due_at)) / 86400000) : 0;
-    baseline = `<div class="ps-tile" title="Baseline set ${esc(fmtDateTime(p.baseline_set_at))} · due then ${p.baseline_due_at ? esc(fmtDate(p.baseline_due_at)) : '—'}"><span class="ps-l">📌 Baseline</span>
+    baseline = `<div class="ps-tile" title="Baseline set ${esc(fmtDateTime(p.baseline_set_at))} · due then ${p.baseline_due_at ? esc(fmtDate(p.baseline_due_at)) : '—'}"><span class="ps-l">Baseline</span>
       <span class="ps-v">${baseIds.size} task${baseIds.size === 1 ? '' : 's'}${added ? ` <span class="small muted">+${added} since</span>` : ''}</span>
       <span class="small ${days > 0 ? 'chip overdue' : 'muted'}">${days ? `${days > 0 ? '+' : ''}${days} day${Math.abs(days) === 1 ? '' : 's'} vs plan` : `due ${p.baseline_due_at ? esc(fmtShortDate(p.baseline_due_at)) : '—'}`}</span></div>`; }
   const spent = p.spent || 0; const budget = p.budget; const has = budget !== null && budget !== undefined; const pct = has && budget ? Math.round((spent / budget) * 100) : null; const over = has && spent > budget;
-  const money_ = `<div class="ps-tile ps-budget ${over ? 'ps-bad' : ''}"><span class="ps-l">💰 Budget</span>
+  const money_ = `<div class="ps-tile ps-budget ${over ? 'ps-bad' : ''}"><span class="ps-l">Budget</span>
     <span class="ps-v">${money(spent, cur)}${has ? ` <span class="small muted">of ${money(budget, cur)}</span>` : ''}</span>
     ${has ? `<span class="meter wide ${over ? 'over' : pct >= 90 ? 'near' : ''}" title="${pct}% spent"><span style="width:${Math.min(pct, 100)}%"></span></span>` : '<button class="link small" data-action="edit-project">Set a budget</button>'}
     ${(p.unconverted || []).length ? `<span class="chip overdue" title="Costs in another currency with no amount in ${esc(cur)} — set it on each cost">⚠ ${p.unconverted.map((u) => money(u.amount, u.currency)).join(' + ')} not counted</span>` : ''}
@@ -1327,13 +1327,13 @@ function budgetBox(p, costsOnly = false) {
   const level = over ? 'over' : pct !== null && pct >= 90 ? 'near' : '';
   const showCosts = costsOnly || store.get('showCosts', false); const cur = projCur(p);
   return `${costsOnly ? '' : `<div class="baseline-box budget-box">
-    <span>💰 Budget: <b>${budget !== null && budget !== undefined ? money(budget, cur) : '—'}</b></span>
+    <span>Budget: <b>${budget !== null && budget !== undefined ? money(budget, cur) : '—'}</b></span>
     <span>Spent: <b>${money(spent, cur)}</b>${pct !== null ? ` <span class="muted">(${pct}%)</span>` : ''}</span>
     ${budget !== null && budget !== undefined ? `
       <span class="meter wide ${level}" title="${pct}% of the budget spent"><span style="width:${Math.min(pct, 100)}%"></span></span>
       <span>${over ? `<span class="chip overdue">⚠ Over budget by ${money(spent - budget, cur)}</span>` : `Remaining: <b>${money(budget - spent, cur)}</b>`}</span>`
       : '<button class="link" data-action="edit-project">Set a budget</button>'}
-    ${(p.unconverted || []).length ? `<span class="chip overdue" title="Costs in another currency with no amount in the project's — set it on each cost (Show costs), or add the rate in ⚙ Settings before logging">⚠ Not counted: ${p.unconverted.map((u) => money(u.amount, u.currency)).join(' + ')}</span>` : ''}
+    ${(p.unconverted || []).length ? `<span class="chip overdue" title="Costs in another currency with no amount in the project's — set it on each cost (Show costs), or add the rate in Settings before logging">⚠ Not counted: ${p.unconverted.map((u) => money(u.amount, u.currency)).join(' + ')}</span>` : ''}
     <button class="link" data-action="log-cost">＋ Log a cost</button>
     ${p.costs.length ? `<button class="link" data-action="toggle-costs">${showCosts ? 'Hide' : 'Show'} ${p.costs.length} cost${p.costs.length === 1 ? '' : 's'}</button>` : ''}
   </div>`}
@@ -1347,7 +1347,7 @@ function budgetBox(p, costsOnly = false) {
 
 function costDialog(p) {
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">💰 Log a cost — ${esc(p.name)}</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0">Log a cost — ${esc(p.name)}</h2><button class="icon" data-action="close-modal">✕</button></div>
     <form id="cost-form" class="form-grid">
       <label class="f full">Description<input type="text" name="description" required placeholder="e.g. Movers deposit, PO 4411"></label>
       <label class="f">Amount<input type="number" name="amount" min="0" step="0.01" required></label>
@@ -1361,7 +1361,7 @@ function costDialog(p) {
   // another currency: what it is in the project's, worked out at the rates in Settings until typed over
   const pc = projCur(p).trim(); let typed = false; const F = (n) => $(`#cost-form [name=${n}]`);
   const conv = () => { const cur = F('currency').value.trim() || pc; const other = cur !== pc; $('#cost-conv').hidden = !other; if (!other) return;
-    const v = fxConvert(F('amount').value || 0, cur, pc); $('#cost-rate').textContent = v === null ? `no rate for ${cur} in ⚙ Settings — type it, or leave it blank (then it isn't counted)` : `worked out at the rate in ⚙ Settings (1 ${cur} = ${fxConvert(1, cur, pc)} ${pc}) — change it if it was different`;
+    const v = fxConvert(F('amount').value || 0, cur, pc); $('#cost-rate').textContent = v === null ? `no rate for ${cur} in ⚙ Settings — type it, or leave it blank (then it isn't counted)` : `worked out at the rate in Settings (1 ${cur} = ${fxConvert(1, cur, pc)} ${pc}) — change it if it was different`;
     if (!typed) F('amount_project').value = v === null || !F('amount').value ? '' : v; };
   F('currency').addEventListener('input', conv); F('amount').addEventListener('input', conv); F('amount_project').addEventListener('input', () => { typed = true; });
   $('#cost-form').addEventListener('submit', async (e) => {
@@ -1455,13 +1455,13 @@ async function renderKanban() {
 
   main().innerHTML = `
     <div class="kanban-tools">
-      <h1 style="margin:0">🗂 Projects</h1>
+      <h1 style="margin:0">Projects</h1>
       <label class="person-pick" title="One person's projects: as leader, sponsor, on the team, or owning one of its open tasks">${who ? personDot(who) : '👤'}<select id="board-person"><option value="">Everyone</option>${everyone.map((n) => `<option ${sameName(n, who) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
       ${timeline ? '' : `<label class="person-pick" title="The order within each column">↕<select id="board-sort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sort ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`}
       <div class="spacer"></div>
       <div class="seg" role="group" aria-label="Projects view">
-        <button data-action="projects-view" data-view="board" class="${timeline ? '' : 'on'}">▦ Board</button>
-        <button data-action="projects-view" data-view="timeline" class="${timeline ? 'on' : ''}">▤ Timeline</button>
+        <button data-action="projects-view" data-view="board" class="${timeline ? '' : 'on'}">Board</button>
+        <button data-action="projects-view" data-view="timeline" class="${timeline ? 'on' : ''}">Timeline</button>
       </div>
       <button class="primary" data-action="new-project">+ New project</button>
     </div>
@@ -1531,8 +1531,8 @@ function taskBoardHtml(tasks, o = {}) {
         <button type="button" class="tc-exp" data-card-expand="${t.id}" aria-expanded="${isOpen}" title="${isOpen ? 'Fold it back to one line' : `Show its details${subCount ? ' and subtasks' : ''}`}">${subCount ? `<span class="tc-exp-n ${subDone === subCount ? 'all' : ''}">${subDone}/${subCount}</span>` : ''}<span class="tc-exp-ic">▸</span></button>
         <button type="button" class="tc-sub-st tc-st st-${t.status}" data-task-status="${t.id}" data-subs="${openKids.length}" title="${STATUS[t.status]} — click to move it (or drag the card)">${STATUS_ICON[t.status]}</button>
         ${prioBtn(t)}</div>
-      ${o.project ? `<div class="tc-proj">${t.project_id ? `<a href="#/project/${t.project_id}">🗂 ${esc(t.project_name)}</a>` : '<span class="muted">✅ Standalone</span>'}</div>` : ''}
-      ${t.phase_name ? `<div class="tc-proj muted" title="Phase">🧭 ${esc(t.phase_name)}</div>` : ''}
+      ${o.project ? `<div class="tc-proj">${t.project_id ? `<a href="#/project/${t.project_id}">${esc(t.project_name)}</a>` : '<span class="muted">Standalone</span>'}</div>` : ''}
+      ${t.phase_name ? `<div class="tc-proj muted" title="Phase">${esc(t.phase_name)}</div>` : ''}
       <div class="tc-meta">${dueChip(t)} ${ownerChip(t)} ${waitingChip(t)} ${repeatChip(t)}
         ${t.next_reminder ? '<span class="small" title="Reminder">🔔</span>' : ''}${t.note_count ? `<span class="small muted" title="Notes">📝 ${t.note_count}</span>` : ''}${t.attachment_count ? `<span class="small muted" title="Attachments">📎 ${t.attachment_count}</span>` : ''}</div>
       ${subCount ? `<div class="tc-prog" title="${subDone} of ${subCount} subtasks done"><span class="tl-prog"><i style="width:${Math.round((subDone / subCount) * 100)}%"></i></span><span class="tl-prog-n">${subDone}/${subCount} subtasks</span></div>` : ''}
@@ -1544,14 +1544,14 @@ function taskBoardHtml(tasks, o = {}) {
     let inCol = list.filter((t) => t.status === st);
     if (st === 'done') inCol = inCol.sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at)));
     return `<div class="column tcol more-scope st-${st}" data-status="${st}">
-      <h3 class="tcol-head"><span>${STATUS_ICON[st]} ${STATUS[st]}</span><span class="tcol-n">${inCol.length}</span></h3>
+      <h3 class="tcol-head"><span>${STATUS[st]}</span><span class="tcol-n">${inCol.length}</span></h3>
       <div class="tcol-cards">${inCol.map((t, i) => (st === 'done' && i >= DONE_SHOWN ? hideItem(card(t)) : card(t))).join('') || '<div class="tcol-empty">Drop a task here</div>'}</div>
       ${st === 'done' ? moreButton(inCol.length - DONE_SHOWN, DONE_SHOWN, 'completed') : ''}
       ${st === 'todo' && o.add !== false && !laneKey ? '<input type="text" id="board-add" class="tcol-add" placeholder="＋ Add a task… (Enter)" autocomplete="off">' : ''}
     </div>`;
   }).join('');
   const board = (list, laneKey) => `<div class="tboard" style="--cols:${cols.length}">${columns(list, laneKey)}</div>`;
-  // 🗂 My lists: columns of the person's own (o.groups: [{ key, title, ids, foot }]) in place of statuses
+  // My lists: columns of the person's own (o.groups: [{ key, title, ids, foot }]) in place of statuses
   if (o.groups) {
     const byId = new Map(cards.map((c) => [c.id, c]));
     return `<div class="tboard tlists${o.extra ? ' has-new' : ''}" style="--cols:${o.groups.length}">${o.groups.map((g) => {
@@ -1567,7 +1567,7 @@ function taskBoardHtml(tasks, o = {}) {
   const keyOf = o.lanes === 'owner' ? (t) => splitOwners(t.owner)[0] || '' : (t) => (t.project_id ? t.project_name : '');
   const lanes = new Map(); for (const t of cards) { const k = keyOf(t); (lanes.get(k) || lanes.set(k, []).get(k)).push(t); }
   const order = [...lanes.keys()].sort((a, b) => (!a) - (!b) || a.localeCompare(b));
-  return order.map((k) => `<section class="tlane"><h3 class="tlane-head">${o.lanes === 'owner' ? (k ? personChip(k) : '<span class="muted">No owner</span>') : esc(k || '✅ Standalone tasks')} <span class="small muted">${lanes.get(k).length}</span></h3>${board(lanes.get(k), k)}</section>`).join('');
+  return order.map((k) => `<section class="tlane"><h3 class="tlane-head">${o.lanes === 'owner' ? (k ? personChip(k) : '<span class="muted">No owner</span>') : esc(k || 'Standalone tasks')} <span class="small muted">${lanes.get(k).length}</span></h3>${board(lanes.get(k), k)}</section>`).join('');
 }
 
 // ======================================================================
@@ -1645,10 +1645,10 @@ async function renderIdeas() {
   const filtered = f.status !== 'open' || f.area || f.q;
 
   main().innerHTML = `
-    <div class="kanban-tools"><h1 style="margin:0">💡 Ideation</h1><div class="spacer"></div>
+    <div class="kanban-tools"><h1 style="margin:0">Ideation</h1><div class="spacer"></div>
       <div class="seg" role="group" aria-label="Ideas view">
-        <button data-action="ideas-view" data-view="list" class="${f.view === 'matrix' ? '' : 'on'}">☰ List</button>
-        <button data-action="ideas-view" data-view="matrix" class="${f.view === 'matrix' ? 'on' : ''}" title="Impact vs effort">▦ Quick wins</button>
+        <button data-action="ideas-view" data-view="list" class="${f.view === 'matrix' ? '' : 'on'}">List</button>
+        <button data-action="ideas-view" data-view="matrix" class="${f.view === 'matrix' ? 'on' : ''}" title="Impact vs effort">Quick wins</button>
       </div>
       <a class="button" href="/api/export.xlsx?scope=ideas" title="Download all ideas as an Excel workbook">⬇ Excel</a>
       <button class="primary" data-action="new-idea">+ New idea</button></div>
@@ -1700,10 +1700,10 @@ function ideaMatrix(ideas) {
   const unscored = ideas.filter((i) => ideaScore(i) === null);
   return `<div class="matrix">
       <div class="axis-y">Impact →</div>
-      ${box('⭐ Quick wins', 'High impact, low effort: do these first', quad(true, false), 'q-win')}
-      ${box('🏗 Big projects', 'High impact, high effort: plan and consider escalating', quad(true, true), 'q-big')}
-      ${box('🧩 Fill-ins', 'Low impact, low effort: when there is spare time', quad(false, false), 'q-fill')}
-      ${box('🤔 Reconsider', 'Low impact, high effort: probably not worth it', quad(false, true), 'q-no')}
+      ${box('Quick wins', 'High impact, low effort: do these first', quad(true, false), 'q-win')}
+      ${box('Big projects', 'High impact, high effort: plan and consider escalating', quad(true, true), 'q-big')}
+      ${box('Fill-ins', 'Low impact, low effort: when there is spare time', quad(false, false), 'q-fill')}
+      ${box('Reconsider', 'Low impact, high effort: probably not worth it', quad(false, true), 'q-no')}
       <div class="axis-x">Effort →</div>
     </div>
     ${unscored.length ? `<div class="card" style="margin-top:14px"><h3>Not scored yet <span class="muted small">${unscored.length}</span></h3>
@@ -1714,7 +1714,7 @@ function ideaMatrix(ideas) {
 async function ideaForm() {
   const [submitters] = await Promise.all([api.get('/ideas/submitters'), loadAreas()]);
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">💡 New idea</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0">New idea</h2><button class="icon" data-action="close-modal">✕</button></div>
     <form id="idea-form" class="form-grid">
       <label class="f full">Name<input type="text" name="title" required></label>
       <label class="f full">Description<textarea name="description" rows="3"></textarea></label>
@@ -1759,7 +1759,7 @@ async function renderIdea(id) {
   main().innerHTML = `
     <div class="project-head">
       <div class="title">
-        <div class="small"><a href="#/ideas">💡 Ideation</a> ›</div>
+        <div class="small"><a href="#/ideas">Ideation</a> ›</div>
         <h1><span class="muted">${esc(i.ref)}</span> ${esc(i.title)}</h1>
         <div class="small muted">Raised ${esc(fmtDateTime(i.created_at))}${i.submitted_by ? ` by <b>${esc(i.submitted_by)}</b>` : ''}
           · Updated ${esc(fmtDateTime(i.updated_at))}</div>
@@ -1772,7 +1772,7 @@ async function renderIdea(id) {
         <a class="button primary" href="#/ideas" title="Changes save as you go — back to the ideas">✓ Done</a>
       </div>
     </div>
-    ${locked ? `<div class="baseline-box">🚀 Escalated to project
+    ${locked ? `<div class="baseline-box">Escalated to project
       ${i.project_id ? `<a href="#/project/${i.project_id}"><b>${esc(i.project_name)}</b></a>` : '<i>(project since deleted)</i>'}</div>` : ''}
     <div class="grid two">
       <div class="card">
@@ -1850,7 +1850,7 @@ async function saveIdeaNote() {
 async function escalateDialog(i) {
   await loadLookups();
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">🚀 Escalate ${esc(i.ref)} to a project</h2>
+    <div class="modal-head"><h2 style="margin:0">Escalate ${esc(i.ref)} to a project</h2>
       <button class="icon" data-action="close-modal">✕</button></div>
     <p class="muted">Creates a new project from this idea. The idea is marked <b>Escalated</b> and linked to the project,
       and a summary (submitter, area, cost) is added to the project's timeline.</p>
@@ -1891,14 +1891,14 @@ async function escalateDialog(i) {
 
 // Signed in without admin: only your own settings (appearance, password); the setup is for admins.
 async function renderMySettings() {
-  main().innerHTML = `<h1>⚙ Settings</h1>
+  main().innerHTML = `<h1>Settings</h1>
     <div class="grid dash">
       <div class="card"><h2>Appearance</h2>
         <label class="f">Light or dark
-          <select id="theme-choice" style="max-width:220px">${options({ auto: 'Automatic (follow Windows)', light: '☀ Light', dark: '🌙 Dark' }, store.get('theme', 'auto'))}</select></label>
+          <select id="theme-choice" style="max-width:220px">${options({ auto: 'Automatic (follow Windows)', light: 'Light', dark: 'Dark' }, store.get('theme', 'auto'))}</select></label>
         <p class="small muted">Kept with your account, so it's the same on any PC you sign in on. The ⋯ menu's Dark mode switch changes it too.</p>
         ${navSettingsHtml()}</div>
-      <div class="card"><h2>👤 Your account</h2>
+      <div class="card"><h2>Your account</h2>
         <p>Signed in as <b>${esc(ACCT.account.person)}</b> (${esc(ACCT.account.username)}).</p>
         <button data-action="change-password">🔑 Change password</button>
         <p class="small muted">${acctRight('accounts') || acctRight('server') ? 'The rest of the setup' : 'The setup'} — areas, project lists, the charter template, Planning's setup, KPI sources — is changed by an admin.</p></div>
@@ -1916,7 +1916,7 @@ async function renderSettings() {
   state.settings = settings;
   const ta = team?.applied;
   main().innerHTML = `
-    <h1>⚙ Settings</h1>
+    <h1>Settings</h1>
     <div class="grid dash">
       <div class="card">
         <h2>Areas</h2>
@@ -1939,9 +1939,9 @@ async function renderSettings() {
       <div class="card">
         <h2>General</h2>
         <label class="f">Appearance <span class="muted small">${ACCT.account ? '— yours, kept with your account' : ''}</span>
-          <select id="theme-choice" style="max-width:220px">${options({ auto: 'Automatic (follow Windows)', light: '☀ Light', dark: '🌙 Dark' }, store.get('theme', 'auto'))}</select></label>
+          <select id="theme-choice" style="max-width:220px">${options({ auto: 'Automatic (follow Windows)', light: 'Light', dark: 'Dark' }, store.get('theme', 'auto'))}</select></label>
         ${navSettingsHtml()}
-        <p class="small muted">People and departments for owners and attendees are on the <a href="#/contacts">📇 Contacts</a> page.</p>
+        <p class="small muted">People and departments for owners and attendees are on the <a href="#/contacts">Contacts</a> page.</p>
         <label class="f">Currency symbol — idea costs, and project budgets and costs unless a project sets its own
           <input type="text" id="currency" value="${esc(settings.currency)}" maxlength="5" style="max-width:120px"></label>
         <div class="f"><span>Exchange rates — for costs logged in another currency than their project's (what one of each is in ${esc(settings.currency)}); a cost keeps the rate it was logged at</span>
@@ -1951,7 +1951,7 @@ async function renderSettings() {
       ${await acctSettingsHtml()}
       ${serverCardHtml()}
       <div class="card">
-        <h2>📦 Team pack</h2>
+        <h2>Team pack</h2>
         <p class="small muted">What everyone on the team shares: the <b>contacts lists</b> (People with their roles, Departments and any lists added)
           and the <b>project categories</b> and <b>policy deployment</b> lists. Save it as <code>cimanager-team-….json</code> next to <b>CIManager-Setup.bat</b> on the network:
           each install picks up the newest one by itself (at start-up and every 30 minutes) and <b>adds</b> what it doesn't have yet — nothing is removed or overwritten,
@@ -2075,11 +2075,11 @@ function offsiteCard(off) {
         <div class="off-btns"><button type="submit">Save</button><button type="button" data-off-run="${kind}" ${c.dir ? '' : 'disabled'} title="Make a copy there now">▶ Copy now</button></div>
       </div>
       <div class="small off-st">${!c.dir ? '<span class="muted">Off: no folder set.</span>' : !l ? '<span class="muted">No copy yet.</span>'
-        : l.ok ? `<span class="pa-ok">✔ Copied ${esc(when(l.at))}</span> <span class="muted">(${esc((l.files || []).join(', '))})</span>` : `<span class="pa-bad">✖ ${esc(when(l.at))}: ${esc(l.error)}</span> <span class="muted">— tried again in an hour</span>`}
+        : l.ok ? `<span class="pa-ok">✔ Copied ${esc(when(l.at))}</span> <span class="muted">(${esc((l.files || []).join(', '))})</span>` : `<span class="pa-bad">${esc(when(l.at))}: ${esc(l.error)}</span> <span class="muted">— tried again in an hour</span>`}
         ${c.next ? ` · <span class="muted">Next: ${esc(whenKey(c.next))}</span>` : ''}</div></form>`; };
-  return `<div class="card stack" style="margin-top:16px"><h3 style="margin:0">🛡 3-2-1 copies</h3>
+  return `<div class="card stack" style="margin-top:16px"><h3 style="margin:0">3-2-1 copies</h3>
     <p class="small muted" style="margin:0">Three copies of the data, on two kinds of storage, one of them away from here: the backups above, a <b>daily</b> copy to one folder (e.g. a share on another server) and a <b>weekly</b> copy to another (e.g. a OneDrive folder, synced to the cloud). Each is a fresh backup, copied and checked byte for byte there, with the attachment files. If the server was off at the time, or the folder couldn't be reached, it's made as soon as it can be. The folders must be reachable from the server, by the account it runs as.</p>
-    ${row('daily', '📅 Daily copy', 'at the end of each day')}${row('weekly', '🗓 Weekly copy', 'at the end of each week')}</div>`;
+    ${row('daily', 'Daily copy', 'at the end of each day')}${row('weekly', 'Weekly copy', 'at the end of each week')}</div>`;
 }
 document.addEventListener('submit', async (e) => {
   const f = e.target.closest('form[data-off]'); if (!f) return;
@@ -2105,7 +2105,7 @@ async function restoreFlow(label, send) {
   const c = info.counts;
   const line = (n, word) => `<b>${n}</b> ${word}${n === 1 ? '' : 's'}`;
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">⤺ Restore backup?</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0">Restore backup?</h2><button class="icon" data-action="close-modal">✕</button></div>
     <p><b>${esc(label)}</b>${info.created ? `<br><span class="small muted">Backup taken ${esc(fmtDateTime(info.created))}</span>` : ''}</p>
     <p>It contains ${line(c.projects, 'project')}, ${line(c.tasks, 'task')}, ${line(c.notes, 'note')} and ${line(c.ideas, 'idea')}.</p>
     <p class="restore-warn">⚠ This <b>replaces all current data</b> with the backup's.
@@ -2146,31 +2146,31 @@ async function renderSearch(q) {
   const r = await api.get(`/search?q=${encodeURIComponent(q)}`);
   const places = placesFor(q);
   const card = (title, items, html, empty = 'None') => `<div class="card"><h2>${title} ${items.length ? `<span class="muted small">${items.length}</span>` : ''}</h2>${items.length ? html : `<div class="empty">${empty}</div>`}</div>`;
-  const kpiWeek = (x) => `<li style="display:block"><a href="#/kpi/${x.snap || ''}">📊 <b>${esc(x.week)}</b></a> <span class="small muted">${x.ref ? `A3 box ${esc(x.ref)}` : 'the week\'s notes'}</span>
+  const kpiWeek = (x) => `<li style="display:block"><a href="#/kpi/${x.snap || ''}"><b>${esc(x.week)}</b></a> <span class="small muted">${x.ref ? `A3 box ${esc(x.ref)}` : 'the week\'s notes'}</span>
     <div class="small muted">${esc(String(x.text || '').replace(/\s+/g, ' ').slice(0, 200))}</div></li>`;
   // every module the account has, and only those
   main().innerHTML = `<h1>Search: “${esc(q)}”</h1>
-    ${places.length ? `<div class="card search-places"><h2>🧭 Go to <span class="muted small">— places in the app</span></h2><div class="search-place-list">
+    ${places.length ? `<div class="card search-places"><h2>Go to <span class="muted small">— places in the app</span></h2><div class="search-place-list">
       ${places.map((pl) => `<button type="button" class="search-place" data-place="${PLACES.indexOf(pl)}"><b>${esc(pl.label)}</b><span class="small muted">${esc(pl.where)}</span></button>`).join('')}</div></div>` : ''}
     <div class="grid dash">
-      ${modOk('planning') ? card('🏭 Production <span class="muted small">— work orders and cards</span>', r.production, `<ul class="mini">${r.production.map((x) => `<li style="display:block">
+      ${modOk('planning') ? card('Production <span class="muted small">— work orders and cards</span>', r.production, `<ul class="mini">${r.production.map((x) => `<li style="display:block">
         <a href="#" data-search-find="${x.kind}:${esc(x.key)}">${x.kind === 'wo' ? '📦' : '💳'} <b>${esc(x.label)}</b></a>${x.open ? ' <span class="pf-open">open</span>' : ''} <div class="small muted">${esc(x.sub || '')}</div></li>`).join('')}</ul>`) : ''}
-      ${modOk('projects') ? card('🗂 Projects', r.projects, `<ul class="mini">${r.projects.map((p) => `<li><a href="#/project/${p.id}">${esc(p.name)}</a> <span class="small muted">${PSTATUS[p.status]}</span></li>`).join('')}</ul>`) : ''}
-      ${card('✅ Tasks', r.tasks, `<ul class="mini">${r.tasks.map(miniTask).join('')}</ul>`)}
-      ${modOk('ideas') ? card('💡 Ideas', r.ideas, `<ul class="mini">${r.ideas.map((i) => `<li>
+      ${modOk('projects') ? card('Projects', r.projects, `<ul class="mini">${r.projects.map((p) => `<li><a href="#/project/${p.id}">${esc(p.name)}</a> <span class="small muted">${PSTATUS[p.status]}</span></li>`).join('')}</ul>`) : ''}
+      ${card('Tasks', r.tasks, `<ul class="mini">${r.tasks.map(miniTask).join('')}</ul>`)}
+      ${modOk('ideas') ? card('Ideas', r.ideas, `<ul class="mini">${r.ideas.map((i) => `<li>
         <span class="t" data-action="open-idea" data-id="${i.id}"><b>${esc(i.ref)}</b> ${esc(i.title)}</span> ${ideaStatusPill(i.status)}</li>`).join('')}</ul>`) : ''}
-      ${modOk('kpi') ? card('📊 Reporting <span class="muted small">— typed on the Weekly SC Report</span>', r.reporting, `<ul class="mini">${r.reporting.map(kpiWeek).join('')}</ul>`) : ''}
-      ${card('📚 Library', r.library, `<ul class="mini">${r.library.map((d) => `<li style="display:block">
-        <a href="#/library/${d.id}">📄 <b>${esc(d.title)}</b></a> <span class="small muted">${esc(d.folder)}</span>
+      ${modOk('kpi') ? card('Reporting <span class="muted small">— typed on the Weekly SC Report</span>', r.reporting, `<ul class="mini">${r.reporting.map(kpiWeek).join('')}</ul>`) : ''}
+      ${card('Library', r.library, `<ul class="mini">${r.library.map((d) => `<li style="display:block">
+        <a href="#/library/${d.id}"><b>${esc(d.title)}</b></a> <span class="small muted">${esc(d.folder)}</span>
         <div class="small muted">${esc(d.snippet)}</div></li>`).join('')}</ul>`)}
-      ${card('🗓 Meetings', r.meetings, `<ul class="mini">${r.meetings.map((m) => `<li style="display:block">
-        <span class="t" data-action="open-meeting" data-id="${m.id}">🗓 <b>${esc(m.title)}</b></span>
+      ${card('Meetings', r.meetings, `<ul class="mini">${r.meetings.map((m) => `<li style="display:block">
+        <span class="t" data-action="open-meeting" data-id="${m.id}"><b>${esc(m.title)}</b></span>
         <span class="small muted">${esc(fmtDateTime(m.held_at))}${m.project_name ? ` · ${esc(m.project_name)}` : ''}${m.task_title ? ` · ${esc(m.task_title)}` : ''}</span>
         ${m.notes_text ? `<div class="pre small">${esc(m.notes_text.slice(0, 300))}${m.notes_text.length > 300 ? '…' : ''}</div>` : ''}</li>`).join('')}</ul>`)}
-      ${card('📝 Notes', r.notes, `<ul class="mini">${r.notes.map((n) => `<li style="display:block">
-        <div class="small muted">${esc(fmtDateTime(n.created_at))} · ${n.project_id ? `<a href="#/project/${n.project_id}">${esc(n.project_name)}</a>` : n.task_id ? `<a href="javascript:void 0" data-action="open-task" data-id="${n.task_id}">${esc(n.task_title || 'Task')}</a>` : '<a href="#/dashboard">📝 Quick note on Home, not assigned yet</a>'}</div>
+      ${card('Notes', r.notes, `<ul class="mini">${r.notes.map((n) => `<li style="display:block">
+        <div class="small muted">${esc(fmtDateTime(n.created_at))} · ${n.project_id ? `<a href="#/project/${n.project_id}">${esc(n.project_name)}</a>` : n.task_id ? `<a href="javascript:void 0" data-action="open-task" data-id="${n.task_id}">${esc(n.task_title || 'Task')}</a>` : '<a href="#/dashboard">Quick note on Home, not assigned yet</a>'}</div>
         ${n.title && !n.project_id && !n.task_id ? `<b>${esc(n.title)}</b>` : ''}<div class="pre">${esc(n.body)}</div></li>`).join('')}</ul>`)}
-      ${modOk('contacts') ? card('📇 Contacts', r.contacts, `<ul class="mini">${r.contacts.map((c) => `<li style="display:block"><a href="#/contacts"><b>${esc(c.name)}</b></a>
+      ${modOk('contacts') ? card('Contacts', r.contacts, `<ul class="mini">${r.contacts.map((c) => `<li style="display:block"><a href="#/contacts"><b>${esc(c.name)}</b></a>
         <span class="small muted">${esc([c.department, c.detail, c.list].filter(Boolean).join(' · '))}</span></li>`).join('')}</ul>`) : ''}
     </div>`;
   main().onclick = (e) => {
@@ -2226,7 +2226,7 @@ async function projectForm(p = {}) {
   const isNew = !p.id;
   if (isNew) await loadLookups();
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">${isNew ? '📋 New project — charter' : 'Edit project'}</h2>
+    <div class="modal-head"><h2 style="margin:0">${isNew ? 'New project — charter' : 'Edit project'}</h2>
       <button class="icon" data-action="close-modal">✕</button></div>
     ${isNew ? '<p class="muted small" style="margin-top:0">Fields marked <span class="req">*</span> are needed to create the project; complete the rest of the charter (KPIs, scope, benefits) on its Charter tab.</p>' : ''}
     <form id="project-form" class="form-grid">
@@ -2276,7 +2276,7 @@ async function projectForm(p = {}) {
   });
 }
 
-// ✅ The task window: everything about a task at a glance, laid out like Home. A strip of coloured tags
+// The task window: everything about a task at a glance, laid out like Home. A strip of coloured tags
 // (status, priority, dates, repeat, project, phase: click one to change it) under the title, then three
 // columns that scroll on their own, never the window: what it is (description, subtasks), the notes,
 // and who and what else (people, depends on, reminders, meetings, attachments). On a phone they stack.
@@ -2311,12 +2311,12 @@ async function taskModal(id) {
   const n = t.due_at && t.status !== 'done' ? dayDiff(t.due_at) : null;
   const dueTone = n === null ? '' : n < 0 ? 'bad' : n <= 1 ? 'soon' : '';
   const panel = (cls, icon, title, count, body, extra = '') => `<section class="tm-panel ${cls}">
-      <div class="tm-ph"><h3>${icon} ${title}${count !== '' && count != null ? ` <span class="tm-count">${count}</span>` : ''}</h3>${extra}</div>${body}</section>`;
+      <div class="tm-ph"><h3>${title}${count !== '' && count != null ? ` <span class="tm-count">${count}</span>` : ''}</h3>${extra}</div>${body}</section>`;
 
   openModal(`
     <div class="tm" id="task-form" data-id="${t.id}" tabindex="-1">
     <div class="modal-head tm-head">
-      <div class="tm-crumb small">${t.project_id ? `<a href="#/project/${t.project_id}" data-action="modal-open-project" data-id="${t.project_id}" title="Open the project">🗂 ${esc(t.project_name)}</a>` : '<span class="muted">✅ Tasks (no project)</span>'}
+      <div class="tm-crumb small">${t.project_id ? `<a href="#/project/${t.project_id}" data-action="modal-open-project" data-id="${t.project_id}" title="Open the project">🗂 ${esc(t.project_name)}</a>` : '<span class="muted">Tasks (no project)</span>'}
         ${t.parent_id ? (t.parent_title ? `<span class="tm-sep">›</span><a href="javascript:void 0" class="tm-parent-link" data-action="open-task" data-id="${t.parent_id}" title="Open the task this is part of">↳ ${esc(t.parent_title)}</a>` : '<span class="tm-sep">›</span><span class="muted" title="Its task isn\'t shared with you: you see this subtask because it\'s yours">↳ 🔒 part of a task not shared with you</span>') : ''}
         ${t.meeting ? `<span class="tm-sep">·</span><a href="#" data-action="open-meeting" data-id="${t.meeting.id}" data-return-task="${t.id}" title="Agreed at this meeting">🗓 from ${esc(t.meeting.title)}, ${esc(fmtDate(t.meeting.held_at))}</a>` : ''}
         ${baselineText}</div>
@@ -2331,7 +2331,7 @@ async function taskModal(id) {
       <button type="button" class="tm-tag ${t.recurrence ? 'on' : 'empty'}" data-tm-menu="recurrence" title="${t.recurrence ? `Repeats ${esc(REPEAT[t.recurrence].toLowerCase())}: ticking it off creates the next one${t.next_task_id ? ' (already created)' : ''}` : 'Make it repeat'}">🔁 ${t.recurrence ? esc(REPEAT[t.recurrence]) : 'Doesn\'t repeat'}</button>
       ${t.parent_id ? '' : `<button type="button" class="tm-tag tm-proj" data-tm-menu="project_id" title="Move this task (and its subtasks) to another project">🗂 ${t.project_id ? esc(t.project_name) : 'No project'}</button>`}
       ${phases.length && !t.parent_id ? `<button type="button" class="tm-tag ${phase ? 'on' : 'empty'}" data-tm-menu="phase_id" title="Which phase of the project this task (and its subtasks) belongs to">🧭 ${phase ? esc(phase.name) : 'No phase'}</button>` : ''}
-      ${t.parent_id && t.phase_name ? `<span class="tm-tag on static" title="From its parent task">🧭 ${esc(t.phase_name)}</span>` : ''}
+      ${t.parent_id && t.phase_name ? `<span class="tm-tag on static" title="From its parent task">${esc(t.phase_name)}</span>` : ''}
     </div>
 
     <div class="tm-grid">
@@ -2372,11 +2372,11 @@ async function taskModal(id) {
           ${t.blocking.length ? `<div class="small muted">Waiting for this: ${t.blocking.map((b) => `<a href="#" data-action="open-task" data-id="${b.id}">${esc(b.title)}</a>`).join(', ')}</div>` : ''}`) : ''}
         ${panel('tm-rem', '🔔', 'Reminders', pendingReminders.length || '', `
           <ul class="mini">${pendingReminders.map((r) => `<li>
-            <span class="t">⏰ ${esc(fmtDateTime(r.remind_at))} <span class="muted small">(${fmtRelative(r.remind_at)})</span> ${r.message ? `— ${esc(r.message)}` : ''}</span>
+            <span class="t">${esc(fmtDateTime(r.remind_at))} <span class="muted small">(${fmtRelative(r.remind_at)})</span> ${r.message ? `— ${esc(r.message)}` : ''}</span>
             <button class="icon" data-action="delete-reminder" data-id="${r.id}" title="Delete">✕</button></li>`).join('')}</ul>`,
           `<button class="small" data-action="remind-task" data-id="${t.id}">＋ Remind me</button>`)}
         ${panel('tm-meet', '🗓', 'Meetings', t.meetings.length || '', `
-          <ul class="mini">${t.meetings.map((m) => `<li><span class="t" data-action="open-meeting" data-id="${m.id}" data-return-task="${t.id}">🗓 ${esc(m.title)}
+          <ul class="mini">${t.meetings.map((m) => `<li><span class="t" data-action="open-meeting" data-id="${m.id}" data-return-task="${t.id}">${esc(m.title)}
             <span class="small muted">${esc(meetingWhen(m))}</span></span> <span class="small muted">${actionsLabel(m)}</span></li>`).join('')}</ul>`,
           `<button class="small" data-action="new-meeting" data-task="${t.id}">＋ New</button>`)}
         <div class="tm-panel tm-att">${attachmentsHtml(t.attachments, { kind: 'tasks', id: t.id })}</div>
@@ -2408,7 +2408,7 @@ async function taskModal(id) {
       const saved = await api.patch(`/tasks/${t.id}`, { [name]: value });
       state.modalDirty = true;
       if (saved.next_occurrence) toast(`🔁 Next one created, due ${fmtDate(saved.next_occurrence.due_at)}`);
-      if (name === 'project_id') toast(value ? 'Moved to the project (counts as new scope there)' : 'Moved to ✅ Tasks');
+      if (name === 'project_id') toast(value ? 'Moved to the project (counts as new scope there)' : 'Moved to Tasks');
       if (['waiting_on', 'recurrence', 'status', 'description', 'project_id', 'phase_id', 'due_at', 'start_date', 'priority'].includes(name) && modal().open) return taskModal(t.id);
       flagSaved();
     } catch (err) {
@@ -2452,8 +2452,8 @@ async function taskModal(id) {
   // repeat, project and phase: a short menu under the tag
   $$('#modal [data-tm-menu]').forEach((b) => b.addEventListener('click', () => {
     const k = b.dataset.tmMenu;
-    const items = k === 'recurrence' ? Object.entries(REPEAT).map(([v, l]) => ({ v, label: `🔁 ${l}`, on: (t.recurrence || '') === v }))
-      : k === 'project_id' ? [{ v: '', label: '✅ No project (Tasks)', on: !t.project_id }, ...projectChoices.map((x) => ({ v: String(x.id), label: `🗂 ${x.name}`, on: x.id === t.project_id }))]
+    const items = k === 'recurrence' ? Object.entries(REPEAT).map(([v, l]) => ({ v, label: `${l}`, on: (t.recurrence || '') === v }))
+      : k === 'project_id' ? [{ v: '', label: 'No project (Tasks)', on: !t.project_id }, ...projectChoices.map((x) => ({ v: String(x.id), label: `${x.name}`, on: x.id === t.project_id }))]
         : [{ v: '', label: '— No phase —', on: !t.phase_id }, ...phases.map((ph, i) => ({ v: String(ph.id), label: `${i + 1}. ${ph.name}${ph.status === 'done' ? ' ✓' : ''}`, on: ph.id === t.phase_id }))];
     pickMenu(b, items.map((x) => `<button type="button" class="tm-menu-item ${x.on ? 'on' : ''}" data-pick="${esc(x.v)}">${esc(x.label)}</button>`).join(''), 'tm', (v) => {
       if (k === 'recurrence') return save(k, v || null);
@@ -2504,7 +2504,7 @@ function reminderDialog({ taskId, projectId, label, returnToTask }) {
     ['In 1 week', () => at(7, 9)],
   ];
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">🔔 Remind me</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0">Remind me</h2><button class="icon" data-action="close-modal">✕</button></div>
     <p class="muted">${esc(label)}</p>
     <label class="f">Message (optional)<input type="text" id="rem-msg" placeholder="${esc(label)}"></label>
     <div class="quick-times" style="margin:12px 0">${quick.map(([l], i) => `<button data-quick="${i}">${l}</button>`).join('')}</div>
@@ -2522,18 +2522,18 @@ function reminderDialog({ taskId, projectId, label, returnToTask }) {
   ensureNotificationPermission();
 }
 
-// 📝 Quick note (📝 in the top bar, or N): a time-stamped title and a box to write in, nothing else. It lands
-// on Home under 📝 Quick notes, to be assigned to a task or project later.
+// Quick note (📝 in the top bar, or N): a time-stamped title and a box to write in, nothing else. It lands
+// on Home under Quick notes, to be assigned to a task or project later.
 const quickNoteTitle = (d = new Date()) => { const p = (n) => String(n).padStart(2, '0'); return `Quick Note ${p(d.getDate())}/${p(d.getMonth() + 1)}/${String(d.getFullYear()).slice(2)} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 // a new task from a note: its own title, else the note's first line
 const noteTaskTitle = (n) => (n.title && !/^Quick Note \d/.test(n.title) ? n.title : String(n.body || '').split(/\r?\n/).find((l) => l.trim()) || '').replace(/^\s*[-*•]?\s*\[\s?\]\s*/, '').trim().slice(0, 120);
 function quickNoteDialog(note = null) {
   const title = note?.title || quickNoteTitle();
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">📝 <span id="qn-head">${esc(title)}</span></h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0"><span id="qn-head">${esc(title)}</span></h2><button class="icon" data-action="close-modal">✕</button></div>
     ${note ? `<input id="qn-title" value="${esc(title)}" maxlength="200" style="width:100%;margin-bottom:8px" title="The note's title">` : ''}
     <textarea id="qn-body" rows="8" style="width:100%" placeholder="Write it down… (Ctrl+Enter to save)">${esc(note?.body || '')}</textarea>
-    <div class="row" style="margin-top:10px"><span class="small muted">${note ? '' : 'Lands on Home under 📝 Quick notes, to assign to a task or project later.'}</span><div class="spacer"></div>
+    <div class="row" style="margin-top:10px"><span class="small muted">${note ? '' : 'Lands on Home under Quick notes, to assign to a task or project later.'}</span><div class="spacer"></div>
       <button data-action="close-modal">Cancel</button><button class="primary" id="qn-save">Save</button></div>`);
   const save = async () => {
     const body = $('#qn-body').value.trim();
@@ -2552,7 +2552,7 @@ function quickNoteDialog(note = null) {
   $('#qn-body').focus();
 }
 
-// 📝 A quick note assigned from Home: onto an existing task, as a new task (standalone or in a project), or
+// A quick note assigned from Home: onto an existing task, as a new task (standalone or in a project), or
 // onto a project. [ ] lines in it become tasks then.
 async function assignNoteDialog(note) {
   const active = state.projects.filter((p) => p.status !== 'archived');
@@ -2575,7 +2575,7 @@ async function assignNoteDialog(note) {
   };
   const projectOptions = (selected) => active.map((p) => `<option value="${p.id}" ${p.id === selected ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">📝 Assign “${esc(note.title || 'Quick note')}”</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0">Assign “${esc(note.title || 'Quick note')}”</h2><button class="icon" data-action="close-modal">✕</button></div>
     <div class="pre small qn-preview">${linkify(note.body)}</div>
     <div class="row" style="margin-top:10px"><span class="small muted">Add to</span><div class="seg" id="qn-mode">
       <button type="button" data-mode="task" ${open.length ? '' : 'disabled'}>Existing task</button>
@@ -2659,7 +2659,7 @@ async function setTaskStatus(id, status, openSubtasks = 0) {
 function askHoldReason() {
   return new Promise((resolve) => {
     const d = document.createElement('dialog'); d.className = 'cdialog hold-dialog';
-    d.innerHTML = `<form method="dialog" class="hold-form"><h3 style="margin-top:0">⏸ Put on hold</h3>
+    d.innerHTML = `<form method="dialog" class="hold-form"><h3 style="margin-top:0">Put on hold</h3>
       <label class="f"><span class="f-l">Why is it on hold? <span class="small muted">— kept in the task's notes</span></span><textarea rows="3" required maxlength="1000" placeholder="e.g. Waiting for the budget decision in March"></textarea></label>
       <div class="row" style="margin-top:10px"><div class="spacer"></div><button type="button" value="cancel">Cancel</button><button class="primary" type="submit">Put on hold</button></div></form>`;
     document.body.append(d);
@@ -2692,7 +2692,7 @@ const actions = {
   'toggle-menu': () => toggleMenu(),
   'new-project': () => projectForm(),
   'edit-project': () => projectForm(state.project),
-  'project-access': () => { const p = state.project; openModal(`<div class="modal-head"><h2 style="margin:0">🔒 Who sees “${esc(p.name)}”</h2><button class="icon" data-action="close-modal">✕</button></div>
+  'project-access': () => { const p = state.project; openModal(`<div class="modal-head"><h2 style="margin:0">Who sees “${esc(p.name)}”</h2><button class="icon" data-action="close-modal">✕</button></div>
     <p class="small muted">Everyone on the project sees all of it: whoever made it, its leader and sponsor, its team, and anyone invited.</p><div data-access="project:${p.id}"></div>`); accessPanel($('#modal [data-access]'), 'project', p.id); },
   'add-phase': () => phaseDialog(state.project, null),
   'library-import': () => libraryImportDialog(),
@@ -2956,9 +2956,9 @@ const refitTopbar = () => { cancelAnimationFrame(fitTimer); fitTimer = requestAn
 if (window.ResizeObserver && document.getElementById("topbar")) new ResizeObserver(refitTopbar).observe(document.getElementById("topbar")); else window.addEventListener("resize", refitTopbar);
 
 // ---- The top bar's pages in each person's own order --------------------------------------------
-// Dragged into place on the top bar, or set in ⚙ Settings. Signed in, the order is kept with the
+// Dragged into place on the top bar, or set in Settings. Signed in, the order is kept with the
 // account, so it's the same on any PC using the server; without accounts it's this browser's. A page
-// added later (a new module, 📥 My work) takes its standard place among the ones already ordered.
+// added later (a new module, My work) takes its standard place among the ones already ordered.
 const NAV_STANDARD = [...document.querySelectorAll('#topnav a[data-nav]')].map((a) => a.dataset.nav);
 const navLinks = () => [...document.querySelectorAll('#topnav > a[data-nav]')];
 const navStandard = () => { const keys = navLinks().map((a) => a.dataset.nav); return [...keys.filter((k) => !NAV_STANDARD.includes(k)), ...NAV_STANDARD.filter((k) => keys.includes(k))]; };
@@ -3021,7 +3021,7 @@ function wireNavDrag() {
       .catch((err) => { toast(err.message, 'error'); applyNavOrder(); });
   });
 }
-// ⚙ Settings: the order as a list, moved with ↑ ↓ (pages you can't open aren't listed)
+// Settings: the order as a list, moved with ↑ ↓ (pages you can't open aren't listed)
 function navSettingsHtml() {
   const links = navLinks();
   const rows = navArranged().map((k) => links.find((l) => l.dataset.nav === k)).filter((a) => a && !a.hidden);
@@ -3265,7 +3265,7 @@ async function pollAlerts() {
   for (const r of a.reminders) {
     const key = `rem-${r.id}-${r.remind_at}`;
     liveKeys.add(key);
-    const title = `🔔 ${r.message || r.task_title || r.project_name || 'Reminder'}`;
+    const title = `${r.message || r.task_title || r.project_name || 'Reminder'}`;
     const body = [r.message && r.task_title ? r.task_title : '', r.project_name, `Set for ${fmtDateTime(r.remind_at)}`]
       .filter(Boolean).join('\n');
     const open = () => (r.task_id ? taskModal(r.task_id) : (location.hash = `#/project/${r.project_id}`));
@@ -3346,7 +3346,7 @@ window.addEventListener('hashchange', route);
   applyNavOrder(); // signed in: the account's own order
   mailWire(); // ✉ messages to you
   if (state.mode === 'planner') {
-    // 🏭 SITHUB Planner: Planning on its own, shared by several people
+    // SITHUB Planner: Planning on its own, shared by several people
     document.body.classList.add('planner-mode');
     document.title = 'SITHUB Planner';
     $('#topbar .brand').textContent = '🏭 SITHUB Planner';
@@ -3364,7 +3364,7 @@ window.addEventListener('hashchange', route);
   pollAlerts();
   setInterval(pollAlerts, 30000);
 })();
-// With a shared planner set (⚙ Setup → Planning server), the Planning tab opens it.
+// With a shared planner set (Setup → Planning server), the Planning tab opens it.
 function plannerLink() {
   const a = $('#topnav a[data-nav="planning"]'); const url = String(state.settings?.planner_url || '').trim();
   if (!a) return;

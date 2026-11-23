@@ -1,4 +1,4 @@
-// 🗂 The card database (Production, the Prod Management module): adding cards to the Access database from SITHUB, for
+// The card database (Production, the Prod Management module): adding cards to the Access database from SITHUB, for
 // people without Access or an inventory management account (src/cardwrite.js). Cards the open work orders or the
 // production reports name that the database hasn't got are listed, started with what the reports know (customer, item
 // name); the rest is typed in. The form is the table's own columns, required ones marked, with the values already
@@ -9,13 +9,13 @@ const cdN = (v) => Math.round(v || 0).toLocaleString('en-GB');
 async function renderCards() {
   const d = await api.get('/plan/cards');
   const ok = d.status === 'ok' && d.writable && d.schema;
-  const why = !d.file ? 'No card database is set: Production › ⚙ Setup › Sources.'
+  const why = !d.file ? 'No card database is set: Production › Setup › Sources.'
     : d.status !== 'ok' ? `The card database can't be read: ${esc(d.error || d.status)}`
       : !d.writable ? 'The card database is set to an Excel file. SITHUB can add cards to an Access database (.accdb / .mdb) only.'
         : d.reading ? 'The card database is still being read (a minute or so for a big one): refresh in a moment.' : '';
   const miss = d.missing || [];
   main().innerHTML = `
-    <div class="kanban-tools"><h1 style="margin:0">🗂 Card database</h1><div class="spacer"></div>
+    <div class="kanban-tools"><h1 style="margin:0">Card database</h1><div class="spacer"></div>
       ${ok ? '<button type="button" class="primary" data-cd-new>＋ New card</button>' : ''}
       <button type="button" data-cd-test title="Checks the server can write to the database (changes nothing)">🔌 Test writing</button></div>
     <p class="small muted">${d.file ? `<b>${esc(d.name)}</b> · table ${esc(d.schema?.table || d.table)} · ${cdN(d.count)} cards. ` : ''}Add a card here and SITHUB writes it into the Access database straight away, so Production and the Power BI reports reading it have it: no Access or inventory management account needed. Whoever has the <b>Review new cards</b> right is told, and checks it or undoes it. A copy of the database is kept before each change.</p>
@@ -48,7 +48,7 @@ async function renderCards() {
     const box = $('#cd-test');
     try {
       const r = await api.post('/plan/cards/test');
-      box.innerHTML = `<div class="notice small">✅ The server can write to the card database (${esc(r.provider || '')}, ${r.bits || '?'}-bit; ${cdN(r.rows)} rows). Nothing was changed.</div>`;
+      box.innerHTML = `<div class="notice small">The server can write to the card database (${esc(r.provider || '')}, ${r.bits || '?'}-bit; ${cdN(r.rows)} rows). Nothing was changed.</div>`;
     } catch (err) {
       box.innerHTML = `<div class="notice small" style="border-color:var(--danger)">⚠ ${esc(err.message)}${/Access Database Engine/.test(err.message) ? ` <a href="${esc(d.engine_url)}" target="_blank" rel="noopener">Microsoft's download page ↗</a>` : ''}</div>`;
     }
@@ -83,7 +83,7 @@ function cardForm(d, m) {
   };
   const skipped = S.columns.filter((c) => !c.writable);
   const label = 'Add to the card database';
-  openModal(`<div class="modal-head"><h2 style="margin:0">🗂 ${m.ax ? `Add ${esc(m.ax)}` : 'New card'} <span class="small muted">to ${esc(d.name)} · ${esc(S.table)}</span></h2><button class="icon" data-action="close-modal">✕</button></div>
+  openModal(`<div class="modal-head"><h2 style="margin:0">${m.ax ? `Add ${esc(m.ax)}` : 'New card'} <span class="small muted">to ${esc(d.name)} · ${esc(S.table)}</span></h2><button class="icon" data-action="close-modal">✕</button></div>
     <p class="small muted">The ${esc(S.table)} table's own columns. <b class="pl-late">*</b> needed. As you type, the values already used in the database are offered, so it stays consistent. It's live as soon as it's added; whoever reviews new cards is told.${skipped.length ? ` Filled in by Access: ${skipped.map((c) => esc(c.name)).join(', ')}.` : ''}</p>
     <form id="cd-form"><div class="cd-grid">${ordered.map(field).join('')}</div>
       <div id="cd-err" class="notice small" hidden></div>
@@ -107,7 +107,7 @@ function cdReviewHtml(d) {
   const row = (a) => `<tr><td><b>${esc(a.ax_ref)}</b><div class="small muted cd-vals" title="${esc(vals(a))}">${esc(vals(a))}</div></td><td>${esc(a.by_name || '')}<div class="small muted">${esc(fmtDateTime(a.created_at))}</div></td>
     <td class="nowrap">${d.can_review ? `<button type="button" class="small" data-cd-checked="${a.id}" title="It's right: off this list">✓ Checked</button> <button type="button" class="small" data-cd-undo="${a.id}" title="Take it out of the card database again">↩ Undo…</button>` : ''}</td></tr>`;
   const status = (a) => (a.status === 'checked' ? `✓ checked — ${esc(a.checked_by || '')}, ${esc(fmtDateTime(a.checked_at))}` : `↩ undone — ${esc(a.undone_by || '')}, ${esc(fmtDateTime(a.undone_at))}: “${esc(a.reason || '')}”`);
-  return `<div class="card"><h2>🔎 To check <span class="small muted">${todo.length}</span></h2>
+  return `<div class="card"><h2>To check <span class="small muted">${todo.length}</span></h2>
     <p class="small muted">Cards added here are live straight away. Whoever has the <b>Review new cards</b> right gets a ✉ message for each, and checks it here: <b>✓ Checked</b> takes it off this list; <b>↩ Undo</b> takes it out of the card database again (a copy of the database is kept first), and whoever added it is told why.${d.can_review ? '' : ' Someone with the right does this.'}</p>
     ${todo.length ? `<div class="kdb-scroll"><table class="log"><thead><tr><th>AX Ref · what was written</th><th>Added by</th><th></th></tr></thead><tbody>${todo.map(row).join('')}</tbody></table></div>` : '<div class="empty small">Nothing to check.</div>'}
     ${rest.length ? `<details class="q-table-toggle"><summary class="small muted">Checked or undone lately (${rest.length})</summary><table class="log small"><thead><tr><th>AX Ref</th><th>Added by</th><th></th></tr></thead><tbody>
@@ -130,7 +130,7 @@ function cdChoicesHtml(d) {
       <td>${d.can_edit_choices ? `<button type="button" class="link small" data-cd-free="${esc(k)}" title="Type it freely instead of choosing">Remove the list</button>` : ''}</td></tr>`;
   }).join('');
   const others = (cols || []).filter((c) => c.writable && ['text', 'memo'].includes(c.kind) && !cdList(d.choices, c.name) && c.name !== d.prefill?.key);
-  return `<div class="card"><h2>🔽 Fixed answers</h2>
+  return `<div class="card"><h2>Fixed answers</h2>
     <p class="small muted">Columns answered from a list on the form rather than typed, so every card is filled in the same way. ${d.can_edit_choices ? 'Add or remove answers here; removing one doesn\'t change cards already in the database.' : 'An admin changes them.'}</p>
     ${rows ? `<table class="log cd-ans"><tbody>${rows}</tbody></table>` : '<div class="empty small">No fixed answers: every column is typed freely.</div>'}
     ${d.can_edit_choices ? `<div class="row small" style="margin-top:8px">Give another column a list:

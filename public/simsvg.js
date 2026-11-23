@@ -1,4 +1,4 @@
-// 📣 SIM's drawings, shared by the page (sim.js) and the server (simauto.js, the automatic picture): the month-to-date
+// SIM's drawings, shared by the page (sim.js) and the server (simauto.js, the automatic picture): the month-to-date
 // line charts, and the whole SIM as one picture (an SVG the server turns into a PNG). In the browser its functions are
 // globals; in Node it's a module.
 (function (root) {

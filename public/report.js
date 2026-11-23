@@ -45,43 +45,43 @@ function reportModel(r) {
     ].filter(Boolean);
     const t = (x) => x.title + (x.parent_id ? ' (subtask)' : '') + (x.owner ? ` [${x.owner}]` : '');
     const sections = [
-      ['🏁 Phases completed', phases.filter((ph) => ph.status === 'done' && inPeriod(ph.completed_at)).map((ph) => {
+      ['Phases completed', phases.filter((ph) => ph.status === 'done' && inPeriod(ph.completed_at)).map((ph) => {
         const late = ph.due_at && dateKey(new Date(ph.completed_at)) > dateKey(new Date(ph.due_at));
         return `${ph.name} — ${fmtDate(ph.completed_at)}${ph.due_at ? (late ? ` (planned ${fmtDate(ph.due_at)})` : ' (on time)') : ''}`;
       })],
-      ['🗓 Meetings', (p.meetings || []).map((m) => `${fmtDateTime(m.held_at)} — ${m.title}${m.task_title ? ` [${m.task_title}]` : ''}`
+      ['Meetings', (p.meetings || []).map((m) => `${fmtDateTime(m.held_at)} — ${m.title}${m.task_title ? ` [${m.task_title}]` : ''}`
         + `${m.action_count ? ` (${m.action_count} action${m.action_count === 1 ? '' : 's'} agreed, ${m.actions_done} done)` : ''}`)],
-      ['✅ Completed', p.completed.map((x) => `${t(x)} — ${fmtDate(x.completed_at)}`)],
-      ['▶ Started', p.started.map((x) => x.title)],
-      ['➕ Added', p.added.map((x) => `${t(x)}${p.baseline_set_at && !x.is_baseline ? ' (new scope)' : ''}`)],
-      ['📅 Date changes', p.due_changes.map((m) => `${m.what}: ${m.from ? fmtDate(m.from) : 'no date'} → ${m.to ? fmtDate(m.to) : 'no date'}`)],
-      ['⛔ Blocked', p.blocked.map((x) => t(x))],
-      ['⏳ Waiting on others', p.waiting.map((x) => `${t(x)} — waiting on ${x.waiting_on}${x.waiting_since ? ` for ${daysSince(x.waiting_since)} days` : ''}`)],
-      ['⚠ Overdue', p.overdue.map((x) => `${t(x)} — was due ${fmtDate(x.due_at)}`)],
-      ['🔜 Coming up (next 14 days)', p.upcoming.map((x) => `${t(x)} — due ${fmtDate(x.due_at)}`)],
-      ['📝 Notes', p.notes.map((n) => `${fmtDate(n.created_at)}${n.task_title ? ` [${n.task_title}]` : ''}: ${n.body}`)],
+      ['Completed', p.completed.map((x) => `${t(x)} — ${fmtDate(x.completed_at)}`)],
+      ['Started', p.started.map((x) => x.title)],
+      ['Added', p.added.map((x) => `${t(x)}${p.baseline_set_at && !x.is_baseline ? ' (new scope)' : ''}`)],
+      ['Date changes', p.due_changes.map((m) => `${m.what}: ${m.from ? fmtDate(m.from) : 'no date'} → ${m.to ? fmtDate(m.to) : 'no date'}`)],
+      ['Blocked', p.blocked.map((x) => t(x))],
+      ['Waiting on others', p.waiting.map((x) => `${t(x)} — waiting on ${x.waiting_on}${x.waiting_since ? ` for ${daysSince(x.waiting_since)} days` : ''}`)],
+      ['Overdue', p.overdue.map((x) => `${t(x)} — was due ${fmtDate(x.due_at)}`)],
+      ['Coming up (next 14 days)', p.upcoming.map((x) => `${t(x)} — due ${fmtDate(x.due_at)}`)],
+      ['Notes', p.notes.map((n) => `${fmtDate(n.created_at)}${n.task_title ? ` [${n.task_title}]` : ''}: ${n.body}`)],
     ].filter(([, items]) => items.length);
     const quiet = !(p.meetings || []).length && !phases.some((ph) => ph.status === 'done' && inPeriod(ph.completed_at)) && !p.completed.length && !p.added.length && !p.notes.length && !p.due_changes.length && !p.started.length;
     return { id: p.id, name: p.name, status: p.status, health, facts, sections, quiet };
   }).sort((a, b) => a.quiet - b.quiet); // projects with news first
   const ideas = r.ideas ? [
-    ['💡 New ideas', r.ideas.raised.map((i) => `${i.ref} ${i.title}${i.submitted_by ? ` (from ${i.submitted_by})` : ''}${i.cost !== null ? ` — ${rMoney(i.cost, r.currency)}` : ''}`)],
-    ['🔄 Idea status changes', r.ideas.status_changes.map((c) => `${c.ref} ${c.title}: ${IDEA_STATUS[c.from] || c.from} → ${IDEA_STATUS[c.to] || c.to}`)],
+    ['New ideas', r.ideas.raised.map((i) => `${i.ref} ${i.title}${i.submitted_by ? ` (from ${i.submitted_by})` : ''}${i.cost !== null ? ` — ${rMoney(i.cost, r.currency)}` : ''}`)],
+    ['Idea status changes', r.ideas.status_changes.map((c) => `${c.ref} ${c.title}: ${IDEA_STATUS[c.from] || c.from} → ${IDEA_STATUS[c.to] || c.to}`)],
   ].filter(([, items]) => items.length) : [];
   // Standalone tasks shown like a project section, when there's anything to say.
   if (r.standalone) {
     const sa = r.standalone;
     const sections = [
-      ['✅ Completed', sa.completed.map((x) => `${x.title} — ${fmtDate(x.completed_at)}`)],
-      ['➕ Added', sa.added.map((x) => x.title)],
-      ['⛔ Blocked', sa.blocked.map((x) => x.title)],
-      ['⏳ Waiting on others', sa.waiting.map((x) => `${x.title} — waiting on ${x.waiting_on}${x.waiting_since ? ` for ${daysSince(x.waiting_since)} days` : ''}`)],
-      ['⚠ Overdue', sa.overdue.map((x) => `${x.title} — was due ${fmtDate(x.due_at)}`)],
-      ['🔜 Coming up (next 14 days)', sa.upcoming.map((x) => `${x.title} — due ${fmtDate(x.due_at)}`)],
-      ['📝 Notes', sa.notes.map((n) => `${fmtDate(n.created_at)} [${n.task_title}]: ${n.body}`)],
+      ['Completed', sa.completed.map((x) => `${x.title} — ${fmtDate(x.completed_at)}`)],
+      ['Added', sa.added.map((x) => x.title)],
+      ['Blocked', sa.blocked.map((x) => x.title)],
+      ['Waiting on others', sa.waiting.map((x) => `${x.title} — waiting on ${x.waiting_on}${x.waiting_since ? ` for ${daysSince(x.waiting_since)} days` : ''}`)],
+      ['Overdue', sa.overdue.map((x) => `${x.title} — was due ${fmtDate(x.due_at)}`)],
+      ['Coming up (next 14 days)', sa.upcoming.map((x) => `${x.title} — due ${fmtDate(x.due_at)}`)],
+      ['Notes', sa.notes.map((n) => `${fmtDate(n.created_at)} [${n.task_title}]: ${n.body}`)],
     ].filter(([, items]) => items.length);
     if (sections.length) {
-      projects.push({ id: null, name: '✅ Other tasks (no project)', status: 'active', facts: [],
+      projects.push({ id: null, name: 'Other tasks (no project)', status: 'active', facts: [],
         health: { key: 'hold', icon: '', label: '', why: '' }, sections, quiet: false, standalone: true });
     }
   }
@@ -152,7 +152,7 @@ async function renderReport(projectFromRoute) {
 
   main().innerHTML = `
     <div class="kanban-tools report-tools">
-      <h1 style="margin:0">🗄 Archive · 📰 Report</h1><div class="spacer"></div>
+      <h1 style="margin:0">Archive · Report</h1><div class="spacer"></div>
       <select id="r-period">${options(REPORT_PERIODS, saved.period)}</select>
       ${saved.period === 'custom' ? `<input type="date" id="r-from" value="${esc(from)}"> to <input type="date" id="r-to" value="${esc(to)}">` : ''}
       <select id="r-project"><option value="">All projects</option>${projects.map((p) =>

@@ -1,4 +1,4 @@
-// 🗄 Reporting › Legacy Data (the report vault, src/vault.js): Reporting's source reports kept month by month so last year's figures outlive
+// Reporting › Legacy Data (the report vault, src/vault.js): Reporting's source reports kept month by month so last year's figures outlive
 // files that start again on 1 January. A grid of the sources by month: sealed, reopened, still open (sealed on the
 // 5th of the next month), the month in progress. Click a month for what was kept: when, how, by whom, its rows and the
 // file as it was; an admin (the setup right) seals a month by hand, reopens one, or seals it again.
@@ -16,7 +16,7 @@ async function renderKpiVault(pick) {
     const p = `${year}-${String(i + 1).padStart(2, '0')}`; const v = at.get(`${src}|${p}`); const live = d.live[src]?.[p];
     const sel = pick === `${src}|${p}` ? ' on' : '';
     if (!d.sources[src].vaulted) return `<td class="vt-cell muted small">${live ? 'as entered' : ''}</td>`;
-    if (v?.status === 'sealed') return `<td class="vt-cell vt-sealed${v.diff ? ' vt-diff' : ''}${sel}" data-vt="${src}|${p}" title="Sealed ${esc(fmtDateTime(v.sealed_at))} (${esc(v.how)})${v.diff ? ' — the file now says something else for this month: click to see' : ''}">🔒 ${v.rows.toLocaleString('en-GB')}${v.diff ? ' <b>⚠</b>' : ''}</td>`;
+    if (v?.status === 'sealed') return `<td class="vt-cell vt-sealed${v.diff ? ' vt-diff' : ''}${sel}" data-vt="${src}|${p}" title="Sealed ${esc(fmtDateTime(v.sealed_at))} (${esc(v.how)})${v.diff ? ' — the file now says something else for this month: click to see' : ''}">${v.rows.toLocaleString('en-GB')}${v.diff ? ' <b>⚠</b>' : ''}</td>`;
     if (v?.status === 'reopened') return `<td class="vt-cell vt-reopened${sel}" data-vt="${src}|${p}" title="Reopened by ${esc(v.reopened_by || '?')}: the file's figures are used until it's sealed again">↺ open</td>`;
     if (p === now) return `<td class="vt-cell muted small" title="This month: sealed after it's over">${live ? `${live.rows.toLocaleString('en-GB')} · now` : ''}</td>`;
     if (p > now) return '<td class="vt-cell"></td>';
@@ -31,7 +31,7 @@ async function renderKpiVault(pick) {
     const [src, p] = pick.split('|'); const v = at.get(pick); const live = d.live[src]?.[p];
     const [y, m] = p.split('-').map(Number); const label = `${d.sources[src]?.label || src} · ${VAULT_MON[m - 1]} ${y}`;
     detail = `<div class="card vt-detail"><div class="row"><h3 style="margin:0">${esc(label)}</h3><div class="spacer"></div><button type="button" class="icon" data-vt-close title="Close">✕</button></div>
-      ${v ? `<p class="small">${v.status === 'sealed' ? '🔒 <b>Sealed</b>' : '↺ <b>Reopened</b>'} — sealed ${esc(fmtDateTime(v.sealed_at))}, ${esc(v.how)}${v.sealed_by ? ` by ${esc(v.sealed_by)}` : ''}.
+      ${v ? `<p class="small">${v.status === 'sealed' ? '<b>Sealed</b>' : '↺ <b>Reopened</b>'} — sealed ${esc(fmtDateTime(v.sealed_at))}, ${esc(v.how)}${v.sealed_by ? ` by ${esc(v.sealed_by)}` : ''}.
           ${v.status === 'reopened' ? `Reopened ${esc(fmtDateTime(v.reopened_at))} by ${esc(v.reopened_by || '?')}: the file's figures are used for this month until it's sealed again.` : 'Reports read these figures for this month, whatever the file says now.'}</p>
         <div class="kdb-tiles">${[['Rows', v.rows.toLocaleString('en-GB')], ['Quantity', vaultQty(v.qty)], ...(v.scrap ? [['Scrap', vaultQty(v.scrap)]] : []), ['File kept', v.file_id ? esc(v.file_name) : '—', v.file_modified ? `saved ${esc(fmtDateTime(v.file_modified))}` : v.file_id ? '' : v.how.startsWith('kept') ? 'the file had moved on' : 'too big, or not found']]
     .map(([l, val, sub]) => `<div class="kdb-tile"><div class="kdb-tile-l">${l}</div><div class="kdb-tile-v" style="font-size:1rem">${val}</div>${sub ? `<div class="kdb-tile-s">${sub}</div>` : ''}</div>`).join('')}</div>
@@ -42,10 +42,10 @@ async function renderKpiVault(pick) {
         ${d.can_edit ? `<button type="button" class="primary" data-vt-seal="${esc(pick)}">🔒 Seal it now</button>` : ''}`}</div>`;
   }
   main().innerHTML = `
-    <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>${KPI_PICK_SLOT}${kpiTabsHtml('vault')}<div class="spacer"></div>
+    <div class="kanban-tools kpi-tools"><h1 style="margin:0">Reporting</h1>${KPI_PICK_SLOT}${kpiTabsHtml('vault')}<div class="spacer"></div>
       ${d.can_edit ? '<button type="button" class="primary" data-vt-upload title="Old reports (last year\'s exports…) into Legacy Data, month by month">⬆ Upload old reports</button>' : ''}</div>
     <div class="card">
-      <div class="row"><h2 style="margin:0">🗄 Legacy Data</h2><div class="spacer"></div>
+      <div class="row"><h2 style="margin:0">Legacy Data</h2><div class="spacer"></div>
         <span class="seg">${[...new Set([...d.years, year])].sort().map((y) => `<button type="button" data-vt-year="${y}" class="${y === year ? 'on' : ''}">${y}</button>`).join('')}</span></div>
       <p class="small muted">The source reports cover 1 January to today, so on 1 January they start again. Legacy Data keeps a copy of each month once it's over, so last year's figures stay in every report: each month is <b>sealed</b> on the ${d.seal_after_day}th of the next (the file read once more first), with the rows SITHUB read and the file itself. A month the file stops covering before then is kept there and then. Reports read the sealed figures for sealed months, whatever the file says later; a difference is flagged here.</p>
       <div class="kdb-tiles">
@@ -75,7 +75,7 @@ async function renderKpiVault(pick) {
 function vaultUploadDialog(d) {
   const last = new Date().getFullYear() - 1;
   const ACT = { seal: ['🔒 kept', ''], replace: ['🔒 kept (replaces what was sealed)', 'vt-up-replace'], 'skip-sealed': ['already sealed: left as it is', 'muted'], 'skip-current': ['this month: not over yet', 'muted'] };
-  openModal(`<div class="modal-head"><h2 style="margin:0">⬆ Old reports into Legacy Data</h2><button class="icon" data-action="close-modal">✕</button></div>
+  openModal(`<div class="modal-head"><h2 style="margin:0">Old reports into Legacy Data</h2><button class="icon" data-action="close-modal">✕</button></div>
     <p class="small muted">An old export of a source (last year's, or one from before SITHUB kept them), read exactly as SITHUB reads that source every day. Each month in it is sealed into Legacy Data with the file, and appears in every report (the Database, Operations, Quality, EHS…). Check it first: you'll see what each month holds before anything is kept.</p>
     <div class="cd-grid">
       <label class="cd-f" style="grid-column:1 / -1"><span>Which report <span class="small muted">· its file</span></span><select id="vu-src">${Object.entries(d.sources).map(([k, s]) => `<option value="${k}" title="${esc(s.linked && s.linked !== s.file ? `Read now from ${s.linked}` : '')}">${esc(s.label)} — ${esc(s.file)}${s.linked && s.linked.toLowerCase() !== String(s.file).toLowerCase() ? ` (now: ${esc(s.linked)})` : ''}</option>`).join('')}</select>

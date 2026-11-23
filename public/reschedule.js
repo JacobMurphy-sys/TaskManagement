@@ -1,4 +1,4 @@
-// 📅 Rescheduling (src/reschedule.js): moving a due date (task, project, phase, idea) or a meeting's
+// Rescheduling (src/reschedule.js): moving a due date (task, project, phase, idea) or a meeting's
 // time with a reason, and every earlier date kept with the record. Any change of the date, from any
 // screen, is logged; the dialog adds the reason and quick picks.
 const RESCHED = {
@@ -23,7 +23,7 @@ async function reschedOpen(kind, id, after = null) {
   let h; try { h = await api.get(`/reschedules/${kind}/${id}`); } catch (err) { toast(err.message, 'error'); return; }
   const cur = h.current ? new Date(h.current) : null;
   const val = (d) => (k.time ? toLocalInput(d.toISOString()) : dateKey(d));
-  const d = collabDialog(`<form method="dialog" id="rs-form"><div class="row"><h3 style="margin:0">📅 Reschedule the ${k.label}</h3><span class="spacer"></span><button class="icon" value="cancel" formnovalidate>✕</button></div>
+  const d = collabDialog(`<form method="dialog" id="rs-form"><div class="row"><h3 style="margin:0">Reschedule the ${k.label}</h3><span class="spacer"></span><button class="icon" value="cancel" formnovalidate>✕</button></div>
       <p class="small muted">Now: <b>${esc(reschedWhen(kind, h.current))}</b>. The earlier dates stay listed with it.</p>
       <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
         <label class="f"><span>New ${k.time ? 'date and time' : 'date'}</span><input type="${k.time ? 'datetime-local' : 'date'}" name="to" required value="${cur ? esc(val(cur)) : ''}"></label>
@@ -51,7 +51,7 @@ async function reschedOpen(kind, id, after = null) {
   });
 }
 
-// "📅 Reschedule · moved 2× (was 12 Oct, 19 Oct)" next to a date: placeholders
+// "Reschedule · moved 2× (was 12 Oct, 19 Oct)" next to a date: placeholders
 // <span data-resched="kind:id"></span> filled in after a page or dialog is drawn.
 async function reschedHydrate(root = document, after = null) {
   for (const el of $$('[data-resched]', root)) {

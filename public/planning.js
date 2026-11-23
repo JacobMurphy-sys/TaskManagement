@@ -1,5 +1,5 @@
 'use strict';
-// 🏭 Planning: the open perso work orders (linked export), as a priority list — FIFO (by
+// Planning: the open perso work orders (linked export), as a priority list — FIFO (by
 // deadline: due date at the shipper's cut-off) or BAU (due day, then High/Normal/Low, then
 // cut-off) — with what's running on top, the cards due by each cut-off, and, with a
 // capacity set, each job's projected finish against its deadline. Loaded before app.js.
@@ -7,7 +7,7 @@
 // Long lists show this many rows at first, with "Show more" for the rest.
 const PL_PAGE = 150;
 
-// ☑ The customer filter on Perso, Matching, Dispatch and ⏱ Delays: a drop-down of tick boxes (none ticked: every
+// ☑ The customer filter on Perso, Matching, Dispatch and Delays: a drop-down of tick boxes (none ticked: every
 // customer). Kept as { customers: [...] } in each tab's filter; an older single { customer } still reads.
 const plCusts = (f) => (Array.isArray(f?.customers) ? f.customers : f?.customer ? [f.customer] : []);
 const plCustOk = (f, c) => { const l = plCusts(f); return !l.length || l.includes(c); };
@@ -42,18 +42,18 @@ function custPickWire(id, onApply) {
 document.addEventListener('click', (e) => { for (const d of document.querySelectorAll('details.msel[open]')) if (!d.contains(e.target)) d.open = false; });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') for (const d of document.querySelectorAll('details.msel[open]')) { d.open = false; d.querySelector('summary')?.focus(); } });
 
-// 🏭 Production's three tabs: Perso (with its order — FIFO, BAU, Score, Mitigation — in a drop-down on
-// the tab), Matching, 🚚 Dispatch and 🧠 Insights (🔬 Learned and 📆 D+ due out, in dplus.js).
-const PL_MODES = [['fifo', 'FIFO', 'By deadline only'], ['bau', 'BAU', 'By due day, then High / Normal / Low, then cut-off'], ['score', '⚖ Score', 'Highest score first: the deadline plus the ⚖ modifiers'],
-  ['mitigation', '🛟 Mitigation', 'Save as many as possible: work orders due in the next few working days that can still make it first, then those already overdue or that would be late anyway, then those due later']];
+// Production's three tabs: Perso (with its order — FIFO, BAU, Score, Mitigation — in a drop-down on
+// the tab), Matching, Dispatch and Insights (Learned and D+ due out, in dplus.js).
+const PL_MODES = [['fifo', 'FIFO', 'By deadline only'], ['bau', 'BAU', 'By due day, then High / Normal / Low, then cut-off'], ['score', 'Score', 'Highest score first: the deadline plus the ⚖ modifiers'],
+  ['mitigation', 'Mitigation', 'Save as many as possible: work orders due in the next few working days that can still make it first, then those already overdue or that would be late anyway, then those due later']];
 function plHalvesHtml(half, mode = store.get('planMode', 'fifo')) {
   const tab = (k, label, extra = '') => `<div class="pl-half ${half === k ? 'on' : ''}"><button type="button" data-pl-half="${k}">${label}</button>${extra}</div>`;
   return `<div class="pl-halves">
-    ${tab('perso', '💳 Perso', half === 'perso' ? `<select id="pl-mode" title="The order the work orders are taken in — ${esc(PL_MODES.map(([, l, w]) => `${l}: ${w}`).join(' · '))}">${PL_MODES.map(([k, l]) => `<option value="${k}" ${mode === k ? 'selected' : ''}>${l}</option>`).join('')}</select>` : '')}
-    ${tab('otto', '✉️ Matching')}${tab('disp', '🚚 Dispatch')}${tab('insights', '🧠 Insights')}</div>`;
+    ${tab('perso', 'Perso', half === 'perso' ? `<select id="pl-mode" title="The order the work orders are taken in — ${esc(PL_MODES.map(([, l, w]) => `${l}: ${w}`).join(' · '))}">${PL_MODES.map(([k, l]) => `<option value="${k}" ${mode === k ? 'selected' : ''}>${l}</option>`).join('')}</select>` : '')}
+    ${tab('otto', 'Matching')}${tab('disp', 'Dispatch')}${tab('insights', 'Insights')}</div>`;
 }
 
-// 🔎 The card lines without a speed of their own, for putting right: those whose card isn't in the card
+// The card lines without a speed of their own, for putting right: those whose card isn't in the card
 // database (no kind, so no rule can reach them), and the rest by kind of card — one speed rule (type ·
 // material · print sides) covers a whole group; the 🔬 learned speed for the kind is offered where known.
 async function plNoSpeed() {
@@ -78,11 +78,11 @@ async function plNoSpeed() {
   const kindText = (k) => k.filter(Boolean).map(esc).join(' · ') || '<span class="muted">no type, material or sides</span>';
   const canSet = acctAdmin();
   const groupsSorted = [...groups.values()].sort((a, b) => sum(b.lines) - sum(a.lines));
-  openModal(`<div class="modal-head"><h2 style="margin:0">🔎 Card lines without a speed <span class="muted small">${n(lines.length)} line${lines.length === 1 ? '' : 's'}</span></h2><button class="icon" data-action="close-modal">✕</button></div>
+  openModal(`<div class="modal-head"><h2 style="margin:0">Card lines without a speed <span class="muted small">${n(lines.length)} line${lines.length === 1 ? '' : 's'}</span></h2><button class="icon" data-action="close-modal">✕</button></div>
     <p class="small muted">These lines are timed at ${p.capacity?.rate ? 'the flat rate' : 'the average of the others (≈)'}, so their planned times are a guess. Put them right in the order below — biggest first.</p>
     ${groupsSorted.length ? `<h3 class="pl-h">No speed for their kind of card <span class="muted small">${groupsSorted.length} kind${groupsSorted.length === 1 ? '' : 's'} · ${n(noSpeed.length)} lines · ${n(sum(noSpeed))} cards</span></h3>
-      <p class="small muted">Each is a type · material · print sides with no speed rule. ${canSet ? 'Type a speed and press <b>Save</b> to add the rule — every line of that kind is then timed with it.' : 'Someone with the setup right can add a speed rule for each in ⚙ Setup › Speeds.'}</p>
-      <div class="kdb-scroll"><table class="log pll-t"><thead><tr><th>Kind of card</th><th class="num">Lines</th><th class="num">Cards</th><th>Cards (AX)</th><th>Work orders</th><th class="num">🔬 Learned</th>${canSet ? '<th>Speed (cards/h)</th>' : ''}</tr></thead><tbody>
+      <p class="small muted">Each is a type · material · print sides with no speed rule. ${canSet ? 'Type a speed and press <b>Save</b> to add the rule — every line of that kind is then timed with it.' : 'Someone with the setup right can add a speed rule for each in Setup › Speeds.'}</p>
+      <div class="kdb-scroll"><table class="log pll-t"><thead><tr><th>Kind of card</th><th class="num">Lines</th><th class="num">Cards</th><th>Cards (AX)</th><th>Work orders</th><th class="num">Learned</th>${canSet ? '<th>Speed (cards/h)</th>' : ''}</tr></thead><tbody>
       ${groupsSorted.map((g, i) => { const lk = learned.get(kindKey({ type: g.kind[0], material: g.kind[1], sides: g.kind[2] })); const arts = [...new Set(g.lines.map((l) => l.article))];
         return `<tr><td><b>${kindText(g.kind)}</b></td><td class="num">${n(g.lines.length)}</td><td class="num">${n(sum(g.lines))}</td>
         <td class="small">${arts.slice(0, 5).map((a) => `<a href="#" data-pf-open-item="${esc(a)}">${esc(a)}</a>`).join(', ')}${arts.length > 5 ? ` <span class="muted">+${arts.length - 5}</span>` : ''}</td><td class="small">${woLinks(g.lines)}</td>
@@ -117,13 +117,13 @@ async function plNoSpeed() {
 }
 
 async function renderPlanning() {
-  if (['insights', 'dplus'].includes(store.get('planHalf', 'perso'))) return renderPlanInsights(); // 🧠 Insights (dplus.js)
+  if (['insights', 'dplus'].includes(store.get('planHalf', 'perso'))) return renderPlanInsights(); // Insights (dplus.js)
   const mode = ['bau', 'score', 'mitigation'].includes(store.get('planMode', 'fifo')) ? store.get('planMode') : 'fifo';
   const half = ['otto', 'disp'].includes(store.get('planHalf', 'perso')) ? store.get('planHalf') : 'perso';
   // redrawn after a change on the same tab: stay where you were (the page and each scrolling table)
   const scrollY = main().querySelector('.pl-halves') ? main().scrollTop : null;
   const scrollBoxes = scrollY === null ? [] : [...main().querySelectorAll('.kdb-scroll')].map((el) => el.scrollTop);
-  // …and in the field you'd moved on to (⏱ Delays: its row and kind of field)
+  // …and in the field you'd moved on to (Delays: its row and kind of field)
   const act = document.activeElement; const actRow = act?.closest?.('[data-pld-g], [data-pld-job]');
   const refocus = actRow && act.className ? `[${actRow.dataset.pldG !== undefined ? 'data-pld-g' : 'data-pld-job'}="${CSS.escape(actRow.dataset.pldG ?? actRow.dataset.pldJob)}"] .${act.className.split(' ')[0]}` : null;
   const [p, settings] = await Promise.all([api.get(`/plan?mode=${mode}`), api.get('/settings')]);
@@ -159,7 +159,7 @@ async function renderPlanning() {
     : j.unplanned ? `<span class="pl-warn">⚠ ${esc([
       j.unplanned_why?.includes('machine') ? `no running machine for ${[...new Set(j.articles.filter((a) => a.unplanned === 'machine').map((a) => a.card?.type))].join(', ')}` : '',
       j.unplanned_why?.includes('speed') ? 'no speed for a card' : '',
-      j.unplanned_why?.includes('time') ? 'no working time — check the working day and days in ⚙ Setup' : ''].filter(Boolean).join(' · '))}</span>` : '<span class="muted">—</span>')
+      j.unplanned_why?.includes('time') ? 'no working time — check the working day and days in Setup' : ''].filter(Boolean).join(' · '))}</span>` : '<span class="muted">—</span>')
     + (j.machines?.length ? `<div class="small muted">${esc(j.machines.join(', '))}</div>` : ''));
   // the WO's Matching jobs, and whether perso is projected to finish after the first one's plan date
   const ottoTag = (j) => {
@@ -173,7 +173,7 @@ async function renderPlanning() {
   const mitiHead = (j) => {
     const g = mitiGroup(j); const list = p.queue.filter((x) => mitiGroup(x) === g);
     const days = Number(settings.plan_miti_days ?? 5) || 0;
-    const text = { pinned: '📌 Pinned', on_time: `✔ Due ${days ? `within ${days} working day${days === 1 ? '' : 's'}` : 'and not yet overdue'}, can still be on time — ${list.length} job${list.length === 1 ? '' : 's'}, ${n(sum(list))} cards`,
+    const text = { pinned: 'Pinned', on_time: `✔ Due ${days ? `within ${days} working day${days === 1 ? '' : 's'}` : 'and not yet overdue'}, can still be on time — ${list.length} job${list.length === 1 ? '' : 's'}, ${n(sum(list))} cards`,
       later: `↓ Due later than ${days} working day${days === 1 ? '' : 's'} — ${list.length} job${list.length === 1 ? '' : 's'}, ${n(sum(list))} cards · after the overdue, by deadline`,
       late: `⚠ Late anyway — ${list.filter((x) => x.mitigation === 'overdue').length} already overdue${list.some((x) => x.mitigation === 'late_anyway') ? `, ${list.filter((x) => x.mitigation === 'late_anyway').length} with no room before their deadline` : ''} · after the ones that can make it, oldest first` }[g];
     return `<tr class="pl-group pl-group-${g}"><td colspan="${(p.projected ? 8 : 7) + (mode === 'score' ? 1 : 0)}">${esc(text)}</td></tr>`;
@@ -182,8 +182,8 @@ async function renderPlanning() {
   const row = (j, i) => {
     const l = left(j);
     return `<tr class="pl-job ${l.cls ? `${l.cls}-row` : ''} ${p.projected && j.late_minutes > 0 ? 'pl-late-row' : ''}" data-pl-job="${esc(j.key)}">
-      <td class="num muted pl-n">${i === null ? '▶' : `${j.pinned ? '📌 ' : ''}${i + 1}<div><button class="icon pl-pin ${j.pinned ? 'on' : ''}" data-pl-pin="${esc(j.key)}" title="${j.pinned ? 'Unpin — back to its place in the order' : 'Pin to the front of the queue'}">📌</button></div>`}</td>
-      <td><b>${esc(dayLabel(j.due))}</b>${j.volume_ext ? ` <span class="pl-vx" title="📦 Due date extended +${j.volume_ext.extra_days} working day${j.volume_ext.extra_days === 1 ? '' : 's'} for volume: ${esc(j.customer || '')} sent ${n(j.volume_ext.cards)} cards on ${esc(dayLabel(j.volume_ext.arrived))}. Due ${esc(dayLabel(j.volume_ext.due_orig))} in the export${j.volume_ext.by ? ` · applied by ${esc(j.volume_ext.by)}` : ''}">📦 +${j.volume_ext.extra_days}</span>` : ''} ${j.no_cutoff ? '<span class="pl-warn" title="No cut-off time in the export (UNDEFINED) — taken as the end of the day">end of day ⚠</span>' : esc(j.deadline?.slice(11) || '')}<div class="small ${l.cls}">${esc(l.text)}</div></td>
+      <td class="num muted pl-n">${i === null ? '▶' : `${j.pinned ? '' : ''}${i + 1}<div><button class="icon pl-pin ${j.pinned ? 'on' : ''}" data-pl-pin="${esc(j.key)}" title="${j.pinned ? 'Unpin — back to its place in the order' : 'Pin to the front of the queue'}">📌</button></div>`}</td>
+      <td><b>${esc(dayLabel(j.due))}</b>${j.volume_ext ? ` <span class="pl-vx" title="Due date extended +${j.volume_ext.extra_days} working day${j.volume_ext.extra_days === 1 ? '' : 's'} for volume: ${esc(j.customer || '')} sent ${n(j.volume_ext.cards)} cards on ${esc(dayLabel(j.volume_ext.arrived))}. Due ${esc(dayLabel(j.volume_ext.due_orig))} in the export${j.volume_ext.by ? ` · applied by ${esc(j.volume_ext.by)}` : ''}">📦 +${j.volume_ext.extra_days}</span>` : ''} ${j.no_cutoff ? '<span class="pl-warn" title="No cut-off time in the export (UNDEFINED) — taken as the end of the day">end of day ⚠</span>' : esc(j.deadline?.slice(11) || '')}<div class="small ${l.cls}">${esc(l.text)}</div></td>
       <td><b>${esc(j.wo)}</b> <span class="muted">/ ${esc(j.per)}</span><div class="small muted">${j.articles.length} card article${j.articles.length === 1 ? '' : 's'}${ottoTag(j)}</div></td>
       <td>${esc(j.customer || '—')}${j.kind?.length ? `<div class="small muted" title="${esc(j.kind.join(', '))}">${esc(j.kind[0])}${j.kind.length > 1 ? ` +${j.kind.length - 1}` : ''}</div>` : j.no_card ? '<div class="small pl-warn">not in the card database</div>' : ''}</td>
       <td class="num"><b>${n(j.qty)}</b>${j.plan_minutes !== undefined && !j.unplanned ? `<div class="small muted" title="Production time${j.minutes === null ? ' (flat rate — not every card has a speed)' : ' from the card speeds'}">${fmtSpan(j.plan_minutes)}${j.minutes === null || j.articles.some((a) => a.speed_from !== null && !/^(rule|learned)/.test(String(a.speed_from))) ? ' ≈' : ''}</div>` : ''}</td>
@@ -194,7 +194,7 @@ async function renderPlanning() {
     </tr>`;
   };
   // a job's card articles: built when it's opened, not for every row up front
-  const detailRow = (j) => `<tr class="pl-detail" data-pl-detail="${esc(j.key)}"><td></td><td colspan="${(p.projected ? 7 : 6) + (mode === 'score' ? 1 : 0)}">${j.score_parts?.length ? `<div class="pl-score-parts small">⚖ ${j.score_parts.map((x) => `<span class="pl-chip" title="${esc([x.note, x.authoriser ? `authorised by ${x.authoriser}` : ''].filter(Boolean).join(' · '))}">${esc(x.module)}${x.note && x.module === 'Shift' ? ` (${esc(x.note)})` : ''} <b>${x.value > 0 ? '+' : ''}${scoreFmt(x.value)}</b></span>`).join(' ')} = <b>${scoreFmt(j.score)}</b>${j.tags?.length ? ` · tags ${esc(j.tags.join(', '))}` : ''}</div>` : ''}<table class="log small"><thead><tr><th>Card article</th><th>Card</th><th>Type</th><th>Material</th><th>Print sides</th><th class="num">Cards</th><th class="num">Speed</th><th class="num">Time</th>${(p.machines || []).some((m) => m.active) ? '<th>Machine</th>' : ''}<th>Status</th></tr></thead>
+  const detailRow = (j) => `<tr class="pl-detail" data-pl-detail="${esc(j.key)}"><td></td><td colspan="${(p.projected ? 7 : 6) + (mode === 'score' ? 1 : 0)}">${j.score_parts?.length ? `<div class="pl-score-parts small">${j.score_parts.map((x) => `<span class="pl-chip" title="${esc([x.note, x.authoriser ? `authorised by ${x.authoriser}` : ''].filter(Boolean).join(' · '))}">${esc(x.module)}${x.note && x.module === 'Shift' ? ` (${esc(x.note)})` : ''} <b>${x.value > 0 ? '+' : ''}${scoreFmt(x.value)}</b></span>`).join(' ')} = <b>${scoreFmt(j.score)}</b>${j.tags?.length ? ` · tags ${esc(j.tags.join(', '))}` : ''}</div>` : ''}<table class="log small"><thead><tr><th>Card article</th><th>Card</th><th>Type</th><th>Material</th><th>Print sides</th><th class="num">Cards</th><th class="num">Speed</th><th class="num">Time</th>${(p.machines || []).some((m) => m.active) ? '<th>Machine</th>' : ''}<th>Status</th></tr></thead>
       <tbody>${j.articles.map((a) => `<tr><td>${esc(a.article)}</td><td>${a.card ? esc(a.card.name || '') : '<span class="pl-warn">not in the card database</span>'}</td><td>${esc(a.card?.type || '')}</td><td>${esc(a.card?.material || '')}</td><td>${esc(a.card?.sides || '')}</td>
         <td class="num">${n(a.qty)}</td><td class="num">${a.speed ? `${n(a.speed)}/h${String(a.speed_from).startsWith('learned') ? ` <span title="${esc(learnedTitle(a))}">🔬</span>` : a.speed_from === 'fallback' ? ' <span class="muted" title="No speed for this kind of card — the flat rate">≈</span>' : a.speed_from === 'average' ? ' <span class="muted" title="No speed for this card — the average of the others">≈</span>' : ''}${a.oee ? ` <span class="muted small" title="Estimated OEE for this customer — planned at ${n(Math.round(a.speed * a.oee))}/h">× ${Math.round(a.oee * 1000) / 10}%</span>` : ''}` : '<span class="pl-warn">no speed</span>'}</td>
         <td class="num">${a.minutes !== null ? fmtSpan(a.minutes) : '—'}</td>${(p.machines || []).some((m) => m.active) ? `<td>${a.machine ? `${esc(a.machine)} <span class="muted">${PLF.wkHm.format(new Date(a.start_at))}–${PLF.hm.format(new Date(a.finish_at))}</span>` : '<span class="pl-warn">no machine</span>'}</td>` : ''}<td>${esc(a.status || '')}</td></tr>`).join('')}</tbody></table></td></tr>`;
@@ -211,7 +211,7 @@ async function renderPlanning() {
   const useMachines = (p.machines || []).some((m) => m.active);
   const activeMachines = (p.machines || []).filter((m) => m.active);
   const dayText = cap.start === cap.end ? 'round the clock' : `${hm(cap.start)}–${hm(cap.end)}${cap.end < cap.start ? ' (past midnight)' : ''}`;
-  const capText = p.projected ? `${p.rules.length ? 'card speeds' : `${n(cap.rate)} cards/h`} × ${useMachines ? `${activeMachines.length} machine${activeMachines.length === 1 ? '' : 's'}` : `${cap.lines} line${cap.lines === 1 ? '' : 's'}`} · ${dayText}` : 'set speeds in ⚙ Setup';
+  const capText = p.projected ? `${p.rules.length ? 'card speeds' : `${n(cap.rate)} cards/h`} × ${useMachines ? `${activeMachines.length} machine${activeMachines.length === 1 ? '' : 's'}` : `${cap.lines} line${cap.lines === 1 ? '' : 's'}`} · ${dayText}` : 'set speeds in Setup';
   const machineRows = (p.machines || []).map((m) => `<tr data-pl-machine="${m.id}"><td><input type="text" name="name" value="${esc(m.name)}"></td>
       <td><input type="text" name="types" list="pl-types" value="${esc(m.types || '')}" placeholder="any type"></td>
       <td><label class="row small"><input type="checkbox" name="active" ${m.active ? 'checked' : ''}> running</label></td><td><button class="icon" data-pl-del-machine="${m.id}" title="Remove">✕</button></td></tr>`).join('');
@@ -228,12 +228,12 @@ async function renderPlanning() {
       </tbody></table></div>` : ''}</div>
       <p class="small muted">Max cards a day: the machines able to run the type, for the working day, at the type's speed (the open cards' average). A machine running several types counts for each — the ceiling for that type on its own.</p></div>` : '';
   const cdb = p.cards_db;
-  // ☰ List / ▤ Gantt / ▦ Load / 📈 History on each tab (its own choice kept): Gantt and Load need machines
-  // (perso: ⚙ Setup's machines; Matching: its machines with a speed); 🚚 Dispatch has no machines, so its Load is pieces due a day
+  // ☰ List / ▤ Gantt / ▦ Load / History on each tab (its own choice kept): Gantt and Load need machines
+  // (perso: Setup's machines; Matching: its machines with a speed); Dispatch has no machines, so its Load is pieces due a day
   const withMachines = half === 'otto' ? !!p.otto?.projected : half === 'perso' ? (p.machines || []).some((m) => m.active) && p.projected : false;
-  const noMachines = half === 'disp' ? 'The Dispatch export has no machines to plan on' : half === 'otto' ? 'Add Matching machines with a speed in ⚙ Setup to plan them' : 'Add machines in ⚙ Setup to plan them';
+  const noMachines = half === 'disp' ? 'The Dispatch export has no machines to plan on' : half === 'otto' ? 'Add Matching machines with a speed in Setup to plan them' : 'Add machines in Setup to plan them';
   const viewKey = half === 'perso' ? 'planView' : `planView_${half}`;
-  const viewList = [['list', '☰ List'], ['gantt', '▤ Gantt', withMachines], ['load', '▦ Load', withMachines || half === 'disp'], ['history', '📈 History'], ...(half === 'disp' ? [['delays', '⏱ Delays']] : [])]; // 🔬 Learned: in 🧠 Insights
+  const viewList = [['list', 'List'], ['gantt', 'Gantt', withMachines], ['load', 'Load', withMachines || half === 'disp'], ['history', 'History'], ...(half === 'disp' ? [['delays', 'Delays']] : [])]; // Learned: in Insights
   const view = viewList.some(([k, , ok]) => ok !== false && k === store.get(viewKey, 'list')) ? store.get(viewKey, 'list') : 'list';
   const unitOf = { perso: 'cards', otto: 'items', disp: 'pieces' }[half];
   const viewsRow = () => `<div class="row pl-views"><div class="seg">${viewList.map(([k, l, ok]) => `<button type="button" data-pl-view="${k}" class="${view === k ? 'on' : ''}" ${ok === false ? `disabled title="${esc(noMachines)}"` : ''}>${l}</button>`).join('')}</div>
@@ -252,7 +252,7 @@ async function renderPlanning() {
         <div class="kdb-tile"><div class="kdb-tile-l">History</div><div class="kdb-tile-v">${n(h.reads)}</div><div class="kdb-tile-s">${h.since ? `exports since ${esc(fmtDateTime(h.since))}` : 'exports recorded'}</div></div></div>
       ${h.reads < 2 ? '<div class="kc-note notice notice-info">The history builds up from now: each new version of the linked export is recorded (checked every 10 minutes), and a job is counted as done when it\'s gone from the next export — to within the export interval.</div>' : ''}
       <div class="card"><h3 class="pl-h">${unitOf[0].toUpperCase()}${unitOf.slice(1)} done per day <span class="muted small">— last ${h.days} days · green on time · red after the cut-off${h.daily.some((d) => d.unknown_cards) ? ' · grey: not known whether on time' : ''}</span></h3>
-        ${h.done_by ? `<p class="small muted" style="margin:0 0 6px">${(() => { const b = h.done_by; const all = b.runs + b.export + b.gap; return all ? `Done times: <b>${Math.round((b.runs / all) * 100)}%</b> from the ⏱ timing report (the end of the job's last run)${b.export ? `, ${n(b.export)} job${b.export === 1 ? '' : 's'} from when ${b.export === 1 ? 'it' : 'they'} left the export (no runs)` : ''}${b.gap ? `, ${n(b.gap)} done while the export wasn't being read (no runs) — on time only where that's certain, and left out of the pace` : ''}.` : ''; })()}</p>` : ''}
+        ${h.done_by ? `<p class="small muted" style="margin:0 0 6px">${(() => { const b = h.done_by; const all = b.runs + b.export + b.gap; return all ? `Done times: <b>${Math.round((b.runs / all) * 100)}%</b> from the timing report (the end of the job's last run)${b.export ? `, ${n(b.export)} job${b.export === 1 ? '' : 's'} from when ${b.export === 1 ? 'it' : 'they'} left the export (no runs)` : ''}${b.gap ? `, ${n(b.gap)} done while the export wasn't being read (no runs) — on time only where that's certain, and left out of the pace` : ''}.` : ''; })()}</p>` : ''}
         <div class="pl-hist">${h.daily.map((d) => `<div class="pl-hist-col" title="${esc(d.date)}: ${n(d.jobs)} jobs, ${n(d.cards)} ${unitOf} (${n(d.on_time_cards)} on time)">
           <div class="pl-hist-n">${d.cards ? kfmt(d.cards) : ''}</div>
           <div class="pl-hist-bar" style="height:${Math.round((d.cards / max) * 140)}px"><div class="pl-hist-unknown" style="height:${d.cards ? Math.round(((d.unknown_cards || 0) / d.cards) * 100) : 0}%"></div><div class="pl-hist-late" style="height:${d.cards ? Math.round(((d.cards - d.on_time_cards - (d.unknown_cards || 0)) / d.cards) * 100) : 0}%"></div></div>
@@ -264,15 +264,15 @@ async function renderPlanning() {
           <td>${j.late_minutes === null ? '—' : j.late_minutes > 0 ? `<span class="pl-late">${fmtSpan(j.late_minutes)} late</span>` : '<span class="pl-ok">✔ on time</span>'}</td><td class="small">${esc(j.shipper ?? j.machine ?? '')}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">Nothing done yet since the history began.</td></tr>'}
         </tbody></table></div></div>`;
   };
-  // 📈 Perso from the ⏱ timing report alone: the same on every PC that has read it
+  // Perso from the timing report alone: the same on every PC that has read it
   const runsHistoryHtml = (h, max, kfmt, dshort) => {
     const when = (iso) => (iso ? new Date(iso).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
     const dayOnly = (iso) => (iso ? new Date(`${iso.slice(0, 10)}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '—');
     const data = h.report === 'data'; const at = data ? dayOnly : when;
-    const rep = data ? '📊 DailyPersoData' : '⏱ timing report';
+    const rep = data ? 'DailyPersoData' : 'timing report';
     // 🔎 every way of counting the cards, day by day, to set the count to match Power BI's
     const chk = h.check?.length ? (() => { const counted = new Map(h.daily.map((d) => [d.date, d.cards]));
-      return `<details class="card pl-check"><summary><b>🔎 Compare with Power BI</b> <span class="muted small">— each day's cards, counted every way the report allows</span></summary>
+      return `<details class="card pl-check"><summary><b>Compare with Power BI</b> <span class="muted small">— each day's cards, counted every way the report allows</span></summary>
         <div class="kdb-scroll"><table class="log small"><thead><tr><th>Production date</th><th class="num">All rows</th><th class="num">of which remakes</th><th class="num">not LIVE</th><th class="num">M work orders</th><th class="num">Job waste</th><th class="num"><b>Counted here</b></th></tr></thead><tbody>
         ${h.check.map((c) => `<tr><td>${esc(dayOnly(c.day))}</td><td class="num">${n(c.all_rows)}</td><td class="num">${n(c.remakes)}</td><td class="num">${n(c.not_live)}</td><td class="num">${n(c.m_jobs)}</td><td class="num">${n(c.waste)}</td><td class="num"><b>${n(counted.get(c.day) ?? 0)}</b></td></tr>`).join('')}</tbody></table></div>
         <div class="row small admin-only" style="gap:16px;flex-wrap:wrap;margin-top:6px"><span class="muted">Count as Power BI does:</span>
@@ -284,8 +284,8 @@ async function renderPlanning() {
         <div class="kdb-tile"><div class="kdb-tile-l">On time — last 7 days</div><div class="kdb-tile-v ${h.week.on_time_pct === null ? '' : h.week.on_time_pct >= 98 ? 'kdb-ok' : 'kdb-bad'}">${h.week.on_time_pct === null ? '—' : `${h.week.on_time_pct}%`}</div><div class="kdb-tile-s">of the cards, persoed by their due date</div></div>
         <div class="kdb-tile"><div class="kdb-tile-l">Lead time</div><div class="kdb-tile-v">${h.week.lead_hours === null ? '—' : fmtSpan(h.week.lead_hours * 60)}</div><div class="kdb-tile-s">imported → last ${data ? 'produced' : 'run'}, average</div></div>
         <div class="kdb-tile"><div class="kdb-tile-l">${rep}</div><div class="kdb-tile-v">${n(h.reads)}</div><div class="kdb-tile-s">${data ? `rows · newest production date ${esc(dayOnly(h.last))}` : `runs · newest ended ${esc(when(h.last))}`}</div></div></div>
-      <p class="small muted pl-same">🟰 Built only from the ${rep}${data ? ' — the report Power BI uses' : ' (every run since 1 January)'}, so it's the same on every PC that has read it — compare the newest ${data ? 'production date' : 'run'} above to check you're on the same report. Last read here ${esc(when(h.read_at))}.</p>
-      ${chk}${data ? '' : `<div class="kc-note notice notice-info admin-only">📊 For the same cards persoed as Power BI, link <b>DailyPersoData</b> (the report it uses) in <button class="link" data-pl="setup-pdata">⚙ Setup</button>.</div>`}
+      <p class="small muted pl-same">Built only from the ${rep}${data ? ' — the report Power BI uses' : ' (every run since 1 January)'}, so it's the same on every PC that has read it — compare the newest ${data ? 'production date' : 'run'} above to check you're on the same report. Last read here ${esc(when(h.read_at))}.</p>
+      ${chk}${data ? '' : `<div class="kc-note notice notice-info admin-only">For the same cards persoed as Power BI, link <b>DailyPersoData</b> (the report it uses) in <button class="link" data-pl="setup-pdata">⚙ Setup</button>.</div>`}
       <div class="card"><h3 class="pl-h">Cards persoed per day <span class="muted small">— last ${h.days} days, by ${data ? 'Production Date' : 'the day each run ended'} · green by the due date · red after it${h.daily.some((d) => d.unknown_cards) ? ' · grey: no due date in the report' : ''}</span></h3>
         <div class="pl-hist">${h.daily.map((d) => `<div class="pl-hist-col" title="${esc(d.date)}: ${n(d.cards)} cards persoed (${n(d.on_time_cards)} by their due date), ${n(d.jobs)} jobs">
           <div class="pl-hist-n">${d.cards ? kfmt(d.cards) : ''}</div>
@@ -337,18 +337,18 @@ async function renderPlanning() {
       block('Overdue', b.overdue_qty ? `${n(b.overdue_qty)} <span>${unit}</span>` : '✔ none', b.overdue_qty
         ? `${n(b.overdue_jobs)} job${b.overdue_jobs === 1 ? '' : 's'} past ${otto ? 'the plan date' : 'the cut-off'}${b.oldest_due ? ` · oldest due <b>${esc(dd(b.oldest_due))}</b>` : ''}` : 'nothing past its deadline', b.overdue_qty ? 'pl-late' : 'pl-ok'),
       c.basis_days ? block(`Pace · last ${c.basis_days} working day${c.basis_days === 1 ? '' : 's'}`, `${n(c.rate)} <span>${unit} done a day</span>`,
-        `${n(c.demand)} due a day · <b class="${net >= 0 ? 'pl-ok' : 'pl-late'}">${net >= 0 ? '+' : '−'}${n(Math.abs(net))}</b> a day<br><span class="muted">${esc(dd(c.from))} – ${esc(dd(c.to))}${b.pace_from === 'runs' ? ' · from the ⏱ timing report' : ''}</span>`) : '',
+        `${n(c.demand)} due a day · <b class="${net >= 0 ? 'pl-ok' : 'pl-late'}">${net >= 0 ? '+' : '−'}${n(Math.abs(net))}</b> a day<br><span class="muted">${esc(dd(c.from))} – ${esc(dd(c.to))}${b.pace_from === 'runs' ? ' · from the timing report' : ''}</span>`) : '',
       b.overdue_qty && c.clear_days !== null && c.clear_days !== undefined && ['ok', 'not_catching_up'].includes(c.status)
         ? block('Clear the overdue', wd(c.clear_days), 'of output, if nothing new came in') : '',
       !b.overdue_qty ? '' : c.status === 'ok' ? block('Catch up', wd(c.catch_days), `with new work still coming · caught up by <b>${c.catch_date ? esc(dd(c.catch_date)) : '—'}</b>`, c.catch_days > 20 ? 'pl-warn' : '')
         : c.status === 'not_catching_up' ? block('Catch up', 'not at this pace', 'as much or more is due each day as is done', 'pl-late')
           : block('Catching up', '—', c.status === 'nothing_done' ? 'nothing finished lately to measure the pace' : otto ? 'no finished jobs with an End Date in the export to measure the pace' : 'the pace comes from the plan history — it needs a full working day recorded'),
     ].filter(Boolean).join('');
-    return `<div class="card pl-backlog"><h3 class="pl-h">⏳ Backlog</h3>
+    return `<div class="card pl-backlog"><h3 class="pl-h">Backlog</h3>
       <div class="pl-bl-blocks">${blocks}</div>
       ${b.hidden_jobs ? `<p class="small muted" style="margin:8px 0 0">${n(b.hidden_jobs)} job${b.hidden_jobs === 1 ? '' : 's'} (${n(b.hidden_qty)} ${unit}) due more than ${b.max_age} days ago ${b.hidden_jobs === 1 ? 'isn\'t' : 'aren\'t'} shown or counted — likely errors. <a class="button small" href="/api/plan/hidden.xlsx" download title="Each hidden work order, with when it first appeared, whether it ran and how much, and columns for the investigation">⬇ Export them to Excel</a> <button class="link small admin-only" data-pl="setup">⚙ Change</button></p>` : ''}</div>`;
   };
-  // ⚖ Modifiers: each module on or off; the deadline numbers; rule lists; the shift table; card tags
+  // Modifiers: each module on or off; the deadline numbers; rule lists; the shift table; card tags
   const md = p.modifiers || { rules: [], shifts: [], tags: [], lists: [], off: [], shift_starts: {}, deadline: {} };
   const modsHtml = () => {
     const off = new Set((md.off || []).map((x) => x.toLowerCase()));
@@ -370,9 +370,9 @@ async function renderPlanning() {
     };
     const tagNames = [...new Set((md.tags || []).map((t) => t.tag))].sort();
     return `<div class="card pl-setup admin-only" id="pl-mods" ${store.get('planModsOpen', false) ? '' : 'hidden'}>
-      <div class="row"><h2 style="margin:0">⚖ Priority modifiers</h2><div class="spacer"></div>
+      <div class="row"><h2 style="margin:0">Priority modifiers</h2><div class="spacer"></div>
         <label class="button small" title="Bring over ShiftLookup, ManualLookup, MatchingLookup, DispatchLookup and the Cards sheet's AX / Tag list">📥 Import from the Production Planning workbook…<input type="file" accept=".xlsx,.xlsm" hidden id="pl-mods-file"></label></div>
-      <p class="small muted">In <b>⚖ Score</b> mode each job's score is the sum of the modules switched on, highest first (📌 pinned jobs still go first). Right now it's the <b>${esc(md.current_shift || '—')}</b> shift.</p>
+      <p class="small muted">In <b>Score</b> mode each job's score is the sum of the modules switched on, highest first (📌 pinned jobs still go first). Right now it's the <b>${esc(md.current_shift || '—')}</b> shift.</p>
       <datalist id="pl-custs">${custs.map((c) => `<option value="${esc(c)}">`).join('')}</datalist><datalist id="pl-tags">${tagNames.map((t) => `<option value="${esc(t)}">`).join('')}</datalist>
       <div class="pl-mod-list"><div class="row"><h4 style="margin:0">Deadline</h4>${sw('Deadline')}</div>
         <div class="form-grid pl-mod-dl">
@@ -412,10 +412,10 @@ async function renderPlanning() {
       <p class="small muted">The working day and days above are used for Matching too.</p>`;
   const finishO = (o) => (!ot.projected ? '' : o.finish_at ? `<span class="${o.late_minutes > 0 ? 'pl-late' : 'pl-ok'}" title="Projected ${esc(fmtDateTime(o.start_at))} → ${esc(fmtDateTime(o.finish_at))} at ${n(o.speed)} items/h">${PLF.wkHm.format(new Date(o.finish_at))}${o.late_minutes > 0 ? ` · ${fmtSpan(o.late_minutes)} late` : ''}</span>
       <div class="small muted">${esc(o.machine_planned)}${o.waited_perso ? ' · after perso' : ''}</div>`
-    : `<span class="pl-warn">⚠ ${o.unplanned === 'speed' ? 'no speed — ⚙ Setup' : 'no working time — check the working day'}</span>`);
-  // 🚚 Dispatch: the open dispatch jobs by due date, and where each work order is in the chain
+    : `<span class="pl-warn">⚠ ${o.unplanned === 'speed' ? 'no speed — Setup' : 'no working time — check the working day'}</span>`);
+  // Dispatch: the open dispatch jobs by due date, and where each work order is in the chain
   const dispHtml = () => {
-    if (dp.source.status !== 'ok') return `<div class="card lib-empty"><h2>🚚 Dispatch</h2><p>Set where the Dispatch export (OpenDespatchWorkorders) is saved in ⚙ Setup, or try it with 📂 Load file…. Each dispatch job is linked to its work order's perso and Matching jobs, so you can see what's ready to go and what's holding the rest up.</p>
+    if (dp.source.status !== 'ok') return `<div class="card lib-empty"><h2>Dispatch</h2><p>Set where the Dispatch export (OpenDespatchWorkorders) is saved in Setup, or try it with Load file…. Each dispatch job is linked to its work order's perso and Matching jobs, so you can see what's ready to go and what's holding the rest up.</p>
       ${dp.source.status === 'missing' ? `<p class="pl-late">⚠ Can't find <code>${esc(dp.source.file)}</code>.</p>` : dp.source.status === 'error' ? `<p class="pl-late">⚠ ${esc(dp.source.error)}</p>` : ''}</div>`;
     const df = store.get('planDispFilter', {}) || {};
     const all = dp.jobs;
@@ -424,7 +424,7 @@ async function renderPlanning() {
     const dCust = [...new Set(all.map((d) => d.customer).filter(Boolean))].sort();
     const over = all.filter((d) => d.due && d.due < todayIso); const today_ = all.filter((d) => d.due === todayIso);
     const st = (k) => all.filter((d) => d.stage === k);
-    const STAGE = { perso: ['⏳ Waiting on perso', 'pl-late'], matching: ['✉️ Waiting on Matching', 'pl-warn'], ready: ['✔ Ready to dispatch', 'pl-ok'] };
+    const STAGE = { perso: ['⏳ Waiting on perso', 'pl-late'], matching: ['Waiting on Matching', 'pl-warn'], ready: ['✔ Ready to dispatch', 'pl-ok'] };
     const chain = (d) => {
       const pc = d.perso_open ? `<span class="pl-warn">⏳ ${d.perso.length} perso job${d.perso.length === 1 ? '' : 's'} open</span>` : '<span class="pl-ok">✔ perso</span>';
       const mc = !d.matching.length ? '<span class="muted">no Matching job</span>' : d.matching_open ? `<span class="pl-warn">⏳ Matching: ${esc(d.matching.filter((m) => !m.done).map((m) => m.status || 'open').join(', '))}</span>` : '<span class="pl-ok">✔ Matching</span>';
@@ -432,7 +432,7 @@ async function renderPlanning() {
     };
     const drow = (d, i) => { const late = d.due && d.due < todayIso; return `<tr class="pl-job ${late ? 'pl-over-row' : d.due === todayIso ? 'pl-today-row' : ''}" data-pl-job="disp:${esc(d.key)}">
       <td class="num muted pl-n">${i + 1}</td>
-      <td><b>${esc(d.due ? dayLabel(d.due) : '—')}</b>${late ? '<div class="small pl-over">overdue</div>' : ''}${d.delay?.new_date ? `<div class="small ${d.delay.new_date < todayIso ? 'pl-late' : 'pl-warn'}" title="${esc(d.delay.reason || 'New expected date (⏱ Delays)')}">⏱ expected ${esc(dayLabel(d.delay.new_date))}</div>` : ''}</td>
+      <td><b>${esc(d.due ? dayLabel(d.due) : '—')}</b>${late ? '<div class="small pl-over">overdue</div>' : ''}${d.delay?.new_date ? `<div class="small ${d.delay.new_date < todayIso ? 'pl-late' : 'pl-warn'}" title="${esc(d.delay.reason || 'New expected date (Delays)')}">⏱ expected ${esc(dayLabel(d.delay.new_date))}</div>` : ''}</td>
       <td><b>${esc(d.wo)}</b><span class="muted">${esc(d.name.slice(d.wo.length))}</span>${d.live ? ` <span class="pf-chip">${esc(d.live)}</span>` : ''}<div class="small muted">${esc(d.group || '')}</div></td>
       <td>${esc(d.customer || '—')}<div class="small muted">${esc(d.customer_name || '')}</div></td>
       <td class="num"><b>${n(d.qty)}</b></td><td>${prioChip(d.prio)}</td><td class="small">${esc(d.status || '')}</td>
@@ -456,7 +456,7 @@ async function renderPlanning() {
         <tr class="pl-load-total"><td>All dispatch jobs</td>${cols.map(([, , f]) => { const l = all.filter(f); return `<td class="num"><b>${n(sum_(l))}</b><div class="small muted">${n(l.length)} job${l.length === 1 ? '' : 's'}</div></td>`; }).join('')}<td class="num">${n(sum_(all))}</td><td class="num">${n(all.length)}</td></tr>
         </tbody></table></div><p class="small muted">The Dispatch export has no machines, so there's no Gantt: this shows how much is due out each day and how much of it is still waiting on perso or Matching.</p></div>`;
     };
-    // ⏱ Delays: the late (or about to be) work orders by customer and original due date, each group given a new
+    // Delays: the late (or about to be) work orders by customer and original due date, each group given a new
     // expected date and reason together; a work order can have its own
     const dDelays = () => {
       const pf = store.get('planDelayFilter', {}) || {};
@@ -516,7 +516,7 @@ async function renderPlanning() {
         <ol class="pld-steps">
           <li><b>1</b> Give each customer's overdue due date a <b>new expected date</b> — all its work orders take it.</li>
           <li><b>2</b> One work order different? Click <b>▸ work orders</b> and give it its own.</li>
-          <li><b>3</b> Send it on: <b>⬇ Excel report</b> or <b>📋 Copy summary</b>.</li></ol>
+          <li><b>3</b> Send it on: <b>⬇ Excel report</b> or <b>Copy summary</b>.</li></ol>
         <div class="row pl-filters">
           <select id="pldl-show"><option value="">All overdue</option><option value="unset" ${pf.show === 'unset' ? 'selected' : ''}>Still need a new date</option><option value="missed" ${pf.show === 'missed' ? 'selected' : ''}>Past their new date</option></select>
           ${custPickHtml('pldl-customer', lCust, plCusts(pf), new Map(plDelayCusts.map((c) => [c.code, c.name])))}
@@ -570,16 +570,16 @@ async function renderPlanning() {
         ${custPickHtml('pld-customer', dCust, plCusts(df))}
         <select id="pld-stage"><option value="">Any stage</option>${Object.entries(STAGE).map(([k, [l]]) => `<option value="${k}" ${df.stage === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
         ${df.q || plCusts(df).length || df.stage ? '<button class="link small" data-pl="dclear">Clear</button>' : ''}</div>
-      <div class="card"><h3 class="pl-h">🚚 Dispatch — by due date, then priority <span class="muted small">${shown.length} job${shown.length === 1 ? '' : 's'} · ${n(sum_(shown))} pieces · click a job for its perso and Matching jobs</span></h3>
+      <div class="card"><h3 class="pl-h">Dispatch — by due date, then priority <span class="muted small">${shown.length} job${shown.length === 1 ? '' : 's'} · ${n(sum_(shown))} pieces · click a job for its perso and Matching jobs</span></h3>
         <div class="kdb-scroll"><table class="log pl-table"><thead><tr><th></th><th>Due out</th><th>Work order</th><th>Customer</th><th class="num">Qty</th><th>Priority</th><th>Status (export)</th><th>Where it is</th></tr></thead>
         <tbody>${shown.map((d) => drow(d, all.indexOf(d))).join('') || '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>
       ${dp.source.skipped?.length ? `<p class="small muted">${dp.source.skipped.length} row${dp.source.skipped.length === 1 ? '' : 's'} with a due date not understood.</p>` : ''}`}`;
   };
   const ottoHtml = () => {
     const os = ot.source; const allO = [...ot.running, ...ot.queue];
-    if (os.status === 'missing') return `<div class="kc-note notice">Can't find <code>${esc(os.file)}</code> — check the Matching path in ⚙ Setup.</div>`;
+    if (os.status === 'missing') return `<div class="kc-note notice">Can't find <code>${esc(os.file)}</code> — check the Matching path in Setup.</div>`;
     if (os.status === 'error') return `<div class="kc-note notice">Couldn't read <code>${esc(os.file)}</code>: ${esc(os.error)}</div>`;
-    if (os.status !== 'ok') return '<div class="card lib-empty"><h2>Matching</h2><p>Set where the Matching export is saved in ⚙ Setup (or try it with 📂 Load file…). Each Matching job is matched to its perso work order by the start of its Name, so you can see which are still waiting on perso.</p></div>';
+    if (os.status !== 'ok') return '<div class="card lib-empty"><h2>Matching</h2><p>Set where the Matching export is saved in Setup (or try it with Load file…). Each Matching job is matched to its perso work order by the start of its Name, so you can see which are still waiting on perso.</p></div>';
     const of = store.get('planOttoFilter', {}) || {};
     const om = (o) => plCustOk(of, o.customer) && (!of.waiting || (of.waiting === 'perso' ? o.perso_open : !o.perso_open))
       && (!of.q || `${o.name} ${o.customer} ${o.customer_name || ''} ${o.group || ''} ${o.machine || ''}`.toLowerCase().includes(of.q.toLowerCase()));
@@ -594,7 +594,7 @@ async function renderPlanning() {
     const orow = (o, i) => { const l = left(o); return `<tr class="pl-job ${l.cls ? `${l.cls}-row` : ''} ${behind(o) ? 'pl-late-row' : ''}" data-pl-job="otto:${esc(o.key)}">
       <td class="num muted pl-n">${i === null ? '▶' : i + 1}</td>
       <td><b>${esc(o.due ? dayLabel(o.due) : '—')}</b> <span ${o.time_from ? 'title="The cut-off of the perso work order\'s shipper — the matching export has no time of its own"' : ''}>${esc(o.deadline?.slice(11) || '')}</span><div class="small ${l.cls}">${esc(l.text)}</div></td>
-      <td><b>${esc(o.wo)}</b><span class="muted">${esc(o.name.slice(o.wo.length))}</span><div class="small muted">${o.shipper ? `🚚 ${esc(o.shipper)}${o.group ? ' · ' : ''}` : ''}${esc(o.group || '')}</div></td>
+      <td><b>${esc(o.wo)}</b><span class="muted">${esc(o.name.slice(o.wo.length))}</span><div class="small muted">${o.shipper ? `${esc(o.shipper)}${o.group ? ' · ' : ''}` : ''}${esc(o.group || '')}</div></td>
       <td>${esc(o.customer || '—')}<div class="small muted">${esc(o.customer_name || '')}</div></td>
       <td class="num"><b>${n(o.qty)}</b></td><td>${prioChip(o.prio)}</td><td>${esc(o.status || '')}<div class="small muted">${esc(o.machine || '')}</div></td><td>${persoCell(o)}</td>${ot.projected ? `<td>${finishO(o)}</td>` : ''}</tr>`; };
     const odetailRow = (o) => `<tr class="pl-detail" data-pl-detail="otto:${esc(o.key)}"><td></td><td colspan="${ot.projected ? 8 : 7}"><div class="small">${o.sub_customer ? `<b>${esc(o.sub_customer)}</b><br>` : ''}${o.comment ? esc(o.comment).replace(/\n/g, '<br>') : '<span class="muted">No comment.</span>'}</div>
@@ -607,7 +607,7 @@ async function renderPlanning() {
       <div class="kdb-tile"><div class="kdb-tile-l">Running</div><div class="kdb-tile-v">${n(ot.running.length)}</div><div class="kdb-tile-s">${n(sum(ot.running))} items</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Due today</div><div class="kdb-tile-v ${oToday.length ? 'kdb-warn' : ''}">${n(oToday.length)}</div><div class="kdb-tile-s">${n(sum(oToday))} items</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Overdue items</div><div class="kdb-tile-v ${oOver.length ? 'kdb-bad' : 'kdb-ok'}">${n(sum(oOver))}</div><div class="kdb-tile-s">${n(oOver.length)} job${oOver.length === 1 ? '' : 's'}${ot.backlog?.catch_up?.catch_days ? ` · caught up in ~${ot.backlog.catch_up.catch_days} d` : ''}</div></div>
-      <div class="kdb-tile"><div class="kdb-tile-l">Projected late</div><div class="kdb-tile-v ${allO.some((o) => o.late_minutes > 0) ? 'kdb-bad' : ot.projected ? 'kdb-ok' : ''}">${ot.projected ? n(allO.filter((o) => o.late_minutes > 0).length) : '—'}</div><div class="kdb-tile-s">${ot.projected ? `${(ot.machines || []).filter((m) => m.active).length} machine${(ot.machines || []).filter((m) => m.active).length === 1 ? '' : 's'} · ${esc(dayText)}` : 'set machines in ⚙ Setup'}</div></div>
+      <div class="kdb-tile"><div class="kdb-tile-l">Projected late</div><div class="kdb-tile-v ${allO.some((o) => o.late_minutes > 0) ? 'kdb-bad' : ot.projected ? 'kdb-ok' : ''}">${ot.projected ? n(allO.filter((o) => o.late_minutes > 0).length) : '—'}</div><div class="kdb-tile-s">${ot.projected ? `${(ot.machines || []).filter((m) => m.active).length} machine${(ot.machines || []).filter((m) => m.active).length === 1 ? '' : 's'} · ${esc(dayText)}` : 'set machines in Setup'}</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Waiting on perso</div><div class="kdb-tile-v ${allO.some(behind) ? 'kdb-bad' : ''}">${n(waiting.length)}</div><div class="kdb-tile-s">${allO.some(behind) ? `${n(allO.filter(behind).length)} perso ready after the plan date` : `${src.status === 'ok' ? 'perso work order still open' : 'link the perso export to match'}`}</div></div></div><button class="primary pl-generate" data-pl="print" title="A plan of the Matching jobs — Incoming, In Progress and Ready — as a PDF to print and hand out">📄 Generate plan</button></div>
     ${viewsRow()}
     ${view === 'gantt' ? '<div class="card pl-gantt-card"><div id="pl-gantt-info" class="small"></div><div id="pl-gantt"></div></div>' : ''}
@@ -632,31 +632,31 @@ async function renderPlanning() {
   };
 
   main().innerHTML = `
-    <div class="kanban-tools"><h1 style="margin:0">🏭 Production</h1>
+    <div class="kanban-tools"><h1 style="margin:0">Production</h1>
       ${plHalvesHtml(half, mode)}
       <div class="spacer"></div>
       ${state.mode === 'planner' ? '<span id="pl-presence" class="pl-presence" title="Others with the planner open">👤 just you</span>' : ''}
       <span class="small muted">${(half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).status === 'ok' ? `${esc((half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).name)} · saved ${esc(fmtDateTime((half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).modified))}${(half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).uploaded ? ' (uploaded copy)' : ''}` : ''}</span>
       <button data-pl="refresh" title="Read the export again if it has changed">🔄</button>
       ${half === 'perso' && src.status === 'ok' ? '<button class="primary" data-pl="print" title="A plan per cell (DOD, Emboss, Laser) of the work orders still open, as a PDF to print and hand out">📄 Generate plan</button>' : ''}
-      ${half === 'perso' && p.volume?.pending?.length ? `<button class="pl-vx-btn" data-vx="open" title="${esc(`Volume extensions to confirm: ${p.volume.pending.map((x) => `${x.customer} sent ${n(x.cards)} cards for ${dayLabel(x.due)}`).join(' · ')}`)}">📦 <b>${p.volume.pending.length}</b> to confirm</button>`
-        : half === 'perso' && (p.volume?.recent?.length || p.volume?.rules?.length) ? '<button class="small" data-vx="open" title="📦 Volume extensions: what was applied or dismissed, and undo">📦</button>' : ''}
+      ${half === 'perso' && p.volume?.pending?.length ? `<button class="pl-vx-btn" data-vx="open" title="${esc(`Volume extensions to confirm: ${p.volume.pending.map((x) => `${x.customer} sent ${n(x.cards)} cards for ${dayLabel(x.due)}`).join(' · ')}`)}"><b>${p.volume.pending.length}</b> to confirm</button>`
+        : half === 'perso' && (p.volume?.recent?.length || p.volume?.rules?.length) ? '<button class="small" data-vx="open" title="Volume extensions: what was applied or dismissed, and undo">📦</button>' : ''}
       ${ddMenu('⋯', `
-        <label title="Try it with a copy of the ${half === 'otto' ? 'Matching' : 'open work orders'} export">📂 Load a file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
+        <label title="Try it with a copy of the ${half === 'otto' ? 'Matching' : 'open work orders'} export">Load a file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
         ${half === 'perso' ? '<button class="admin-only" data-pl="mods">⚖ Priority modifiers</button>' : ''}
         <button class="admin-only" data-pl="setup">⚙ Setup — the export, machines and capacity</button>`, { title: 'Load a file, priority modifiers, setup' })}
     </div>
     <div id="pl-changed" class="pl-changed" hidden></div>
     ${half === 'perso' ? modsHtml() : ''}
-    ${src.status === 'ok' ? '' : '<div class="card only-not-admin"><p>🏭 Planning isn\'t set up yet: an admin links the open work orders export in ⚙ Setup.</p></div>'}
+    ${src.status === 'ok' ? '' : '<div class="card only-not-admin"><p>Planning isn\'t set up yet: an admin links the open work orders export in Setup.</p></div>'}
     <div class="card pl-setup admin-only" id="pl-setup" ${src.status === 'ok' && !store.get('planSetupOpen', false) ? 'hidden' : ''}>
-      <div class="row"><h2 style="margin:0">Setup</h2><div class="spacer"></div>${ddMenu('⋯', `<a href="/api/plan/setup" download title="Machines, speeds, OEE, modifiers, card tags, pins and these settings — to move them to the shared planner (or back)">⬇ Export setup</a><a href="/api/plan/setup?history=1" download title="The setup plus the history built up from the exports (the pace, catch-up and on-time figures) and the ⏱ Production runs — so a new install starts where this one is">⬇ Export setup + history</a><label title="Replace this setup with one exported before">⬆ Import setup…<input type="file" accept=".json" hidden id="pl-setup-file"></label>`, { title: 'Export or import the setup' })}</div>
-      ${p.shared_setup ? `<p class="small muted" style="margin:6px 0 0">📦 From the network: <span title="${esc(p.shared_setup.file)}">${esc(p.shared_setup.file.split(/[\\/]/).pop())}</span>, ${esc(fmtDateTime(p.shared_setup.at))} —
+      <div class="row"><h2 style="margin:0">Setup</h2><div class="spacer"></div>${ddMenu('⋯', `<a href="/api/plan/setup" download title="Machines, speeds, OEE, modifiers, card tags, pins and these settings — to move them to the shared planner (or back)">⬇ Export setup</a><a href="/api/plan/setup?history=1" download title="The setup plus the history built up from the exports (the pace, catch-up and on-time figures) and the Production runs — so a new install starts where this one is">⬇ Export setup + history</a><label title="Replace this setup with one exported before">⬆ Import setup…<input type="file" accept=".json" hidden id="pl-setup-file"></label>`, { title: 'Export or import the setup' })}</div>
+      ${p.shared_setup ? `<p class="small muted" style="margin:6px 0 0">From the network: <span title="${esc(p.shared_setup.file)}">${esc(p.shared_setup.file.split(/[\\/]/).pop())}</span>, ${esc(fmtDateTime(p.shared_setup.at))} —
         ${p.shared_setup.setup ? 'setup applied' : 'this install\'s own setup kept'}${p.shared_setup.history ? `; history added: ${n(p.shared_setup.history.reads)} exports, ${n(p.shared_setup.history.jobs + p.shared_setup.history.jobs_updated)} jobs, ${n(p.shared_setup.history.prod_runs)} production runs` : ''}.
         A newer planning-setup file next to CIManager-Setup.bat is picked up by itself.</p>` : ''}
       ${state.mode === 'planner' ? '' : `<label class="f full" style="margin:10px 0">Shared planner address <span class="muted small">(optional) — when Planning runs on a server for everyone, its address, e.g. http://servername:3100. The Planning tab then opens it.</span>
         <input type="url" name="planner_url" class="pl-setting-any" value="${esc(settings.planner_url || '')}" placeholder="http://servername:3100"></label>`}
-      <h3 class="pl-h" data-sec="sources">📂 Sources <span class="muted small">— the exports and the card database</span></h3>
+      <h3 class="pl-h" data-sec="sources">Sources <span class="muted small">— the exports and the card database</span></h3>
       <div class="form-grid">
         <label class="f full">Open work orders export (where it's saved)<input type="text" name="plan_src" value="${esc(settings.plan_src || '')}" placeholder="e.g. S:\\…\\Source Data\\OpenPersoWorkorders_PerAx.xlsx">
           <span class="small muted">Read again whenever it's saved (e.g. the hourly SSRS export). Nothing in it is changed.</span></label>
@@ -664,14 +664,14 @@ async function renderPlanning() {
           <span class="small ${ot.source.status === 'missing' || ot.source.status === 'error' ? 'pl-late' : 'muted'}">${ot.source.status === 'ok' ? `✔ ${n(ot.running.length + ot.queue.length)} open Matching jobs · saved ${esc(fmtDateTime(ot.source.modified))}` : ot.source.status === 'missing' ? '⚠ Can\'t find this file' : ot.source.status === 'error' ? `⚠ ${esc(ot.source.error)}` : 'Each Matching job is matched to its perso work order by the start of its Name.'}</span></label>
         <label class="f full">Dispatch export (where it's saved) — WO, QNY, Due Out, Status<input type="text" name="plan_disp_src" value="${esc(settings.plan_disp_src || '')}" placeholder="e.g. S:\\…\\Source Data\\OpenDespatchWorkorders.xlsx">
           <span class="small ${dp.source.status === 'missing' || dp.source.status === 'error' ? 'pl-late' : 'muted'}">${dp.source.status === 'ok' ? `✔ ${n(dp.jobs.length)} open dispatch jobs · saved ${esc(fmtDateTime(dp.source.modified))}` : dp.source.status === 'missing' ? '⚠ Can\'t find the file there' : dp.source.status === 'error' ? `⚠ ${esc(dp.source.error)}` : 'Each dispatch job is linked to its perso and Matching jobs by its work order (the start of its WO).'}</span></label>
-        <label class="f full">📊 DailyPersoData (the report Power BI uses) — Production Date, job, Qty Persoed<input type="text" name="kpi_perso_data" value="${esc(settings.kpi_perso_data || '')}" placeholder="e.g. S:\\…\\DailyPersoData.xlsx">
-          <span class="small ${p.pdata?.status === 'missing' || p.pdata?.status === 'error' ? 'pl-late' : 'muted'}">${p.pdata?.rows ? `✔ ${n(p.pdata.rows)} rows, ${esc(p.pdata.first)} to ${esc(p.pdata.last)} — 📈 History and the backlog pace add up its Qty Persoed by Production Date, as Power BI does` : p.pdata?.status === 'missing' ? '⚠ Can\'t find the file there' : p.pdata?.status === 'error' ? `⚠ ${esc(p.pdata.error)}` : 'Link it so 📈 History and the backlog pace show the same cards persoed as Power BI. Read every 10 minutes; nothing in it is changed.'}</span></label>
-        <label class="f full">⏱ Perso timing report (DailyPersoTiming) — each run's start and end, for the ⏱ Gantt, speeds and anomalies<input type="text" name="kpi_time_perso" value="${esc(settings.kpi_time_perso || '')}" placeholder="e.g. S:\\…\\DailyPersoTiming.xlsx"></label>
+        <label class="f full">DailyPersoData (the report Power BI uses) — Production Date, job, Qty Persoed<input type="text" name="kpi_perso_data" value="${esc(settings.kpi_perso_data || '')}" placeholder="e.g. S:\\…\\DailyPersoData.xlsx">
+          <span class="small ${p.pdata?.status === 'missing' || p.pdata?.status === 'error' ? 'pl-late' : 'muted'}">${p.pdata?.rows ? `✔ ${n(p.pdata.rows)} rows, ${esc(p.pdata.first)} to ${esc(p.pdata.last)} — History and the backlog pace add up its Qty Persoed by Production Date, as Power BI does` : p.pdata?.status === 'missing' ? '⚠ Can\'t find the file there' : p.pdata?.status === 'error' ? `⚠ ${esc(p.pdata.error)}` : 'Link it so History and the backlog pace show the same cards persoed as Power BI. Read every 10 minutes; nothing in it is changed.'}</span></label>
+        <label class="f full">Perso timing report (DailyPersoTiming) — each run's start and end, for the Gantt, speeds and anomalies<input type="text" name="kpi_time_perso" value="${esc(settings.kpi_time_perso || '')}" placeholder="e.g. S:\\…\\DailyPersoTiming.xlsx"></label>
         <label class="f full">Card database (Access) — the Cards table gives each card article's type, material and print sides<input type="text" name="plan_db" value="${esc(settings.plan_db || '')}" placeholder="e.g. S:\\…\\Cards.accdb">
           <span class="small ${cdb.status === 'error' || cdb.status === 'missing' ? 'pl-late' : 'muted'}">${cdb.status === 'ok' ? `✔ ${n(cdb.count)} cards in the ${esc(cdb.table)} table · saved ${esc(fmtDateTime(cdb.modified))} — read again whenever it's saved` : cdb.status === 'missing' ? '⚠ Can\'t find this file' : cdb.status === 'error' ? `⚠ ${esc(cdb.error)}` : cdb.status === 'loading' ? '⏳ Being read in the background (a big database: a minute or so); the page carries on meanwhile' : 'Read only — nothing in the database is changed. It can stay open in Access.'}</span></label>
         <label class="f">Table<input type="text" name="plan_db_table" value="${esc(settings.plan_db_table || 'Cards')}"></label>
       </div>
-      <h3 class="pl-h" data-sec="rules">⚙ Planning rules <span class="muted small">— rates, buffers, working day</span></h3>
+      <h3 class="pl-h" data-sec="rules">Planning rules <span class="muted small">— rates, buffers, working day</span></h3>
       <div class="form-grid">
         <label class="f">Flat rate — cards per hour for cards without a speed<input type="number" min="0" step="1" name="plan_rate" value="${esc(settings.plan_rate || '')}" placeholder="optional"></label>
         ${useMachines ? '' : `<label class="f">Lines running <span class="muted small">(until machines are set)</span><input type="number" min="1" step="1" name="plan_lines" value="${esc(settings.plan_lines || '1')}"></label>`}
@@ -679,10 +679,10 @@ async function renderPlanning() {
         <label class="f">Change-over (minutes) <span class="muted small">— each time a machine moves on to another work order</span><input type="number" min="0" step="1" name="plan_changeover" value="${esc(settings.plan_changeover || '0')}"></label>
         <div class="f full"><span>Run times</span><div class="row">
           <label class="row small"><input type="radio" name="pl-learned" data-pl-learned="0" ${settings.plan_learned_times === '1' ? '' : 'checked'}> From the speeds and OEE below</label>
-          <label class="row small"><input type="radio" name="pl-learned" data-pl-learned="1" ${settings.plan_learned_times === '1' ? 'checked' : ''}> 🔬 Learned from what ran — each card's own time, with the set-up</label></div>
-          <span class="small muted">${p.learned_times?.on ? `${n(p.learned_times.card)} of ${n(p.learned_times.lines)} card lines timed from their card's own runs, ${n(p.learned_times.kind + p.learned_times.all)} from their kind's or all runs${p.learned_times.setup !== null ? `, each with ${n(p.learned_times.setup)} min set-up` : ''}; the rest from the speeds and OEE. Learned from the last 180 days of ⏱ Production runs (${n(p.learned_times.runs)}).` : 'Learned run times come from the ⏱ Production runs: see 🧠 Insights › 🔬 Learned for how close each way has been.'}</span></div>
+          <label class="row small"><input type="radio" name="pl-learned" data-pl-learned="1" ${settings.plan_learned_times === '1' ? 'checked' : ''}> Learned from what ran — each card's own time, with the set-up</label></div>
+          <span class="small muted">${p.learned_times?.on ? `${n(p.learned_times.card)} of ${n(p.learned_times.lines)} card lines timed from their card's own runs, ${n(p.learned_times.kind + p.learned_times.all)} from their kind's or all runs${p.learned_times.setup !== null ? `, each with ${n(p.learned_times.setup)} min set-up` : ''}; the rest from the speeds and OEE. Learned from the last 180 days of Production runs (${n(p.learned_times.runs)}).` : 'Learned run times come from the Production runs: see Insights › Learned for how close each way has been.'}</span></div>
         <label class="f">Hide anything due more than (days ago) <span class="muted small">— likely errors; 0 shows all</span><input type="number" min="0" step="1" name="plan_max_age" value="${esc(settings.plan_max_age ?? '30')}"></label>
-        <label class="f">🛟 Mitigation: due within (working days) <span class="muted small">— go before the overdue; 0 = all</span><input type="number" min="0" step="1" name="plan_miti_days" value="${esc(settings.plan_miti_days ?? '5')}"></label>
+        <label class="f">Mitigation: due within (working days) <span class="muted small">— go before the overdue; 0 = all</span><input type="number" min="0" step="1" name="plan_miti_days" value="${esc(settings.plan_miti_days ?? '5')}"></label>
         <label class="f">Working day from<input type="time" name="plan_day_start" value="${esc(settings.plan_day_start || '06:00')}"></label>
         <label class="f">to <span class="muted small">(the same time = round the clock; earlier = past midnight)</span><input type="time" name="plan_day_end" value="${esc(settings.plan_day_end || '22:00')}"></label>
         <div class="f full"><span>Working days</span><div class="row">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => `<label class="row small"><input type="checkbox" data-pl-day="${i}" ${cap.days.includes(i) ? 'checked' : ''}> ${d}</label>`).join('')}</div></div>
@@ -709,7 +709,7 @@ ${half === 'otto' ? ottoSetup() : `
       <label class="f" style="max-width:260px">Default OEE (%) <span class="muted small">— customers not filled in</span><input type="number" min="1" max="100" step="0.1" name="plan_oee_default" value="${esc(settings.plan_oee_default || '')}" placeholder="100"></label>
       <div class="kdb-scroll"><table class="log pl-speeds"><thead><tr><th>Customer</th><th>Name</th><th class="num">Cards open</th><th>OEE %</th></tr></thead><tbody>${(p.oee || []).map((o) => `<tr><td><b>${esc(o.customer)}</b></td><td>${esc(o.name || '')}</td><td class="num">${o.cards ? n(o.cards) : '<span class="muted">none open</span>'}</td>
         <td><input type="number" class="pl-oee" data-customer="${esc(o.customer)}" min="1" max="100" step="0.1" value="${o.oee ? Math.round(o.oee * 1000) / 10 : ''}" placeholder="${p.oee_default ? Math.round(p.oee_default * 1000) / 10 : '100'}"></td></tr>`).join('') || '<tr><td colspan="4" class="muted">No customers in the open work orders.</td></tr>'}</tbody></table></div>
-      <h3 class="pl-h" style="margin-top:14px">📦 Volume extensions <span class="muted small">— when a customer sends a lot at once</span></h3>
+      <h3 class="pl-h" style="margin-top:14px">Volume extensions <span class="muted small">— when a customer sends a lot at once</span></h3>
       <p class="small muted">Everything a customer submits in one day for one due date (D+0: due that day, D+1: the next working day), in cards. More than a rule's cards: the due date can move on by its working days. SITHUB <b>suggests</b> it on the Production page, someone <b>applies</b> (or dismisses) it, and from then on that's the work orders' due date: in the plan, the sheets and the on-time figures. Several rules for a customer are tiers: the highest one met counts.</p>
       <div class="kdb-scroll"><table class="log pl-speeds"><thead><tr><th>Customer</th><th>Notice</th><th class="num">More than (cards)</th><th>Extension</th><th>Note</th><th></th></tr></thead><tbody>
         ${(p.volume?.rules || []).map((r) => `<tr><td><b>${esc(r.customer)}</b> <span class="muted small">${esc(r.name || '')}</span></td><td>${r.notice === 'both' ? 'D+0 and D+1' : `D+${esc(r.notice)}`}</td><td class="num">${n(r.min_cards)}</td><td>+${r.extra_days} working day${r.extra_days === 1 ? '' : 's'}</td><td class="small muted">${esc(r.note || '')}</td><td><button class="icon" data-vx-del-rule="${r.id}" title="Remove this rule">✕</button></td></tr>`).join('')}
@@ -721,14 +721,14 @@ ${half === 'otto' ? ottoSetup() : `
           <td><button class="small" data-vx="add-rule">Add</button></td></tr></tbody></table></div>
       <p class="small muted">Jobs are worked through in the list's order — what's running first — each card line at its speed ${useMachines ? 'on a machine that runs its type' : '(divided over the lines running)'}, and each job gets a projected finish against its deadline.</p>
 `}
-      <h3 class="pl-h" data-sec="auto" style="margin-top:14px">📄 Automatic plans <span class="muted small">— the plan made at set times into a file, overwritten each time</span></h3>
+      <h3 class="pl-h" data-sec="auto" style="margin-top:14px">Automatic plans <span class="muted small">— the plan made at set times into a file, overwritten each time</span></h3>
       <div id="pl-auto"><p class="small muted">Loading…</p></div>
     </div>
     ${half === 'otto' ? ottoHtml() : half === 'disp' ? dispHtml() : `
     ${src.status === 'ok' && cdb.status === 'ok' && (p.unknown_articles?.length || p.no_speed) ? `<div class="kc-note notice">${[p.unknown_articles.length ? `${p.unknown_articles.length} card article${p.unknown_articles.length === 1 ? ' isn\'t' : 's aren\'t'} in the card database (${esc(p.unknown_articles.slice(0, 6).join(', '))}${p.unknown_articles.length > 6 ? ', …' : ''})` : '', p.no_speed ? `${p.no_speed} card line${p.no_speed === 1 ? ' has no speed of its own' : 's have no speed of their own'} — ${cap.rate ? 'the flat rate is used' : 'the average of the others is used (≈)'}` : ''].filter(Boolean).join(' · ')}. <button class="small" data-pl="nospeed">🔎 Show which</button> <button class="link small admin-only" data-pl="setup">⚙ Speeds</button></div>` : ''}
-    ${src.status === 'missing' ? `<div class="kc-note notice">Can't find <code>${esc(src.file)}</code> — check the path in ⚙ Setup.</div>` : ''}
+    ${src.status === 'missing' ? `<div class="kc-note notice">Can't find <code>${esc(src.file)}</code> — check the path in Setup.</div>` : ''}
     ${src.status === 'error' ? `<div class="kc-note notice">Couldn't read <code>${esc(src.file)}</code>: ${esc(src.error)}</div>` : ''}
-    ${src.status === 'none' ? '<div class="card lib-empty"><h2>Production planning</h2><p>Set where the open work orders export is saved in ⚙ Setup (or try it with 📂 Load file…). The work orders are put in order by their deadline — the due date at the shipper\'s cut-off — and, with a capacity, each one\'s finish is projected.</p></div>' : ''}
+    ${src.status === 'none' ? '<div class="card lib-empty"><h2>Production planning</h2><p>Set where the open work orders export is saved in Setup (or try it with Load file…). The work orders are put in order by their deadline — the due date at the shipper\'s cut-off — and, with a capacity, each one\'s finish is projected.</p></div>' : ''}
     ${src.status === 'ok' ? `
     <div class="pl-tiles-row"><div class="kdb-tiles pl-tiles">
       <div class="kdb-tile"><div class="kdb-tile-l">Open jobs</div><div class="kdb-tile-v">${n(all.length)}</div><div class="kdb-tile-s">${n(sum(all))} cards · ${n(new Set(all.map((j) => j.wo)).size)} work orders</div></div>
@@ -756,7 +756,7 @@ ${half === 'otto' ? ottoSetup() : `
     </div>
     ${runningShown.length ? `<div class="card"><h3 class="pl-h">▶ Running <span class="muted small">${runningShown.length} job${runningShown.length === 1 ? '' : 's'} · ${n(sum(runningShown))} cards</span></h3>
       <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${runningShown.map((j) => row(j, null)).join('')}</tbody></table></div></div>` : ''}
-    <div class="card"><h3 class="pl-h">Next to start — ${mode === 'fifo' ? 'FIFO: by deadline' : mode === 'mitigation' ? '🛟 Mitigation: what can still be on time first' : mode === 'score' ? '⚖ Score: highest first (deadline + modifiers)' : 'BAU: by due day, then priority, then cut-off'} <span class="muted small">${queueShown.length} job${queueShown.length === 1 ? '' : 's'} · ${n(sum(queueShown))} cards · click a job for its card articles</span></h3>
+    <div class="card"><h3 class="pl-h">Next to start — ${mode === 'fifo' ? 'FIFO: by deadline' : mode === 'mitigation' ? 'Mitigation: what can still be on time first' : mode === 'score' ? 'Score: highest first (deadline + modifiers)' : 'BAU: by due day, then priority, then cut-off'} <span class="muted small">${queueShown.length} job${queueShown.length === 1 ? '' : 's'} · ${n(sum(queueShown))} cards · click a job for its card articles</span></h3>
       <div class="kdb-scroll"><table class="log pl-table"><thead>${head}</thead><tbody>${queueShown.slice(0, qShown).map(queueRow).join('')}${moreRow()}${queueShown.length ? '' : '<tr><td colspan="8" class="muted">Nothing matches.</td></tr>'}</tbody></table></div></div>`}` : ''}`}`;
   const keepScroll = plLastTab === `${half}|${store.get(half === 'perso' ? 'planView' : `planView_${half}`, 'list')}`;
   plLastTab = `${half}|${store.get(half === 'perso' ? 'planView' : `planView_${half}`, 'list')}`;
@@ -781,7 +781,7 @@ ${half === 'otto' ? ottoSetup() : `
   $('#plo-q')?.addEventListener('change', (e) => setO('q', e.target.value.trim()));
   const setD = (k, v) => { const df = store.get('planDispFilter', {}) || {}; df[k] = v || ''; store.set('planDispFilter', df); renderPlanning(); };
   $('#pld-q')?.addEventListener('change', (e) => setD('q', e.target.value.trim()));
-  // ⏱ Delays
+  // Delays
   const setDl = (k, v) => { const f = store.get('planDelayFilter', {}) || {}; f[k] = v || ''; store.set('planDelayFilter', f); renderPlanning(); };
   $('#pld-import')?.addEventListener('change', async (e) => {
     const file = e.target.files[0]; if (!file) return;
@@ -976,7 +976,7 @@ ${half === 'otto' ? ottoSetup() : `
     if (pld === 'copy') { const t = plDelayText(); try { await navigator.clipboard.writeText(t); toast('Summary copied — paste it into your email or report'); } catch { prompt('Copy the summary:', t); } return; }
     if (pld === 'xlsx') {
       const preL = plCusts(store.get('planDelayFilter', {}) || {}); const pre = preL.length > 0;
-      openModal(`<div class="modal-head"><h2 style="margin:0">⬇ Delays report</h2><button class="icon" data-action="close-modal">✕</button></div>
+      openModal(`<div class="modal-head"><h2 style="margin:0">Delays report</h2><button class="icon" data-action="close-modal">✕</button></div>
         <form id="pld-xlsx" class="form-grid">
           <div class="f full"><label class="row"><input type="radio" name="who" value="all" ${pre ? '' : 'checked'}> All customers</label>
             <label class="row"><input type="radio" name="who" value="some" ${pre ? 'checked' : ''}> Only these customers:</label>
@@ -1045,7 +1045,7 @@ ${half === 'otto' ? ottoSetup() : `
   };
 }
 
-// 👥 The shared planner: who else has it open, and a note when someone else changes the setup
+// The shared planner: who else has it open, and a note when someone else changes the setup
 // after this page was drawn (so changes aren't overwritten unawares).
 let planPresence = null;
 function startPlanPresence() {
@@ -1060,7 +1060,7 @@ function startPlanPresence() {
     const lc = r.last_change; const box = $('#pl-changed');
     if (box && lc && lc.client !== me.id && lc.at > loadedAt) {
       box.hidden = false;
-      box.innerHTML = `✏ <b>${esc(lc.by || 'Someone')}</b> changed the planning setup at ${esc(PLF.hm.format(new Date(lc.at)))} — refresh before changing it yourself. <button class="small" data-pl="refresh">🔄 Refresh</button>`;
+      box.innerHTML = `<b>${esc(lc.by || 'Someone')}</b> changed the planning setup at ${esc(PLF.hm.format(new Date(lc.at)))} — refresh before changing it yourself. <button class="small" data-pl="refresh">🔄 Refresh</button>`;
     }
   };
   planPresence = { timer: setInterval(tick, 20000) };
@@ -1121,7 +1121,7 @@ function planSheetHtml(m) {
     : m.pages.filter((p) => p.sections.length).map((p) => `<div class="wrap" style="grid-template-columns: repeat(${p.sections.length}, 1fr)">${p.sections.map((x) => sheet(x)).join('')}</div>`).join('')}
     ${side && any ? `<div class="legend">${legend}</div>` : ''}${spec ? `<section class="spec">${spec}</section>` : ''}</body></html>`;
 }
-// 📄 Generate plan — Perso (a sheet per cell) or Matching (Incoming / Ready / In Progress): as a PDF to
+// Generate plan — Perso (a sheet per cell) or Matching (Incoming / Ready / In Progress): as a PDF to
 // print, or as a web page.
 const SIDE_ROWS = 20; // rows per sheet side by side that keep it to one page
 function printDialog(p, mode, settings = {}, half = 'perso') {
@@ -1133,7 +1133,7 @@ function printDialog(p, mode, settings = {}, half = 'perso') {
   const word = otto ? 'list' : 'cell';
   const modeText = otto ? 'plan date, then Urgent / High first' : ({ fifo: 'FIFO, by deadline', bau: 'BAU', score: 'Score', mitigation: 'Mitigation: what can still be on time first' }[mode] || '');
   const limit = Number(saved.limit) || 0;
-  openModal(`<div class="modal-head"><h2 style="margin:0">📄 Generate plan${otto ? ' — Matching' : ''}</h2><button class="icon" data-action="close-modal">✕</button></div>
+  openModal(`<div class="modal-head"><h2 style="margin:0">Generate plan${otto ? ' — Matching' : ''}</h2><button class="icon" data-action="close-modal">✕</button></div>
     <form id="pl-print" class="form-grid">
       <div class="f full"><span>${otto ? 'Lists' : 'Cells'}</span><div class="row">${groups.map((c) => `<label class="row small"><input type="checkbox" name="cell" value="${esc(c.type)}" ${!saved.cells || saved.cells.includes(c.type) ? 'checked' : ''}> <b>${esc(c.type)}</b> <span class="muted">${c.rows.length}</span></label>`).join('') || '<span class="muted">Nothing open.</span>'}</div></div>
       <label class="f">Layout<select name="layout"><option value="pages" ${saved.layout !== 'side' ? 'selected' : ''}>A page per ${word} (portrait)</option><option value="side" ${saved.layout === 'side' ? 'selected' : ''}>Side by side (landscape)</option></select></label>
@@ -1142,7 +1142,7 @@ function printDialog(p, mode, settings = {}, half = 'perso') {
         <label class="row"><input type="radio" name="limitMode" value="n" ${limit ? 'checked' : ''}> First <input type="number" name="limitN" min="1" step="1" value="${limit || SIDE_ROWS}" style="width:70px"></label></div></div>
       <p class="small muted full" id="pl-side-note" ${saved.layout === 'side' ? '' : 'hidden'}>Side by side: ${SIDE_ROWS} rows per ${word} fits every ${word} on one page${otto ? '' : ' (with overdue on a separate list, a second page for those)'}.</p>
       <label class="row small full"><input type="checkbox" name="split" ${saved.split ? 'checked' : ''}> <b>Overdue on a separate list</b> — ${otto ? 'overdue Incoming and Ready jobs' : 'each cell\'s overdue work orders'} on a sheet of their own</label>
-      <label class="row small full"><input type="checkbox" name="testing" ${saved.testing ? 'checked' : ''}> 🧪 <b>Testing mode</b> — a last page explaining how the list was ordered (and TEST on each sheet)</label>
+      <label class="row small full"><input type="checkbox" name="testing" ${saved.testing ? 'checked' : ''}> <b>Testing mode</b> — a last page explaining how the list was ordered (and TEST on each sheet)</label>
       <label class="f">Output<select name="output"><option value="pdf" ${saved.output !== 'html' ? 'selected' : ''}>PDF — open, save or print</option><option value="html" ${saved.output === 'html' ? 'selected' : ''}>Web page — print from the browser</option></select></label>
       <p class="small muted full">In the planning list's order (${esc(modeText)})${otto ? '' : ', running first. Each cell gets the work orders with cards of its type, and that type\'s cards'}.</p>
       <div class="full row"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button><button class="primary" type="submit">📄 Generate</button></div>
@@ -1196,9 +1196,9 @@ function fmtSpan(min) {
 // bright and its deadline is drawn.
 let planSel = null;
 let plLastTab = null; // the tab and view drawn last (a redraw of the same one keeps its scroll)
-const plDelaySel = new Set(); const plDelayOpen = new Set(); // ⏱ Delays: groups selected / opened (customer|due)
+const plDelaySel = new Set(); const plDelayOpen = new Set(); // Delays: groups selected / opened (customer|due)
 let plDelayText = () => '';
-const plDelayClosed = new Set(); // ⏱ Delays: customers folded away
+const plDelayClosed = new Set(); // Delays: customers folded away
 let plDelayFlash = null; // the row just saved (g:customer|due or j:key), highlighted once
 let plDelayCusts = []; // the customers with delayed work orders: [{ code, name, wos }]
 function drawPlanGantt(el, info, p, match, half = 'perso') {
@@ -1261,14 +1261,14 @@ function drawPlanGantt(el, info, p, match, half = 'perso') {
   info.onclick = (e) => { if (e.target.closest('[data-pg-clear]')) { planSel = null; drawPlanGantt(el, info, p, match, half); } };
 }
 
-// ---- 📦 Volume extensions: review what the rules suggest, apply or dismiss it, undo a decision ----------
+// ---- Volume extensions: review what the rules suggest, apply or dismiss it, undo a decision ----------
 let plVolumeShown = null; // what the open window lists (its buttons point into it)
 function plVolumeDialog(v) {
   const n = (x) => PLF.num.format(Number(x || 0));
   const sub = (x) => `${x.customer}${x.name ? ` <span class="muted small">${esc(x.name)}</span>` : ''}`;
   const dd = (d) => esc(new Date(`${d}T12:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }));
-  openModal(`<div class="modal-head"><h2>📦 Volume extensions</h2><button class="icon" data-action="close-modal">✕</button></div>
-    <p class="small muted" style="margin-top:0">Everything a customer submitted in one day for one due date, against their rules (⚙ Setup). <b>Apply</b> moves those work orders' due date on: in the plan, the sheets and the on-time figures (OTD counts against the final due date). <b>Dismiss</b> keeps the export's date.</p>
+  openModal(`<div class="modal-head"><h2>Volume extensions</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <p class="small muted" style="margin-top:0">Everything a customer submitted in one day for one due date, against their rules (Setup). <b>Apply</b> moves those work orders' due date on: in the plan, the sheets and the on-time figures (OTD counts against the final due date). <b>Dismiss</b> keeps the export's date.</p>
     <h3 style="margin:10px 0 6px">To confirm <span class="muted small">${v.pending.length}</span></h3>
     ${v.pending.length ? `<table class="log"><thead><tr><th>Customer</th><th>Submitted</th><th>Notice</th><th class="num">Cards</th><th>Rule</th><th>Due date</th><th></th></tr></thead><tbody>
       ${v.pending.map((x, i) => `<tr><td><b>${sub(x)}</b></td><td>${dd(x.arrived)}</td><td>D+${x.notice}</td><td class="num"><b>${n(x.cards)}</b><div class="small muted">${x.work_orders} work order${x.work_orders === 1 ? '' : 's'}</div></td>

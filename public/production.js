@@ -1,5 +1,5 @@
 'use strict';
-// ⏱ Production › Insights › Timing: what actually ran, from the daily timing reports (perso, Matching) — a Gantt
+// Production › Insights › Timing: what actually ran, from the daily timing reports (perso, Matching) — a Gantt
 // of each machine's jobs, the load per machine per day, and the runs set aside as anomalies
 // (far too quick, far too long) so they don't skew the picture. Loaded before app.js.
 
@@ -47,7 +47,7 @@ async function renderKpiProduction() {
   const fileHtml = (s) => `<div class="row small admin-only" style="gap:8px;flex-wrap:wrap">
       <label class="f" style="flex:1;min-width:320px">${s === 'otto' ? 'Matching' : 'Perso'} timing report (where it's saved)
         <input type="text" data-prod-path="${s}" value="${esc(settings[`kpi_time_${s}`] || '')}" placeholder="e.g. S:\\…\\Daily${s === 'otto' ? 'Matching' : 'Perso'}Timing.xlsx"></label>
-      ${s === 'otto' ? '' : `<label class="f" style="flex:1;min-width:320px" title="The report Power BI's cards-persoed figures come from: Production › Perso › 📈 History and the backlog pace add up its Qty Persoed by Production Date">📊 DailyPersoData (the Power BI report)
+      ${s === 'otto' ? '' : `<label class="f" style="flex:1;min-width:320px" title="The report Power BI's cards-persoed figures come from: Production › Perso › History and the backlog pace add up its Qty Persoed by Production Date">DailyPersoData (the Power BI report)
         <input type="text" data-pdata-path value="${esc(settings.kpi_perso_data || '')}" placeholder="e.g. S:\\…\\DailyPersoData.xlsx"></label>`}</div>`;
   const tiles = `<div class="kdb-tiles pl-tiles">
       <div class="kdb-tile"><div class="kdb-tile-l">${label} ${unit} made</div><div class="kdb-tile-v">${n(t.cards)}</div><div class="kdb-tile-s">${n(t.jobs)} job${t.jobs === 1 ? '' : 's'} · ${n(t.runs)} run${t.runs === 1 ? '' : 's'}</div></div>
@@ -59,7 +59,7 @@ async function renderKpiProduction() {
     </div>`;
 
   // Gantt: a row per machine, a bar per run, coloured by customer
-  const ganttHtml = () => `<div class="card"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h3 class="pl-h" style="margin:0">▤ What ran on each machine</h3>
+  const ganttHtml = () => `<div class="card"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h3 class="pl-h" style="margin:0">What ran on each machine</h3>
       <div class="small muted">${[...new Set(good.map((r) => r.trigram || r.customer).filter(Boolean))].sort().slice(0, 14).map((c) => `<span class="prod-key" style="background:${prodColor(c)}"></span>${esc(c)}`).join(' ')}
         ${withAnom ? ' <span class="prod-key prod-anom"></span>anomaly' : ''} <span class="prod-key prod-remake" style="background:#888"></span>remake</div></div>
       <div id="prod-gantt" class="pl-gantt" style="margin-top:8px"></div><div id="prod-gantt-info" class="small" style="margin-top:6px"></div></div>`;
@@ -73,7 +73,7 @@ async function renderKpiProduction() {
         <div class="pl-load-bar ${pct > 100 ? 'full' : pct > 85 ? 'busy' : ''}" style="width:${Math.min(100, pct)}%"></div><span>${PLF.one.format(v.busy_minutes / 60)} h</span><div class="small muted" style="position:relative">${n(v.cards)} ${unit}</div></td>`;
     };
     const dayTot = (d) => p.load.reduce((a, l) => { const v = l.days[d]; return v ? { busy_minutes: a.busy_minutes + v.busy_minutes, cards: a.cards + v.cards, jobs: a.jobs + v.jobs } : a; }, { busy_minutes: 0, cards: 0, jobs: 0 });
-    return `<div class="card"><h3 class="pl-h">▦ Load — machine time busy a day <span class="muted small">bar = share of the working day ${wStart}–${wEnd} (from Planning's Setup); runs that overlap on a machine count once</span></h3>
+    return `<div class="card"><h3 class="pl-h">Load — machine time busy a day <span class="muted small">bar = share of the working day ${wStart}–${wEnd} (from Planning's Setup); runs that overlap on a machine count once</span></h3>
       <div class="kdb-scroll"><table class="log pl-load"><thead><tr><th>Machine</th>${days.map((d) => `<th class="num">${esc(PLF.day.format(new Date(`${d}T12:00`)))}</th>`).join('')}<th class="num">Total</th><th class="num">Avg a ${unit === 'cards' ? 'card' : 'item'}</th><th class="num">Efficiency</th></tr></thead>
       <tbody>${p.load.map((l) => {
         const rs = good.filter((r) => r.machine === l.machine && r.spc);
@@ -87,7 +87,7 @@ async function renderKpiProduction() {
       <td>${esc(r.trigram || '')}<div class="small muted">${esc(r.item_name || '')}</div></td><td class="num">${n(r.qty)}</td><td class="num">${r.minutes !== null ? fmtSpan(r.minutes) : '—'}</td>
       <td class="num">${secs(r.spc)}${r.usual ? `<div class="small muted" title="What this machine usually takes for a job this size">usual ${fmtSpan(r.usual.minutes)}</div>` : ''}</td><td class="small">${r.anomaly ? `<span class="${r.anomaly.kind === 'open' ? 'muted' : 'pl-late'}">${esc(r.anomaly.text)}</span>` : ''}</td><td class="num">${effHtml(r.efficiency, r.usual ? `Usually about ${fmtSpan(r.usual.minutes)} on ${r.machine} for ${r.qty} ${unit}; took ${fmtSpan(r.minutes)}` : '')}</td></tr>`;
   const runHead = `<tr><th>Start</th><th>End</th><th>Machine</th><th>Job</th><th>Customer</th><th class="num">${unit[0].toUpperCase()}${unit.slice(1)}</th><th class="num">Took</th><th class="num">A ${unit === 'cards' ? 'card' : 'item'}</th><th></th><th class="num" title="What a job this size usually takes on its machine ÷ what it took: 100% = usual, more = quicker">Efficiency</th></tr>`;
-  const runsHtml = () => `<div class="card"><h3 class="pl-h">☰ Runs <span class="muted small">${n(p.runs.length)} in this period</span></h3>
+  const runsHtml = () => `<div class="card"><h3 class="pl-h">Runs <span class="muted small">${n(p.runs.length)} in this period</span></h3>
       <div class="kdb-scroll"><table class="log">${runHead}${p.runs.slice(0, 400).map(runRow).join('')}</table></div>${p.runs.length > 400 ? `<div class="small muted">The first 400 of ${n(p.runs.length)}.</div>` : ''}</div>`;
   const anomHtml = anomalies.length ? `<div class="card" id="prod-anom"><h3 class="pl-h"><button type="button" class="small" style="float:right" data-anom-export>⬇ Export all to Excel</button>⚠ Anomalies <span class="muted small">${n(anomalies.length)} run${anomalies.length === 1 ? '' : 's'} that can't be right for their machine and size — ${withAnom ? 'counted anyway (untick “count them anyway” to leave them out)' : 'left out of the figures above'}</span></h3>
       <div class="kdb-scroll"><table class="log">${runHead}${anomalies.map(runRow).join('')}</table></div>
@@ -109,7 +109,7 @@ async function renderKpiProduction() {
     return `<div class="card prod-hist"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:6px"><b class="small">History kept: ${n(p.history.runs)} runs, ${esc(histDays[0].day)} to ${esc(histDays[histDays.length - 1].day)} — ${n(histDays.length)} day${histDays.length === 1 ? '' : 's'}</b>
         <span class="small muted">${unit} a day as reported · click a day to open it</span></div>
       <div class="prod-hstrip" id="prod-hstrip">${bars}</div>
-      ${histDays.length < 14 ? `<div class="small muted" style="margin-top:4px">Every run the report holds is kept, whatever its day${coverageTxt ? ` — when last read, ${esc(coverageTxt)}` : ''}. A report that only holds the current day builds the history up a day at a time; to fill in earlier weeks, export it once for a longer period (same columns) and load it with <b>📂 Load reports…</b>.</div>` : ''}</div>`;
+      ${histDays.length < 14 ? `<div class="small muted" style="margin-top:4px">Every run the report holds is kept, whatever its day${coverageTxt ? ` — when last read, ${esc(coverageTxt)}` : ''}. A report that only holds the current day builds the history up a day at a time; to fill in earlier weeks, export it once for a longer period (same columns) and load it with <b>Load reports…</b>.</div>` : ''}</div>`;
   })();
 
   main().innerHTML = `
@@ -121,12 +121,12 @@ async function renderKpiProduction() {
     ${linked ? `<div class="kpi-meta small muted">${esc(label)} timing report: <span title="${esc(p.file || '')}">${esc((p.file || '').split(/[\\/]/).pop())}</span>${p.history.last_read ? ` · read ${esc(fmtDateTime(p.history.last_read.at))}` : ''}
         · ${n(p.history.runs)} runs kept${p.history.first ? `, ${esc(p.history.first.slice(0, 10))} to ${esc(p.history.last.slice(0, 10))}` : ''} <details class="kpi-info"><summary>⚙</summary><div class="kpi-info-pop card">${fileHtml('perso')}${fileHtml('otto')}</div></details></div>`
     : `<div class="card"><h3 style="margin-top:0">Link the daily ${esc(label.toLowerCase())} timing report</h3>
-        <p class="small">The report with each job's start and end on its machine (${source === 'otto' ? 'Matching\'s daily timing report' : 'e.g. DailyPersoTiming'}). It's read every 10 minutes and each run is kept, so the history builds up day by day even though the report only holds a day. Older reports can be loaded with 📂 Load reports….</p>${fileHtml(source)}</div>`}
+        <p class="small">The report with each job's start and end on its machine (${source === 'otto' ? 'Matching\'s daily timing report' : 'e.g. DailyPersoTiming'}). It's read every 10 minutes and each run is kept, so the history builds up day by day even though the report only holds a day. Older reports can be loaded with Load reports….</p>${fileHtml(source)}</div>`}
     ${p.history.runs ? `
     <div class="row prod-controls" style="gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0">
       <button class="small" data-prod-day="-1" title="Earlier">◀</button><input type="date" id="prod-from" value="${esc(from)}" style="width:auto"><button class="small" data-prod-day="1" title="Later">▶</button>
       <select id="prod-span" style="width:auto">${[[1, '1 day'], [3, '3 days'], [7, 'a week'], [14, 'two weeks'], [31, 'a month']].map(([v, l]) => `<option value="${v}" ${span === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <div class="seg">${[['gantt', '▤ Gantt'], ['load', '▦ Load'], ['runs', '☰ Runs']].map(([k, l]) => `<button type="button" data-prod-view="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="seg">${[['gantt', 'Gantt'], ['load', 'Load'], ['runs', 'Runs']].map(([k, l]) => `<button type="button" data-prod-view="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <span class="spacer"></span>
       <label class="row small" style="gap:6px">Anomalies <select id="prod-sens" style="width:auto">${[['strict', 'Strict (2× off)'], ['normal', 'Normal (3× off)'], ['loose', 'Loose (5× off)']].map(([k, l]) => `<option value="${k}" ${sens === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="row small"><input type="checkbox" id="prod-with" ${withAnom ? 'checked' : ''}> count them anyway</label>
@@ -135,7 +135,7 @@ async function renderKpiProduction() {
     ${tiles}
     ${!p.runs.length ? `<div class="card muted">Nothing ran in this period. Runs kept: ${esc(p.history.first.slice(0, 10))} to ${esc(p.history.last.slice(0, 10))}. <button class="link" data-prod-latest>Go to the latest day</button></div>`
       : view === 'gantt' ? ganttHtml() : view === 'load' ? loadHtml() : runsHtml()}
-    ${anomHtml}` : linked ? '<div class="card muted">No runs read yet — 📥 Read now, or load older reports with 📂 Load reports….</div>' : ''}`;
+    ${anomHtml}` : linked ? '<div class="card muted">No runs read yet — Read now, or load older reports with Load reports….</div>' : ''}`;
 
   const hs = $('#prod-hstrip'); if (hs) { const on = hs.querySelector('.prod-hday.on'); hs.scrollLeft = on ? on.offsetLeft - hs.clientWidth / 2 : hs.scrollWidth; }
   if (view === 'gantt' && $('#prod-gantt')) {
@@ -237,7 +237,7 @@ function anomExportDialog() {
   const t = new Date(); const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const back = (n) => { const d = new Date(t); d.setDate(d.getDate() - n + 1); return ymd(d); };
   const sens = store.get('prodSens', 'normal');
-  const d = collabDialog(`<form method="dialog" id="anom-form"><div class="row"><h3 style="margin:0">⬇ Anomalies to Excel</h3><span class="spacer"></span><button class="icon" value="cancel" formnovalidate>✕</button></div>
+  const d = collabDialog(`<form method="dialog" id="anom-form"><div class="row"><h3 style="margin:0">Anomalies to Excel</h3><span class="spacer"></span><button class="icon" value="cancel" formnovalidate>✕</button></div>
     <p class="small muted">One workbook to start investigations from:</p>
     <ul class="small" style="margin:0 0 8px 18px;padding:0">
       <li><b>Anomalies by WO</b>: each work order with runs that can't be right for their machine and size (far too quick or slow, no end, impossible), with empty <i>Cause · Action · Owner · Closed</i> columns to fill in</li>

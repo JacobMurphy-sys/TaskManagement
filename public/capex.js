@@ -1,4 +1,4 @@
-// 💶 CAPEX planner: the pending investments and larger projects — what's asked for, why, what it
+// CAPEX planner: the pending investments and larger projects — what's asked for, why, what it
 // costs, when, and where it stands. A detailed Excel export to edit and examine, and PDF one-pagers to
 // present: one investment, or the whole plan on a page.
 
@@ -33,7 +33,7 @@ async function renderCapex(openId) {
       <td><a class="icon" href="/api/capex/${x.id}/onepager.pdf" title="One-pager (PDF)" download>📄</a></td></tr>`;
   const qs = new URLSearchParams({ ...(f.status !== 'all' ? { status: f.status } : {}), ...(list.length !== d.items.length ? { ids: list.map((x) => x.id).join(',') } : {}) }).toString();
   main().innerHTML = `
-    <div class="kanban-tools"><h1 style="margin:0">💶 CAPEX</h1>
+    <div class="kanban-tools"><h1 style="margin:0">CAPEX</h1>
       <div class="seg">${[['open', 'Open'], ['all', 'All'], ...Object.entries(S).filter(([k]) => !CAPEX_OPEN.includes(k))].map(([k, l]) => `<button type="button" data-cx-status="${k}" class="${f.status === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div class="spacer"></div>
       <button class="primary" id="cx-new">＋ New investment</button>
@@ -56,7 +56,7 @@ async function renderCapex(openId) {
         <label class="person-pick" style="margin:0">${f.who ? personDot(f.who) : '👤'}<select id="cx-who"><option value="">Everyone</option>${owners.map((n) => `<option ${sameName(n, f.who) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
         <select id="cx-year" style="width:auto"><option value="">Any year</option>${years.map((y) => `<option ${y === f.year ? 'selected' : ''}>${y}</option>`).join('')}</select>
         <div class="spacer"></div><span class="small muted">${list.length} shown · ${esc(money(amt(list.filter((x) => (x.currency || cur) === cur))))}</span></div>
-      ${list.length ? `<div class="kdb-scroll"><table class="log cx-table"><thead><tr><th>Ref</th><th>Investment <span class="small muted">· ▶ next action</span></th><th>Category</th><th>Requested by</th><th>Planned</th><th class="num">Cost</th><th>Status</th><th>Priority</th><th></th></tr></thead>
+      ${list.length ? `<div class="kdb-scroll"><table class="log cx-table"><thead><tr><th>Ref</th><th>Investment <span class="small muted">· next action</span></th><th>Category</th><th>Requested by</th><th>Planned</th><th class="num">Cost</th><th>Status</th><th>Priority</th><th></th></tr></thead>
         <tbody>${list.map(row).join('')}</tbody></table></div>` : `<div class="empty">${d.items.length ? 'Nothing matches.' : 'No investments yet — ＋ New investment to log the first one.'}</div>`}
     </div>`;
   const set = (k, v) => { store.set(k, v); renderCapex(); };
@@ -76,8 +76,8 @@ function capexForm(x, d) {
   const names = [...new Set([...state.projects.flatMap((p) => [p.leader, p.sponsor, p.team_names, p.task_owners].flatMap(splitOwners)), ...d.items.flatMap((y) => [y.owner, y.sponsor].filter(Boolean))])].sort((a, b) => a.localeCompare(b));
   const v = (k) => esc(x[k] ?? '');
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">💶 ${isNew ? 'New investment' : `${esc(x.ref)} — ${esc(x.title)}`}</h2>${isNew ? '' : `<a class="button small" href="/api/capex/${x.id}/onepager.pdf" download>📄 One-pager</a>
-      ${ddMenu('⬇ IR pack', `<a href="/api/capex/${x.id}/ir/deck.pptx" data-cx-dl>📊 IR deck (PowerPoint)</a><a href="/api/capex/${x.id}/ir/model.xlsx" data-cx-dl>📈 Financial model (Excel)</a>`, { title: 'The corporate IR deck and financial model, filled in from this investment (saved first)' })}`}<button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0">${isNew ? 'New investment' : `${esc(x.ref)} — ${esc(x.title)}`}</h2>${isNew ? '' : `<a class="button small" href="/api/capex/${x.id}/onepager.pdf" download>📄 One-pager</a>
+      ${ddMenu('⬇ IR pack', `<a href="/api/capex/${x.id}/ir/deck.pptx" data-cx-dl>IR deck (PowerPoint)</a><a href="/api/capex/${x.id}/ir/model.xlsx" data-cx-dl>Financial model (Excel)</a>`, { title: 'The corporate IR deck and financial model, filled in from this investment (saved first)' })}`}<button class="icon" data-action="close-modal">✕</button></div>
     <div class="seg cx-maintabs"><button type="button" data-cx-main="ess" class="on">The investment</button><button type="button" data-cx-main="ir">📑 IR pack</button></div>
     <form id="cx-form">
       <div class="cx-main form-grid" data-cx-pane="ess">

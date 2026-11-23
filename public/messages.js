@@ -1,5 +1,5 @@
 'use strict';
-// ✉ Messages to you, under ✉ in the top bar: 👉 a poke about a task given to you, 🎫 news on a ticket
+// Messages to you, under ✉ in the top bar: 👉 a poke about a task given to you, 🎫 news on a ticket
 // you sent (answered, its status). Kept on the server by person, so they reach you on any PC: signed
 // in, as your account's person; without accounts, by the name this browser was given. Loaded before
 // app.js; uses its helpers.
@@ -27,7 +27,7 @@ function mailDraw() {
     panel.innerHTML = `<div class="mail-empty">Messages are sent to you by name.<br><button class="small" data-action="set-name">👤 Say who you are</button></div>`;
     return;
   }
-  panel.innerHTML = `<div class="mail-head"><b>✉ Messages</b><span class="muted small">for ${esc(MAIL.person)}</span><span class="spacer"></span>
+  panel.innerHTML = `<div class="mail-head"><b>Messages</b><span class="muted small">for ${esc(MAIL.person)}</span><span class="spacer"></span>
       ${MAIL.list.some((m) => !m.read) ? '<button class="small link" data-mail="read-all">Mark all read</button>' : ''}</div>
     ${MAIL.list.length ? `<ul class="mail-list">${MAIL.list.map((m) => `<li class="${m.read ? '' : 'unread'}" data-mail-id="${m.id}">
         <span class="mail-ico">${MAIL_ICON[m.kind] || '✉'}</span>
@@ -86,7 +86,7 @@ function mailWire() {
   window.addEventListener('focus', () => mailPoll());
 }
 
-// 👉 Poke the people a task is given to — for whoever has the "Poke people" right (accounts off:
+// Poke the people a task is given to — for whoever has the "Poke people" right (accounts off:
 // anyone), or leads or sponsors the task's project.
 function canPoke(t) {
   const meName = ACCT.account?.person || me.name || '';
@@ -101,7 +101,7 @@ function pokeDialog(t, after) {
   const owners = String(t.owner || '').split(/[,;\n]/).map((x) => x.trim()).filter(Boolean)
     .filter((o) => !sameName(o, ACCT.account?.person || me.name || ''));
   $('#poke-row')?.remove();
-  after.insertAdjacentHTML('afterend', `<div class="section row poke-row" id="poke-row"><span>👉 Poke <b>${esc(owners.join(', '))}</b></span>
+  after.insertAdjacentHTML('afterend', `<div class="section row poke-row" id="poke-row"><span>Poke <b>${esc(owners.join(', '))}</b></span>
     <input type="text" id="poke-note" maxlength="2000" placeholder="Add a line if you like — e.g. can you update this by Friday?" style="flex:1;min-width:200px">
     <button class="primary" id="poke-send">Send</button><button class="link small" id="poke-cancel">Cancel</button></div>`);
   const input = $('#poke-note'); input.focus();

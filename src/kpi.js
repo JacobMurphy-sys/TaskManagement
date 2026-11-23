@@ -904,7 +904,7 @@ function buildWeek(buf, week, data, { a3Sheet = 'A3 Weekly Report', dbSheet = 'D
     if (nC?.f && /Forecast/i.test(nC.f) && !sameMonth && !Object.keys(sheets).some((n) => /forecast/i.test(n))) { noForecast = true; put(`N${r}`, ''); put(`P${r}`, ''); put(`Q${r}`, ''); } // no forecast for that month yet
   }
   if (noForecast) flags.push({ part: 'forecast', text: `The top-10 “% of FC” and “Missing” MTD figures need ${weekRow.month}'s forecast per customer, which only comes from Excel for now (the workbook was on ${templateMonth}) — they're left blank.` });
-  if (week !== templateWeek) flags.push({ part: 'text', text: `The executive summary, comments and other typed text start as the workbook's, from ${templateWeek || 'its week'} — change them with ✎ Edit A3.` });
+  if (week !== templateWeek) flags.push({ part: 'text', text: `The executive summary, comments and other typed text start as the workbook's, from ${templateWeek || 'its week'} — change them with Edit A3.` });
 
   const calc = createCalc(sheets, { recalc: (n) => n === a3Info.name || n === dbInfo.name || !!sheets[n]?.recalc, override: (sh, ref) => over.get(`${sh}!${ref}`) });
   const typeOf = (v) => (isErr(v) ? 'e' : typeof v === 'string' ? 's' : typeof v === 'boolean' ? 'b' : 'n');
@@ -958,7 +958,7 @@ function buildWeek(buf, week, data, { a3Sheet = 'A3 Weekly Report', dbSheet = 'D
         a3New.added = { cells: [{ ref: wu.ref, s: wu.style }], merges: [wu.range] };
         if (wu.size !== book2.styles.fonts[book2.styles.xfs[wu.style]?.fontId]?.sz) a3cf.set(wu.ref, { ...(a3cf.get(wu.ref) || {}), font: { ...(a3cf.get(wu.ref)?.font || {}), sz: wu.size } });
         writeups.push(wu.ref);
-        if (cases.length) flags.push({ part: 'complaints', text: `${cases.length} customer complaint${cases.length === 1 ? '' : 's'} written up in ${wu.range} from the Salesforce export${wu.fits ? '' : ' — they don\'t all fit: shorten them with ✎ Edit A3'}.` });
+        if (cases.length) flags.push({ part: 'complaints', text: `${cases.length} customer complaint${cases.length === 1 ? '' : 's'} written up in ${wu.range} from the Salesforce export${wu.fits ? '' : ' — they don\'t all fit: shorten them with Edit A3'}.` });
       }
     }
   }

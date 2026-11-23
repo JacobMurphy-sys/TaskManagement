@@ -830,7 +830,7 @@ router.get('/capex/:id/onepager.pdf', h(async (req, res) => {
 // (💶 CAPEX ⋯ › IR templates; changing that needs the setup right, as any setting does).
 async function irTemplate(kind) {
   const p = cleanPath(getSettings()[kind === 'deck' ? 'capex_ir_deck' : 'capex_ir_model']);
-  if (!p) return { path: '', error: `Set where the ${kind === 'deck' ? 'IR deck' : 'financial model'} template is saved (💶 CAPEX ⋯ › IR templates)` };
+  if (!p) return { path: '', error: `Set where the ${kind === 'deck' ? 'IR deck' : 'financial model'} template is saved (CAPEX ⋯ › IR templates)` };
   try { await netfile.prefetch(p); return { path: p, buf: netfile.readFileSync(p) }; } catch (err) { return { path: p, error: `Can't open ${p}: ${err.code === 'ENOENT' ? 'no such file' : err.message}` }; }
 }
 // what the templates offer (business units, the checklist) and where they are
@@ -2210,7 +2210,7 @@ router.get('/kpi/history', h((req, res) => {
 }));
 const newer = (a, b) => String(a || '') > String(b || '');
 function mergeKpiHistory(b) {
-  if (b?.kind !== 'sithub-reporting-history' || !Array.isArray(b.snapshots)) throw new HttpError(400, 'Not a Reporting history file (export it from 📊 Reporting › ⋯ › ⬇ Export all weeks)');
+  if (b?.kind !== 'sithub-reporting-history' || !Array.isArray(b.snapshots)) throw new HttpError(400, 'Not a Reporting history file (export it from Reporting › ⋯ › Export all weeks)');
   const out = { weeks_added: 0, weeks_updated: 0, weeks_kept: 0, rows: 0, otd: 0, settings: 0, template: false };
   const pick = (t, row) => { const cols = new Set(db.all(`PRAGMA table_info(${t})`).map((c) => c.name)); return Object.fromEntries(Object.entries(row || {}).filter(([k]) => cols.has(k) && k !== 'id')); };
   db.tx(() => {
@@ -2552,7 +2552,7 @@ const overrideTarget = (req) => {
   const week = String(req.params.week || '').trim().toUpperCase();
   if (!kpiData.WEEK_RE.test(week)) throw new HttpError(400, 'Not a week code');
   const col = String(req.params.col || '');
-  if (!kpiData.ADJUSTABLE.includes(col)) throw new HttpError(400, `${col} can't be adjusted here${kpiData.MANUAL_FIELDS.includes(col) ? ' — it\'s typed in with ✎ on the week' : ''}`);
+  if (!kpiData.ADJUSTABLE.includes(col)) throw new HttpError(400, `${col} can't be adjusted here${kpiData.MANUAL_FIELDS.includes(col) ? ' — it\'s typed in with on the week' : ''}`);
   const year = 2000 + Number(week.slice(1, 3));
   if (!kpiData.weeksOf(year).some((w) => w.week === week)) throw new HttpError(400, `${week} isn't a reporting week${kpiData.weeksOf(year).some((w) => w.week === `${week}_1`) ? ` — it's split: ${week}_1 / ${week}_2` : ''}`);
   return { week, col, year };
@@ -2696,7 +2696,7 @@ router.post('/kpi/build', h((req, res) => {
   const week = String(req.body.week || '').trim().toUpperCase();
   if (!kpiData.WEEK_RE.test(week)) throw new HttpError(400, 'Not a week code');
   const template = templateWorkbook();
-  if (!template) throw new HttpError(400, 'Load the workbook once (📥 Load this week) — its A3 and Database sheets are the template for the weeks SITHUB builds');
+  if (!template) throw new HttpError(400, 'Load the workbook once (Load this week) — its A3 and Database sheets are the template for the weeks SITHUB builds');
   const old = db.get('SELECT * FROM kpi_snapshots WHERE week = ?', [week]);
   if (old && (old.origin || 'excel') === 'excel' && !req.body.replace) throw new HttpError(409, `${week} was loaded from Excel — confirm to replace it with SITHUB's own figures`);
   const year = kpi.weekParts(week).year;
@@ -4346,11 +4346,11 @@ router.get('/plan/hidden.xlsx', h((req, res) => {
       persoOpen ? 'Perso still open — check the perso work order first' : matchingOpen ? 'Waiting on Matching — check the Matching job' : 'Perso and Matching done — likely dispatched but not closed', '', '', '', '']; });
   const sheets = [
     { name: 'Read me', columns: [c('', 24), c('', 110)], rows: [
-      ['What', `Open work orders hidden from Production because they were due more than ${maxAge} days ago (Production › ⚙ Setup › Hide anything due more than … days ago). They aren't shown or counted in the plan, the backlog or the tiles.`],
+      ['What', `Open work orders hidden from Production because they were due more than ${maxAge} days ago (Production › Setup › Hide anything due more than … days ago). They aren't shown or counted in the plan, the backlog or the tiles.`],
       ['Perso', `${new Set(jobs.map((j) => j.wo)).size} work orders, ${jobs.length} jobs, ${lines.length} card lines, ${jobs.reduce((t, j) => t + j.qty, 0)} cards — see "Hidden perso" (one row per job) and "Hidden perso lines" (one per card).`],
       ['Matching', `${ottoHidden.length} Matching jobs — see "Hidden Matching".`],
       ['Dispatch', `${dispHidden.length} dispatch jobs — see "Hidden Dispatch".`],
-      ['Ran?', 'From the ⏱ timing runs kept by SITHUB: "Ran in full" usually means the work is done but the work order was never closed; "Never ran" that it is still waiting, no longer wanted, or wrong.'],
+      ['Ran?', 'From the timing runs kept by SITHUB: "Ran in full" usually means the work is done but the work order was never closed; "Never ran" that it is still waiting, no longer wanted, or wrong.'],
       ['Investigation', 'Fill in Cause, Action, Owner and Closed as each is resolved.'],
       ['Made', `${ymdL(now)} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`]] },
     { name: 'Hidden perso', columns: [c('Work order', 16), c('Job', 7), c('Customer', 9), c('Customer name', 20), c('Cards', 8, 'number'), c('Card lines', 9, 'number'), c('Due', 11, 'date'), c('Days ago', 8, 'number'),
@@ -4410,7 +4410,7 @@ router.get('/prod/anomalies.xlsx', h((req, res) => {
       ['What', 'Everything SITHUB sets aside, to investigate'],
       ['Timing anomalies', `Runs from the daily timing reports between ${ymdL(from)} and ${ymdL(new Date(to.getTime() - 86400000))} that can't be right for their machine and size (strictness: ${sens}). They are left out of Timing, Learned and the planning figures.`],
       ['', `${runRows.length} run${runRows.length === 1 ? '' : 's'} in ${woRows.length} work order${woRows.length === 1 ? '' : 's'}: see "Anomalies by WO" (one row each, with columns for the investigation) and "Anomalous runs" (every run).`],
-      ['Old open work orders', 'The open work orders hidden from Production for their age have their own export: the ⬇ Export them to Excel button on the hidden line in the Perso or Matching backlog.'],
+      ['Old open work orders', 'The open work orders hidden from Production for their age have their own export: the Export them to Excel button on the hidden line in the Perso or Matching backlog.'],
       ['Made', new Date().toISOString().replace('T', ' ').slice(0, 16)]] },
     { name: 'Anomalies by WO', columns: [c('Work order', 16), c('Side', 9), c('Customer', 10), c('Runs', 6, 'number'), c('Kinds', 22), c('Cards', 9, 'number'), c('Minutes took', 11, 'number'), c('Usual minutes', 11, 'number'),
       c('Worst', 60), c('Machines', 16), c('First run', 17, 'datetime'), c('Last run', 17, 'datetime'), c('In the export now', 18), ...inv], rows: woRows },

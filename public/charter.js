@@ -97,7 +97,7 @@ function charterNudge(p) {
   const c = p.charter.completeness;
   if (c.pct === 100) return '';
   return `<div class="baseline-box charter-nudge">
-    <span>📋 Charter <b>${c.pct}%</b> complete</span> ${charterMeter(c)}
+    <span>Charter <b>${c.pct}%</b> complete</span> ${charterMeter(c)}
     ${c.missing_required.length ? `<span class="chip overdue">⚠ Missing: ${esc(c.missing_required.join(', '))}</span>` : ''}
     <a href="#/project/${p.id}/charter">Complete the charter →</a></div>`;
 }
@@ -218,7 +218,7 @@ function printCharter() {
 async function promoteDialog(t) {
   await loadLookups();
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">🚀 Promote to a project</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0">Promote to a project</h2><button class="icon" data-action="close-modal">✕</button></div>
     <p class="muted">"${esc(t.title)}" becomes a project. Its subtasks become the project's tasks and its notes move across.
       Fill in the core of the project charter; the rest can be completed later on the Charter tab.</p>
     <form id="promote-form" class="form-grid">
@@ -255,7 +255,7 @@ async function renderTasks() {
   const open = list.filter((t) => t.status !== 'done').length;
   const pseudo = { baseline_set_at: null };
   main().innerHTML = `
-    <div class="kanban-tools"><h1 style="margin:0">✅ Tasks</h1>
+    <div class="kanban-tools"><h1 style="margin:0">Tasks</h1>
       ${tasksScopeSeg('standalone')}<span class="muted small">${open} open · ad-hoc work that doesn't need a project</span><div class="spacer"></div>
       ${board ? subCardsToggle() : `<label class="small muted row"><input type="checkbox" data-action="toggle-hide-done-standalone" ${hideDone ? 'checked' : ''}> Hide completed</label>`}
       ${taskViewSeg(board)}</div>
@@ -286,9 +286,9 @@ async function renderTasks() {
 }
 
 // ▦ Board (first) or ☰ List, for both of the Tasks page's views
-const taskViewSeg = (board) => `<div class="seg" role="group" aria-label="View"><button data-action="standalone-view" data-view="board" class="${board ? 'on' : ''}" title="A column per status">▦ Board</button><button data-action="standalone-view" data-view="list" class="${board ? '' : 'on'}" title="A checklist">☰ List</button></div>`;
+const taskViewSeg = (board) => `<div class="seg" role="group" aria-label="View"><button data-action="standalone-view" data-view="board" class="${board ? 'on' : ''}" title="A column per status">Board</button><button data-action="standalone-view" data-view="list" class="${board ? '' : 'on'}" title="A checklist">List</button></div>`;
 // ✅ the Tasks page's two views: the standalone tasks, or every open task (projects' too, subtasks among them)
-const tasksScopeSeg = (on) => `<div class="seg" role="group" aria-label="Which tasks"><button type="button" data-tasks-scope="standalone" class="${on === 'standalone' ? 'on' : ''}" title="Ad-hoc tasks outside projects">Standalone</button><button type="button" data-tasks-scope="all" class="${on === 'all' ? 'on' : ''}" title="Every open task, in projects or not — filter by person or project">All open tasks</button><button type="button" data-tasks-scope="lists" class="${on === 'lists' ? 'on' : ''}" title="Your own lists: file any task in them, kanban style, apart from its status">🗂 My lists</button></div>`;
+const tasksScopeSeg = (on) => `<div class="seg" role="group" aria-label="Which tasks"><button type="button" data-tasks-scope="standalone" class="${on === 'standalone' ? 'on' : ''}" title="Ad-hoc tasks outside projects">Standalone</button><button type="button" data-tasks-scope="all" class="${on === 'all' ? 'on' : ''}" title="Every open task, in projects or not — filter by person or project">All open tasks</button><button type="button" data-tasks-scope="lists" class="${on === 'lists' ? 'on' : ''}" title="Your own lists: file any task in them, kanban style, apart from its status">My lists</button></div>`;
 document.addEventListener('click', (e) => { const b = e.target.closest('[data-tasks-scope]'); if (!b) return; store.set('tasksScope', b.dataset.tasksScope); route(); });
 
 async function renderAllTasks() {
@@ -323,12 +323,12 @@ async function renderAllTasks() {
     body = taskBoardHtml(list, { project: lanes !== 'project', cols: ['todo', 'in_progress', 'blocked', 'on_hold'], lanes, focus, sort: cardSort, subCards: store.get('boardSubCards', false), add: false });
   } else if (groupKey) {
     const groups = new Map(); for (const t of sorted) { const k = groupKey(t); (groups.get(k) || groups.set(k, []).get(k)).push(t); }
-    body = [...groups].map(([k, ts]) => `<h3 class="tasks-group">${sort === 'owner' ? (k ? personChip(k) : '<span class="muted">No owner</span>') : esc(k || '✅ Standalone tasks')} <span class="small muted">${fam({ children: ts }).length - 1}</span></h3>${taskListHtml(ts, pseudo, false, opts)}`).join('');
+    body = [...groups].map(([k, ts]) => `<h3 class="tasks-group">${sort === 'owner' ? (k ? personChip(k) : '<span class="muted">No owner</span>') : esc(k || 'Standalone tasks')} <span class="small muted">${fam({ children: ts }).length - 1}</span></h3>${taskListHtml(ts, pseudo, false, opts)}`).join('');
   } else body = taskListHtml(sorted, pseudo, false, opts);
   main().innerHTML = `
-    <div class="kanban-tools"><h1 style="margin:0">✅ Tasks</h1>${tasksScopeSeg('all')}
+    <div class="kanban-tools"><h1 style="margin:0">Tasks</h1>${tasksScopeSeg('all')}
       <label class="person-pick" title="One person's open tasks">${who && who !== '—' ? personDot(who) : '👤'}<select id="tasks-person"><option value="">Everyone</option><option value="—" ${who === '—' ? 'selected' : ''}>No owner</option>${everyone.map((n) => `<option ${sameName(n, who) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
-      <label class="person-pick" title="One project's open tasks">🗂<select id="tasks-project"><option value="">All projects</option><option value="0" ${proj === '0' ? 'selected' : ''}>✅ Standalone</option>${projects.map(([id, n]) => `<option value="${id}" ${String(id) === proj ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+      <label class="person-pick" title="One project's open tasks">🗂<select id="tasks-project"><option value="">All projects</option><option value="0" ${proj === '0' ? 'selected' : ''}>Standalone</option>${projects.map(([id, n]) => `<option value="${id}" ${String(id) === proj ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
       ${board ? `<label class="person-pick" title="Swimlanes: a row of columns per person or per project">☰<select id="board-lanes">${options({ '': 'No swimlanes', owner: 'A lane per person', project: 'A lane per project' }, lanes)}</select></label>${subCardsToggle()}`
         : `<label class="person-pick" title="Order">↕<select id="tasks-sort">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}" ${k === sort ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`}
       <div class="spacer"></div>${taskViewSeg(board)}</div>
@@ -376,7 +376,7 @@ async function renderCharterSettings(root) {
       ${listCard('policy_deployment', 'Policy deployment', 'The choices offered for <b>Policy deployment</b> (e.g. your strategic objectives).')}
     </div>
     <div class="card" style="margin-top:16px">
-      <h2>📋 Project charter Excel template</h2>
+      <h2>Project charter Excel template</h2>
       <p class="small muted">Upload your standard project template (.xlsx). The app finds each label (Problem definition, Management
         Sponsor, …) and fills the box next to it, so <b>⬇ Charter (Excel)</b> on a project produces your own form filled in.
         Check the cells below and correct any that are wrong. Until a template is uploaded, a plain one-sheet charter is produced.</p>
@@ -386,11 +386,11 @@ async function renderCharterSettings(root) {
           <button data-action="tpl-detect">↻ Detect again</button><button class="danger" data-action="tpl-remove">Remove</button>` : ''}
       </div>
       ${tpl.error ? `<p class="chip overdue">⚠ ${esc(tpl.error)}</p>` : ''}
-      ${tpl.timelines?.length ? `<p class="small">📅 Timeline grids found: ${tpl.timelines.map((g) => `<b>${esc(g.title)}</b> (${esc(g.sheet)}, rows ${g.first_row}–${g.last_row}, ${g.rows} rows, ${g.months} month columns)`).join(' and ')}.
+      ${tpl.timelines?.length ? `<p class="small">Timeline grids found: ${tpl.timelines.map((g) => `<b>${esc(g.title)}</b> (${esc(g.sheet)}, rows ${g.first_row}–${g.last_row}, ${g.rows} rows, ${g.months} month columns)`).join(' and ')}.
         ${tpl.timelines.some((g) => g.kind === 'sub') ? 'Sub projects are filled from the project\'s top-level tasks' : ''}${tpl.timelines.some((g) => g.kind === 'actions') ? ', actions from their subtasks' : ''}:
         owner, planned complete date, planned months shaded, <b>S</b> in the month work actually started, <b>x</b> in the month it was completed,
         and Red / Yellow / Green status. The year headers are set to the project's years.</p>` : ''}
-      ${tpl.output_sheets?.length ? `<p class="small">📄 Downloaded charters contain only: <b>${tpl.output_sheets.map(esc).join(', ')}</b>.${tpl.dropped_sheets?.length
+      ${tpl.output_sheets?.length ? `<p class="small">Downloaded charters contain only: <b>${tpl.output_sheets.map(esc).join(', ')}</b>.${tpl.dropped_sheets?.length
         ? ` <span class="muted">Left out: ${tpl.dropped_sheets.map(esc).join(', ')}.</span>` : ''}</p>` : ''}
       ${tpl.uploaded ? `<table class="log" id="tpl-map" style="margin-top:12px">
         <thead><tr><th>Charter field</th><th>Sheet</th><th>Cell</th><th>How</th><th></th></tr></thead>
@@ -453,8 +453,8 @@ async function renderCharterSettings(root) {
   };
 }
 
-// ---- 🗂 My lists: your own kanban lists (e.g. "This week", "Waiting on suppliers") that any open task can be filed
-// in, apart from its status, owner and project; 📥 Not in a list holds your open tasks that aren't in one yet
+// ---- My lists: your own kanban lists (e.g. "This week", "Waiting on suppliers") that any open task can be filed
+// in, apart from its status, owner and project; Not in a list holds your open tasks that aren't in one yet
 async function renderMyLists() {
   const [all, L] = await Promise.all([api.get('/tasks?open=1'), api.get('/task-lists')]);
   const me = (typeof ACCT !== 'undefined' && ACCT.account?.person) || '';
@@ -467,14 +467,14 @@ async function renderMyLists() {
   const head = (l, i) => `<span class="tlist-name" data-list-act="rename" data-id="${l.id}" title="Rename">${esc(l.name)}</span>
     <span class="tlist-tools">${i ? `<button type="button" class="icon" data-list-act="left" data-id="${l.id}" title="Move it left">‹</button>` : ''}${i < L.lists.length - 1 ? `<button type="button" class="icon" data-list-act="right" data-id="${l.id}" title="Move it right">›</button>` : ''}<button type="button" class="icon" data-list-act="rename" data-id="${l.id}" title="Rename">✎</button><button type="button" class="icon" data-list-act="delete" data-id="${l.id}" title="Remove the list (its tasks go back to Not in a list)">🗑</button></span>`;
   const groups = [
-    { key: 'none', title: `<span>📥 Not in a list</span>`, ids: loose,
+    { key: 'none', title: `<span>Not in a list</span>`, ids: loose,
       foot: `<div class="tlist-pool small"><label><input type="radio" name="lists-pool" value="mine" ${pool === 'mine' ? 'checked' : ''} ${me ? '' : 'disabled'}> My tasks</label> <label><input type="radio" name="lists-pool" value="all" ${pool === 'all' ? 'checked' : ''}> All open tasks</label></div>` },
     ...L.lists.map((l, i) => ({ key: String(l.id), title: head(l, i), ids: L.items.filter((x) => x.list_id === l.id && open.has(x.task_id)).map((x) => x.task_id) })),
   ];
   main().innerHTML = `
-    <div class="kanban-tools"><h1 style="margin:0">✅ Tasks</h1>${tasksScopeSeg('lists')}<span class="muted small">${L.lists.length ? `${L.lists.length} list${L.lists.length === 1 ? '' : 's'} · ${L.items.filter((x) => open.has(x.task_id)).length} open tasks filed` : 'make a list, then drag tasks into it'}</span><input type="text" id="new-list" class="tlist-newin" placeholder="＋ New list (name, Enter)" maxlength="60" autocomplete="off" title="Your own lists: drag a task into one to file it there. Its status, owner and project stay as they are, and only you see your lists."><div class="spacer"></div>${subCardsToggle().replace(/<label[\s\S]*<\/label>/, '')}</div>
+    <div class="kanban-tools"><h1 style="margin:0">Tasks</h1>${tasksScopeSeg('lists')}<span class="muted small">${L.lists.length ? `${L.lists.length} list${L.lists.length === 1 ? '' : 's'} · ${L.items.filter((x) => open.has(x.task_id)).length} open tasks filed` : 'make a list, then drag tasks into it'}</span><input type="text" id="new-list" class="tlist-newin" placeholder="＋ New list (name, Enter)" maxlength="60" autocomplete="off" title="Your own lists: drag a task into one to file it there. Its status, owner and project stay as they are, and only you see your lists."><div class="spacer"></div>${subCardsToggle().replace(/<label[\s\S]*<\/label>/, '')}</div>
     <div class="task-board-wrap">${taskBoardHtml(all, { groups, subCards: true, project: true })}
-      <div class="small muted" style="margin-top:6px">Drag a card between lists to file it · back to 📥 Not in a list to take it out · done tasks leave the board (they're back in their list if reopened) · ✎ or click a list's name to rename it · only you see your lists</div></div>`;
+      <div class="small muted" style="margin-top:6px">Drag a card between lists to file it · back to Not in a list to take it out · done tasks leave the board (they're back in their list if reopened) · ✎ or click a list's name to rename it · only you see your lists</div></div>`;
   // drag a card to a list
   $$('.tlists .kcard[draggable]').forEach((c) => {
     c.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', c.dataset.id); c.classList.add('dragging'); });
@@ -491,7 +491,7 @@ async function renderMyLists() {
       try { await api.put(`/task-lists/task/${id}`, { list: to }); route(); } catch (err) { toast(err.message, 'error'); }
     });
   });
-  // ＋ a new task straight into a list (a standalone task, yours; filed in the list unless it's 📥 Not in a list)
+  // ＋ a new task straight into a list (a standalone task, yours; filed in the list unless it's Not in a list)
   $$('[data-list-add]').forEach((inp) => inp.addEventListener('keydown', async (e) => {
     if (e.key !== 'Enter') return;
     const q = parseQuick(e.target.value); if (!q.title) return;

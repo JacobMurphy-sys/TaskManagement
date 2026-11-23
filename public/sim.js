@@ -1,4 +1,4 @@
-// 📣 SIM (Short Interval Management): the KPI part of the daily briefing between shifts and departments. One day —
+// SIM (Short Interval Management): the KPI part of the daily briefing between shifts and departments. One day —
 // the last working day by default — on one page of four equal panels: Quality, Safety, Scrap and OTD. Each shows the
 // day's result large, coloured as the weekly report's arrows (green / yellow / red against the target), the month
 // to date as a line chart with the target marked, and what made the result.
@@ -16,7 +16,7 @@ async function renderSim(dayArg) {
   // no figure for the day: say whether its report hasn't been read that far yet
   const short = (dd) => new Date(`${dd}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
   const vol = (t, n, what) => (n || (t.read_to && t.read_to >= d.day) ? `${simNum(n)} ${what}`
-    : `<span class="pl-late" title="The day's figures come in when the report is read (📊 Reporting › Sources)">${what} not read yet${t.read_to ? ` (to ${esc(short(t.read_to))})` : ''}</span>`);
+    : `<span class="pl-late" title="The day's figures come in when the report is read (Reporting › Sources)">${what} not read yet${t.read_to ? ` (to ${esc(short(t.read_to))})` : ''}</span>`);
   const big = (colour, value) => `<div class="sim-big ${colour ? `sim-${colour}` : 'sim-none'}"><div class="sim-val">${value}</div></div>`;
   const facts = (lines) => `<div class="sim-facts">${lines.filter(Boolean).map((l) => `<div>${l}</div>`).join('')}</div>`;
   const mtd = (t, f) => `Month to date <b class="${t.mtd.colour ? `sim-t-${t.mtd.colour}` : ''}">${f(t.mtd.value)}</b>`;
@@ -65,7 +65,7 @@ async function renderSim(dayArg) {
 
   const isDefault = d.day === d.default_day;
   main().innerHTML = `
-    <div class="kanban-tools sim-tools"><h1 style="margin:0">📣 SIM</h1>
+    <div class="kanban-tools sim-tools"><h1 style="margin:0">SIM</h1>
       <div class="seg"><button type="button" data-sim-go="${simDayAdd(d.day, -1)}" title="The day before">◀</button><button type="button" data-sim-go="${simDayAdd(d.day, 1)}" title="The day after" ${d.day >= d.today ? 'disabled' : ''}>▶</button></div>
       <input type="date" id="sim-day" value="${d.day}" max="${d.today}" style="width:auto">
       <b>${esc(d.label)}</b>${isDefault ? '<span class="pill">last working day</span>' : `<button type="button" class="link small" data-sim-go="">Back to the last working day</button>`}${d.worked ? '' : '<span class="pill" title="Not a working day in Production\'s calendar">not a working day</span>'}
@@ -83,7 +83,7 @@ async function renderSim(dayArg) {
   $('#sim-day').onchange = (e) => { if (e.target.value) go(e.target.value); };
   main().addEventListener('click', (e) => { const c = e.target.closest('[data-sim-day]'); if (c && main().contains(c)) go(c.dataset.simDay); });
   $('#sim-add-btn').onclick = () => {
-    openModal(`<div class="modal-head"><h2 style="margin:0">＋ Internal report</h2><button class="icon" data-action="close-modal">✕</button></div>
+    openModal(`<div class="modal-head"><h2 style="margin:0">Internal report</h2><button class="icon" data-action="close-modal">✕</button></div>
       <p class="small muted" style="margin-top:0">For ${esc(d.label)}.</p>
       <form id="sim-add" class="form-grid"><label class="f full">Area<input type="text" name="area" maxlength="120" placeholder="e.g. Embossing"></label>
         <label class="f full">What happened<textarea name="text" rows="3" maxlength="1000" required></textarea></label>
@@ -122,8 +122,8 @@ function simBands(d) {
   const row = (k, label, target, hint) => `<div class="sim-tg-row"><b>${label}</b>
       <label class="f">Target <span class="small muted">${hint}</span><input type="number" name="t_${k}" step="any" min="0" value="${target}"></label>
       <label class="f">Yellow within<span class="row" style="gap:6px"><input type="number" name="b_${k}" min="0" max="100" step="1" value="${Math.round(d.bands[k] * 100)}" style="max-width:90px"> % of it</span></label></div>`;
-  openModal(`<div class="modal-head"><h2 style="margin:0">🎯 Targets and colours</h2><button class="icon" data-action="close-modal">✕</button></div>
-    <p class="small muted" style="margin-top:0">Each result is <b style="color:${SIM_COL.green}">green</b> when it meets its target, <b style="color:#b38600">yellow</b> when it's off by no more than the share given, and <b style="color:${SIM_COL.red}">red</b> beyond; without a target it stays grey. The targets are the same as on 📊 Reporting › Operations. Safety is red with an accident, yellow with a near miss, green otherwise. Changing these needs the setup right.</p>
+  openModal(`<div class="modal-head"><h2 style="margin:0">Targets and colours</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <p class="small muted" style="margin-top:0">Each result is <b style="color:${SIM_COL.green}">green</b> when it meets its target, <b style="color:#b38600">yellow</b> when it's off by no more than the share given, and <b style="color:${SIM_COL.red}">red</b> beyond; without a target it stays grey. The targets are the same as on Reporting › Operations. Safety is red with an accident, yellow with a near miss, green otherwise. Changing these needs the setup right.</p>
     <form id="sim-bands-f">${row('quality', 'Quality', T.quality.target ?? '', 'CPMS, at most')}${row('scrap', 'Scrap rate', pct(T.scrap.target, 3), '%, at most')}${row('otd', 'OTD SC', pct(T.otd.target, 2), '%, at least')}
       <div class="row" style="margin-top:10px"><div class="spacer"></div><button type="button" data-action="close-modal">Cancel</button><button class="primary" type="submit">Save</button></div></form>`);
   $('#sim-bands-f').onsubmit = async (e) => {
@@ -143,9 +143,9 @@ async function simAutoDialog() {
   const DAYS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']];
   const when = (iso) => new Date(iso).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   const lastLine = (x) => (!x.last ? '<span class="muted">Not made yet.</span>'
-    : x.last.ok ? `<span class="pa-ok">✔ Made ${esc(when(x.last.at))}</span> (the SIM of ${esc(fmtDate(x.last.day))})` : `<span class="pl-late">✖ ${esc(when(x.last.at))}: ${esc(x.last.error)}</span>`);
+    : x.last.ok ? `<span class="pa-ok">✔ Made ${esc(when(x.last.at))}</span> (the SIM of ${esc(fmtDate(x.last.day))})` : `<span class="pl-late">${esc(when(x.last.at))}: ${esc(x.last.error)}</span>`);
   const nextLine = (x) => (x.next ? `Next: ${esc(when(x.next))}` : x.enabled ? '' : 'Switched off.');
-  openModal(`<div class="modal-head"><h2 style="margin:0">⏱ Automatic picture</h2><button class="icon" data-action="close-modal">✕</button></div>
+  openModal(`<div class="modal-head"><h2 style="margin:0">Automatic picture</h2><button class="icon" data-action="close-modal">✕</button></div>
     <p class="small muted" style="margin-top:0">At the times below SIM reads its reports and saves the last working day's SIM as a picture (PNG) in the folder, over the one before — so a screen or a shortcut always shows the latest. Changing this needs the setup right.</p>
     <form id="sim-auto-f" class="form-grid">
       <label class="full row" style="gap:8px"><input type="checkbox" name="enabled" ${a.enabled ? 'checked' : ''} style="width:auto"> Make the picture automatically</label>

@@ -369,7 +369,7 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
   const bonus = Number(setting('cpm_rnw_bonus', '0.05')) || 0;
   let windows = json(setting('cpm_rnw_hours', '{}'), {});
   for (const c of changes) if (c.type === 'rnw_window' && c.tech && (!c.from || `${year}-${pad(month)}` >= c.from) && (!c.to || `${year}-${pad(month)}` <= c.to)) windows = { ...windows, [cpm.normTech(c.tech)]: (c.hours || []).map(Number) };
-  if (!rs.length && !(arr && arr.orders)) warnings.push('No ⏱ timing report runs in the last months — each day is spread evenly over the hours worked');
+  if (!rs.length && !(arr && arr.orders)) warnings.push('No timing report runs in the last months — each day is spread evenly over the hours worked');
   const prodProf = arr ? profiles(cards, rs) : prof;
   const days = P.workdays || 0;
   // the hours the shifts cover, from the first shift's start
@@ -383,7 +383,7 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
   const manual = new Map();
   for (const [k, v] of Object.entries(json(setting('cpm_day_manual', '{}'), {}))) { const sh = manualShares(v); if (sh) manual.set(k, sh); }
   const shape = dayShape(); const pv = shape === 'worst' ? peakVolumes(rs) : null; // the worst case: its busiest day's volume too
-  if (pv && !pv.by.size) warnings.push('No history of daily volumes yet (work orders seen arriving, or ⏱ timing report runs) — the worst case takes the forecast\'s daily volume');
+  if (pv && !pv.by.size) warnings.push('No history of daily volumes yet (work orders seen arriving, or timing report runs) — the worst case takes the forecast\'s daily volume');
   const rows = [];
   for (const D of plan.detail) {
     const x = D.months[month]; if (!x || !days) continue;
@@ -427,12 +427,12 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
     const perDay = Number(c.qty) / all; const tri = String(c.customer).toUpperCase();
     const own = plan.detail.filter((D) => D.trigram === tri && D.months[month]);
     const parts = own.length ? own.map((D) => ({ D, share: D.months[month].split, oee: D.months[month].oee })) : plan.detail.filter((D) => D.trigram === tri).map((D) => { const m0 = Object.values(D.months)[0]; return { D, share: m0?.split || 0, oee: m0?.oee || 0.35 }; });
-    if (!parts.length) { warnings.push(`📣 ${c.name || 'A campaign'}: ${tri} has no forecast or split to put it on — set it up on 👥 Customers`); continue; }
+    if (!parts.length) { warnings.push(`${c.name || 'A campaign'}: ${tri} has no forecast or split to put it on — set it up on Customers`); continue; }
     for (const { D, share, oee } of parts) {
       const daily = perDay * share; if (!(daily > 0)) continue;
       const base = rows.find((r) => r.trigram === tri && r.tech === D.tech && !r.added);
       const shares = base ? base.shares : H.map((h) => (worked.has(h) ? 1 / worked.size : 0));
-      rows.push({ trigram: tri, name: `📣 ${c.name || 'Campaign'}`, added: 'campaign', campaign: c.name || 'Campaign', tech: D.tech, month_volume: daily * days, daily_pct: 1, rnw_pct: 0, rnw_learned: null, rnw_typed: null,
+      rows.push({ trigram: tri, name: `${c.name || 'Campaign'}`, added: 'campaign', campaign: c.name || 'Campaign', tech: D.tech, month_volume: daily * days, daily_pct: 1, rnw_pct: 0, rnw_learned: null, rnw_typed: null,
         oee, oee_rnw: Math.min(1, oee + bonus), workdays: days, daily, renew: 0, need_daily: daily / oee, need_rnw: 0, profile: base ? base.profile : 'even', peak: null, learned_shares: shares, learned_from: base ? base.learned_from : 'even', produced_shares: shares, arrive_avg: base ? base.arrive_avg : null, arrive_seen: null, shares,
         hours: shares.map((x) => (daily / oee) * x), cards_hours: shares.map((x) => daily * x) });
     }

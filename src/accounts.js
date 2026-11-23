@@ -36,15 +36,15 @@ const passwordProblem = (pw) => (String(pw || '').length < 8 ? 'Passwords need a
 // Each module is one or more areas of the app (what pages and API paths check): Management, for one,
 // is Projects and Reporting.
 const MODULES = [
-  { key: 'basic', label: 'Basic pack', icon: '📋', what: 'Home, Tasks, Calendar, Library, 📥 My work, quick notes and search', always: true, areas: [] },
-  { key: 'management', label: 'Management', icon: '🗂', what: 'Projects (the board, project pages and charters, the projects list in the sidebar), 👥 People (each person\'s open work and next action) and 💶 CAPEX (planned investments)', areas: ['projects', 'team', 'capex'] },
+  { key: 'basic', label: 'Basic pack', icon: '📋', what: 'Home, Tasks, Calendar, Library, My work, quick notes and search', always: true, areas: [] },
+  { key: 'management', label: 'Management', icon: '🗂', what: 'Projects (the board, project pages and charters, the projects list in the sidebar), People (each person\'s open work and next action) and CAPEX (planned investments)', areas: ['projects', 'team', 'capex'] },
   { key: 'ci', label: 'Continuous Improvement', icon: '💡', what: 'Ideas: the ideas, their notes and the pipeline', areas: ['ideas'] },
-  { key: 'production', label: 'Prod Management', icon: '🏭', what: '📣 SIM (the daily briefing\'s KPIs); Production: perso, Matching, Insights (🔬 Learned, 📆 D+ due out, ⏱ Timing) and 🔍 search; 📐 Capacity planning (forecasts, flex, scenarios); 📊 Reporting\'s Weekly SC Report (the A3), its Database, 🏭 Operations and ▶ Prepare this week', areas: ['planning', 'cpm', 'kpi', 'sim'] },
-  { key: 'quality', label: 'Quality', icon: '🛡', what: '📊 Reporting\'s 🧪 Quality (customer complaints, from the Salesforce export) and ⛑ EHS (safety concern forms), month by month', areas: ['quality'] },
-  { key: 'despatch', label: 'Despatch', icon: '🚚', what: '📊 Reporting\'s 🚚 OTD: logging late deliveries against the planner\'s work orders (internal or external, and why)', areas: ['otd'] },
-  { key: 'forecast', label: 'Forecast', icon: '📈', what: '📈 Forecast: the customer forecasts sent in (who sent which, when), uploading one, and the upload link for the people who send them without an account; what\'s sent in goes into 📐 Capacity planning', areas: ['forecast'] },
+  { key: 'production', label: 'Prod Management', icon: '🏭', what: 'SIM (the daily briefing\'s KPIs); Production: perso, Matching, Insights (Learned, D+ due out, Timing) and search; Capacity planning (forecasts, flex, scenarios); Reporting\'s Weekly SC Report (the A3), its Database, Operations and ▶ Prepare this week', areas: ['planning', 'cpm', 'kpi', 'sim'] },
+  { key: 'quality', label: 'Quality', icon: '🛡', what: 'Reporting\'s Quality (customer complaints, from the Salesforce export) and EHS (safety concern forms), month by month', areas: ['quality'] },
+  { key: 'despatch', label: 'Despatch', icon: '🚚', what: 'Reporting\'s OTD: logging late deliveries against the planner\'s work orders (internal or external, and why)', areas: ['otd'] },
+  { key: 'forecast', label: 'Forecast', icon: '📈', what: 'Forecast: the customer forecasts sent in (who sent which, when), uploading one, and the upload link for the people who send them without an account; what\'s sent in goes into Capacity planning', areas: ['forecast'] },
   { key: 'archive', label: 'Archive', icon: '🗄', what: 'the archived status report', areas: ['report'] },
-  { key: 'admin', label: 'Admin', icon: '📇', what: 'Contacts, to edit the lists (names can still be picked as owners without it), and 📊 Reporting\'s Sources: where every source file is (changing them takes the setup right)', areas: ['contacts', 'kpi_sources'] },
+  { key: 'admin', label: 'Admin', icon: '📇', what: 'Contacts, to edit the lists (names can still be picked as owners without it), and Reporting\'s Sources: where every source file is (changing them takes the setup right)', areas: ['contacts', 'kpi_sources'] },
 ];
 const MODULE_KEYS = MODULES.map((m) => m.key);
 const AREAS = MODULES.flatMap((m) => m.areas);
@@ -95,8 +95,8 @@ const RIGHTS = [
   { key: 'backups', label: 'Backups', icon: '💾', what: 'make a backup and restore one — from any PC, not only on the server' },
   { key: 'server', label: 'Server', icon: '🖥', what: 'read the server\'s log and restart it (picking up an update) from any PC' },
   { key: 'tickets', label: 'Handle tickets', icon: '🎫', what: 'set the status of bug reports and feature requests, and answer them' },
-  { key: 'cards', label: 'Review new cards', icon: '🗂', what: 'told of each card added on 🗂 Card database (it\'s live straight away): mark it checked, or undo it (taken out of the Access file again); and change its fixed answers' },
-  { key: 'poke', label: 'Poke people', icon: '👉', what: 'send anyone a ✉ nudge about a task given to them (project leaders and sponsors can always on their own projects)' },
+  { key: 'cards', label: 'Review new cards', icon: '🗂', what: 'told of each card added on Card database (it\'s live straight away): mark it checked, or undo it (taken out of the Access file again); and change its fixed answers' },
+  { key: 'poke', label: 'Poke people', icon: '👉', what: 'send anyone a nudge about a task given to them (project leaders and sponsors can always on their own projects)' },
 ];
 const RIGHT_KEYS = RIGHTS.map((r) => r.key);
 function rightsOf(a) {
@@ -401,7 +401,7 @@ function pwRemind(now = new Date()) {
   const body = `SITHUB runs on the server PC${s.computer ? ` (${s.computer})` : ''} under ${acct}, and the "SITHUB server" scheduled task keeps its password. `
     + 'If that password expires or is changed, SITHUB won\'t start after the next restart, and reading the network folders can stop. '
     + 'Check when it expires; after a change, give the task the new password (Task Scheduler › SITHUB server › Properties › OK, or run server-install.bat again). '
-    + 'Then tick it off in ⚙ Settings › 🖥 Server.';
+    + 'Then tick it off in Settings › Server.';
   db.tx(() => {
     db.run("DELETE FROM messages WHERE topic = 'server-password'"); // one at a time: the latest
     for (const p of people) db.run('INSERT INTO messages (to_person, kind, title, body, topic, link) VALUES (?, ?, ?, ?, ?, ?)',

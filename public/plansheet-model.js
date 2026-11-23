@@ -1,6 +1,6 @@
 'use strict';
-// 📄 The production plan as data (the sheets, their rows and colours), shared by the browser (planning.js:
-// 📄 Generate plan) and the server (src/planauto.js: the plans made on a schedule), so both make the same PDF.
+// The production plan as data (the sheets, their rows and colours), shared by the browser (planning.js:
+// Generate plan) and the server (src/planauto.js: the plans made on a schedule), so both make the same PDF.
 // Loaded before planning.js in the browser; required by the server. Nothing here touches the page.
 
 // Date and number formats made once: making one per row is what made long lists slow to draw.
@@ -12,7 +12,7 @@ const PLF = {
   one: new Intl.NumberFormat('en-GB', { maximumFractionDigits: 1 }),
 };
 
-// 🖨 The operator sheet: for each cell (card type), the open work orders in the list's order —
+// The operator sheet: for each cell (card type), the open work orders in the list's order —
 // big, plain and colour-coded, with a box to tick. A job with cards of several types is on each
 // of those cells' sheets with that type's cards.
 const CELL_ORDER = ['dod', 'emboss', 'laser'];
@@ -66,7 +66,7 @@ function planSheetModel(jobs, { cells: pick, layout = 'pages', limit = 0, method
   return { layout, method, test, stamp, title: `${title} — ${stamp}`, file_label: fileLabel, running_legend: !groups, pages, spec };
 }
 
-// 🧪 Testing mode: a last page explaining, in general terms, how each kind of list is put in order.
+// Testing mode: a last page explaining, in general terms, how each kind of list is put in order.
 function orderSpec(p, mode, { split = false } = {}, now = new Date()) {
   const days = p.mitigation?.days ?? 5;
   const byMode = {
@@ -85,7 +85,7 @@ function orderSpec(p, mode, { split = false } = {}, now = new Date()) {
 }
 // Matching, in the order the work moves: Incoming (its perso work order still open), Ready (perso done,
 // not started at Matching), In Progress (started at Matching) — each in the Matching list's order (plan date, then Urgent / High first).
-// 💳 Cards and ✉️ carriers of a Matching job. The cards from its perso work order (done when none is
+// Cards and ✉️ carriers of a Matching job. The cards from its perso work order (done when none is
 // open; in progress when one is being made); the carriers from the CPS status in the Matching export:
 //   Waiting — both not ready, or both in progress · Waiting carrier — cards ready or in progress, carriers not
 //   Waiting cards — carriers ready or in progress, cards not · Ready — both ready

@@ -1,8 +1,8 @@
-// 📑 The IR pack tabs of an investment's window (💶 CAPEX): what the corporate IR deck and financial model
+// The IR pack tabs of an investment's window (CAPEX): what the corporate IR deck and financial model
 // need beyond the essentials — the request, items and quotes, cash-out and milestones, the business case
 // and the checklist. Kept with the investment (its `ir`) and saved with it; ⬇ IR pack fills the templates.
 
-const CXIR_TABS = [['guide', '🧭 Step by step'], ['request', 'Request'], ['items', 'Items & quotes'], ['cash', 'Cash-out & plan'], ['case', 'Business case'], ['check', 'Checklist (optional)']];
+const CXIR_TABS = [['guide', 'Step by step'], ['request', 'Request'], ['items', 'Items & quotes'], ['cash', 'Cash-out & plan'], ['case', 'Business case'], ['check', 'Checklist (optional)']];
 let cxIrMetaCache = null;
 const cxIrMeta = async (fresh = false) => { if (!cxIrMetaCache || fresh) cxIrMetaCache = await api.get('/capex/ir/meta'); return cxIrMetaCache; };
 
@@ -46,7 +46,7 @@ function cxIrPanes(root, x, getX) {
   const capYear = () => Number((ir.cap_start || ir.milestones.sop || getX().planned_date || new Date().toISOString()).slice(0, 4));
   const caseYears = () => { const n = Math.min(10, Math.max(5, (Number(ir.depreciation_years) || 5) + 1)); return Array.from({ length: n }, (_, k) => capYear() + k); };
 
-  // ---- 🧭 Step by step: plain questions, one at a time; the answers fill in the technical fields (the other tabs) ----
+  // ---- Step by step: plain questions, one at a time; the answers fill in the technical fields (the other tabs) ----
   const G = () => { ir.guide = ir.guide || {}; return ir.guide; };
   const ym_ = (d) => String(d || '').slice(0, 7);
   const mBetween = (a, b) => { const [ay, am] = a.split('-').map(Number); const [by, bm] = b.split('-').map(Number); return (by - ay) * 12 + (bm - am); };
@@ -163,9 +163,9 @@ function cxIrPanes(root, x, getX) {
       ${q('Which business unit pays for it?', `<input type="text" data-k="bu" data-t="str" list="cxir-bus" value="${esc(ir.bu)}" placeholder="${esc(meta?.bu || '')}"><datalist id="cxir-bus">${(meta?.model.bus || []).map((b) => `<option value="${esc(b)}">`).join('')}</datalist>`, 'If you\'re not sure, it\'s usually your own site\'s unit.', 1)}
       ${q('Has the corporate IR tool given it a number yet?', inp('ir_number', { ph: 'Leave blank if not yet' }), 'You get one once the request is entered there; add it later.', 3)}`,
       fills: 'the cover, the executive summary\'s site and the model\'s business unit (its tax and discount rates)' },
-    { k: 'kind', title: 'What kind of investment', reqs: [[1, 'What kind', () => G().kind]], html: () => q('What are you asking for?', gOpts('kind', [['equipment', '🏭 A machine or equipment', 'printers, lines, tools, vehicles…'], ['building', '🏢 A building or building works', 'construction, racking, warehouse, utilities…'], ['it', '💻 IT', 'software, servers, scanners, networks…']]), '', 1),
+    { k: 'kind', title: 'What kind of investment', reqs: [[1, 'What kind', () => G().kind]], html: () => q('What are you asking for?', gOpts('kind', [['equipment', 'A machine or equipment', 'printers, lines, tools, vehicles…'], ['building', 'A building or building works', 'construction, racking, warehouse, utilities…'], ['it', 'IT', 'software, servers, scanners, networks…']]), '', 1),
       fills: 'the nature of the investment and a sensible depreciation period' },
-    { k: 'why', title: 'Why it\'s needed', reqs: [[1, 'The main reason', () => G().why]], html: () => q('What\'s the main reason?', gOpts('why', [['replace', '♻️ Something old has to be replaced', 'worn out, breaking down, no spare parts or support'], ['growth', '📈 We need more capacity', 'more volume than we can make today'], ['save', '💶 It saves money or works better', 'fewer hours, less scrap, less downtime'], ['comply', '✅ It\'s required', 'a law, an audit, a customer or safety rule'], ['footprint', '🗺 It\'s part of a site plan', 'a move or reorganisation decided for the group']]), '', 1),
+    { k: 'why', title: 'Why it\'s needed', reqs: [[1, 'The main reason', () => G().why]], html: () => q('What\'s the main reason?', gOpts('why', [['replace', 'Something old has to be replaced', 'worn out, breaking down, no spare parts or support'], ['growth', 'We need more capacity', 'more volume than we can make today'], ['save', 'It saves money or works better', 'fewer hours, less scrap, less downtime'], ['comply', 'It\'s required', 'a law, an audit, a customer or safety rule'], ['footprint', 'It\'s part of a site plan', 'a move or reorganisation decided for the group']]), '', 1),
       fills: 'the justification ticked on the executive summary' },
     { k: 'budget', title: 'Budget', reqs: [[1, 'Budgeted or not', () => G().budgeted], [2, 'The budgeted amount', () => filled(ir.budget.capex), () => G().budgeted === 'yes'], [3, 'The rest of the budget assumptions', () => [ir.budget.cashout_year, ir.budget.opex, ir.budget.payback, ir.budget.roi].some(filled), () => G().budgeted === 'yes']], html: () => `
       ${q('Was it in this year\'s budget?', gOpts('budgeted', [['yes', 'Yes'], ['no', 'No']]), 'Your controller knows if you don\'t.', 1)}
@@ -190,7 +190,7 @@ function cxIrPanes(root, x, getX) {
         </tbody></table><button type="button" class="small" data-cxir="add-quote" style="margin-top:6px" ${ir.quotes.length >= 6 ? 'disabled' : ''}>＋ A quote</button>`, 'The chosen one is required; the process asks for 3 quotes for any single item over 10 k€.', 1)}
       ${notCheapest() ? q('You didn\'t pick the cheapest: why this one?', area('selection_reason', 2, 'e.g. 4 months shorter lead time, better service'), '', 2) : ''}
       ${q('Have you got the chosen supplier\'s quote? Add it here', quoteBlock(), 'A screenshot or the PDF: it goes on the supplier selection slide.', 2)}
-      ${q('How will it arrive?', gOpts('freight', [['sea', '🚢 By sea'], ['air', '✈️ By air', 'faster, but costs more and emits more'], ['local', '🚚 By road / locally', 'no sea or air freight']]), '', 2)}
+      ${q('How will it arrive?', gOpts('freight', [['sea', 'By sea'], ['air', 'By air', 'faster, but costs more and emits more'], ['local', 'By road / locally', 'no sea or air freight']]), '', 2)}
       ${G().freight === 'air' ? q('Why not by sea?', inp('freight_reason', { ph: 'e.g. the line stops if it\'s later than March' }), '', 2) : ''}
       ${G().freight === 'sea' || G().freight === 'air' ? q('Sea and air compared, if you have the figures', `<table class="log cx-grid"><thead><tr><th></th><th class="num">Price (${esc(cur())})</th><th>Lead time</th><th>CO₂</th></tr></thead><tbody>${['sea', 'air'].map((m) => `<tr><td><b>${m === 'sea' ? 'Sea' : 'Air'}</b></td><td>${inp(`freight.${m}.price`, { type: 'number' })}</td><td>${inp(`freight.${m}.lead`, { ph: 'e.g. 6 weeks' })}</td><td>${inp(`freight.${m}.co2`, { ph: 'e.g. 1.2 t' })}</td></tr>`).join('')}</tbody></table>`, 'The supplier or the forwarder can give them.', 3) : ''}`,
       fills: 'the supplier selection slide' },
@@ -253,7 +253,7 @@ function cxIrPanes(root, x, getX) {
       const p1 = open(1).length;
       return `${p1 ? '' : '<div class="kc-note">✓ Everything required is answered: the IR pack is ready to download.</div>'}
         ${list(1, 'needed before the pack is ready:')}${list(2, 'leaves a gap in the deck without it:')}${list(3, 'add it if you know it:')}
-        <p>From your answers SITHUB has filled in the technical parts: the nature and justification, items (CAPEX and OPEX), the cash-out by month, the milestones, the savings and volumes year by year and the depreciation. <b>🔧 Details</b> shows them all, to check or fine-tune (payments month by month, savings that change from year to year, several customers, risks and opportunities, the checklist).</p>
+        <p>From your answers SITHUB has filled in the technical parts: the nature and justification, items (CAPEX and OPEX), the cash-out by month, the milestones, the savings and volumes year by year and the depreciation. <b>Details</b> shows them all, to check or fine-tune (payments month by month, savings that change from year to year, several customers, risks and opportunities, the checklist).</p>
         <p>The checklist slides (2–3) come filled in with what SITHUB can tell from your answers; complete the rest in PowerPoint after downloading (or in Details › Checklist).</p>
         <p>${x?.id ? 'Then <b>⬇ IR pack</b> (top right) saves it and gives you the IR deck and the financial model. The payback, NPV, ROI and IRR are shown above once saved.' : 'Then save the investment (Add investment), open it again and use <b>⬇ IR pack</b> (top right) for the IR deck and the financial model.'}</p>`;
     }, fills: '' },
@@ -271,7 +271,7 @@ function cxIrPanes(root, x, getX) {
         return `<button type="button" data-cxg-go="${st.k}" class="${st.k === gStep ? 'on' : ''} ${stt}" title="${stt === 'part' ? 'Required answered; something important still open' : stt === 'ok' ? 'Done' : ''}"><span class="cxg-n">${stt ? '✓' : i + 1}</span>${esc(st.title)}</button>`; }).join('')}
         <div class="cxg-legend small muted">${[1, 2, 3].map((p) => `<span class="cxg-tag ${PRIO[p][2]}">${PRIO[p][0]}</span> ${PRIO[p][1]}`).join('<br>')}</div></nav>
       <section class="cxg-body"><h3 style="margin-top:0">${at + 1}. ${esc(s.title)}</h3>${s.html()}
-        ${s.fills ? `<div class="cxg-fills small">📝 This fills in ${esc(s.fills)}.</div>` : ''}
+        ${s.fills ? `<div class="cxg-fills small">This fills in ${esc(s.fills)}.</div>` : ''}
         <div class="row" style="margin-top:14px">${at > 0 ? `<button type="button" data-cxg-go="${STEPS[at - 1].k}">← Back</button>` : ''}<div class="spacer"></div>${at < STEPS.length - 1 ? `<button type="button" class="primary" data-cxg-go="${STEPS[at + 1].k}">Next →</button>` : ''}</div></section></div>`;
   };
   const panes = {
@@ -369,7 +369,7 @@ function cxIrPanes(root, x, getX) {
     },
     check: () => {
       const list = meta?.deck.checklist || [];
-      if (!list.length) return `<div class="empty small">${esc(meta?.deck.error || 'The checklist comes from the IR deck template: set where it\'s saved (💶 CAPEX ⋯ › IR templates).')}</div>`;
+      if (!list.length) return `<div class="empty small">${esc(meta?.deck.error || 'The checklist comes from the IR deck template: set where it\'s saved (CAPEX ⋯ › IR templates).')}</div>`;
       const auto = status?.auto || {}; const A = meta.answers; const justif = ir.justif || status?.justif || '';
       const topics = [...new Set(list.map((q) => q.topic))];
       return `<p class="small muted" style="margin-top:0">Answered here, the deck's checklist slides are filled in. <b>auto</b> answers come from what's entered (as last saved); questions not asked for a ${esc(justif || 'this kind of')} investment show N/A in the deck.</p>
@@ -403,7 +403,7 @@ function cxIrPanes(root, x, getX) {
     const R = live?.results; const yrs = Number(ir.depreciation_years) || Number(g.years) || 5;
     const none = g.no_benefit === 'yes' || !R || R.roi === null || R.roi === undefined;
     const weak = !none && ((R.npv !== null && R.npv < 0) || (R.payback_years !== null && R.payback_years > yrs) || R.roi <= 0);
-    const head = g.no_benefit === 'yes' ? (R && R.roi !== null && R.roi !== undefined ? '<span class="small muted">(Savings typed on 🔧 Details still count in the model: clear them there if it really saves nothing.)</span>' : '')
+    const head = g.no_benefit === 'yes' ? (R && R.roi !== null && R.roi !== undefined ? '<span class="small muted">(Savings typed on Details still count in the model: clear them there if it really saves nothing.)</span>' : '')
       : live?.model_error ? `<span class="muted">The return can't be worked out here: ${esc(live.model_error)}</span>`
       : !live ? '<span class="muted">Working out the return…</span>'
       : `<b>The return, as it stands:</b> payback <b>${R?.payback_years !== null && R?.payback_years !== undefined ? `${Math.round(R.payback_years * 12)} months` : '–'}</b> · ROI <b>${R?.roi !== null && R?.roi !== undefined ? `${Math.round(R.roi * 100)}%` : '–'}</b> · NPV <b>${k(R?.npv)}</b> · IRR <b>${R?.irr !== null && R?.irr !== undefined ? `${Math.round(R.irr * 100)}%` : '–'}</b>${liveBusy ? ' <span class="muted">…</span>' : ''}`;
@@ -549,11 +549,11 @@ function cxApplies(forText, justif) {
   return (/replac|obsol/.test(t) && /replac|obsol/.test(j)) || (/capacity/.test(t) && /growth|capacity/.test(j)) || (/improvement|productiv/.test(t) && /improvement|productiv/.test(j)) || (/complian/.test(t) && /complian/.test(j)) || (/footprint|strateg/.test(t) && /footprint|strateg/.test(j));
 }
 
-// 📑 Where the IR templates are saved (and the business unit and site they're filled in with): CAPEX ⋯ › IR templates
+// Where the IR templates are saved (and the business unit and site they're filled in with): CAPEX ⋯ › IR templates
 async function cxIrTemplates() {
   const s = state.settings; let meta = null;
   const body = () => `
-    <div class="modal-head"><h2 style="margin:0">📑 IR templates</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0">IR templates</h2><button class="icon" data-action="close-modal">✕</button></div>
     <p class="small muted" style="margin-top:0">The corporate financial model (.xlsx) and IR deck (.pptx) each investment's <b>⬇ IR pack</b> fills in. They're read from where they're saved each time, so saving a new version there is all it takes. Changing these needs the setup right.</p>
     <form id="cxir-tpl" class="form-grid">
       <label class="f full">Financial model template<input type="text" name="capex_ir_model" value="${esc(s.capex_ir_model || '')}" placeholder="e.g. S:\\…\\IR Template – Financial model.xlsx">
