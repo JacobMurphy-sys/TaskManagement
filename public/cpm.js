@@ -1112,8 +1112,8 @@ async function cpmScenarios(body) {
     const sg = (v) => `${v >= 0 ? '+' : '−'}${cpmK(Math.abs(v))}`;
     box.innerHTML = !p.months.length ? '<p class="small muted">Preview: no change in the months it covers (no forecast for the customer then?).</p>'
       : `<div class="small"><b>Preview</b> <span class="muted">— this change on its own against the base plan${flex ? ' (with flex)' : ''}, ${p.year}: <b>${sg(sum((x) => x.cards1 - x.cards0))} cards</b>, ${sg(sum((x) => x.need1 - x.need0))} capacity needed (÷ OEE)</span></div>
-      <div class="kdb-scroll"><table class="log small cpm-vprev-t"><thead><tr><th>Month</th>${used.map((t) => `<th class="num" style="color:${cpmTc(t)}">${esc(t)} cards</th><th class="num">needed</th><th class="num">load</th>`).join('')}</tr></thead><tbody>
-      ${p.months.map((m) => `<tr><th>${esc(m.label)}</th>${used.map((t) => { const x = m.techs[t];
+      <div class="kdb-scroll"><table class="log small cpm-vprev-t"><thead><tr><th>Month</th><th class="num" title="${esc(p.customer ? `${p.customer}'s own cards, all its technologies` : 'Every customer\'s cards')}">${esc(p.customer || 'All customers')}: before → after</th>${used.map((t) => `<th class="num" style="color:${cpmTc(t)}" title="All customers' ${esc(t)} cards that month, with the change">${esc(t)} in all</th><th class="num">needed</th><th class="num">load</th>`).join('')}</tr></thead><tbody>
+      ${p.months.map((m) => `<tr><th>${esc(m.label)}</th><td class="num">${cpmK(m.cust0)} → <b>${cpmK(m.cust1)}</b> <span class="cpm-added-t">${sg(m.cust1 - m.cust0)}</span></td>${used.map((t) => { const x = m.techs[t];
         return `<td class="num" title="${esc(`${cpmN(x.cards0)} → ${cpmN(x.cards1)}`)}">${cpmK(x.cards1)} <span class="cpm-added-t">${sg(x.cards1 - x.cards0)}</span></td><td class="num">${sg(x.need1 - x.need0)}</td><td class="num">${ld(x.load0)} → ${ld(x.load1)}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div>
       ${p.warnings.map((w) => `<p class="small pl-warn">${esc(w)}</p>`).join('')}`;
   };
