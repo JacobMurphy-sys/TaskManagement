@@ -1,7 +1,9 @@
 // 📐 CPM — capacity planning (Prod Management): the forecasts against the machines' capacity per
 // technology by month or week, the forecasts against what was done (flex), the customers' split and
 // OEE, the capacity settings, and each person's scenarios (src/cpm.js does the sums).
-const CPM_TABS = [['overview', '📊 Overview'], ['site', '🏭 Site capacity'], ['headcount', '👷 Headcount'], ['day', '🕐 Day by hour'], ['flex', '📈 Forecast vs actual'], ['customers', '👥 Customers'], ['capacity', '⚙ Capacity'], ['scenarios', '🧪 Scenarios']];
+const CPM_TABS = [['overview', '📊 Overview'], ['site', '🏭 Site capacity'], ['headcount', '👷 Headcount'], ['day', '🕐 Day by hour'], ['flex', '📈 Forecast vs actual'], ['config', '🛠 Configuration']];
+// 🛠 Configuration holds the set-up, each its own sub-tab (their addresses, #/cpm/customers…, still open them)
+const CPM_CONFIG = [['customers', '👥 Customers'], ['capacity', '⚙ Capacity'], ['scenarios', '🧪 Scenarios']];
 const cpmN = (v, d = 0) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: d }));
 // each machine's colour, the same on every chart (by its place among the machines)
 const CPM_MACH_COL = ['#e4572e', '#f3a712', '#3fa34d', '#2e86ab', '#9b5de5', '#f15bb5', '#00a6a6', '#8d6a9f', '#c0843b', '#5c8001'];
@@ -71,14 +73,19 @@ function cpmHookWrites() { // (installed when Capacity planning first opens: app
 
 async function renderCpm(tab) {
   cpmHookWrites();
-  tab = CPM_TABS.some(([k]) => k === tab) ? tab : store.get('cpmTab', 'overview');
-  store.set('cpmTab', tab);
+  const isCfg = (k) => CPM_CONFIG.some(([c]) => c === k);
+  if (tab === 'config') tab = store.get('cpmConfigTab', 'customers');
+  tab = CPM_TABS.some(([k]) => k === tab) || isCfg(tab) ? tab : store.get('cpmTab', 'overview');
+  if (!CPM_TABS.some(([k]) => k === tab) && !isCfg(tab)) tab = 'overview';
+  store.set('cpmTab', tab); if (isCfg(tab)) store.set('cpmConfigTab', tab);
+  const top = isCfg(tab) ? 'config' : tab;
   if (cpmRegenTab === tab) cpmRegenNext = true; cpmRegenTab = null;
   const kept = CPM_KEPT.includes(tab);
   const head = `<div class="kanban-tools"><h1 style="margin:0">📐 Capacity planning</h1>
-      <div class="pl-halves cpm-tabs">${CPM_TABS.map(([k, l]) => `<div class="pl-half ${k === tab ? 'on' : ''}"><a href="#/cpm/${k}" class="button">${l}</a></div>`).join('')}</div>
+      <div class="pl-halves cpm-tabs">${CPM_TABS.map(([k, l]) => `<div class="pl-half ${k === top ? 'on' : ''}"><a href="#/cpm/${k}" class="button">${l}</a></div>`).join('')}</div>
       <div class="spacer"></div>${kept ? `<span class="small cpm-gen" id="cpm-gen">${cpmRegenNext ? '<span class="muted">Generating…</span>' : ''}</span><button type="button" class="small" id="cpm-regen" title="Work this tab out again from the forecast, the production data and the settings as they are now (it's kept as it was last generated until then)">⟳ Regenerate</button>` : ''}<span class="cpm-foldall"><button type="button" class="icon" data-fold-all="1" title="Fold every section">⊟</button><button type="button" class="icon" data-fold-all="0" title="Open every section">⊞</button></span></div>`;
-  main().innerHTML = `${head}<div id="cpm-body"><p class="muted">Loading…</p></div>`;
+  const sub = top === 'config' ? `<div class="seg cpm-subtabs" role="tablist" aria-label="Configuration">${CPM_CONFIG.map(([k, l]) => `<a href="#/cpm/${k}" class="button ${k === tab ? 'on' : ''}" role="tab" aria-selected="${k === tab}">${l}</a>`).join('')}</div>` : '';
+  main().innerHTML = `${head}${sub}<div id="cpm-body"><p class="muted">Loading…</p></div>`;
   const body = $('#cpm-body'); cpmFoldable(body, tab);
   const rg = $('#cpm-regen'); if (rg) rg.onclick = () => { cpmRegenNext = true; rg.disabled = true; rg.textContent = '⏳ Generating…'; renderCpm(tab); };
   try {
