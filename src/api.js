@@ -4083,6 +4083,23 @@ router.get('/cpm/day/compare', h((req, res) => {
     return require('./cpmday').compareShapes({ year, month, changes: sc?.changes || [], useFlex: req.query.flex !== '0', cards: cpmCards(), full });
   }));
 }));
+const sendXlsx = (res, name, buf) => {
+  name = name.replace(/[\\/:*?"<>|]/g, ' ').slice(0, 120);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '')}.xlsx"; filename*=UTF-8''${encodeURIComponent(name)}.xlsx`);
+  res.send(buf);
+};
+// 👷 Headcount and 🏭 Site capacity as workbooks: formulas over their inputs, with live charts (the kept view)
+router.get('/cpm/headcount/export', h((req, res) => {
+  const sc = req.query.scenario ? cpmScenario(req, Number(req.query.scenario)) : null; cpmRefresh();
+  const year = Number(req.query.year) || new Date().getFullYear(); const useFlex = req.query.flex !== '0';
+  const d = cpmHc.headcount({ year, useFlex, cards: cpmCards(), changes: sc?.changes || [] });
+  sendXlsx(res, `Headcount ${d.year}${sc ? ` - ${sc.name}` : ''}`, require('./cpmexport').buildHeadcountWorkbook(d, { scenario: sc?.name || null, flex: useFlex }));
+}));
+router.get('/cpm/site/export', h((req, res) => {
+  const d = cpmCached(req, 'site', () => cpm.siteCapacity(Number(req.query.year) || new Date().getFullYear(), cpmCards()));
+  sendXlsx(res, `Site capacity ${d.year}`, require('./cpmexport').buildSiteWorkbook(d));
+}));
 router.get('/cpm/day/export', h((req, res) => {
   const d = cpmDayOf(req);
   const buf = require('./cpmexport').buildDayWorkbook(d, { scenario: d.scenario?.name || null });

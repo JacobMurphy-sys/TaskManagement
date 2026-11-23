@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'cpm-excel', date: '2026-11-23', area: 'capacity', title: 'Capacity planning in Excel, charts and all',
+    text: 'Day by hour, Headcount and Site capacity download as Excel workbooks whose figures are formulas over their inputs and whose charts read them, so a number changed in Excel carries through.',
+    points: ['Day by hour: campaigns and scenario additions marked and drawn in orange; the customers\' hours as a heat map', 'Headcount: hours and people needed against there, by month and by customer', 'Site capacity: each machine and the site, month by month'] },
   { id: 'cpm-check', date: '2026-11-23', area: 'capacity', title: 'Capacity planning: a forecast check',
     text: 'A sanity check of the volumes the capacity model uses: each customer from its forecast lines, through split, flex, OEE and the worst case, to the capacity a day it counts, beside what really ran, with anything out of line flagged.' },
   { id: 'fc-find', date: '2026-11-23', area: 'capacity', title: 'Forecast: find a customer',
