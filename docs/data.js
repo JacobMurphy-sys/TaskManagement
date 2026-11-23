@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'qn-to-list', date: '2026-11-23', area: 'projects', title: 'Quick notes: a new task straight into a list',
+    text: 'Assigning a quick note as a new task can put it straight into one of My lists, the last list picked offered first.' },
   { id: 'cpm-day-model', date: '2026-11-23', area: 'capacity', title: 'Capacity planning: the day model checked against the old workbook',
     text: 'Day by hour was gone through line by line against the original daily capacity workbook, and its logic brought into line where they differed.',
     points: ['Machine losses counted once: capacity is full speed over the whole shift, the losses are in the OEE', 'Each customer\'s renewal and daily split can be set, learned from an average day when left blank', 'Learned renewal shares no longer swamped by bulk renewal runs', 'Run periods filled from when the cards were really produced'] },
