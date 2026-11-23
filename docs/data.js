@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'fc-find', date: '2026-11-23', area: 'capacity', title: 'Forecast: find a customer',
+    text: 'The Forecast tab has a search for a customer: its forecast month by month, its share of the whole, the change against the version before and, once linked, its cards by technology.' },
   { id: 'bell-list', date: '2026-11-23', area: 'platform', title: 'The bell lists what\'s pending',
     text: 'Clicking the bell in the top bar opens a list of reminders due, overdue tasks and today\'s, to open or deal with on the spot, instead of going to Home.' },
   { id: 'no-emoji-names', date: '2026-11-23', area: 'look', title: 'Calmer names and headings',
