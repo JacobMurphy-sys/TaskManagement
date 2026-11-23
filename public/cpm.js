@@ -3,7 +3,7 @@
 // OEE, the capacity settings, and each person's scenarios (src/cpm.js does the sums).
 const CPM_TABS = [['overview', '📊 Overview'], ['site', '🏭 Site capacity'], ['headcount', '👷 Headcount'], ['day', '🕐 Day by hour'], ['flex', '📈 Forecast vs actual'], ['config', '🛠 Configuration']];
 // 🛠 Configuration holds the set-up, each its own sub-tab (their addresses, #/cpm/customers…, still open them)
-const CPM_CONFIG = [['customers', '👥 Customers'], ['capacity', '⚙ Capacity'], ['scenarios', '🧪 Scenarios']];
+const CPM_CONFIG = [['customers', '👥 Customers'], ['capacity', '⚙ Capacity'], ['scenarios', '🧪 Scenarios'], ['dayset', '🕐 Day by hour']];
 const cpmN = (v, d = 0) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: d }));
 // each machine's colour, the same on every chart (by its place among the machines)
 const CPM_MACH_COL = ['#e4572e', '#f3a712', '#3fa34d', '#2e86ab', '#9b5de5', '#f15bb5', '#00a6a6', '#8d6a9f', '#c0843b', '#5c8001'];
@@ -93,6 +93,7 @@ async function renderCpm(tab) {
     else if (tab === 'site') await cpmSite(body);
     else if (tab === 'headcount') await cpmHeadcount(body);
     else if (tab === 'day') await cpmDay(body);
+    else if (tab === 'dayset') await cpmDay(body, true);
     else if (tab === 'flex') await cpmFlex(body);
     else if (tab === 'customers') await cpmCustomers(body);
     else if (tab === 'capacity') await cpmCapacity(body);
@@ -299,14 +300,15 @@ async function cpmOverview(body) {
 
 // ---- 📈 Forecast vs actual: the flex -----------------------------------------------------------------
 // ---- 🕐 Day by hour: a working day of a month, hour by hour (the CPM daily sheet) ----------------------
-async function cpmDay(body) {
+// (settings: 🛠 Configuration › 🕐 Day by hour — only its renewal windows, run periods and shipment times, worked out live)
+async function cpmDay(body, settings = false) {
   const dayRegen = cpmRegenNext; // (its comparison, asked for later, is generated again with it)
   const year = Number(store.get('cpmYear', new Date().getFullYear()));
   const month = Number(store.get('cpmDayMonth', new Date().getMonth() + 1));
-  const flex = store.get('cpmFlex', true); const scId = Number(store.get('cpmDayScenario', 0)) || 0;
+  const flex = store.get('cpmFlex', true); const scId = settings ? 0 : Number(store.get('cpmDayScenario', 0)) || 0;
   const full = store.get('cpmDayFull', null);
   const q = `year=${year}&month=${month}&flex=${flex ? 1 : 0}${scId ? `&scenario=${scId}` : ''}${full === null ? '' : `&full=${full ? 1 : 0}`}`;
-  const [d, scs] = await Promise.all([cpmGet(`/cpm/day?${q}`).catch((err) => { if (scId) store.set('cpmDayScenario', 0); throw err; }), api.get('/cpm/scenarios')]);
+  const [d, scs] = await Promise.all([(settings ? api.get(`/cpm/day?${q}&live=1`) : cpmGet(`/cpm/day?${q}`)).catch((err) => { if (scId) store.set('cpmDayScenario', 0); throw err; }), api.get('/cpm/scenarios')]);
   const H = d.hours; const T = d.techs; const hl = (h) => `${String(h).padStart(2, '0')}:00`;
   // run periods: an entry per customer (and technology) — periods, or hourly values pasted
   const manShares = (v) => { const out = Array(24).fill(0); const hmm = (x) => { const m = String(x || '').match(/^(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
@@ -461,6 +463,27 @@ async function cpmDay(body) {
   const hl2 = (v) => { const c = ((H[0] + v) % 24 + 24) % 24; const day = v < 0 ? ' (the day before)' : v >= 24 ? ' (next day)' : ''; return `${String(Math.floor(c)).padStart(2, '0')}:${String(Math.floor((c % 1) * 60)).padStart(2, '0')}${day}`; };
   const blockNote = (t) => { const late = d.blocks.late.filter((o) => o.tech === t); const by = new Map(); for (const o of late) by.set(o.customer, (by.get(o.customer) || 0) + o.cards);
     return `<div class="small cpm-sm-note">Each customer's day as work orders of its usual size, coming in at its usual times, run start to finish on the first free ${esc(t)} machine, first come first served — daily work ahead of the renewals, which run in their window when nothing daily is waiting (stepping aside for it). ${late.length ? `<b class="pl-late">${late.length} work order${late.length === 1 ? '' : 's'} (${cpmK(late.reduce((a, o) => a + o.cards, 0))} cards) finish after their cut-off</b>: ${[...by].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([c, q]) => `${esc(c)} ${cpmK(q)}`).join(' · ')}` : '<b class="pl-ok">every work order finishes before its cut-off</b>'}</div>`; };
+  const editCards = `
+    <div class="card"><h3 class="pl-h">🔁 Renewal windows <span class="muted small">— the hours each technology runs renewals (click to toggle); ${d.scenario?.changes?.some((c) => c.type === 'rnw_window') ? 'the scenario sets some — change them in 🧪 Scenarios' : 'a scenario can set its own'}</span></h3>${win}
+      <div class="row" style="gap:10px;margin-top:8px;align-items:center;flex-wrap:wrap"><label class="row small">Renewal OEE: the customer's + <input type="number" id="cpm-rnw-bonus" min="0" max="50" step="1" value="${Math.round(d.bonus * 100)}" style="width:60px"> points</label>
+        <div class="spacer"></div><span class="small pl-warn" id="cpm-win-dirty" hidden>Not saved yet</span><button class="small" id="cpm-win-undo" disabled>Undo changes</button><button class="small primary" id="cpm-win-save" disabled>💾 Save</button></div></div>
+    <div class="card"><h3 class="pl-h">⏰ Run periods <span class="muted small">— the % of each customer's daily work typically produced in each hour, as the Daily split sheet. Greyed: what's learned; click into a row to set it (it starts from those figures). Paste from Excel into any cell to fill right and down. A customer's own row beats “Everyone else”, which beats what's learned.</span></h3>
+      <div class="kdb-scroll"><table class="log small cpm-rp"><thead><tr><th>Customer</th>${H.map((h) => `<th class="num">${String(h).padStart(2, '0')}</th>`).join('')}<th class="num">Total</th><th></th></tr></thead><tbody>${gridCusts.map(gridRow).join('')}</tbody></table></div>
+      <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><span class="small muted">A row that doesn't add up to 100% is scaled to it when used. Rows for one technology only (set before) stay as they are.</span>
+        <div class="spacer"></div><span class="small pl-warn" id="cpm-man-dirty" hidden>Not saved yet</span><button class="small" id="cpm-man-undo" disabled>Undo changes</button><button class="small primary" id="cpm-man-save" disabled>💾 Save</button></div></div>
+    <div class="card"><h3 class="pl-h">🚚 Shipment times <span class="muted small">— the cut-offs drawn on the charts; ${d.ship_times.own ? 'set here' : `learned from the work orders lately (${d.ship_times.learned.map((x) => x.time).join(', ') || 'none yet'})`}</span></h3>
+      <div id="cpm-ship">${(d.ship_times.times || []).map((x, k) => shipRow(x, k)).join('')}</div>
+      <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><button class="small" id="cpm-ship-add">+ Add a time</button>${d.ship_times.own ? `<button class="small" id="cpm-ship-learned" title="Drop the times set here and show the learned ones (${esc(d.ship_times.learned.map((x) => x.time).join(', ') || 'none')})">↺ Use the learned times</button>` : ''}
+        <div class="spacer"></div><span class="small pl-warn" id="cpm-ship-dirty" hidden>Not saved yet</span><button class="small" id="cpm-ship-undo" disabled>Undo changes</button><button class="small primary" id="cpm-ship-save" disabled>💾 Save</button></div>
+      <div class="row small" style="gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap"><label class="row" style="gap:6px;align-items:center">Default shipment time <input type="time" id="cpm-cut-def" value="${esc(d.cutoff_default)}" style="width:110px"></label><span class="muted">— for customers with none registered (none typed below, none learned from their work orders)</span></div>
+      <p class="small muted" style="margin:6px 0 0">Each customer's own cut-off (what counts as late) is in 🕐 Day by hour's customer table — learned from its work orders, or typed there; greyed: the default. A deadline at 23:59 or 00:00 (a date with no time) doesn't count as a shipment time.</p></div>
+`;
+  if (settings) {
+    body.innerHTML = `<div class="row pl-filters" style="gap:10px;flex-wrap:wrap;align-items:center">
+      <select id="cpm-dayset-month" title="The month whose customers and renewals are shown">${MONTHS.map((m, i) => `<option value="${i + 1}" ${i + 1 === month ? 'selected' : ''}>${m} ${year}</option>`).join('')}</select>
+      <span class="small muted">The hours renewals run, when each customer's day is produced and the shipment cut-offs used by 🕐 Day by hour. Saving here marks it out of date — ⟳ Regenerate it there.</span></div>${editCards}`;
+    $('#cpm-dayset-month').onchange = (e) => { store.set('cpmDayMonth', Number(e.target.value)); renderCpm('dayset'); };
+  } else {
   body.innerHTML = `
     <div class="row pl-filters" style="gap:10px;flex-wrap:wrap">
       <select id="cpm-day-month">${MONTHS.map((m, i) => `<option value="${i + 1}" ${i + 1 === month ? 'selected' : ''}>${m} ${year}</option>`).join('')}</select>
@@ -484,20 +507,8 @@ async function cpmDay(body) {
       <div class="cpm-legend">${T.map((t) => `<span><i class="sw" style="background:${cpmTc(t)}"></i>${esc(t)}</span>`).join('')}<span><i class="ln dash cpm-100-sw"></i>100% of capacity</span><span><i class="sw cpm-sw-off"></i>not worked</span>${d.cutoffs.length ? '<span><i class="ln cpm-cut-sw"></i>🚚 shipment times</span>' : ''}</div>${allChart()}</div>
     <div class="card" id="cpm-cmp"><h3 class="pl-h">⚖ Typical day · worst case · all days averaged <span class="muted small">— the same day with each way of learning when the work comes in: a typical day (each day's clump, at its usual time), the worst case (each customer's busiest day lately — its peak ÷ average day applied to the forecast — the most clumped day seen, at its usual time) and all days averaged (wide). Customers whose run periods are set by hand are the same in all three.</span></h3><p class="small muted">Working it out…</p></div>
     ${T.map((t) => techCard(t)).join('')}
-    <div class="card"><h3 class="pl-h">🔁 Renewal windows <span class="muted small">— the hours each technology runs renewals (click to toggle); ${d.scenario?.changes?.some((c) => c.type === 'rnw_window') ? 'the scenario sets some — change them in 🧪 Scenarios' : 'a scenario can set its own'}</span></h3>${win}
-      <div class="row" style="gap:10px;margin-top:8px;align-items:center;flex-wrap:wrap"><label class="row small">Renewal OEE: the customer's + <input type="number" id="cpm-rnw-bonus" min="0" max="50" step="1" value="${Math.round(d.bonus * 100)}" style="width:60px"> points</label>
-        <div class="spacer"></div><span class="small pl-warn" id="cpm-win-dirty" hidden>Not saved yet</span><button class="small" id="cpm-win-undo" disabled>Undo changes</button><button class="small primary" id="cpm-win-save" disabled>💾 Save</button></div></div>
-    <div class="card"><h3 class="pl-h">⏰ Run periods <span class="muted small">— the % of each customer's daily work typically produced in each hour, as the Daily split sheet. Greyed: what's learned; click into a row to set it (it starts from those figures). Paste from Excel into any cell to fill right and down. A customer's own row beats “Everyone else”, which beats what's learned.</span></h3>
-      <div class="kdb-scroll"><table class="log small cpm-rp"><thead><tr><th>Customer</th>${H.map((h) => `<th class="num">${String(h).padStart(2, '0')}</th>`).join('')}<th class="num">Total</th><th></th></tr></thead><tbody>${gridCusts.map(gridRow).join('')}</tbody></table></div>
-      <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><span class="small muted">A row that doesn't add up to 100% is scaled to it when used. Rows for one technology only (set before) stay as they are.</span>
-        <div class="spacer"></div><span class="small pl-warn" id="cpm-man-dirty" hidden>Not saved yet</span><button class="small" id="cpm-man-undo" disabled>Undo changes</button><button class="small primary" id="cpm-man-save" disabled>💾 Save</button></div></div>
-    <div class="card"><h3 class="pl-h">🚚 Shipment times <span class="muted small">— the cut-offs drawn on the charts; ${d.ship_times.own ? 'set here' : `learned from the work orders lately (${d.ship_times.learned.map((x) => x.time).join(', ') || 'none yet'})`}</span></h3>
-      <div id="cpm-ship">${(d.ship_times.times || []).map((x, k) => shipRow(x, k)).join('')}</div>
-      <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><button class="small" id="cpm-ship-add">+ Add a time</button>${d.ship_times.own ? `<button class="small" id="cpm-ship-learned" title="Drop the times set here and show the learned ones (${esc(d.ship_times.learned.map((x) => x.time).join(', ') || 'none')})">↺ Use the learned times</button>` : ''}
-        <div class="spacer"></div><span class="small pl-warn" id="cpm-ship-dirty" hidden>Not saved yet</span><button class="small" id="cpm-ship-undo" disabled>Undo changes</button><button class="small primary" id="cpm-ship-save" disabled>💾 Save</button></div>
-      <div class="row small" style="gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap"><label class="row" style="gap:6px;align-items:center">Default shipment time <input type="time" id="cpm-cut-def" value="${esc(d.cutoff_default)}" style="width:110px"></label><span class="muted">— for customers with none registered (none typed below, none learned from their work orders)</span></div>
-      <p class="small muted" style="margin:6px 0 0">Each customer's own cut-off (what counts as late) is in the table below — learned from its work orders, or typed there; greyed: the default. A deadline at 23:59 or 00:00 (a date with no time) doesn't count as a shipment time.</p></div>
-    <div class="card"><h3 class="pl-h">Where each customer's day lands <span class="muted small">— ${view === 'cards' ? 'cards' : 'capacity needed (÷ OEE)'} per hour of daily work; renewals go in the windows above</span></h3>${gantt}</div>`;
+    <div class="small muted cpm-set-link">🔁 Renewal windows, ⏰ run periods and 🚚 shipment times are set in <a href="#/cpm/dayset">🛠 Configuration › 🕐 Day by hour</a>.</div>
+    <div class="card"><h3 class="pl-h">Where each customer's day lands <span class="muted small">— ${view === 'cards' ? 'cards' : 'capacity needed (÷ OEE)'} per hour of daily work; renewals go in their windows (set in 🛠 Configuration)</span></h3>${gantt}</div>`;
   $('#cpm-day-month').onchange = (e) => { store.set('cpmDayMonth', Number(e.target.value)); renderCpm('day'); };
   $('#cpm-day-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('day'); };
   $('#cpm-day-sc').onchange = (e) => { store.set('cpmDayScenario', Number(e.target.value)); renderCpm('day'); };
@@ -530,8 +541,10 @@ async function cpmDay(body) {
   $('#cpm-day-shape').onchange = async (e) => { try { await api.put('/cpm/settings', { cpm_day_shape: e.target.value }); renderCpm('day'); } catch (err) { toast(err.message, 'error'); } };
   $('#cpm-day-prof').onchange = async (e) => { try { await api.put('/cpm/settings', { cpm_day_profile: e.target.value }); renderCpm('day'); } catch (err) { toast(err.message, 'error'); } };
   const dayAll = $('#cpm-day-all'); if (dayAll) dayAll.onclick = () => { store.set('cpmDayAll', !store.get('cpmDayAll', false)); renderCpm('day'); };
+  }
   // redraw the tab where it was (not back at the top)
-  const redraw = async () => { const sc = document.scrollingElement; const m = main(); const y = [sc?.scrollTop || 0, m?.scrollTop || 0]; await renderCpm('day'); if (sc) sc.scrollTop = y[0]; if (m) m.scrollTop = y[1]; };
+  const redraw = async () => { const sc = document.scrollingElement; const m = main(); const y = [sc?.scrollTop || 0, m?.scrollTop || 0]; await renderCpm(settings ? 'dayset' : 'day'); if (sc) sc.scrollTop = y[0]; if (m) m.scrollTop = y[1]; };
+  if (settings) { // the editors (🛠 Configuration › 🕐 Day by hour)
   // renewal windows: ticked here, saved together (no redraw on every click)
   const pend = JSON.parse(JSON.stringify(d.windows || {})); const bonus0 = String(Math.round(d.bonus * 100));
   const dirty = () => { const changed = JSON.stringify(T.map((t) => [...(pend[t] || [])].sort((a, c) => a - c))) !== JSON.stringify(T.map((t) => [...(d.windows[t] || [])].sort((a, c) => a - c))) || $('#cpm-rnw-bonus').value !== bonus0;
@@ -578,6 +591,7 @@ async function cpmDay(body) {
   $('#cpm-ship-save').onclick = async () => { try { await api.put('/cpm/settings', { cpm_cutoffs: JSON.stringify(shipNow()) }); toast('Shipment times saved'); await redraw(); } catch (err) { toast(err.message, 'error'); } };
   const shipL = $('#cpm-ship-learned'); if (shipL) shipL.onclick = async () => { try { await api.put('/cpm/settings', { cpm_cutoffs: '' }); toast('Showing the learned shipment times'); await redraw(); } catch (err) { toast(err.message, 'error'); } };
   $('#cpm-cut-def').onchange = async (e) => { if (!e.target.value) return; try { await api.put('/cpm/settings', { cpm_cutoff_default: e.target.value }); toast(`Customers with no shipment time ship at ${e.target.value}`); await redraw(); } catch (err) { toast(err.message, 'error'); } };
+  }
   // a customer's own cut-off, typed in the table (blank: learned)
   $$('.cpm-cut-in').forEach((el) => { el.onchange = async () => {
     const o = { ...(d.cutoff_typed || {}) }; const r = d.rows.find((x) => x.trigram === el.dataset.tri); const learned = hhmm(r?.cutoff_learned) || d.cutoff_default;
