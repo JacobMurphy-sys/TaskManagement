@@ -392,7 +392,6 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
     const rShare = typed !== undefined && typed !== null && typed !== '' ? Number(typed) : learned ? learned.share : 0;
     const oee = x.oee; const oeeR = Math.min(1, oee + bonus);
     const pk = pv ? pv.by.get(tri) || pv.by.get('*') || null : null; // the busiest day ÷ the average, from history
-    const daily = ((vol * (1 - rShare)) / days) * (pk ? pk.factor : 1); const renew = (vol * rShare) / days;
     let p = null; let from = 'even';
     let seen = null;
     // set by hand on the tab: the customer and technology, the customer, everyone else (this technology / all)
@@ -406,9 +405,37 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
     const producedShares = H.map((h) => (pp ? pp[h] : worked.has(h) ? 1 / worked.size : 0));
     if (manualP) { p = manualP; from = manualFrom; }
     const shares = H.map((h) => (p ? p[h] : worked.has(h) ? 1 / worked.size : 0));
-    rows.push({ trigram: tri, name: D.name, tech: D.tech, month_volume: vol, daily_pct: 1 - rShare, rnw_pct: rShare, rnw_learned: learned ? learned.share : null, rnw_learned_days: learned ? learned.days : null, rnw_learned_whole: learned ? learned.whole : null, rnw_typed: typed ?? null,
+    // what a scenario adds to the customer (its volume change: a % or flat cards) is a line of its own, drawn apart
+    const extraVol = Math.min(vol, (x.extra || 0) * x.split);
+    const mk = (v, added) => { if (!(v > 0)) return; const daily = ((v * (1 - rShare)) / days) * (pk ? pk.factor : 1); const renew = (v * rShare) / days;
+    rows.push({ trigram: tri, name: added ? `${D.name} — scenario +` : D.name, added: added || null, tech: D.tech, month_volume: v, daily_pct: 1 - rShare, rnw_pct: rShare, rnw_learned: learned ? learned.share : null, rnw_learned_days: learned ? learned.days : null, rnw_learned_whole: learned ? learned.whole : null, rnw_typed: typed ?? null,
       oee, oee_rnw: oeeR, workdays: days, daily, renew, need_daily: daily / oee, need_rnw: renew / oeeR, profile: from, peak: pk ? { factor: pk.factor, day: pk.day, peak: pk.peak, avg: pk.avg, days: pk.days, own: !!pv.by.get(tri) } : null, learned_shares: learnedShares, learned_from: learnedFrom, produced_shares: producedShares, arrive_avg: p ? meanHour(p) : null, arrive_seen: seen, shares,
-      hours: shares.map((s) => (daily / oee) * s), cards_hours: shares.map((s) => daily * s) });
+      hours: shares.map((s) => (daily / oee) * s), cards_hours: shares.map((s) => daily * s) }); };
+    mk(vol - extraVol, null); if (extraVol > 0.5) mk(extraVol, 'scenario');
+  }
+  // 📣 campaigns (set on 🕐 Day by hour): a customer's flat number of cards over some days, spread over their working
+  // days, on its technology split; daily work, timed as the customer's own day — a line of its own, drawn apart
+  const camps = json(setting('cpm_campaigns', '[]'), []);
+  const ymOf = `${year}-${pad(month)}`;
+  for (const c of Array.isArray(camps) ? camps : []) {
+    if (!c || c.off || !(Number(c.qty) > 0) || !c.customer || !/^\d{4}-\d{2}-\d{2}$/.test(c.from || '')) continue;
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(c.from || '') ? c.from : `${ymOf}-01`; const to = /^\d{4}-\d{2}-\d{2}$/.test(c.to || '') ? c.to : from.slice(0, 7) === ymOf ? `${ymOf}-31` : from;
+    if (to.slice(0, 7) < ymOf || from.slice(0, 7) > ymOf) continue;
+    let all = 0; let here = 0; // working days in the campaign, and in this month
+    for (let y = Number(from.slice(0, 4)); y <= Number(to.slice(0, 4)); y++) for (const d of cpm.calendarOf(y)) if (d.work && d.day >= from && d.day <= to) { all++; if (d.month === ymOf) here++; }
+    if (!all || !here) continue;
+    const perDay = Number(c.qty) / all; const tri = String(c.customer).toUpperCase();
+    const own = plan.detail.filter((D) => D.trigram === tri && D.months[month]);
+    const parts = own.length ? own.map((D) => ({ D, share: D.months[month].split, oee: D.months[month].oee })) : plan.detail.filter((D) => D.trigram === tri).map((D) => { const m0 = Object.values(D.months)[0]; return { D, share: m0?.split || 0, oee: m0?.oee || 0.35 }; });
+    if (!parts.length) { warnings.push(`📣 ${c.name || 'A campaign'}: ${tri} has no forecast or split to put it on — set it up on 👥 Customers`); continue; }
+    for (const { D, share, oee } of parts) {
+      const daily = perDay * share; if (!(daily > 0)) continue;
+      const base = rows.find((r) => r.trigram === tri && r.tech === D.tech && !r.added);
+      const shares = base ? base.shares : H.map((h) => (worked.has(h) ? 1 / worked.size : 0));
+      rows.push({ trigram: tri, name: `📣 ${c.name || 'Campaign'}`, added: 'campaign', campaign: c.name || 'Campaign', tech: D.tech, month_volume: daily * days, daily_pct: 1, rnw_pct: 0, rnw_learned: null, rnw_typed: null,
+        oee, oee_rnw: Math.min(1, oee + bonus), workdays: days, daily, renew: 0, need_daily: daily / oee, need_rnw: 0, profile: base ? base.profile : 'even', peak: null, learned_shares: shares, learned_from: base ? base.learned_from : 'even', produced_shares: shares, arrive_avg: base ? base.arrive_avg : null, arrive_seen: null, shares,
+        hours: shares.map((x) => (daily / oee) * x), cards_hours: shares.map((x) => daily * x) });
+    }
   }
   rows.sort((a, b) => T.indexOf(a.tech) - T.indexOf(b.tech) || b.need_daily - a.need_daily);
   // renewals: each technology's day of renewals over its window
@@ -489,7 +516,9 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
       renewals: sm.rnw, rnw_deferred: sm.deferred, rnw_deferred_cards: sm.deferred * rRatio,
       cards: { daily: sm.cards, renewals: sRnwCards, total: sCards, capacity: cap[t].map((c, i) => c * (sNeed[i] > 0.5 ? sCards[i] / sNeed[i] : dayRatio)) },
       peak: Math.max(...sNeed.map((v, i) => (cap[t][i] ? v / cap[t][i] : 0))), hours_over: sNeed.filter((v, i) => v > cap[t][i] + 0.5).length, over: sNeed.reduce((a, v, i) => a + Math.max(0, v - cap[t][i]), 0), late: sm.late, late_at: sm.lateAt, late_cards: tr.reduce((a, r) => a + r.late_cards, 0), late_customers: [...new Set(tr.filter((r) => r.late_cards > 0.5).map((r) => r.trigram || r.name))], unplaced: sm.unplaced, end_backlog: sc };
-    out[t] = { daily, renewals, need, capacity: cap[t], idle: idle[t], backlog, smooth,
+    const addRows = rows.filter((r) => r.tech === t && r.added);
+    const added = H.map((_, i) => addRows.reduce((a, r) => a + r.hours[i], 0)); const cAdded = H.map((_, i) => addRows.reduce((a, r) => a + r.cards_hours[i], 0));
+    out[t] = { daily, renewals, need, capacity: cap[t], idle: idle[t], backlog, smooth, added, cards_added: cAdded,
       cards: { daily: cDaily, renewals: cRnw, total: cards_, capacity: effCap, actual: act.per[t] ? H.map((h) => act.per[t][h]) : null, oee: dayRatio }, load: need.map((v, i) => (cap[t][i] ? v / cap[t][i] : v ? null : 0)),
       total: { need: tot, daily: daily.reduce((a, b) => a + b, 0), renewals: rnwByTech[t].need, capacity: capTot, idle: idle[t].reduce((a, b) => a + b, 0), load: capTot ? tot / capTot : null, end_backlog: carry, hours_over: need.filter((v, i) => v > cap[t][i] + 0.5).length } };
   }
@@ -500,7 +529,7 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
       rnwHours: Object.fromEntries(T.map((t) => [t, rnwByTech[t].window ? rnwByTech[t].hours : []])), sizes: orderSizes(cards), allowed: (m, r) => (m.only?.length ? allowed(m, r) : 1), cutoffOf });
   } catch (err) { warnings.push(`The work-order run couldn't be worked out: ${err.message}`); }
   return { blocks, year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), shifts, hph, full,
-    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, day_shape: shape, peak_source: pv ? pv.source : null, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, capacity_by_machine: Object.fromEntries(T.map((t) => [t, [...byM[t]].map(([name, per]) => ({ name, per }))])), tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, cutoff_default: defCut, rnw_share_typed: over, manual: json(setting('cpm_day_manual', '{}'), {}), warnings: [...new Set(warnings)],
+    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, day_shape: shape, peak_source: pv ? pv.source : null, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, capacity_by_machine: Object.fromEntries(T.map((t) => [t, [...byM[t]].map(([name, per]) => ({ name, per }))])), tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, cutoff_default: defCut, rnw_share_typed: over, campaigns: Array.isArray(camps) ? camps : [], manual: json(setting('cpm_day_manual', '{}'), {}), warnings: [...new Set(warnings)],
     learned: { runs: rs.length, renewals: [...rnw.values()].reduce((a, x) => a + x.qty, 0) }, forecast_as_of: plan.forecast_as_of, flex: useFlex };
 }
 

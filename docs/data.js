@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'cpm-campaigns', date: '2026-11-23', area: 'capacity', title: 'Capacity planning: campaigns and flat volumes',
+    text: 'A scenario can add a flat number of cards for a customer as well as a percentage, spread over the working days, and Day by hour takes campaigns: a customer\'s extra cards over some days, to see what they do to each hour.',
+    points: ['Added work lands on the customer\'s own technologies', 'Drawn in its own colour, with its own line in the tables', 'Campaigns can be ticked off to compare'] },
   { id: 'qn-to-list', date: '2026-11-23', area: 'projects', title: 'Quick notes: a new task straight into a list',
     text: 'Assigning a quick note as a new task can put it straight into one of My lists, the last list picked offered first.' },
   { id: 'cpm-day-model', date: '2026-11-23', area: 'capacity', title: 'Capacity planning: the day model checked against the old workbook',

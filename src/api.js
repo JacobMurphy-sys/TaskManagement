@@ -3751,7 +3751,7 @@ const SETTING_DEFAULTS = {
   // The customer forecast files (blank: the workbook's copy of them).
   kpi_fc_benelux: '', kpi_fc_amex: '', plan_db_key: '',
   // ⏱ The daily timing reports (each job's start and end on its machine), perso and Matching.
-  kpi_time_perso: '', kpi_time_otto: '', cpm_shifts: '3', cpm_hours: '6', cpm_holidays: '', cpm_oee_default: '0.35', cpm_machines: '{}', cpm_rnw_hours: '{}', cpm_rnw_bonus: '0.05', cpm_rnw_share: '{}', cpm_hour_full: '1', cpm_day_profile: 'arrival', cpm_day_shape: 'typical', cpm_cutoffs: '', cpm_cutoff_default: '17:00', cpm_cutoff_cust: '{}', cpm_day_manual: '{}', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
+  kpi_time_perso: '', kpi_time_otto: '', cpm_shifts: '3', cpm_hours: '6', cpm_holidays: '', cpm_oee_default: '0.35', cpm_machines: '{}', cpm_rnw_hours: '{}', cpm_rnw_bonus: '0.05', cpm_rnw_share: '{}', cpm_campaigns: '[]', cpm_hour_full: '1', cpm_day_profile: 'arrival', cpm_day_shape: 'typical', cpm_cutoffs: '', cpm_cutoff_default: '17:00', cpm_cutoff_cust: '{}', cpm_day_manual: '{}', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
   // 📑 💶 CAPEX's IR pack: where the corporate templates are saved, and the business unit and site they're filled in with
@@ -3867,7 +3867,7 @@ const cpmScenario = (req, id) => {
   if (!sc || (sc.owner !== cpmOwner(req) && !sc.shared)) throw new HttpError(404, 'No such scenario');
   return { ...sc, changes: JSON.parse(sc.changes || '[]'), shared: !!sc.shared, mine: sc.owner === cpmOwner(req) };
 };
-const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines', 'cpm_rnw_hours', 'cpm_rnw_bonus', 'cpm_rnw_share', 'cpm_hour_full', 'cpm_day_profile', 'cpm_day_shape', 'cpm_cutoffs', 'cpm_cutoff_default', 'cpm_cutoff_cust', 'cpm_day_manual'];
+const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines', 'cpm_rnw_hours', 'cpm_rnw_bonus', 'cpm_rnw_share', 'cpm_hour_full', 'cpm_day_profile', 'cpm_day_shape', 'cpm_cutoffs', 'cpm_cutoff_default', 'cpm_cutoff_cust', 'cpm_day_manual', 'cpm_campaigns'];
 router.get('/cpm/overview', h((req, res) => {
   // the scenarios asked for must be ones this person may see, whether worked out now or kept
   String(req.query.scenarios || '').split(',').filter(Boolean).slice(0, 2).forEach((id) => cpmScenario(req, Number(id)));

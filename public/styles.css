@@ -2866,3 +2866,10 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .cpm-capt { stroke-width: 2.2; }
 .cpm-all-load th, .cpm-all-load td { border-bottom: 2px solid var(--border); }
 .cpm-rnwt input.cpm-manual { font-weight: 600; }
+/* 📣 what's added on top of the forecast (scenario volumes, campaigns): its own colour */
+:root { --cpm-added: #ff7a1a; }
+.cpm-added { fill: var(--cpm-added); opacity: .95; }
+.cpm-added-sw { background: var(--cpm-added) !important; }
+.cpm-added-t { color: var(--cpm-added); font-weight: 600; }
+.cpm-g-added td, .cpm-g-added th { background: color-mix(in srgb, var(--cpm-added) 10%, transparent); }
+.cpm-g-added .cpm-g-name b { color: var(--cpm-added); }
