@@ -362,7 +362,10 @@ async function cpmDay(body, settings = false) {
   const lateCust = (t) => d.rows.filter((r) => r.tech === t && r.late_cards > 0.5).sort((a, b) => b.late_cards - a.late_cards);
   // each machine's part of the capacity, hour by hour (in cards: × the hour's OEE, as the line)
   const addedOf = (t, i) => (view === 'cards' ? d.tech[t].cards_added?.[i] : d.tech[t].added?.[i]) || 0;
-  const anyAdded = T.some((t) => H.some((_, i) => addedOf(t, i) > 0.5));
+  const addedRnwOf = (t, i) => (view === 'cards' ? d.tech[t].cards_added_rnw?.[i] : d.tech[t].added_rnw?.[i]) || 0;
+  const anyAdded = T.some((t) => H.some((_, i) => addedOf(t, i) > 0.5 || addedRnwOf(t, i) > 0.5));
+  // what's added to the renewals: on top of the renewals part, lighter
+  const addedRnwRect = (x0, w, a, r, ad, y, t, h) => (ad > 0.5 && r > 0 ? `<rect x="${x0}" y="${y(a + r)}" width="${w}" height="${Math.max(0, y(a + r - Math.min(ad, r)) - y(a + r))}" class="cpm-added cpm-added-rnw"><title>${esc(`${t} ${hl(h)}: ${cpmN(Math.min(ad, r))} renewals added — scenario volume / campaigns`)}</title></rect>` : '');
   const addedRect = (x0, w, a, ad, y, t, h) => (ad > 0.5 ? `<rect x="${x0}" y="${y(a)}" width="${w}" height="${Math.max(0, y(Math.max(0, a - Math.min(ad, a))) - y(a))}" class="cpm-added"><title>${esc(`${t} ${hl(h)}: ${cpmN(Math.min(ad, a))} added — scenario volume / campaigns`)}</title></rect>` : '');
   const chart = (t) => {
     const X = V(t); const W = 1100; const Hh = 290; const L = 50; const B = 28; const T0 = 26;
@@ -378,6 +381,7 @@ async function cpmDay(body, settings = false) {
           <rect x="${x(i) - bw / 2}" y="${y(a)}" width="${bw}" height="${Math.max(0, y(0) - y(a))}" style="fill:${cpmTc(t)}" class="cpm-allbar ${over ? 'cpm-over' : ''}"/>
           ${addedRect(x(i) - bw / 2, bw, a, addedOf(t, i), y, t, h)}
           <rect x="${x(i) - bw / 2}" y="${y(a + r)}" width="${bw}" height="${Math.max(0, y(a) - y(a + r))}" style="fill:${cpmTc(t)}" class="cpm-rnw"/>
+          ${X.smoothed || X.blocks ? '' : addedRnwRect(x(i) - bw / 2, bw, a, r, addedRnwOf(t, i), y, t, h)}
           ${X.need[i] >= 0.5 ? `<text x="${x(i)}" y="${y(X.need[i]) - 4}" text-anchor="middle" class="cpm-lbl ${over ? 'over' : ''}">${esc(cpmK(X.need[i]))}</text>` : ''}</g>`; }).join('')}
       ${X.ghost ? H.map((h, i) => (X.ghost[i] > 0.5 ? `<rect x="${x(i) - bw / 2}" y="${y(X.ghost[i])}" width="${bw}" height="${Math.max(0, y(0) - y(X.ghost[i]))}" class="cpm-ghost"><title>${esc(`${t} ${hl(h)}: ${cpmN(X.ghost[i])} as it comes in`)}</title></rect>` : '')).join('') : ''}
       ${(() => { if (X.blocks) return ''; const lt = lateOf(t); return H.map((h, i) => (lt[i] > 0.5 ? `${X.smoothed ? `<rect x="${x(i) - bw / 2}" y="${y(Math.min(lt[i], X.need[i]))}" width="${bw}" height="${Math.max(0, y(0) - y(Math.min(lt[i], X.need[i])))}" class="cpm-late-bar"/>` : ''}<g class="cpm-late-pill"><title>${esc(`${t} ${hl(h)}: ${cpmN(lt[i])} ${view === 'cards' ? 'cards' : 'needed'} done after its cut-off`)}</title><rect x="${x(i) - slot * 0.46}" y="${Hh - B - 15}" width="${slot * 0.92}" height="13" rx="3"/><text x="${x(i)}" y="${Hh - B - 5}" text-anchor="middle">⚠ ${esc(cpmK(lt[i]))}</text></g>` : '')).join(''); })()}
@@ -394,7 +398,7 @@ async function cpmDay(body, settings = false) {
     const cards = view === 'cards'; const dev = X.act ? X.need.map((v, i) => (v > 0.5 ? X.act[i] / v - 1 : null)) : null;
     const dayLoad = sum(X.cap) ? sum(X.need) / sum(X.cap) : null; const devCls = (v) => (v === null ? '' : `cpm-u ${Math.abs(v) <= 0.15 ? 'ok' : Math.abs(v) <= 0.35 ? 'warn' : 'bad'}`);
     return `<div class="kdb-scroll"><table class="log small cpm-t"><thead><tr><th></th>${H.map((h) => `<th class="num">${String(h).padStart(2, '0')}</th>`).join('')}<th class="num cpm-daytot">Day</th></tr></thead><tbody>
-      ${r(cards ? 'Daily cards' : 'Daily (÷ OEE)', X.daily)}${H.some((_, i) => addedOf(t, i) > 0.5) ? r('<span class="cpm-added-t">of which added</span>', H.map((_, i) => addedOf(t, i))) : ''}${r(cards ? 'Renewal cards' : 'Renewals (÷ OEE)', X.rnw)}${r(cards ? 'Cards' : 'Needed', X.need)}${r(cards ? 'Capacity × OEE' : 'Capacity', X.cap)}
+      ${r(cards ? 'Daily cards' : 'Daily (÷ OEE)', X.daily)}${H.some((_, i) => addedOf(t, i) > 0.5) ? r('<span class="cpm-added-t">of which added</span>', H.map((_, i) => addedOf(t, i))) : ''}${r(cards ? 'Renewal cards' : 'Renewals (÷ OEE)', X.rnw)}${!X.smoothed && !X.blocks && H.some((_, i) => addedRnwOf(t, i) > 0.5) ? r('<span class="cpm-added-t">of which added</span>', H.map((_, i) => addedRnwOf(t, i))) : ''}${r(cards ? 'Cards' : 'Needed', X.need)}${r(cards ? 'Capacity × OEE' : 'Capacity', X.cap)}
       ${X.ghost ? r(view === 'cards' ? 'As it comes in' : 'As it comes in (÷ OEE)', X.ghost, cpmK, () => 'muted') : ''}
       ${r('Load', X.load, cpmPct, (v) => `cpm-u ${cpmUtilCls(v)}`, dayLoad)}${X.backlog.some((v) => v > 0.5) ? r(X.blocks ? '<span title="Day: what\'s left at the end of the day">Waiting (or running) at the hour\'s end</span>' : '<span title="Day: what\'s left at the end of the day">Carried over</span>', X.backlog, cpmK, (v) => (v > 0.5 ? 'pl-late' : ''), X.backlog[23]) : ''}
       ${!X.blocks && lateOf(t).some((v) => v > 0.5) ? r('<span title="Done after its customer\'s cut-off, the day worked in the order it comes in (each piece in the next hour with spare capacity) — by the hour it\'s done">⚠ After its cut-off</span>', lateOf(t), (v) => (v > 0.5 ? cpmK(v) : ''), (v) => (v > 0.5 ? 'pl-late' : '')) : ''}
@@ -429,7 +433,7 @@ async function cpmDay(body, settings = false) {
       <div class="seg cpm-mini"><button type="button" data-cpm-sm="${t}" data-v="arrive" class="${modeOf(t) === 'arrive' ? 'on' : ''}">As it comes in</button><button type="button" data-cpm-sm="${t}" data-v="smooth" class="${modeOf(t) === 'smooth' ? 'on' : ''}" title="The daily work done in the order it comes in, what doesn't fit moved to the next hour with spare capacity">Smoothed capacity</button>${d.blocks ? `<button type="button" data-cpm-sm="${t}" data-v="blocks" class="${modeOf(t) === 'blocks' ? 'on' : ''}" title="Each customer's day as work orders of its usual size, run start to finish on the first free machine, first come first served">Work orders</button>` : ''}</div></div>
       ${modeOf(t) === 'blocks' ? blockNote(t) : ''}
       ${sm ? `<div class="small cpm-sm-note">Daily work done in the order it comes in, each piece in the next hour with spare capacity — ahead of the renewals, which take what's left from their window on (Low priority, they can be rescheduled): peak load <b>${cpmPct(peak0)}</b> → <b class="${S.peak > 1.005 ? 'pl-late' : 'pl-ok'}">${cpmPct(S.peak)}</b> · hours over ${X0.total.hours_over} → <b class="${S.hours_over ? 'pl-late' : 'pl-ok'}">${S.hours_over}</b>${S.late > 0.5 ? ` · <span class="pl-late">${cpmK(S.late)} needed done after its cut-off</span>` : ' · <span class="pl-ok">everything done before its cut-off</span>'}${S.unplaced > 0.5 ? ` · <span class="pl-late">${cpmK(S.unplaced)} fits nowhere in the day</span>` : ''}${S.rnw_deferred > 0.5 ? ` · <span class="pl-warn" title="Renewals left for another day: the daily work took their capacity">${cpmK(view === 'cards' ? S.rnw_deferred_cards : S.rnw_deferred)} renewals put off to another day</span>` : ''}</div>` : ''}
-      <div class="cpm-legend"><span><i class="sw" style="background:${cpmTc(t)}"></i>Daily ${view === 'cards' ? 'cards' : '(÷ OEE)'}</span><span><i class="sw cpm-rnw-sw" style="background:${cpmTc(t)}"></i>Renewals</span>${H.some((_, i) => addedOf(t, i) > 0.5) ? '<span><i class="sw cpm-added-sw"></i>Added: scenario volume / campaigns</span>' : ''}<span><i class="ln"></i>${view === 'cards' ? 'Capacity × OEE (cards it can do)' : 'Capacity'}</span>${view === 'cards' && d.tech[t].cards.actual ? '<span><i class="cpm-actdot-sw"></i>Really persoed, an average working day</span>' : ''}<span><i class="ln dash cpm-bl-sw"></i>${modeOf(t) === 'blocks' ? 'Waiting (or running) at the hour\'s end' : 'Carried over to the next hour'}</span>${modeOf(t) !== 'arrive' ? '<span><i class="sw cpm-ghost-sw"></i>as it comes in</span>' : ''}${modeOf(t) === 'blocks' ? '<span><i class="sw cpm-blk-late-sw"></i>finishes after its cut-off</span>' : ''}${d.cutoffs.length ? '<span><i class="ln cpm-cut-sw"></i>shipment times</span>' : ''}<span class="muted">red outline: more needed than the hour has</span></div>
+      <div class="cpm-legend"><span><i class="sw" style="background:${cpmTc(t)}"></i>Daily ${view === 'cards' ? 'cards' : '(÷ OEE)'}</span><span><i class="sw cpm-rnw-sw" style="background:${cpmTc(t)}"></i>Renewals</span>${H.some((_, i) => addedOf(t, i) > 0.5 || addedRnwOf(t, i) > 0.5) ? '<span><i class="sw cpm-added-sw"></i>Added: scenario volume / campaigns (lighter on renewals)</span>' : ''}<span><i class="ln"></i>${view === 'cards' ? 'Capacity × OEE (cards it can do)' : 'Capacity'}</span>${view === 'cards' && d.tech[t].cards.actual ? '<span><i class="cpm-actdot-sw"></i>Really persoed, an average working day</span>' : ''}<span><i class="ln dash cpm-bl-sw"></i>${modeOf(t) === 'blocks' ? 'Waiting (or running) at the hour\'s end' : 'Carried over to the next hour'}</span>${modeOf(t) !== 'arrive' ? '<span><i class="sw cpm-ghost-sw"></i>as it comes in</span>' : ''}${modeOf(t) === 'blocks' ? '<span><i class="sw cpm-blk-late-sw"></i>finishes after its cut-off</span>' : ''}${d.cutoffs.length ? '<span><i class="ln cpm-cut-sw"></i>shipment times</span>' : ''}<span class="muted">red outline: more needed than the hour has</span></div>
       ${chart(t)}${modeOf(t) === 'blocks' ? sub(`gantt_${t}`, 'Machines', machineGantt(t)) : ''}${sub(`tbl_${t}`, 'Hour by hour table', table(t))}</div>`; };
   // campaigns: a customer's flat number of cards over some days, laid on top of the forecast (all months they touch)
   const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`; const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
@@ -438,11 +442,12 @@ async function cpmDay(body, settings = false) {
       <td><input type="text" class="cpm-camp-name" value="${esc(c.name || '')}" placeholder="e.g. Spring reissue" style="width:170px"></td>
       <td><input type="text" class="cpm-camp-cust" list="cpm-camp-dl" value="${esc(c.customer || '')}" placeholder="Trigram" style="width:80px;text-transform:uppercase"></td>
       <td><input type="number" class="cpm-camp-qty" min="0" step="1" value="${esc(c.qty ?? '')}" placeholder="Cards" style="width:110px"></td>
+      <td><select class="cpm-camp-kind" title="Daily: timed as the customer's own day (its run periods). Renewals: spread over its technologies' renewal windows, at the renewal OEE"><option value="daily" ${c.kind === 'renewal' ? '' : 'selected'}>Daily</option><option value="renewal" ${c.kind === 'renewal' ? 'selected' : ''}>Renewal</option></select></td>
       <td><input type="date" class="cpm-camp-from" value="${esc(c.from || monthStart)}"></td><td><input type="date" class="cpm-camp-to" value="${esc(c.to || monthEnd)}"></td>
       <td class="small muted cpm-camp-per"></td><td><button class="link small cpm-camp-rm" title="Remove">✕</button></td></tr>`;
-  const campCard = () => `<div class="card" id="cpm-camps"><h3 class="pl-h">Campaigns <span class="muted small">— a customer's flat number of cards over some days, on top of its forecast: spread over the working days between the dates, on the customer's technology split, timed as its own day; drawn in <b class="cpm-added-t">orange</b> on its technologies</span></h3>
+  const campCard = () => `<div class="card" id="cpm-camps"><h3 class="pl-h">Campaigns <span class="muted small">— a customer's flat number of cards over some days, on top of its forecast: spread over the working days between the dates, on the customer's technology split; daily work is timed as the customer's own day, renewals go in its technologies' renewal windows; drawn in <b class="cpm-added-t">orange</b> on its technologies</span></h3>
       <datalist id="cpm-camp-dl">${campTris.map((t) => `<option value="${esc(t)}">`).join('')}</datalist>
-      <div class="kdb-scroll"><table class="log small"><thead><tr><th title="Counted">On</th><th>Campaign</th><th>Customer</th><th>Cards in all</th><th>From</th><th>Until</th><th>A working day</th><th></th></tr></thead><tbody id="cpm-camp-body">${(d.campaigns || []).map(campRow).join('')}</tbody></table></div>
+      <div class="kdb-scroll"><table class="log small"><thead><tr><th title="Counted">On</th><th>Campaign</th><th>Customer</th><th>Cards in all</th><th>As</th><th>From</th><th>Until</th><th>A working day</th><th></th></tr></thead><tbody id="cpm-camp-body">${(d.campaigns || []).map(campRow).join('')}</tbody></table></div>
       <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><button class="small" id="cpm-camp-add">+ Add a campaign</button>
         <div class="spacer"></div><span class="small pl-warn" id="cpm-camp-dirty" hidden>Not saved yet</span><button class="small" id="cpm-camp-undo" disabled>Undo changes</button><button class="small primary" id="cpm-camp-save" disabled>💾 Save</button></div></div>`;
   // the technologies' day charts in one card: All, or one picked with the small tab (remembered)
@@ -462,7 +467,8 @@ async function cpmDay(body, settings = false) {
         return `<g><title>${esc(`${t} ${hl(h)}: daily ${cpmN(a)} + renewals ${cpmN(r)} = ${cpmN(X.need[i])} ${view === 'cards' ? 'cards' : 'needed'} · capacity ${cpmN(X.cap[i])}${X.cap[i] ? ` (${cpmPct(X.need[i] / X.cap[i])})` : ''}`)}</title>
           <rect x="${x0}" y="${y(a)}" width="${bw * 0.92}" height="${Math.max(0, y(0) - y(a))}" style="fill:${cpmTc(t)}" class="cpm-allbar ${over ? 'cpm-over' : ''}"/>
           ${addedRect(x0, bw * 0.92, a, addedOf(t, i), y, t, h)}
-          <rect x="${x0}" y="${y(a + r)}" width="${bw * 0.92}" height="${Math.max(0, y(a) - y(a + r))}" style="fill:${cpmTc(t)}" class="cpm-rnw"/></g>`; }).join('')).join('')}
+          <rect x="${x0}" y="${y(a + r)}" width="${bw * 0.92}" height="${Math.max(0, y(a) - y(a + r))}" style="fill:${cpmTc(t)}" class="cpm-rnw"/>
+          ${X.smoothed || X.blocks ? '' : addedRnwRect(x0, bw * 0.92, a, r, addedRnwOf(t, i), y, t, h)}</g>`; }).join('')).join('')}
       ${T.map((t) => `<path d="${step(XS[t].cap)}" fill="none" class="cpm-capt" style="stroke:${cpmTc(t)}"><title>${esc(`${t} capacity`)}</title></path>`).join('')}
       ${H.map((h, i) => `<text x="${L + (i + 0.5) * slot}" y="${Hh - 9}" text-anchor="middle" class="cpm-ax">${String(h).padStart(2, '0')}</text>`).join('')}
       ${H.map((h, i) => `<rect x="${L + i * slot}" y="${T0}" width="${slot}" height="${Hh - T0}" class="cpmdr-hit" data-drill-i="${i}" data-drill-t="all"><title>${esc(`${hl(h)} — click to see who feeds it`)}</title></rect>`).join('')}
@@ -600,12 +606,13 @@ async function cpmDay(body, settings = false) {
   // campaigns: edited here, saved together
   const camp0 = JSON.stringify(d.campaigns || []);
   const campNow = () => $$('.cpm-camp').map((tr) => { const v = (c) => tr.querySelector(c).value.trim(); const o = { name: v('.cpm-camp-name'), customer: v('.cpm-camp-cust').toUpperCase(), qty: Number(v('.cpm-camp-qty')) || 0, from: v('.cpm-camp-from'), to: v('.cpm-camp-to') };
+    if (tr.querySelector('.cpm-camp-kind').value === 'renewal') o.kind = 'renewal';
     if (!tr.querySelector('.cpm-camp-on').checked) o.off = true; return o; }).filter((c) => c.customer || c.qty || c.name);
   const workdaysBetween = (a, b) => { let n = 0; const wd = new Set(d.work_days || [1, 2, 3, 4, 5]); for (let x = new Date(`${a}T12:00`); x <= new Date(`${b}T12:00`); x.setDate(x.getDate() + 1)) if (wd.has(x.getDay())) n++; return n; };
   const campDirty = () => { const ch = JSON.stringify(campNow()) !== camp0; $('#cpm-camp-save').disabled = !ch; $('#cpm-camp-undo').disabled = !ch; $('#cpm-camp-dirty').hidden = !ch;
     for (const tr of $$('.cpm-camp')) { const q = Number(tr.querySelector('.cpm-camp-qty').value) || 0; const a = tr.querySelector('.cpm-camp-from').value; const b = tr.querySelector('.cpm-camp-to').value; const n = a && b && a <= b ? workdaysBetween(a, b) : 0;
       tr.querySelector('.cpm-camp-per').textContent = q && n ? `≈ ${cpmK(q / n)} (${n} days)` : ''; } };
-  const wireCamp = () => { $$('.cpm-camp input').forEach((i) => { i.oninput = campDirty; i.onchange = campDirty; }); $$('.cpm-camp-rm').forEach((b) => { b.onclick = () => { b.closest('tr').remove(); campDirty(); }; }); };
+  const wireCamp = () => { $$('.cpm-camp input, .cpm-camp select').forEach((i) => { i.oninput = campDirty; i.onchange = campDirty; }); $$('.cpm-camp-rm').forEach((b) => { b.onclick = () => { b.closest('tr').remove(); campDirty(); }; }); };
   wireCamp(); campDirty();
   $('#cpm-camp-add').onclick = () => { $('#cpm-camp-body').insertAdjacentHTML('beforeend', campRow({}, $$('.cpm-camp').length)); wireCamp(); $$('.cpm-camp-name').pop().focus(); campDirty(); };
   $('#cpm-camp-undo').onclick = () => { $('#cpm-camp-body').innerHTML = (d.campaigns || []).map(campRow).join(''); wireCamp(); campDirty(); };
@@ -1021,9 +1028,9 @@ async function cpmScenarios(body) {
     return `<label class="f">${L[0]}<input type="${f === 'name' ? 'text' : 'number'}" name="${f}" value="${esc(c[f] ?? (f === 'oee' && c.oee ? Math.round(c.oee * 100) : ''))}" placeholder="${L[1]}"></label>`;
   };
   const refreshMachines = () => { machines = [...baseMachines, ...(sc?.changes || []).filter((c) => c.type === 'add_machine' && c.name && !baseMachines.includes(c.name)).map((c) => c.name)]; };
-  const changeHtml = (c, i) => `<div class="card cpm-change" data-i="${i}"><div class="row" style="justify-content:space-between"><b>${CPM_CHANGES[c.type].label}</b><button class="link small" data-cpm-rm="${i}">✕ remove</button></div>
+  const changeHtml = (c, i) => `<div class="card cpm-change" data-i="${i}" data-type="${esc(c.type)}"><div class="row" style="justify-content:space-between"><b>${CPM_CHANGES[c.type].label}</b><button class="link small" data-cpm-rm="${i}">✕ remove</button></div>
       <div class="form-grid">${CPM_CHANGES[c.type].fields.map((f) => field(c, f)).join('')}
-        <label class="f">From month<input type="month" name="from" value="${esc(c.from || '')}"></label><label class="f" title="Leave blank to keep the change from then on">Until (blank: from then on)<input type="month" name="to" value="${esc(c.to || '')}"></label></div></div>`;
+        <label class="f">From month<input type="month" name="from" value="${esc(c.from || '')}"></label><label class="f" title="Leave blank to keep the change from then on">Until (blank: from then on)<input type="month" name="to" value="${esc(c.to || '')}"></label></div>${c.type === 'volume' ? '<div class="cpm-vprev"><p class="small muted">Preview: pick a customer and a change.</p></div>' : ''}</div>`;
   refreshMachines();
   body.innerHTML = `<div class="cpm-scen"><div class="card cpm-scen-list"><h3 class="pl-h">Scenarios</h3>
       ${list.map((s) => `<div class="cpm-scen-item ${s.id === openId ? 'on' : ''}" data-cpm-open="${s.id}"><b>${esc(s.name)}</b><div class="small muted">${s.changes.length} change${s.changes.length === 1 ? '' : 's'} · ${s.mine ? (s.shared ? 'yours, shared' : 'yours') : `${esc(s.owner_name || 'someone')}'s`}</div></div>`).join('') || '<p class="small muted">None yet.</p>'}
@@ -1038,7 +1045,7 @@ async function cpmScenarios(body) {
       <div id="cpm-changes">${sc.changes.map(changeHtml).join('') || '<p class="muted">No changes yet — add one below.</p>'}</div>
       ${sc.mine ? `<div class="row" style="gap:6px;flex-wrap:wrap"><select id="cpm-add-type">${Object.entries(CPM_CHANGES).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select><button class="small" id="cpm-add-change">+ Add change</button><div class="spacer"></div><button class="primary" id="cpm-sc-save">💾 Save</button></div>` : ''}`
       : '<div class="card lib-empty"><p>Pick a scenario on the left, or make a new one.</p><p class="small muted">A scenario is a list of changes laid over the base plan — machines added, removed or changed, speeds, shifts, OEE, customer volumes — each from a month (and until one). The base forecast keeps updating underneath.</p></div>'}</div></div>`;
-  const read = () => $$('.cpm-change').map((el) => {
+  const readOne = (el) => {
     const c = { type: sc.changes[Number(el.dataset.i)].type };
     for (const inp of el.querySelectorAll('[name]')) {
       if (inp.name === 'techs') { if (inp.checked) (c.techs = c.techs || []).push(inp.value); continue; }
@@ -1051,7 +1058,27 @@ async function cpmScenarios(body) {
     if (CPM_CHANGES[c.type].fields.includes('techs') && !c.techs) c.techs = [];
     if (c.type === 'restrict') { const list = el.querySelector('.cpm-cf-list'); if (list) c.values = JSON.parse(list.dataset.sel || '[]'); if (!c.values?.length) delete c.values; }
     return c;
-  });
+  };
+  const read = () => $$('.cpm-change').map(readOne);
+  // a customer volume change: what it moves, month by month (worked out on the server against the base plan, as typed)
+  const vprev = async (el) => {
+    const box = el.querySelector('.cpm-vprev'); if (!box) return; const c = readOne(el);
+    if (!Number(c.pct) && !Number(c.flat)) { box.innerHTML = '<p class="small muted">Preview: type a % and / or flat cards.</p>'; return; }
+    const flex = store.get('cpmFlex', true); let p;
+    try { p = await api.get(`/cpm/scenario-preview?flex=${flex ? 1 : 0}&change=${encodeURIComponent(JSON.stringify(c))}`); } catch (err) { box.innerHTML = `<p class="small pl-late">${esc(err.message)}</p>`; return; }
+    if (!document.body.contains(box)) return;
+    const used = p.techs.filter((t) => p.months.some((m) => Math.abs(m.techs[t].cards1 - m.techs[t].cards0) > 0.5));
+    const sum = (f) => p.months.reduce((a, m) => a + used.reduce((b, t) => b + f(m.techs[t]), 0), 0);
+    const ld = (v) => (v === null ? '—' : `<span class="cpm-u ${cpmUtilCls(v)}">${cpmPct(v)}</span>`);
+    const sg = (v) => `${v >= 0 ? '+' : '−'}${cpmK(Math.abs(v))}`;
+    box.innerHTML = !p.months.length ? '<p class="small muted">Preview: no change in the months it covers (no forecast for the customer then?).</p>'
+      : `<div class="small"><b>Preview</b> <span class="muted">— this change on its own against the base plan${flex ? ' (with flex)' : ''}, ${p.year}: <b>${sg(sum((x) => x.cards1 - x.cards0))} cards</b>, ${sg(sum((x) => x.need1 - x.need0))} capacity needed (÷ OEE)</span></div>
+      <div class="kdb-scroll"><table class="log small cpm-vprev-t"><thead><tr><th>Month</th>${used.map((t) => `<th class="num" style="color:${cpmTc(t)}">${esc(t)} cards</th><th class="num">needed</th><th class="num">load</th>`).join('')}</tr></thead><tbody>
+      ${p.months.map((m) => `<tr><th>${esc(m.label)}</th>${used.map((t) => { const x = m.techs[t];
+        return `<td class="num" title="${esc(`${cpmN(x.cards0)} → ${cpmN(x.cards1)}`)}">${cpmK(x.cards1)} <span class="cpm-added-t">${sg(x.cards1 - x.cards0)}</span></td><td class="num">${sg(x.need1 - x.need0)}</td><td class="num">${ld(x.load0)} → ${ld(x.load1)}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div>
+      ${p.warnings.map((w) => `<p class="small pl-warn">${esc(w)}</p>`).join('')}`;
+  };
+  const wirePrev = () => $$('.cpm-change[data-type="volume"]').forEach((el) => { let tm = null; const go = () => { clearTimeout(tm); tm = setTimeout(() => vprev(el), 400); }; el.oninput = go; el.onchange = go; vprev(el); });
   $$('[data-cpm-open]').forEach((el) => { el.onclick = () => { store.set('cpmScenario', Number(el.dataset.cpmOpen)); renderCpm('scenarios'); }; });
   $('#cpm-sc-new').onclick = async () => { const name = $('#cpm-sc-name').value.trim() || 'New scenario'; const s = await api.post('/cpm/scenarios', { name, changes: [] }); store.set('cpmScenario', s.id); renderCpm('scenarios'); };
   if (!sc) return;
@@ -1061,7 +1088,7 @@ async function cpmScenarios(body) {
   if (!sc.mine) return;
   $('#cpm-sc-del').onclick = async () => { if (!confirm(`Delete “${sc.name}”?`)) return; await api.del(`/cpm/scenarios/${sc.id}`); store.set('cpmScenario', 0); renderCpm('scenarios'); };
   $('#cpm-add-change').onclick = () => { sc.changes = [...read(), { type: $('#cpm-add-type').value }]; refreshMachines(); $('#cpm-changes').innerHTML = sc.changes.map(changeHtml).join(''); wireRm(); loadCards(); };
-  const wireRm = () => $$('[data-cpm-rm]').forEach((b) => { b.onclick = () => { const l = read(); l.splice(Number(b.dataset.cpmRm), 1); sc.changes = l; refreshMachines(); $('#cpm-changes').innerHTML = l.map(changeHtml).join('') || '<p class="muted">No changes yet — add one below.</p>'; wireRm(); loadCards(); }; });
+  const wireRm = () => { wirePrev(); return $$('[data-cpm-rm]').forEach((b) => { b.onclick = () => { const l = read(); l.splice(Number(b.dataset.cpmRm), 1); sc.changes = l; refreshMachines(); $('#cpm-changes').innerHTML = l.map(changeHtml).join('') || '<p class="muted">No changes yet — add one below.</p>'; wireRm(); loadCards(); }; }); };
   wireRm();
   $('#cpm-sc-save').onclick = async () => {
     try { await api.put(`/cpm/scenarios/${sc.id}`, { name: $('#cpm-sc-title').value, notes: $('#cpm-sc-notes').value, shared: $('#cpm-sc-share').checked, changes: read() }); toast('Scenario saved'); renderCpm('scenarios'); } catch (err) { toast(err.message, 'error'); }

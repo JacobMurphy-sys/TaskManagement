@@ -47,7 +47,7 @@ window.TIMELINE = {
     text: 'Page names, tabs, section and window headings lost their emoji across the whole app, for a cleaner, more businesslike look. The icons stay in the main bar, where they stand in for the names on narrow screens, and on buttons and small markers where they help.' },
   { id: 'cpm-campaigns', date: '2026-11-23', area: 'capacity', title: 'Capacity planning: campaigns and flat volumes',
     text: 'A scenario can add a flat number of cards for a customer as well as a percentage, spread over the working days, and Day by hour takes campaigns: a customer\'s extra cards over some days, to see what they do to each hour.',
-    points: ['Added work lands on the customer\'s own technologies', 'Drawn in its own colour, with its own line in the tables', 'Campaigns can be ticked off to compare'] },
+    points: ['Added work lands on the customer\'s own technologies', 'Drawn in its own colour, with its own line in the tables', 'Campaigns can be ticked off to compare', 'A preview of what a volume change moves, month by month, while it\'s typed', 'Campaigns as daily work or as renewals, placed by the same rules as the rest'] },
   { id: 'qn-to-list', date: '2026-11-23', area: 'projects', title: 'Quick notes: a new task straight into a list',
     text: 'Assigning a quick note as a new task can put it straight into one of My lists, the last list picked offered first.' },
   { id: 'cpm-day-model', date: '2026-11-23', area: 'capacity', title: 'Capacity planning: the day model checked against the old workbook',

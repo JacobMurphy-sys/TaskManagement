@@ -2482,6 +2482,14 @@ async function waitForServer() {
             const kAdd = dF.rows.filter((r) => r.trigram === 'KBC' && r.added === 'scenario');
             assert.ok(kAdd.length && Math.abs(kAdd.reduce((a2, r) => a2 + r.month_volume, 0) - fa) < 0.5, 'on the day: a line of its own for what the scenario adds');
             assert.ok(Math.abs(dF.tech.DOD.added.reduce((a2, b) => a2 + b, 0) - dF.rows.filter((r) => r.tech === 'DOD' && r.added).reduce((a2, r) => a2 + r.need_daily, 0)) < 0.01, 'and drawn apart');
+            // the preview of a volume change, on its own against the base plan: the same numbers, only its months
+            const pv = await call('GET', `/cpm/scenario-preview?flex=0&change=${encodeURIComponent(JSON.stringify({ type: 'volume', customer: 'KBC', flat: 30000, from: `${Y}-02`, to: `${Y}-03` }))}`);
+            const pvCards = pv.months.reduce((a2, m) => a2 + Object.values(m.techs).reduce((b, x) => b + x.cards1 - x.cards0, 0), 0);
+            assert.ok(pv.months.length === 2 && Math.abs(pvCards - 30000) < 0.5, `preview: the cards added, in its two months (${pvCards})`);
+            assert.ok(pv.months.every((m) => Object.values(m.techs).every((x) => x.need1 >= x.need0 && (x.load1 === null || x.load1 >= x.load0))), 'preview: needed and load only up');
+            const pvPct = await call('GET', `/cpm/scenario-preview?flex=0&change=${encodeURIComponent(JSON.stringify({ type: 'volume', customer: 'KBC', pct: 10, from: `${Y}-01`, to: `${Y}-01` }))}`);
+            const kbcJan = 4000; // KBC's January in the test forecast
+            assert.ok(pvPct.months.length === 1 && Math.abs(Object.values(pvPct.months[0].techs).reduce((b, x) => b + x.cards1 - x.cards0, 0) - kbcJan * 0.1) < 0.5, 'preview: 10% of KBC\'s January (4000 cards)');
             await call('DELETE', `/cpm/scenarios/${scF.id}`); }
           // 📣 a campaign: a customer's cards over some days, on its split, a line of its own; off: not counted
           { await call('PUT', '/cpm/settings', { cpm_campaigns: JSON.stringify([{ name: 'Reissue', customer: 'KBC', qty: 21000, from: `${Y}-01-01`, to: `${Y}-01-31` }, { name: 'Paused', customer: 'KBC', qty: 99999, from: `${Y}-01-01`, to: `${Y}-01-31`, off: true }]) });
@@ -2492,6 +2500,12 @@ async function waitForServer() {
             const baseK = dC.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD' && !r.added); const cK = cr.find((r) => r.tech === 'DOD');
             assert.ok(cK && cK.shares.every((v, i) => Math.abs(v - baseK.shares[i]) < 1e-9), 'timed as the customer\'s own day');
             assert.equal((await call('GET', `/cpm/day?year=${Y}&month=2&flex=0&regen=1`)).rows.filter((r) => r.added === 'campaign').length, 0, 'not in a month it doesn\'t touch');
+            // as renewals: no daily work, the cards in the technologies' renewal windows
+            await call('PUT', '/cpm/settings', { cpm_campaigns: JSON.stringify([{ name: 'Reissue', customer: 'KBC', qty: 21000, kind: 'renewal', from: `${Y}-01-01`, to: `${Y}-01-31` }]) });
+            const dR = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`); const rr = dR.rows.filter((r) => r.added === 'campaign');
+            assert.ok(rr.length && rr.every((r) => r.daily === 0 && r.campaign_kind === 'renewal') && Math.abs(rr.reduce((a2, r) => a2 + r.renew, 0) - 21000 / dR.workdays) < 0.01, 'renewal campaign: renewals, not daily work');
+            const dodR = rr.find((r) => r.tech === 'DOD'); const sumA = (a3) => a3.reduce((x, y) => x + y, 0);
+            assert.ok(dodR && Math.abs(sumA(dR.tech.DOD.added_rnw) - dodR.need_rnw) < 0.01 && dR.tech.DOD.added_rnw.every((v, i) => v === 0 || dR.renewals.DOD.hours.includes(dR.hours[i])), 'in the renewal window, drawn apart');
             await call('PUT', '/cpm/settings', { cpm_campaigns: '[]' }); await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`); }
           const dx = await fetch(`${BASE}/cpm/day/export?year=${Y}&month=1&flex=0`, { headers: { 'X-Requested-With': 'TaskManager' } });
           assert.equal(dx.status, 200);

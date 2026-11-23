@@ -428,12 +428,13 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
     const own = plan.detail.filter((D) => D.trigram === tri && D.months[month]);
     const parts = own.length ? own.map((D) => ({ D, share: D.months[month].split, oee: D.months[month].oee })) : plan.detail.filter((D) => D.trigram === tri).map((D) => { const m0 = Object.values(D.months)[0]; return { D, share: m0?.split || 0, oee: m0?.oee || 0.35 }; });
     if (!parts.length) { warnings.push(`${c.name || 'A campaign'}: ${tri} has no forecast or split to put it on — set it up on Customers`); continue; }
+    const asRnw = c.kind === 'renewal'; // renewals: spread over its technologies' renewal windows, as the rest
     for (const { D, share, oee } of parts) {
-      const daily = perDay * share; if (!(daily > 0)) continue;
+      const cardsDay = perDay * share; if (!(cardsDay > 0)) continue; const daily = asRnw ? 0 : cardsDay; const renew = asRnw ? cardsDay : 0; const oeeR = Math.min(1, oee + bonus);
       const base = rows.find((r) => r.trigram === tri && r.tech === D.tech && !r.added);
       const shares = base ? base.shares : H.map((h) => (worked.has(h) ? 1 / worked.size : 0));
-      rows.push({ trigram: tri, name: `${c.name || 'Campaign'}`, added: 'campaign', campaign: c.name || 'Campaign', tech: D.tech, month_volume: daily * days, daily_pct: 1, rnw_pct: 0, rnw_learned: null, rnw_typed: null,
-        oee, oee_rnw: Math.min(1, oee + bonus), workdays: days, daily, renew: 0, need_daily: daily / oee, need_rnw: 0, profile: base ? base.profile : 'even', peak: null, learned_shares: shares, learned_from: base ? base.learned_from : 'even', produced_shares: shares, arrive_avg: base ? base.arrive_avg : null, arrive_seen: null, shares,
+      rows.push({ trigram: tri, name: `${c.name || 'Campaign'}${asRnw ? ' (renewals)' : ''}`, added: 'campaign', campaign: c.name || 'Campaign', campaign_kind: asRnw ? 'renewal' : 'daily', tech: D.tech, month_volume: cardsDay * days, daily_pct: asRnw ? 0 : 1, rnw_pct: asRnw ? 1 : 0, rnw_learned: null, rnw_typed: null,
+        oee, oee_rnw: oeeR, workdays: days, daily, renew, need_daily: daily / oee, need_rnw: renew / oeeR, profile: base ? base.profile : 'even', peak: null, learned_shares: shares, learned_from: base ? base.learned_from : 'even', produced_shares: shares, arrive_avg: base ? base.arrive_avg : null, arrive_seen: null, shares,
         hours: shares.map((x) => (daily / oee) * x), cards_hours: shares.map((x) => daily * x) });
     }
   }
@@ -518,7 +519,10 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
       peak: Math.max(...sNeed.map((v, i) => (cap[t][i] ? v / cap[t][i] : 0))), hours_over: sNeed.filter((v, i) => v > cap[t][i] + 0.5).length, over: sNeed.reduce((a, v, i) => a + Math.max(0, v - cap[t][i]), 0), late: sm.late, late_at: sm.lateAt, late_cards: tr.reduce((a, r) => a + r.late_cards, 0), late_customers: [...new Set(tr.filter((r) => r.late_cards > 0.5).map((r) => r.trigram || r.name))], unplaced: sm.unplaced, end_backlog: sc };
     const addRows = rows.filter((r) => r.tech === t && r.added);
     const added = H.map((_, i) => addRows.reduce((a, r) => a + r.hours[i], 0)); const cAdded = H.map((_, i) => addRows.reduce((a, r) => a + r.cards_hours[i], 0));
-    out[t] = { daily, renewals, need, capacity: cap[t], idle: idle[t], backlog, smooth, added, cards_added: cAdded,
+    // what's added to the renewals: over the renewal window, as all renewals are
+    const wn = rnwByTech[t].hours; const inW = (h) => wn.includes(h) && wn.length;
+    const addedRnw = H.map((h) => (inW(h) ? addRows.reduce((a, r) => a + r.need_rnw, 0) / wn.length : 0)); const cAddedRnw = H.map((h) => (inW(h) ? addRows.reduce((a, r) => a + r.renew, 0) / wn.length : 0));
+    out[t] = { daily, renewals, need, capacity: cap[t], idle: idle[t], backlog, smooth, added, cards_added: cAdded, added_rnw: addedRnw, cards_added_rnw: cAddedRnw,
       cards: { daily: cDaily, renewals: cRnw, total: cards_, capacity: effCap, actual: act.per[t] ? H.map((h) => act.per[t][h]) : null, oee: dayRatio }, load: need.map((v, i) => (cap[t][i] ? v / cap[t][i] : v ? null : 0)),
       total: { need: tot, daily: daily.reduce((a, b) => a + b, 0), renewals: rnwByTech[t].need, capacity: capTot, idle: idle[t].reduce((a, b) => a + b, 0), load: capTot ? tot / capTot : null, end_backlog: carry, hours_over: need.filter((v, i) => v > cap[t][i] + 0.5).length } };
   }
