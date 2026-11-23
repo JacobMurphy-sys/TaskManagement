@@ -3,7 +3,7 @@
 // OEE, the capacity settings, and each person's scenarios (src/cpm.js does the sums).
 const CPM_TABS = [['overview', 'Overview'], ['site', 'Site capacity'], ['headcount', 'Headcount'], ['day', 'Day by hour'], ['flex', 'Forecast vs actual'], ['config', 'Configuration']];
 // Configuration holds the set-up, each its own sub-tab (their addresses, #/cpm/customers…, still open them)
-const CPM_CONFIG = [['customers', 'Customers'], ['capacity', 'Capacity'], ['scenarios', 'Scenarios'], ['dayset', 'Day by hour']];
+const CPM_CONFIG = [['customers', 'Customers'], ['capacity', 'Capacity'], ['scenarios', 'Scenarios'], ['dayset', 'Day by hour'], ['check', 'Forecast check']];
 const cpmN = (v, d = 0) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: d }));
 // each machine's colour, the same on every chart (by its place among the machines)
 const CPM_MACH_COL = ['#e4572e', '#f3a712', '#3fa34d', '#2e86ab', '#9b5de5', '#f15bb5', '#00a6a6', '#8d6a9f', '#c0843b', '#5c8001'];
@@ -94,6 +94,7 @@ async function renderCpm(tab) {
     else if (tab === 'headcount') await cpmHeadcount(body);
     else if (tab === 'day') await cpmDay(body);
     else if (tab === 'dayset') await cpmDay(body, true);
+    else if (tab === 'check') await cpmCheck(body);
     else if (tab === 'flex') await cpmFlex(body);
     else if (tab === 'customers') await cpmCustomers(body);
     else if (tab === 'capacity') await cpmCapacity(body);
@@ -817,6 +818,34 @@ function cpmDrDraw() {
       ${s.cust ? '' : `<div class="seg cpm-mini">${[['all', 'All'], ...d.techs.map((t) => [t, t])].map(([k, l]) => `<button type="button" data-dr="tech" data-v="${esc(k)}" class="${s.tech === k ? 'on' : ''}">${k === 'all' ? '' : CPM_TECH_ICON[k] || ''} ${esc(l)}</button>`).join('')}</div>`}
       <div class="seg cpm-mini"><button type="button" data-dr="view" data-v="cards" class="${cards ? 'on' : ''}">Cards</button><button type="button" data-dr="view" data-v="need" class="${cards ? '' : 'on'}">Capacity needed (÷ OEE)</button></div></div>
     ${html}`;
+}
+
+// 🔎 Forecast check: each customer and technology, from the forecast line to the capacity a day Day by hour counts,
+// beside what really ran — the steps in a row, so a volume that's out of line shows where it went wrong
+async function cpmCheck(body) {
+  const year = Number(store.get('cpmYear', new Date().getFullYear())); const month = Number(store.get('cpmDayMonth', new Date().getMonth() + 1));
+  const flex = store.get('cpmFlex', true); const only = store.get('cpmCheckFlagged', true) !== false;
+  const d = await api.get(`/cpm/check?year=${year}&month=${month}&flex=${flex ? 1 : 0}`);
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const rows = only ? d.rows.filter((r) => r.flags.length) : d.rows; const nFlag = d.rows.filter((r) => r.flags.length).length;
+  const x = (v, dp = 2) => (v === null || v === undefined ? '—' : `×${v.toFixed(dp)}`);
+  body.innerHTML = `<div class="row pl-filters" style="gap:10px;flex-wrap:wrap;align-items:center">
+      <select id="cpm-ck-month">${MONTHS.map((m, i) => `<option value="${i + 1}" ${i + 1 === month ? 'selected' : ''}>${m} ${year}</option>`).join('')}</select>
+      <label class="row small"><input type="checkbox" id="cpm-ck-flex" ${flex ? 'checked' : ''}> apply flex</label>
+      <label class="row small"><input type="checkbox" id="cpm-ck-only" ${only ? 'checked' : ''}> only what's flagged (${nFlag} of ${d.rows.length})</label></div>
+    <div class="card"><h3 class="pl-h">Forecast check <span class="muted small">— ${esc(d.label)}, ${d.workdays} working days${d.day_shape === 'worst' ? ', worst case day shape' : ''}: each customer and technology from its forecast line(s) to the capacity a day Day by hour counts, beside what really ran (${esc(d.act_from)} – ${esc(d.act_to)}, a month on average). Flagged: forecast over 3× or under a third of what ran, flex outside ×0.5–2, OEE under 15%, worst case over ×3, a name not linked.</span></h3>
+      <div class="kdb-scroll"><table class="log small cpm-ck"><thead><tr><th>Customer</th><th>Tech</th><th>Forecast line(s)</th><th class="num" title="The customer's forecast for the month, all technologies">Forecast</th><th class="num">Split</th><th class="num">Flex</th><th class="num" title="Forecast × split × flex">Cards this month</th>
+        <th class="num" title="What ran a month on average, the last 3 full months, this customer and technology">Ran a month</th><th class="num" title="Cards this month ÷ what ran">Forecast ÷ ran</th><th class="num">A working day</th><th class="num">Renewals</th><th class="num">OEE</th><th class="num" title="Worst case: its busiest day ÷ its average day">Worst case</th><th class="num" title="Daily ÷ OEE (× worst case) + renewals ÷ renewal OEE: what Day by hour counts">Needed a day</th><th>Flags</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr class="${r.flags.length ? 'cpm-ck-flag' : ''}"><td><b>${esc(r.trigram || '—')}</b> <span class="muted">${esc(r.name || '')}</span></td><td style="color:${cpmTc(r.tech)}"><b>${esc(r.tech)}</b></td>
+        <td class="small">${r.names.length ? r.names.slice(0, 4).map((n) => `<div title="${esc(n.source)}">${esc(n.name)} <span class="muted">${cpmK(n.qty)}</span></div>`).join('') + (r.names.length > 4 ? `<div class="muted">and ${r.names.length - 4} more</div>` : '') : '<span class="muted">—</span>'}</td>
+        <td class="num">${cpmK(r.cust_fc)}</td><td class="num">${r.split === null ? '—' : cpmPct(r.split)}</td><td class="num ${r.flex !== null && (r.flex > 2 || r.flex < 0.5) ? 'pl-late' : ''}">${x(r.flex)}</td><td class="num"><b>${cpmK(r.cards_month)}</b></td>
+        <td class="num">${r.act_month ? cpmK(r.act_month) : '<span class="muted">0</span>'}</td><td class="num ${r.ratio !== null && (r.ratio > 3 || r.ratio < 1 / 3) ? 'pl-late' : ''}">${r.ratio === null ? '—' : `${r.ratio.toFixed(1)}×`}</td>
+        <td class="num">${cpmK(r.per_day)}</td><td class="num">${cpmPct(r.rnw_pct)}</td><td class="num ${r.oee < 0.15 ? 'pl-late' : ''}">${cpmPct(r.oee)}</td><td class="num ${r.peak > 3 ? 'pl-late' : ''}">${r.peak > 1.005 ? x(r.peak, 1) : '—'}</td>
+        <td class="num"><b>${cpmK(r.need_day)}</b></td><td class="small pl-late">${r.flags.map(esc).join('<br>')}</td></tr>`).join('') || `<tr><td colspan="15" class="muted">${only ? 'Nothing flagged this month.' : 'No customers in the forecast this month.'}</td></tr>`}</tbody></table></div>
+      <p class="small muted" style="margin:6px 0 0">Fix at the step that's out: the forecast line linked to the customer and its split (Customers), the flex (Forecast vs actual), the renewal share (Day by hour settings), the OEE (Customers), or the day shape (Day by hour › View: a typical day instead of the worst case).</p></div>`;
+  $('#cpm-ck-month').onchange = (e) => { store.set('cpmDayMonth', Number(e.target.value)); renderCpm('check'); };
+  $('#cpm-ck-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('check'); };
+  $('#cpm-ck-only').onchange = (e) => { store.set('cpmCheckFlagged', e.target.checked); renderCpm('check'); };
 }
 
 async function cpmFlex(body) {

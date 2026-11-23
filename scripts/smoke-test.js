@@ -2559,6 +2559,12 @@ async function waitForServer() {
             const kbcJan = 4000; // KBC's January in the test forecast
             assert.ok(pvPct.months.length === 1 && Math.abs(Object.values(pvPct.months[0].techs).reduce((b, x) => b + x.cards1 - x.cards0, 0) - kbcJan * 0.1) < 0.5, 'preview: 10% of KBC\'s January (4000 cards)');
             await call('DELETE', `/cpm/scenarios/${scF.id}`); }
+          // 🔎 the forecast check: the chain from the customer's forecast to the capacity a day, beside what ran
+          { const ck = await call('GET', `/cpm/check?year=${Y}&month=1&flex=0`); const kc = ck.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
+            assert.ok(kc && Math.abs(kc.cards_month - kc.cust_fc * kc.split) < 0.5 && Math.abs(kc.per_day - kc.cards_month / ck.workdays) < 0.01, 'check: forecast × split, ÷ working days');
+            const dk = (await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`)).rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD' && !r.added);
+            assert.ok(Math.abs(kc.need_day - (dk.need_daily + dk.need_rnw)) < 0.01, 'check: the capacity a day is Day by hour\'s');
+            assert.ok(ck.rows.every((r) => Array.isArray(r.flags) && Array.isArray(r.names)), 'check: flags and forecast lines for every row'); }
           // 📣 a campaign: a customer's cards over some days, on its split, a line of its own; off: not counted
           { await call('PUT', '/cpm/settings', { cpm_campaigns: JSON.stringify([{ name: 'Reissue', customer: 'KBC', qty: 21000, from: `${Y}-01-01`, to: `${Y}-01-31` }, { name: 'Paused', customer: 'KBC', qty: 99999, from: `${Y}-01-01`, to: `${Y}-01-31`, off: true }]) });
             const dC = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`);

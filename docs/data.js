@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'cpm-check', date: '2026-11-23', area: 'capacity', title: 'Capacity planning: a forecast check',
+    text: 'A sanity check of the volumes the capacity model uses: each customer from its forecast lines, through split, flex, OEE and the worst case, to the capacity a day it counts, beside what really ran, with anything out of line flagged.' },
   { id: 'fc-find', date: '2026-11-23', area: 'capacity', title: 'Forecast: find a customer',
     text: 'The Forecast tab has a search for a customer: its forecast month by month, its share of the whole, the change against the version before and, once linked, its cards by technology.' },
   { id: 'bell-list', date: '2026-11-23', area: 'platform', title: 'The bell lists what\'s pending',
