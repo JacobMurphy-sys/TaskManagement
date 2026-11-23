@@ -1060,7 +1060,7 @@ function startPlanPresence() {
     const lc = r.last_change; const box = $('#pl-changed');
     if (box && lc && lc.client !== me.id && lc.at > loadedAt) {
       box.hidden = false;
-      box.innerHTML = `<b>${esc(lc.by || 'Someone')}</b> changed the planning setup at ${esc(PLF.hm.format(new Date(lc.at)))} — refresh before changing it yourself. <button class="small" data-pl="refresh">🔄 Refresh</button>`;
+      box.innerHTML = `✏ <b>${esc(lc.by || 'Someone')}</b> changed the planning setup at ${esc(PLF.hm.format(new Date(lc.at)))} — refresh before changing it yourself. <button class="small" data-pl="refresh">🔄 Refresh</button>`;
     }
   };
   planPresence = { timer: setInterval(tick, 20000) };

@@ -2105,7 +2105,7 @@ async function renderSearch(q) {
   const r = await api.get(`/search?q=${encodeURIComponent(q)}`);
   const places = placesFor(q);
   const card = (title, items, html, empty = 'None') => `<div class="card"><h2>${title} ${items.length ? `<span class="muted small">${items.length}</span>` : ''}</h2>${items.length ? html : `<div class="empty">${empty}</div>`}</div>`;
-  const kpiWeek = (x) => `<li style="display:block"><a href="#/kpi/${x.snap || ''}"><b>${esc(x.week)}</b></a> <span class="small muted">${x.ref ? `A3 box ${esc(x.ref)}` : 'the week\'s notes'}</span>
+  const kpiWeek = (x) => `<li style="display:block"><a href="#/kpi/${x.snap || ''}">📊 <b>${esc(x.week)}</b></a> <span class="small muted">${x.ref ? `A3 box ${esc(x.ref)}` : 'the week\'s notes'}</span>
     <div class="small muted">${esc(String(x.text || '').replace(/\s+/g, ' ').slice(0, 200))}</div></li>`;
   // every module the account has, and only those
   main().innerHTML = `<h1>Search: “${esc(q)}”</h1>
@@ -2120,10 +2120,10 @@ async function renderSearch(q) {
         <span class="t" data-action="open-idea" data-id="${i.id}"><b>${esc(i.ref)}</b> ${esc(i.title)}</span> ${ideaStatusPill(i.status)}</li>`).join('')}</ul>`) : ''}
       ${modOk('kpi') ? card('Reporting <span class="muted small">— typed on the Weekly SC Report</span>', r.reporting, `<ul class="mini">${r.reporting.map(kpiWeek).join('')}</ul>`) : ''}
       ${card('Library', r.library, `<ul class="mini">${r.library.map((d) => `<li style="display:block">
-        <a href="#/library/${d.id}"><b>${esc(d.title)}</b></a> <span class="small muted">${esc(d.folder)}</span>
+        <a href="#/library/${d.id}">📄 <b>${esc(d.title)}</b></a> <span class="small muted">${esc(d.folder)}</span>
         <div class="small muted">${esc(d.snippet)}</div></li>`).join('')}</ul>`)}
       ${card('Meetings', r.meetings, `<ul class="mini">${r.meetings.map((m) => `<li style="display:block">
-        <span class="t" data-action="open-meeting" data-id="${m.id}"><b>${esc(m.title)}</b></span>
+        <span class="t" data-action="open-meeting" data-id="${m.id}">🗓 <b>${esc(m.title)}</b></span>
         <span class="small muted">${esc(fmtDateTime(m.held_at))}${m.project_name ? ` · ${esc(m.project_name)}` : ''}${m.task_title ? ` · ${esc(m.task_title)}` : ''}</span>
         ${m.notes_text ? `<div class="pre small">${esc(m.notes_text.slice(0, 300))}${m.notes_text.length > 300 ? '…' : ''}</div>` : ''}</li>`).join('')}</ul>`)}
       ${card('Notes', r.notes, `<ul class="mini">${r.notes.map((n) => `<li style="display:block">
@@ -3216,9 +3216,11 @@ function closePopup(key) {
   popups.delete(key);
 }
 
+let lastAlerts = null; // what the bell's list shows
 async function pollAlerts() {
   let a;
   try { a = await api.get('/alerts'); } catch { return; }
+  lastAlerts = a; if ($('#bell-pop')) bellDraw();
   const liveKeys = new Set();
 
   for (const r of a.reminders) {
@@ -3277,6 +3279,48 @@ async function pollAlerts() {
   $('#bell-count').textContent = count;
   document.title = count ? `(${count}) SITHUB` : 'SITHUB';
 }
+
+// 🔔 the bell: a list of what's pending — reminders due, overdue tasks, tasks due today — to open or deal with
+// there (Home is a link at its foot)
+function bellDraw() {
+  const box = $('#bell-pop'); if (!box) return; const a = lastAlerts;
+  if (!a) { box.innerHTML = '<p class="muted small">Loading…</p>'; return; }
+  const over = a.due_tasks.filter((t) => dayDiff(t.due_at) < 0); const today = a.due_tasks.filter((t) => dayDiff(t.due_at) === 0);
+  const taskRow = (t, bad) => `<li class="bp-row" data-bp-task="${t.id}"><div class="bp-main"><div class="bp-t">${esc(t.title)}</div><div class="small muted">${t.project_name ? `${esc(t.project_name)} · ` : ''}<span class="${bad ? 'pl-late' : 'pl-warn'}">${esc(dueLabel(t.due_at))}</span></div></div>
+    <div class="bp-acts"><button type="button" class="small" data-bp-done="${t.id}" data-subs="${(t.subtask_count || 0) - (t.subtask_done || 0)}" title="Mark it done">Done</button><button type="button" class="small" data-bp-later="${t.id}" title="Remind me in an hour">1h</button></div></li>`;
+  const remRow = (r) => `<li class="bp-row" data-bp-rem="${r.id}"><div class="bp-main"><div class="bp-t">${esc(r.message || r.task_title || r.project_name || 'Reminder')}</div><div class="small muted">${esc([r.message && r.task_title ? r.task_title : '', r.project_name, `set for ${fmtDateTime(r.remind_at)}`].filter(Boolean).join(' · '))}</div></div>
+    <div class="bp-acts"><button type="button" class="small" data-bp-snooze="${r.id}" title="Snooze an hour">1h</button><button type="button" class="small" data-bp-dismiss="${r.id}">Dismiss</button></div></li>`;
+  const sec = (label, rows, cls = '') => (rows.length ? `<div class="bp-h ${cls}">${label} <span class="muted">${rows.length}</span></div><ul class="bp-list">${rows.join('')}</ul>` : '');
+  const n = a.reminders.length + over.length + today.length;
+  box.innerHTML = `<div class="bp-head"><b>Pending</b><span class="muted small">${n ? `${n} to deal with` : ''}</span></div>
+    ${n ? sec('Reminders', a.reminders.map(remRow)) + sec('Overdue', over.map((t) => taskRow(t, true)), 'bad') + sec('Due today', today.map((t) => taskRow(t, false)))
+    : '<p class="muted small bp-empty">Nothing pending — no reminders due, nothing overdue or due today.</p>'}
+    <div class="bp-foot"><a href="#/dashboard" data-bp-home>Open Home</a></div>`;
+}
+function bellClose() { $('#bell-pop')?.remove(); $('#bell')?.setAttribute('aria-expanded', 'false'); }
+async function bellOpen() {
+  const bell = $('#bell'); if (!bell) return;
+  const box = document.createElement('div'); box.id = 'bell-pop'; box.className = 'bell-pop card'; document.body.append(box);
+  const r = bell.getBoundingClientRect(); box.style.top = `${Math.round(r.bottom + 6)}px`; // under the bell, kept on the screen
+  const w = box.offsetWidth; box.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, Math.round(r.right - w)))}px`;
+  bell.setAttribute('aria-expanded', 'true'); bellDraw();
+  try { lastAlerts = await api.get('/alerts'); } catch { /* the last one read */ } bellDraw();
+  box.addEventListener('click', async (e) => {
+    const b = e.target.closest('button'); const done = async (f) => { try { await f(); await pollAlerts(); refresh(); } catch (err) { toast(err.message, 'error'); } };
+    if (b?.dataset.bpDone) return done(() => setTaskStatus(Number(b.dataset.bpDone), 'done', Number(b.dataset.subs) || 0));
+    if (b?.dataset.bpLater) return done(() => api.post('/reminders', { task_id: Number(b.dataset.bpLater), remind_at: new Date(Date.now() + 3600000).toISOString() }));
+    if (b?.dataset.bpSnooze) return done(() => api.patch(`/reminders/${b.dataset.bpSnooze}`, { action: 'snooze', minutes: 60 }));
+    if (b?.dataset.bpDismiss) return done(() => api.patch(`/reminders/${b.dataset.bpDismiss}`, { action: 'dismiss' }));
+    if (e.target.closest('[data-bp-home]')) { bellClose(); return; }
+    const tr = e.target.closest('[data-bp-task]'); if (tr) { bellClose(); taskModal(Number(tr.dataset.bpTask)); return; }
+    const rr = e.target.closest('[data-bp-rem]'); if (rr) { const rem = (lastAlerts?.reminders || []).find((x) => String(x.id) === rr.dataset.bpRem); bellClose(); if (rem?.task_id) taskModal(rem.task_id); else if (rem?.project_id) location.hash = `#/project/${rem.project_id}`; }
+  });
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#bell')) { e.preventDefault(); if ($('#bell-pop')) bellClose(); else bellOpen(); return; }
+  if ($('#bell-pop') && !e.target.closest('#bell-pop')) bellClose();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#bell-pop')) bellClose(); });
 
 // ======================================================================
 // Start-up

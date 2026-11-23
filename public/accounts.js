@@ -128,7 +128,7 @@ function acctChrome() {
 function seeAllBar() {
   document.getElementById('see-all-bar')?.remove();
   if (!ACCT.account?.see_all) return;
-  document.getElementById('topbar')?.insertAdjacentHTML('afterend', `<div id="see-all-bar" class="see-all-bar" role="status"><b>All work is on:</b> you see every task and project, not just your own and what you're invited to.
+  document.getElementById('topbar')?.insertAdjacentHTML('afterend', `<div id="see-all-bar" class="see-all-bar" role="status">👁 <b>All work is on:</b> you see every task and project, not just your own and what you're invited to.
     <button type="button" class="small" data-action="see-all">Turn it off</button></div>`);
 }
 async function toggleSeeAll() {
@@ -186,8 +186,8 @@ async function renderMine() {
     <div class="kanban-tools"><h1 style="margin:0">My work</h1><span class="muted">— ${esc(w.account.person)}</span><div class="spacer"></div>
       ${w.new.length ? '<button data-mine="seen">✓ Mark the new ones as seen</button>' : ''}</div>
     ${w.new.length ? `<div class="card mine-new"><h2>New for you <span class="muted small">— since ${esc(when(w.seen_at))}</span></h2><ul class="mine-list">
-      ${w.new.map((n) => `<li>${n.kind === 'task' ? `<span class="t" data-action="open-task" data-id="${n.id}">${esc(n.title)}</span> <span class="muted small">— a task for you</span>`
-        : `<a href="#/project/${n.id}">${esc(n.title)}</a> <span class="muted small">— you're ${esc(n.role === 'leader' ? 'the leader' : n.role === 'sponsor' ? 'the sponsor' : `on the team (${n.role})`)}</span>`}
+      ${w.new.map((n) => `<li>${n.kind === 'task' ? `✅ <span class="t" data-action="open-task" data-id="${n.id}">${esc(n.title)}</span> <span class="muted small">— a task for you</span>`
+        : `📋 <a href="#/project/${n.id}">${esc(n.title)}</a> <span class="muted small">— you're ${esc(n.role === 'leader' ? 'the leader' : n.role === 'sponsor' ? 'the sponsor' : `on the team (${n.role})`)}</span>`}
         <span class="small muted">· ${n.by ? `by ${esc(n.by)}, ` : ''}${esc(when(n.at))}</span></li>`).join('')}</ul></div>` : ''}
     <div class="card"><h2>My tasks <span class="muted small">${w.tasks.length}</span></h2>
       ${w.tasks.length ? `<table class="log"><thead><tr><th>Task</th><th>Status</th><th>Due</th><th>With</th></tr></thead><tbody>${w.tasks.map(taskRow).join('')}</tbody></table>`

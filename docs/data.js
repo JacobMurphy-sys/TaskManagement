@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'bell-list', date: '2026-11-23', area: 'platform', title: 'The bell lists what\'s pending',
+    text: 'Clicking the bell in the top bar opens a list of reminders due, overdue tasks and today\'s, to open or deal with on the spot, instead of going to Home.' },
   { id: 'no-emoji-names', date: '2026-11-23', area: 'look', title: 'Calmer names and headings',
     text: 'Page names, tabs, section and window headings lost their emoji across the whole app, for a cleaner, more businesslike look. The icons stay in the main bar, where they stand in for the names on narrow screens, and on buttons and small markers where they help.' },
   { id: 'cpm-campaigns', date: '2026-11-23', area: 'capacity', title: 'Capacity planning: campaigns and flat volumes',

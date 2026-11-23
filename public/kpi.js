@@ -69,7 +69,7 @@ async function renderKpi(arg, tab) {
         ${snap.errors?.length ? ` · <span class="chip overdue" title="${esc(snap.errors.join('\n'))}">⚠ ${snap.errors.length} cell${snap.errors.length === 1 ? '' : 's'} with errors</span>` : ''}
         <span class="spacer"></span>
         ${view === 'a3' ? `<button class="${kpiState.editing ? 'primary' : ''} small" data-kpi="edit" ${snap.views.a3.edit ? '' : 'disabled title="Load this week again (📥) to edit it — it was loaded before editing was possible"'}>✎ ${kpiState.editing ? 'Done editing' : 'Edit A3'}${Object.keys(snap.edits || {}).length ? ` <span class="chip">${Object.keys(snap.edits).length}</span>` : ''}</button>` : ''}
-        ${sheetShown ? '' : '<!--'}<span class="kpi-zoom"><input type="range" id="kpi-zoom" min="25" max="150" step="5"> <button class="link small" data-kpi="fit">Fit</button></span>${sheetShown ? '' : '-->'}
+        ${sheetShown ? '' : '<!--'}<span class="kpi-zoom">🔍 <input type="range" id="kpi-zoom" min="25" max="150" step="5"> <button class="link small" data-kpi="fit">Fit</button></span>${sheetShown ? '' : '-->'}
         </div>
       ${view === 'a3' && kpiState.editing ? `<div class="kc-note kpi-edit-bar">✎ <b>Editing ${esc(snap.week)}</b> — click a text box to change it, a coloured figure to set it green, yellow or red, or a trend arrow to pick ▲ ▬ ▼ (each with its colour).
           Changes are kept with this week (also after Rebuild) and go into the saved A3. <span class="kpi-ed-key">Changed by hand</span>
