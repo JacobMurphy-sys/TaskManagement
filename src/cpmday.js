@@ -376,7 +376,7 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
   const shifts = P.shifts ?? plan.shifts; const hph = P.hph ?? plan.hours;
   const first = Math.floor(hm(setting('plan_shift_morning', '05:45'), 345) / 60 + 0.5) % 24;
   const worked = new Set(Array.from({ length: Math.min(24, Math.round(shifts * 8)) }, (_, i) => (first + i) % 24));
-  const factor = 1; // full speed over the hours worked: the losses are in the OEE the demand is divided by
+  const factor = Math.min(1, cpm.shiftHours() / 8); // the share of each hour counted: all of it unless set lower (⚙ Capacity) — the losses are in the OEE
   // customers
   // run periods set by hand: 'TRI|tech' / 'TRI|*' / '*|tech' / '*|*' → { periods: [{ from: '07:00', to: '12:00', share: 60 }] }
   // or { hours: [24 weights by the clock] } — made into a day's shares by the clock hour
@@ -532,7 +532,7 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
     blocks = runBlocks({ H, rows, machines: P.machines.filter((m) => m.techs.some((t) => cap[t] && m.speed?.[t] > 0)), workedAt: (i) => worked.has(H[i]), factor,
       rnwHours: Object.fromEntries(T.map((t) => [t, rnwByTech[t].window ? rnwByTech[t].hours : []])), sizes: orderSizes(cards), allowed: (m, r) => (m.only?.length ? allowed(m, r) : 1), cutoffOf });
   } catch (err) { warnings.push(`The work-order run couldn't be worked out: ${err.message}`); }
-  return { blocks, year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), shifts, hph, full,
+  return { hour_share: factor, blocks, year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), shifts, hph, full,
     techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, day_shape: shape, peak_source: pv ? pv.source : null, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, capacity_by_machine: Object.fromEntries(T.map((t) => [t, [...byM[t]].map(([name, per]) => ({ name, per }))])), tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, cutoff_default: defCut, rnw_share_typed: over, campaigns: Array.isArray(camps) ? camps : [], manual: json(setting('cpm_day_manual', '{}'), {}), warnings: [...new Set(warnings)],
     learned: { runs: rs.length, renewals: [...rnw.values()].reduce((a, x) => a + x.qty, 0) }, forecast_as_of: plan.forecast_as_of, flex: useFlex };
 }

@@ -17,8 +17,10 @@ const planning = require('./planning');
 
 const TECHS = ['DOD', 'Emboss', 'Laser'];
 // DOD, EMB, Emboss, CRAT, Laser, LAS… → DOD / Emboss / Laser (anything else kept as it is)
-// a shift's length: capacity counts all of it (the losses are in the OEE)
-const SHIFT_HOURS = 8;
+// the hours of a shift capacity counts: all 8 by default (the losses are in the OEE); set lower on ⚙ Capacity only for
+// time the machines aren't run at all and the OEE doesn't already count (cpm_shift_hours; not the old cpm_hours, which
+// took the losses off a second time)
+const shiftHours = () => { const h = Number(setting('cpm_shift_hours', '8')); return h > 0 ? Math.min(12, h) : 8; };
 function normTech(v) {
   const s = String(v ?? '').trim(); if (!s) return null;
   if (/dod/i.test(s)) return 'DOD';
@@ -428,7 +430,7 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
   const cal = calendarOf(year);
   // capacity is the machines' full speed over the whole shift: the losses (breaks, change-overs, slow running,
   // rejects…) are all in the OEE, which the demand is divided by — counted there once, not taken off the hours too
-  const shifts0 = Number(setting('cpm_shifts', '3')) || 3; const hours0 = SHIFT_HOURS;
+  const shifts0 = Number(setting('cpm_shifts', '3')) || 3; const hours0 = shiftHours();
   const oeeDefault = oeeFallback();
   const sp = speeds();
   const prodOee = new Map(db.all('SELECT customer, oee FROM plan_oee').map((r) => [String(r.customer).toUpperCase(), r.oee]));
@@ -676,7 +678,7 @@ function machineMix(cards) {
 function siteCapacity(year, cards = null) {
   const cal = calendarOf(year);
   const shifts = Number(setting('cpm_shifts', '3')) || 0;
-  const dayHours = shifts * SHIFT_HOURS; // the whole shift (no OEE here, and no losses taken off)
+  const dayHours = shifts * shiftHours(); // the hours a shift counted (no OEE here)
   const sp = speeds(true); const opts = json(setting('cpm_machines', '{}'), {});
   const months = Array.from({ length: 12 }, (_, i) => ({ key: ym(year, i + 1), label: new Date(year, i, 1, 12).toLocaleDateString('en-GB', { month: 'short' }), workdays: 0 }));
   for (const d of cal) if (d.work) months[Number(d.month.slice(5)) - 1].workdays++;
@@ -722,8 +724,8 @@ function siteCapacity(year, cards = null) {
   const countedBy = Object.fromEntries(TECHS.map((t) => [t, sum((m) => { const c = m.counted; if (!c) return null; const f = c.basis === 'mix' ? c.split[t] || 0 : c.tech === t ? 1 : 0;
     return f ? { day: c.day * f, week: c.week * f, year: c.year * f, months: c.months.map((v) => v * f) } : null; })]));
   for (const m of machines) if (m.techs.length > 1 && !m.mix && m.best) warnings.push(`${m.name}: no record of what it ran by technology in the last 12 months${cards ? '' : ' (the card database, which tells the technology, isn\'t linked in Production › Setup)'}, so it's counted at its fastest`);
-  return { year, shifts, hours: SHIFT_HOURS, hours_day: dayHours, week_days: weekDays, workdays, holidays: cal.filter((d) => !d.work && String(setting('plan_days', '1,2,3,4,5')).split(',').map(Number).includes(d.dow)).length,
+  return { year, shifts, hours: shiftHours(), hours_day: dayHours, week_days: weekDays, workdays, holidays: cal.filter((d) => !d.work && String(setting('plan_days', '1,2,3,4,5')).split(',').map(Number).includes(d.dow)).length,
     months, techs: TECHS, speed_from: Object.fromEntries(Object.entries(sp).map(([t, x]) => [t, x])), machines, total: sum((m) => m.counted), by_tech: byTech, counted_by_tech: countedBy, cards: !!cards, warnings: [...new Set(warnings)] };
 }
 
-module.exports = { forecastNames, calendarOf, forecastUnchanged, beneluxCompact, AMEX_ROWS, detectForecast, TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity, machineMix };
+module.exports = { shiftHours, forecastNames, calendarOf, forecastUnchanged, beneluxCompact, AMEX_ROWS, detectForecast, TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity, machineMix };

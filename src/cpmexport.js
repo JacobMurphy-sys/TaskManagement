@@ -288,7 +288,7 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   sh.set(3, 1, 'Cells in blue on yellow are inputs — renewal %, volume, OEE, the hour profile, the renewal windows, hours worked, speeds, availability and how each machine splits its hours — change them and the day works itself out.', 'note');
   sh.set(4, 1, 'Working days', 'bold'); sh.set(4, 3, d.workdays, 'input');
   sh.set(4, 5, 'Renewal OEE +', 'bold'); sh.set(4, 6, d.bonus, 'inputPct');
-  sh.set(4, 8, 'Capacity × ', 'bold'); sh.set(4, 10, 1, 'inputDec'); sh.set(4, 11, 'full speed — the losses are in each customer\'s OEE', 'note');
+  sh.set(4, 8, 'Capacity × ', 'bold'); sh.set(4, 10, d.hour_share ?? 1, 'inputDec'); sh.set(4, 11, (d.hour_share ?? 1) < 1 ? `${Math.round((d.hour_share ?? 1) * 8 * 100) / 100} hours of each 8 counted (Capacity settings) — the losses are in each customer's OEE` : 'full speed, the whole hour — the losses are in each customer\'s OEE', 'note');
   const head = (s, row, labels) => { labels.forEach((l, i) => s.set(row, i + 1, l, i >= 5 ? 'headerNum' : 'header')); s.set(row, 15, s === sh && row === 6 ? 'Added' : '', 'header'); H.forEach((h, i) => s.set(row, hc(i), hl(h), 'headerNum')); s.set(row, hc(n), 'Day', 'headerNum'); };
   const R0 = 7; const rows = d.rows; const R1 = R0 + rows.length - 1;
   head(sh, 6, ['Daily %', 'Renewals %', 'Trigram', 'Customer', 'Tech', 'Month', 'Daily /month', 'Daily /day', 'OEE', 'Needed daily', 'RNW /month', 'RNW /day', 'RNW OEE', 'Needed RNW']);
