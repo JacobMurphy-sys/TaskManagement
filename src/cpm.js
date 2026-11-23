@@ -17,6 +17,8 @@ const planning = require('./planning');
 
 const TECHS = ['DOD', 'Emboss', 'Laser'];
 // DOD, EMB, Emboss, CRAT, Laser, LAS… → DOD / Emboss / Laser (anything else kept as it is)
+// a shift's length: capacity counts all of it (the losses are in the OEE)
+const SHIFT_HOURS = 8;
 function normTech(v) {
   const s = String(v ?? '').trim(); if (!s) return null;
   if (/dod/i.test(s)) return 'DOD';
@@ -414,7 +416,9 @@ function weekOf(day) {
  */
 function compute({ year, period = 'month', changes = [], useFlex = true, cards = null }) {
   const cal = calendarOf(year);
-  const shifts0 = Number(setting('cpm_shifts', '3')) || 3; const hours0 = Number(setting('cpm_hours', '6')) || 6;
+  // capacity is the machines' full speed over the whole shift: the losses (breaks, change-overs, slow running,
+  // rejects…) are all in the OEE, which the demand is divided by — counted there once, not taken off the hours too
+  const shifts0 = Number(setting('cpm_shifts', '3')) || 3; const hours0 = SHIFT_HOURS;
   const oeeDefault = oeeFallback();
   const sp = speeds();
   const prodOee = new Map(db.all('SELECT customer, oee FROM plan_oee').map((r) => [String(r.customer).toUpperCase(), r.oee]));
@@ -463,7 +467,7 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
       .filter((r) => r.customers || r.values);
     return { techs, speed, only, avail: o.avail === undefined || o.avail === null || o.avail === '' ? 1 : Math.max(0, Math.min(1, Number(o.avail))) };
   };
-  const shiftAt = (month) => { let s = shifts0; let h = hours0; for (const c of changes) if (c.type === 'shifts' && inRange(month, c)) { if (Number(c.shifts) >= 0 && c.shifts !== '' && c.shifts !== null && c.shifts !== undefined) s = Number(c.shifts); if (Number(c.hours) > 0) h = Number(c.hours); } return { s, h }; };
+  const shiftAt = (month) => { let s = shifts0; let h = hours0; for (const c of changes) if (c.type === 'shifts' && inRange(month, c)) { if (Number(c.shifts) >= 0 && c.shifts !== '' && c.shifts !== null && c.shifts !== undefined) s = Number(c.shifts); } return { s, h }; };
   // demand per customer and month: forecast × flex (× the scenario's volume change), split, ÷ OEE
   const wdm = {}; for (const d of cal) if (d.work) wdm[d.month] = (wdm[d.month] || 0) + 1;
   const monthDemand = {}; // month → tech → { fc, demand, need }
@@ -629,7 +633,7 @@ function parseConfig(buf) {
 /**
  * 🏭 Theoretical site capacity: what each machine could make running flat out at its run speed through
  * every available hour — no OEE, no forecast. Hours: working days (Production's) less holidays ×
- * shifts × productive hours a shift × the machine's availability for perso (⚙ Capacity). A machine
+ * shifts × 8 hours × the machine's availability for perso (⚙ Capacity). A machine
  * running several technologies is shown at each of its speeds; its "most" is at its fastest.
  */
 // What each machine ran over the last 12 months, by technology (cards persoed; the technology from the card
@@ -646,8 +650,8 @@ function machineMix(cards) {
 }
 function siteCapacity(year, cards = null) {
   const cal = calendarOf(year);
-  const shifts = Number(setting('cpm_shifts', '3')) || 0; const hours = Number(setting('cpm_hours', '6')) || 0;
-  const dayHours = shifts * hours;
+  const shifts = Number(setting('cpm_shifts', '3')) || 0;
+  const dayHours = shifts * SHIFT_HOURS; // the whole shift (no OEE here, and no losses taken off)
   const sp = speeds(true); const opts = json(setting('cpm_machines', '{}'), {});
   const months = Array.from({ length: 12 }, (_, i) => ({ key: ym(year, i + 1), label: new Date(year, i, 1, 12).toLocaleDateString('en-GB', { month: 'short' }), workdays: 0 }));
   for (const d of cal) if (d.work) months[Number(d.month.slice(5)) - 1].workdays++;
@@ -693,7 +697,7 @@ function siteCapacity(year, cards = null) {
   const countedBy = Object.fromEntries(TECHS.map((t) => [t, sum((m) => { const c = m.counted; if (!c) return null; const f = c.basis === 'mix' ? c.split[t] || 0 : c.tech === t ? 1 : 0;
     return f ? { day: c.day * f, week: c.week * f, year: c.year * f, months: c.months.map((v) => v * f) } : null; })]));
   for (const m of machines) if (m.techs.length > 1 && !m.mix && m.best) warnings.push(`${m.name}: no record of what it ran by technology in the last 12 months${cards ? '' : ' (the card database, which tells the technology, isn\'t linked in Production › ⚙ Setup)'}, so it's counted at its fastest`);
-  return { year, shifts, hours, hours_day: dayHours, week_days: weekDays, workdays, holidays: cal.filter((d) => !d.work && String(setting('plan_days', '1,2,3,4,5')).split(',').map(Number).includes(d.dow)).length,
+  return { year, shifts, hours: SHIFT_HOURS, hours_day: dayHours, week_days: weekDays, workdays, holidays: cal.filter((d) => !d.work && String(setting('plan_days', '1,2,3,4,5')).split(',').map(Number).includes(d.dow)).length,
     months, techs: TECHS, speed_from: Object.fromEntries(Object.entries(sp).map(([t, x]) => [t, x])), machines, total: sum((m) => m.counted), by_tech: byTech, counted_by_tech: countedBy, cards: !!cards, warnings: [...new Set(warnings)] };
 }
 

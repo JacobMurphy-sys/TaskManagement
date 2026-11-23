@@ -2411,9 +2411,9 @@ async function waitForServer() {
             const days = new Set(String(s0.plan_days || '1,2,3,4,5').split(',').map(Number));
             let jan = 0; for (let dd = new Date(Y, 0, 1, 12); dd.getMonth() === 0; dd.setDate(dd.getDate() + 1)) if (days.has(dd.getDay())) jan++;
             if (days.has(new Date(Y, 0, 2, 12).getDay())) jan--;
-            assert.deepEqual([st.hours_day, st.months[0].workdays, st.workdays], [15, jan, st.months.reduce((t, m) => t + m.workdays, 0)], '2 shifts × 7.5 h; the holiday out');
-            assert.deepEqual([A.per.DOD.day, A.per.DOD.year, A.per.DOD.from], [1200 * 15, 1200 * 15 * st.workdays, 'machine'], 'speed × hours a day × working days');
-            assert.deepEqual([B.hours_day, B.per.Laser.day, B.per.DOD.day, B.best.tech, B.best.year], [7.5, 900 * 7.5, 600 * 7.5, 'Laser', 900 * 7.5 * st.workdays], 'half available; several technologies: each, and its fastest counted');
+            assert.deepEqual([st.hours_day, st.months[0].workdays, st.workdays], [16, jan, st.months.reduce((t, m) => t + m.workdays, 0)], '2 shifts × 8 h (the whole shift); the holiday out');
+            assert.deepEqual([A.per.DOD.day, A.per.DOD.year, A.per.DOD.from], [1200 * 16, 1200 * 16 * st.workdays, 'machine'], 'speed × hours a day × working days');
+            assert.deepEqual([B.hours_day, B.per.Laser.day, B.per.DOD.day, B.best.tech, B.best.year], [8, 900 * 8, 600 * 8, 'Laser', 900 * 8 * st.workdays], 'half available; several technologies: each, and its fastest counted');
             assert.equal(Math.round(st.total.year), Math.round(st.machines.reduce((t, m) => t + (m.best?.year || 0), 0)), 'the site: every machine at its fastest');
             assert.equal(st.by_tech.DOD.year, st.machines.reduce((t, m) => t + (m.per.DOD?.year || 0), 0), 'a technology only: every machine that can run it');
             assert.equal(Math.round(st.total.months.reduce((a, b) => a + b, 0)), Math.round(st.total.year), 'the months add up to the year');
@@ -2428,7 +2428,7 @@ async function waitForServer() {
             insR.run('SJ1', `${dy}T08:00`, `${dy}T09:00`, 7000, 'SA1', dy); insR.run('SJ2', `${dy}T10:00`, `${dy}T11:00`, 3000, 'SB1', dy);
             const st2 = await call('GET', `/cpm/site?year=${Y}&regen=1`); const B2 = st2.machines.find((m) => m.name === 'SITE B');
             const mixHour = 1 / (0.7 / 600 + 0.3 / 900);
-            assert.deepEqual([B2.mix?.split.DOD, B2.mix?.split.Laser, B2.mix?.cards, B2.counted.basis, Math.round(B2.mix?.day)], [0.7, 0.3, 10000, 'mix', Math.round(mixHour * 7.5)], 'its usual mix: 70% DOD at 600/h, 30% Laser at 900/h');
+            assert.deepEqual([B2.mix?.split.DOD, B2.mix?.split.Laser, B2.mix?.cards, B2.counted.basis, Math.round(B2.mix?.day)], [0.7, 0.3, 10000, 'mix', Math.round(mixHour * 8)], 'its usual mix: 70% DOD at 600/h, 30% Laser at 900/h');
             assert.equal(Math.round(st2.total.year), Math.round(st2.machines.reduce((t, m) => t + (m.counted?.year || 0), 0)), 'the site counts it at its mix');
             assert.equal(Math.round(st2.counted_by_tech.DOD.year + st2.counted_by_tech.Laser.year + st2.counted_by_tech.Emboss.year), Math.round(st2.total.year), 'the site total by technology adds up');
             sqs.prepare("DELETE FROM prod_runs WHERE job IN ('SJ1', 'SJ2')").run(); sqs.close();
@@ -2473,7 +2473,7 @@ async function waitForServer() {
           assert.equal(sc.changes.length, 1, 'unknown changes dropped');
           ov = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${sc.id}&regen=1`);
           const s0 = ov.scenarios[0];
-          assert.deepEqual([s0.periods[0].techs.DOD.capacity - ov.periods[0].techs.DOD.capacity, s0.periods[1].techs.DOD.capacity - ov.periods[1].techs.DOD.capacity], [0, 1000 * ov.periods[1].workdays * 3 * 6], 'from its month on');
+          assert.deepEqual([s0.periods[0].techs.DOD.capacity - ov.periods[0].techs.DOD.capacity, s0.periods[1].techs.DOD.capacity - ov.periods[1].techs.DOD.capacity], [0, 1000 * ov.periods[1].workdays * 3 * 8], 'from its month on');
           const wk = await call('GET', `/cpm/overview?year=${Y}&period=week&flex=0&regen=1`);
           assert.ok(wk.periods.length >= 52 && Math.abs(wk.periods.reduce((t, p) => t + p.techs.DOD.need, 0) - ov.periods.reduce((t, p) => t + p.techs.DOD.need, 0)) < 1, 'by week: the same year, spread over its working days');
           const base0Techs = (o) => o.techs.length;
@@ -2483,7 +2483,7 @@ async function waitForServer() {
           const rj = ovR2.scenarios[0].periods[0].techs.DOD;
           assert.deepEqual([Math.round(rj.need), Math.round(rj.unplaced)], [1000 + 1400, 1400], 'restricted to KBC: Amex\'s DOD work can\'t be placed');
           assert.ok(rj.util > 1 && rj.gap < -1399, 'work that can\'t be placed shows as over');
-          const full = 1000 * ovR2.periods[0].workdays * 3 * 6;
+          const full = 1000 * ovR2.periods[0].workdays * 3 * 8;
           assert.deepEqual([Math.round(rj.capacity), Math.round(rj.reserved)], [1000, full - 1000], 'a machine kept for KBC: its capacity is KBC\'s work; the rest is idle, not capacity');
           assert.equal(ovR2.periods[0].techs.DOD.unplaced, undefined, 'the base plan (no restrictions) is worked out as before');
           assert.equal((await call('GET', '/cpm/card-values?field=material')).linked, false);
