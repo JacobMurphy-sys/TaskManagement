@@ -385,6 +385,7 @@ async function cpmDay(body, settings = false) {
       ${X.backlog.some((v) => v > 0.5) ? `<polyline fill="none" class="cpm-backlog" points="${X.backlog.map((v, i) => `${x(i)},${y(v)}`).join(' ')}"/>` : ''}
       ${X.act ? X.act.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="4" class="cpm-actdot"><title>${esc(`${t} ${hl(H[i])}: ${cpmN(v)} cards really persoed on an average working day (${d.actual.which})`)}</title></circle>`).join('') : ''}
       ${H.map((h, i) => `<text x="${x(i)}" y="${Hh - 9}" text-anchor="middle" class="cpm-ax">${String(h).padStart(2, '0')}</text>`).join('')}
+      ${H.map((h, i) => `<rect x="${L + i * slot}" y="${T0}" width="${slot}" height="${Hh - T0}" class="cpmdr-hit" data-drill-i="${i}" data-drill-t="${esc(t)}"><title>${esc(`${hl(h)} — click to see who feeds it`)}</title></rect>`).join('')}
     </svg>`;
   };
   // a technology's hours, with the day in the last column: summed, or (tot) the load / what's left / the difference for the day
@@ -411,7 +412,7 @@ async function cpmDay(body, settings = false) {
     ${rowsShown.map((r) => `<tr class="${r.late_cards > 0.5 ? 'cpm-g-late' : ''}"><td class="cpm-g-name" title="${esc(r.name)}"><b>${esc(r.trigram || '—')}</b> <span class="muted">${esc(r.name)}</span></td><td style="color:${cpmTc(r.tech)}"><b>${esc(r.tech)}</b></td><td class="num">${cpmK(r.month_volume)}</td>
       <td class="num"><input type="number" min="0" max="100" step="1" class="cpm-rnw-in" data-tri="${esc(r.trigram)}" data-tech="${esc(r.tech)}" value="${r.rnw_typed !== null && r.rnw_typed !== undefined ? Math.round(r.rnw_typed * 100) : ''}" placeholder="${r.rnw_learned !== null ? Math.round(r.rnw_learned * 100) : '0'}" ${r.trigram ? '' : 'disabled title="Link this forecast name to a customer first"'}></td>
       <td class="num">${cpmPct(r.oee)}</td><td class="num" ${r.peak ? `title="${esc(`Worst case: × ${r.peak.factor.toFixed(2)} — ${r.peak.own ? 'its' : 'everyone\'s'} busiest day lately (${r.peak.day}, ${cpmN(r.peak.peak)} cards) ÷ the average day (${cpmN(r.peak.avg)})`)}"` : ''}>${cpmK(r.need_daily)}${r.peak && r.peak.factor > 1.005 ? ` <span class="small pl-warn">×${r.peak.factor.toFixed(1)}</span>` : ''}</td><td class="num">${r.need_rnw ? cpmK(r.need_rnw) : ''}</td><td class="num">${d.blocks?.sizes?.[`${r.trigram || r.name}|${r.tech}`] ? cpmK(d.blocks.sizes[`${r.trigram || r.name}|${r.tech}`]) : '—'}</td><td class="num" title="${esc({ manual: 'set by hand in ⏰ Run periods', 'manual-default': 'set by hand in ⏰ Run periods (everyone else)', 'arrivals-own': `its own work orders' arrival${r.arrive_seen ? ` (${r.arrive_seen} timed)` : ''}`, 'arrivals-technology': `not enough of its own orders timed — all ${r.tech} arrivals`, own: 'when its cards were produced', technology: `when ${r.tech} cards were produced`, even: 'no data — spread evenly' }[r.profile] || '')}">${r.arrive_avg === null || r.arrive_avg === undefined ? '—' : `${String(Math.floor(r.arrive_avg)).padStart(2, '0')}:${String(Math.floor((r.arrive_avg % 1) * 60)).padStart(2, '0')}`}<span class="muted small">${r.profile === 'manual' || r.profile === 'manual-default' ? ' · manual' : r.profile === 'arrivals-own' ? (r.arrive_seen ? ` · ${r.arrive_seen}` : '') : r.profile === 'arrivals-technology' ? ' · tech' : r.profile === 'even' ? '' : ' · prod.'}</span></td><td class="num">${r.trigram ? `<input type="time" class="cpm-cut-in ${r.cutoff_typed ? 'cpm-manual' : r.cutoff_default ? 'cpm-cut-def' : ''}" data-tri="${esc(r.trigram)}" value="${esc(r.cutoff_typed || hhmm(r.cutoff_learned) || d.cutoff_default)}" title="${r.cutoff_typed ? `Set here — ${r.cutoff_learned === null ? `none learned, the default is ${d.cutoff_default}` : `learned: ${hhmm(r.cutoff_learned)}`} (clear to go back)` : r.cutoff_default ? `None registered — the default shipment time (${d.cutoff_default}, set in 🚚 Shipment times); type a time to set its own` : 'Learned from its work orders — type a time to set it'}">` : hhmm(r.cutoff) || '—'}</td><td class="num" style="white-space:nowrap">${r.late_cards > 0.5 ? `<b class="pl-late" title="${esc(`${cpmN(r.late_cards)} cards (${cpmPct(r.late_cards / (r.daily || 1))} of its daily work) done after ${hhmm(r.cutoff) || 'its cut-off'}`)}">⚠ ${cpmK(r.late_cards)}</b>` : ''}</td>
-      ${hrs(r).map((v, i) => `<td class="cpm-heat" style="--a:${Math.min(1, v / top).toFixed(3)};--c:${cpmTc(r.tech)}" title="${esc(`${r.trigram || r.name} ${r.tech} ${hl(H[i])}: ${cpmN(v)} (${cpmPct(r.shares[i])} of its day — ${{ manual: 'its run periods, set by hand', 'manual-default': 'the run periods set for everyone else', 'arrivals-own': 'when its work orders arrive', 'arrivals-technology': `when ${r.tech} work orders arrive`, own: 'its own runs', technology: `all ${r.tech} runs` }[r.profile] || 'spread evenly'})`)}">${v >= 0.5 && v / top > 0.08 ? esc(cpmK(v)) : ''}</td>`).join('')}</tr>`).join('')}
+      ${hrs(r).map((v, i) => `<td class="cpm-heat" data-drill-i="${i}" data-drill-t="${esc(r.tech)}" data-drill-c="${esc(r.trigram || r.name)}" style="--a:${Math.min(1, v / top).toFixed(3)};--c:${cpmTc(r.tech)}" title="${esc(`${r.trigram || r.name} ${r.tech} ${hl(H[i])}: ${cpmN(v)} (${cpmPct(r.shares[i])} of its day — ${{ manual: 'its run periods, set by hand', 'manual-default': 'the run periods set for everyone else', 'arrivals-own': 'when its work orders arrive', 'arrivals-technology': `when ${r.tech} work orders arrive`, own: 'its own runs', technology: `all ${r.tech} runs` }[r.profile] || 'spread evenly'})`)}">${v >= 0.5 && v / top > 0.08 ? esc(cpmK(v)) : ''}</td>`).join('')}</tr>`).join('')}
     </tbody><tfoot>${[...T.filter((t) => d.rows.some((r) => r.tech === t)).map((t) => [t, d.rows.filter((r) => r.tech === t)]), ...(T.filter((t) => d.rows.some((r) => r.tech === t)).length > 1 ? [['', d.rows]] : [])].map(([t, rs]) => {
       const sum = (f) => rs.reduce((a, r) => a + (f(r) || 0), 0); const month = sum((r) => r.month_volume); const rnwM = sum((r) => r.month_volume * r.rnw_pct);
       const cardsDay = sum((r) => r.daily); const needDay = sum((r) => r.need_daily); const hs = H.map((_, i) => sum((r) => hrs(r)[i]));
@@ -499,7 +500,7 @@ async function cpmDay(body, settings = false) {
     ${techsCard()}
     <div class="card" id="cpm-cmp"><h3 class="pl-h">⚖ Typical day · worst case · all days averaged <span class="muted small">— the same day with each way of learning when the work comes in: a typical day (each day's clump, at its usual time), the worst case (each customer's busiest day lately — its peak ÷ average day applied to the forecast — the most clumped day seen, at its usual time) and all days averaged (wide). Customers whose run periods are set by hand are the same in all three.</span></h3><p class="small muted">Working it out…</p></div>
     <div class="small muted cpm-set-link">🔁 Renewal windows, ⏰ run periods and 🚚 shipment times are set in <a href="#/cpm/dayset">🛠 Configuration › 🕐 Day by hour</a>.</div>
-    <div class="card"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h3 class="pl-h" style="margin:0">👥 Customers hour by hour <span class="muted small">— ${view === 'cards' ? 'cards' : 'capacity needed (÷ OEE)'} per hour of daily work; renewals go in their windows (set in 🛠 Configuration)</span></h3><a class="button small" href="/api/cpm/day/customers.xlsx?${q}&view=${view}" download title="This table as an Excel workbook: every customer and technology (not only those shown), its hours as shown here, and the totals">⬇ Excel</a></div>${gantt}</div>`;
+    <div class="card"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h3 class="pl-h" style="margin:0">👥 Customers hour by hour <span class="muted small">— ${view === 'cards' ? 'cards' : 'capacity needed (÷ OEE)'} per hour of daily work; renewals go in their windows (set in 🛠 Configuration)</span></h3><span class="row" style="gap:6px"><button type="button" class="small primary" data-cpm-drill title="Open the day up: click an hour to see who and what feeds it, a customer for its day">🔎 Drill down</button><a class="button small" href="/api/cpm/day/customers.xlsx?${q}&view=${view}" download title="This table as an Excel workbook: every customer and technology (not only those shown), its hours as shown here, and the totals">⬇ Excel</a></span></div>${gantt}</div>`;
   $('#cpm-day-month').onchange = (e) => { store.set('cpmDayMonth', Number(e.target.value)); renderCpm('day'); };
   $('#cpm-day-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('day'); };
   $('#cpm-day-sc').onchange = (e) => { store.set('cpmDayScenario', Number(e.target.value)); renderCpm('day'); };
@@ -533,6 +534,12 @@ async function cpmDay(body, settings = false) {
   wireSub();
   $('#cpm-day-shape').onchange = async (e) => { try { await api.put('/cpm/settings', { cpm_day_shape: e.target.value }); renderCpm('day'); } catch (err) { toast(err.message, 'error'); } };
   $('#cpm-day-prof').onchange = async (e) => { try { await api.put('/cpm/settings', { cpm_day_profile: e.target.value }); renderCpm('day'); } catch (err) { toast(err.message, 'error'); } };
+  // 🔎 the drill-down: from the button, an hour cell of the table or an hour of a technology's chart
+  body.onclick = (e) => {
+    if (e.target.closest('[data-cpm-drill]')) { cpmDrill(d, { view, tech: techSel() }); return; }
+    const h = e.target.closest('[data-drill-i]'); if (!h) return;
+    cpmDrill(d, { view, tech: h.dataset.drillT, hour: Number(h.dataset.drillI), mark: h.dataset.drillC || null });
+  };
   const dayAll = $('#cpm-day-all'); if (dayAll) dayAll.onclick = () => { store.set('cpmDayAll', !store.get('cpmDayAll', false)); renderCpm('day'); };
   }
   // redraw the tab where it was (not back at the top)
@@ -591,6 +598,126 @@ async function cpmDay(body, settings = false) {
     if (!el.value || el.value === learned) delete o[el.dataset.tri]; else o[el.dataset.tri] = el.value;
     try { await api.put('/cpm/settings', { cpm_cutoff_cust: JSON.stringify(o) }); await redraw(); } catch (err) { toast(err.message, 'error'); } }; });
   $$('.cpm-rnw-in').forEach((el) => { el.onchange = async () => { try { await api.put('/cpm/day/renewals', { trigram: el.dataset.tri, tech: el.dataset.tech, share: el.value === '' ? null : Number(el.value) / 100 }); await redraw(); } catch (err) { toast(err.message, 'error'); } }; });
+}
+
+// ---- 🔎 Day by hour drill-down: who and what feeds each hour --------------------------------------------
+// A window over the day as it comes in (the Day by hour figures, before smoothing): the day by the hour →
+// an hour (who feeds it: each customer's daily work and renewals, the machines that give its capacity, what's
+// carried in from earlier hours) → a customer (its day by the hour). ← Back steps back through what was opened.
+let cpmDr = null;
+function cpmDrill(d, { view = 'need', tech = 'all', hour = null, cust = null, mark = null } = {}) {
+  cpmDr = { d, s: { view, tech: d.techs.includes(tech) ? tech : 'all', hour, cust, mark }, hist: [] };
+  openModal('<div id="cpmdr" class="cpmdr"></div>', { wide: true });
+  $('#cpmdr').addEventListener('click', cpmDrClick);
+  cpmDrDraw();
+}
+function cpmDrGo(change) { cpmDr.hist.push({ ...cpmDr.s }); Object.assign(cpmDr.s, change); cpmDrDraw(); }
+function cpmDrClick(e) {
+  const el = e.target.closest('[data-dr]'); if (!el) return;
+  const [k, v] = [el.dataset.dr, el.dataset.v];
+  if (k === 'back') { const p = cpmDr.hist.pop(); if (p) { cpmDr.s = p; cpmDrDraw(); } return; }
+  if (k === 'tech') { cpmDr.s.tech = v; cpmDrDraw(); return; }
+  if (k === 'view') { cpmDr.s.view = v; cpmDrDraw(); return; }
+  if (k === 'hour') { const i = Number(v); if (cpmDr.s.cust && cpmDr.s.hour === null) { cpmDrGo({ hour: i, cust: null, mark: cpmDr.s.cust }); return; } if (cpmDr.s.hour !== null && !cpmDr.s.cust) { cpmDr.s.hour = i; cpmDrDraw(); return; } cpmDrGo({ hour: i, cust: null, mark: cpmDr.s.cust || null }); return; }
+  if (k === 'step') { const n = cpmDr.d.hours.length; cpmDr.s.hour = (cpmDr.s.hour + Number(v) + n) % n; cpmDrDraw(); return; }
+  if (k === 'cust') { cpmDrGo({ cust: v, hour: null, mark: null }); return; }
+  if (k === 'day') { cpmDrGo({ hour: null, cust: null, mark: null }); }
+}
+function cpmDrDraw() {
+  const { d, s } = cpmDr; const H = d.hours; const cards = s.view === 'cards';
+  const techs = s.tech === 'all' ? d.techs : [s.tech];
+  const hl = (i) => `${String(H[i % H.length] ?? (H[0] + i) % 24).padStart(2, '0')}:00`;
+  const keyOf = (r) => r.trigram || r.name;
+  const nRnw = (t) => d.renewals[t]?.hours?.length || 0;
+  const inWin = (t, i) => (d.renewals[t]?.hours || []).includes(H[i]);
+  const dly = (r, i) => (cards ? r.cards_hours[i] : r.hours[i]) || 0;
+  const rnw = (r, i) => (inWin(r.tech, i) && nRnw(r.tech) ? (cards ? r.renew : r.need_rnw) / nRnw(r.tech) : 0);
+  const tot = (r, i) => dly(r, i) + rnw(r, i);
+  const dayOf = (r) => (cards ? r.daily + r.renew : r.need_daily + r.need_rnw);
+  const capOf = (t, i) => (cards ? d.tech[t].cards.capacity[i] : d.tech[t].capacity[i]) || 0;
+  const needOf = (t, i) => d.rows.filter((r) => r.tech === t).reduce((a, r) => a + tot(r, i), 0);
+  const carry = Object.fromEntries(techs.map((t) => { let c = 0; return [t, H.map((_, i) => { c = Math.max(0, c + needOf(t, i) - capOf(t, i)); return c; })]; }));
+  const unit = cards ? 'cards' : 'capacity needed (÷ OEE)';
+  const cutIdx = (r) => { if (r.cutoff === null || r.cutoff === undefined) return null; const i = H.indexOf(Math.floor(r.cutoff)); return i < 0 ? null : i + (r.cutoff % 1); };
+  const hhmm = (v) => (v === null || v === undefined ? '—' : `${String(Math.floor(v)).padStart(2, '0')}:${String(Math.round((v % 1) * 60)).padStart(2, '0')}`);
+  const FROM = { manual: 'run periods set by hand', 'manual-default': 'run periods set for everyone else', 'arrivals-own': 'when its work orders arrive', 'arrivals-technology': 'when the technology\'s work orders arrive', own: 'when its cards were produced', technology: 'when the technology\'s cards were produced', even: 'spread evenly (no data)' };
+  const bar = (p, col) => `<div class="pllx-share"><div class="pll-track"><div style="height:100%;width:${Math.max(0, Math.min(100, p * 100)).toFixed(1)}%;background:${col}"></div></div><span>${cpmPct(p)}</span></div>`;
+  const tile = (l, v, sub = '') => `<div class="kdb-tile"><div class="kdb-tile-l">${l}</div><div class="kdb-tile-v">${v}</div>${sub ? `<div class="kdb-tile-s">${sub}</div>` : ''}</div>`;
+  // the day by the hour as bars: a stack per series (daily solid, renewals lighter), capacity as a step line;
+  // each hour column clickable
+  const chart = (series, cap, sel, H0 = 210) => {
+    const W = 1000; const L = 46; const B = 22; const T0 = 10; const n = H.length; const slot = (W - L - 6) / n; const bw = slot * 0.7;
+    const stack = H.map((_, i) => series.reduce((a, x) => a + (x.vals[i] || 0), 0));
+    const { max, ticks } = cpmScale(Math.max(1, ...stack, ...(cap || [])) * 1.08); const y = (v) => T0 + (H0 - T0 - B) * (1 - v / max);
+    const bars = H.map((_, i) => { let base = 0; return series.map((x) => { const v = x.vals[i] || 0; if (v <= 0) return ''; const r = `<rect x="${L + i * slot + (slot - bw) / 2}" y="${y(base + v)}" width="${bw}" height="${Math.max(0, y(base) - y(base + v))}" style="fill:${x.color};opacity:${x.light ? 0.45 : 0.9}"/>`; base += v; return r; }).join(''); }).join('');
+    const step = cap ? cap.map((c, i) => `${i ? 'L' : 'M'}${L + i * slot},${y(c)} L${L + (i + 1) * slot},${y(c)}`).join(' ') : '';
+    return `<svg class="cpm-chart cpmdr-chart" viewBox="0 0 ${W} ${H0}" preserveAspectRatio="xMinYMin meet">
+      ${ticks.map((v) => `<line x1="${L}" x2="${W - 4}" y1="${y(v)}" y2="${y(v)}" class="cpm-grid"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="cpm-ax">${cpmAxis(v)}</text>`).join('')}
+      ${H.map((_, i) => (d.worked[i] ? '' : `<rect x="${L + i * slot}" y="${T0}" width="${slot}" height="${H0 - T0 - B}" class="cpm-off"/>`)).join('')}
+      ${sel !== null && sel !== undefined ? `<rect x="${L + sel * slot}" y="${T0}" width="${slot}" height="${H0 - T0 - B}" class="cpmdr-sel"/>` : ''}
+      ${bars}${cap ? `<path d="${step}" fill="none" class="cpm-capstep"/>` : ''}
+      ${H.map((h, i) => `<text x="${L + (i + 0.5) * slot}" y="${H0 - 6}" text-anchor="middle" class="cpm-ax">${String(h).padStart(2, '0')}</text>`).join('')}
+      ${H.map((_, i) => `<rect x="${L + i * slot}" y="${T0}" width="${slot}" height="${H0 - T0}" class="cpmdr-hit" data-dr="hour" data-v="${i}"><title>${esc(`${hl(i)} — ${cpmN(Math.round(stack[i]))}${cap ? ` of ${cpmN(Math.round(cap[i]))} (${cap[i] ? cpmPct(stack[i] / cap[i]) : '—'})` : ''} · click to see who feeds it`)}</title></rect>`).join('')}
+    </svg>`;
+  };
+  const techSeries = (fn) => techs.flatMap((t) => [{ color: cpmTc(t), vals: H.map((_, i) => fn(t, i, 'daily')) }, { color: cpmTc(t), light: true, vals: H.map((_, i) => fn(t, i, 'rnw')) }]);
+  const part = (t, i, k) => d.rows.filter((r) => r.tech === t).reduce((a, r) => a + (k === 'daily' ? dly(r, i) : rnw(r, i)), 0);
+  const capSum = H.map((_, i) => techs.reduce((a, t) => a + capOf(t, i), 0));
+  const legend = `<div class="cpm-legend">${techs.map((t) => `<span><i class="sw" style="background:${cpmTc(t)}"></i>${esc(t)} daily</span><span><i class="sw" style="background:${cpmTc(t)};opacity:.45"></i>renewals</span>`).join('')}<span><i class="ln"></i>capacity</span><span><i class="sw cpm-sw-off"></i>not worked</span></div>`;
+  let title; let html;
+  if (s.cust) {
+    // a customer: its lines, its day by the hour
+    const rs = d.rows.filter((r) => keyOf(r) === s.cust); const r0 = rs[0] || {};
+    title = `${esc(s.cust)} <span class="muted">${esc(r0.name && r0.name !== s.cust ? r0.name : '')}</span>`;
+    const dayT = rs.reduce((a, r) => a + dayOf(r), 0);
+    const late = rs.reduce((a, r) => a + (r.late_cards || 0), 0);
+    const ser = rs.flatMap((r) => [{ color: cpmTc(r.tech), vals: H.map((_, i) => dly(r, i)) }, { color: cpmTc(r.tech), light: true, vals: H.map((_, i) => rnw(r, i)) }]);
+    html = `<div class="kdb-tiles pl-tiles">${tile('Month', cpmK(rs.reduce((a, r) => a + r.month_volume, 0)), 'cards forecast')}${tile('A day', cpmK(dayT), unit)}${tile('Technologies', rs.map((r) => `<span style="color:${cpmTc(r.tech)}">${esc(r.tech)}</span>`).join(' · ') || '—')}
+        ${tile('Timing', esc(FROM[r0.profile] || '—'), r0.arrive_avg !== null && r0.arrive_avg !== undefined ? `comes in around ${hhmm(r0.arrive_avg)}` : '')}${tile('Cut-off', hhmm(r0.cutoff), r0.cutoff_typed ? 'set by hand' : r0.cutoff_default ? 'the default' : 'learned')}${tile('After its cut-off', late > 0.5 ? `<span class="pl-late">${cpmK(late)}</span>` : '<span class="pl-ok">none</span>', 'cards a day, worked in the order it comes in')}</div>
+      <h4 class="cpmdr-h">Its day by the hour <span class="muted small">— click an hour to see everyone feeding it</span></h4>
+      <div class="cpm-legend">${rs.map((r) => `<span><i class="sw" style="background:${cpmTc(r.tech)}"></i>${esc(r.tech)} daily</span><span><i class="sw" style="background:${cpmTc(r.tech)};opacity:.45"></i>renewals</span>`).join('')}</div>${chart(ser, null, null)}
+      <div class="kdb-scroll"><table class="log small cpmdr-t"><thead><tr><th>Hour</th>${rs.map((r) => `<th class="num" style="color:${cpmTc(r.tech)}">${esc(r.tech)} daily</th><th class="num" style="color:${cpmTc(r.tech)}">${esc(r.tech)} renewals</th>`).join('')}<th class="num">Total</th><th>Of its day</th><th class="num" title="Its part of everything its technologies need in that hour">Of the hour</th></tr></thead><tbody>
+      ${H.map((_, i) => { const t = rs.reduce((a, r) => a + tot(r, i), 0); if (t < 0.05) return ''; const all = rs.reduce((a, r) => a + needOf(r.tech, i), 0);
+        const past = rs.some((r) => cutIdx(r) !== null && i >= cutIdx(r));
+        return `<tr class="cpmdr-row" data-dr="hour" data-v="${i}"><th>${hl(i)}${past ? ' <span class="pl-late small" title="After its cut-off">⚠</span>' : ''}</th>${rs.map((r) => `<td class="num">${cpmK(dly(r, i))}</td><td class="num">${rnw(r, i) ? cpmK(rnw(r, i)) : ''}</td>`).join('')}<td class="num"><b>${cpmK(t)}</b></td><td>${bar(dayT ? t / dayT : 0, cpmTc(r0.tech))}</td><td class="num">${all ? cpmPct(t / all) : '—'}</td></tr>`; }).join('')}</tbody></table></div>`;
+  } else if (s.hour !== null) {
+    // an hour: who feeds it, and what gives its capacity
+    const i = s.hour; title = `${hl(i)}–${hl(i + 1)} <span class="muted small">${d.worked[i] ? '' : '(not worked)'}</span>`;
+    const rs = d.rows.filter((r) => techs.includes(r.tech) && tot(r, i) > 0.05).sort((a, b) => tot(b, i) - tot(a, i));
+    const need = techs.reduce((a, t) => a + needOf(t, i), 0); const cap = capSum[i]; const daily = rs.reduce((a, r) => a + dly(r, i), 0); const rn = Math.max(0, need - daily);
+    const cin = techs.reduce((a, t) => a + (i ? carry[t][i - 1] : 0), 0); const after = rs.filter((r) => cutIdx(r) !== null && i >= cutIdx(r));
+    const machines = techs.flatMap((t) => (d.capacity_by_machine?.[t] || []).map((m) => ({ t, name: m.name, v: (d.tech[t].capacity[i] ? m.per[i] * (capOf(t, i) / d.tech[t].capacity[i]) : 0) })).filter((m) => m.v > 0.5)).sort((a, b) => b.v - a.v);
+    html = `<div class="row" style="gap:6px;margin-bottom:6px"><button type="button" class="small" data-dr="step" data-v="-1">‹ ${hl(i - 1 + H.length)}</button><button type="button" class="small" data-dr="step" data-v="1">${hl(i + 1)} ›</button></div>
+      <div class="kdb-tiles pl-tiles">${tile('Needed', cpmK(need), unit)}${tile('Capacity', cpmK(cap), machines.length ? `${machines.length} machine${machines.length === 1 ? '' : 's'}` : 'no machines')}${tile('Load', cap ? `<span class="${need > cap + 0.5 ? 'pl-late' : 'pl-ok'}">${cpmPct(need / cap)}</span>` : need ? '<span class="pl-late">no capacity</span>' : '—')}
+        ${tile('Daily · renewals', `${cpmK(daily)} · ${cpmK(rn)}`, need ? `${cpmPct(daily / need)} daily` : '')}${tile('Carried in', cin > 0.5 ? `<span class="pl-late">${cpmK(cin)}</span>` : '0', 'left over from earlier hours')}${tile('Customers', rs.length, after.length ? `<span class="pl-late">${after.length} after their cut-off</span>` : 'all before their cut-off')}</div>
+      <h4 class="cpmdr-h">The day <span class="muted small">— click another hour</span></h4>${legend}${chart(techSeries(part), capSum, i, 170)}
+      <h4 class="cpmdr-h">Who feeds ${hl(i)} <span class="muted small">— click a customer for its whole day</span></h4>
+      <div class="kdb-scroll"><table class="log small cpmdr-t"><thead><tr><th>Customer</th><th>Tech</th><th class="num">Daily</th><th class="num">Renewals</th><th class="num">Total</th><th>Of the hour</th><th class="num" title="Of its whole day, the part that lands in this hour">Of its day</th><th>Timing from</th><th class="num">Cut-off</th></tr></thead><tbody>
+      ${rs.map((r) => { const t = tot(r, i); const late = cutIdx(r) !== null && i >= cutIdx(r);
+        return `<tr class="cpmdr-row ${s.mark === keyOf(r) ? 'cpmdr-mark' : ''}" data-dr="cust" data-v="${esc(keyOf(r))}"><td><b>${esc(r.trigram || '—')}</b> <span class="muted">${esc(r.name || '')}</span></td><td style="color:${cpmTc(r.tech)}"><b>${esc(r.tech)}</b></td><td class="num">${cpmK(dly(r, i))}</td><td class="num">${rnw(r, i) ? cpmK(rnw(r, i)) : ''}</td><td class="num"><b>${cpmK(t)}</b></td>
+          <td>${bar(need ? t / need : 0, cpmTc(r.tech))}</td><td class="num">${dayOf(r) ? cpmPct(t / dayOf(r)) : '—'}</td><td class="small">${esc(FROM[r.profile] || '—')}</td><td class="num ${late ? 'pl-late' : ''}" title="${late ? 'This hour is after its cut-off: what lands here ships a day late unless done earlier' : ''}">${hhmm(r.cutoff)}${late ? ' ⚠' : ''}</td></tr>`; }).join('') || '<tr><td colspan="9" class="muted">Nothing lands in this hour.</td></tr>'}</tbody></table></div>
+      ${rn > 0.5 ? `<p class="small muted">Renewals are each technology's Low priority work, spread evenly over its renewal window (${techs.filter((t) => nRnw(t)).map((t) => `${esc(t)}: ${d.renewals[t].window ? `${nRnw(t)} h set` : 'every hour worked'}`).join(' · ')}).</p>` : ''}
+      ${machines.length ? `<h4 class="cpmdr-h">What gives the capacity</h4><div class="kdb-scroll"><table class="log small cpmdr-t"><thead><tr><th>Machine</th><th>Tech</th><th class="num">In this hour</th><th>Of the capacity</th></tr></thead><tbody>${machines.map((m) => `<tr><td>${esc(m.name)}</td><td style="color:${cpmTc(m.t)}">${esc(m.t)}</td><td class="num">${cpmK(m.v)}</td><td>${bar(cap ? m.v / cap : 0, cpmTc(m.t))}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
+  } else {
+    // the day: by the hour, and the customers over it
+    title = 'The day by the hour';
+    const by = new Map(); for (const r of d.rows.filter((x) => techs.includes(x.tech))) { const k = keyOf(r); const x = by.get(k) || by.set(k, { k, name: r.name, rs: [] }).get(k); x.rs.push(r); }
+    const list = [...by.values()].map((x) => ({ ...x, day: x.rs.reduce((a, r) => a + dayOf(r), 0), per: H.map((_, i) => x.rs.reduce((a, r) => a + tot(r, i), 0)), late: x.rs.reduce((a, r) => a + (r.late_cards || 0), 0) })).sort((a, b) => b.day - a.day);
+    const all = list.reduce((a, x) => a + x.day, 0); const need = H.map((_, i) => techs.reduce((a, t) => a + needOf(t, i), 0));
+    const pk = need.indexOf(Math.max(...need)); const over = need.filter((v, i) => v > capSum[i] + 0.5).length;
+    html = `<div class="kdb-tiles pl-tiles">${tile('A day', cpmK(all), unit)}${tile('Capacity', cpmK(capSum.reduce((a, b) => a + b, 0)), 'over the day')}${tile('Busiest hour', need[pk] ? hl(pk) : '—', need[pk] ? `${cpmK(need[pk])}${capSum[pk] ? ` · ${cpmPct(need[pk] / capSum[pk])}` : ''}` : '')}${tile('Hours over capacity', over ? `<span class="pl-late">${over}</span>` : '<span class="pl-ok">0</span>')}${tile('Customers', list.length)}</div>
+      <h4 class="cpmdr-h">Click an hour to see who feeds it</h4>${legend}${chart(techSeries(part), capSum, null)}
+      <h4 class="cpmdr-h">Customers over the day <span class="muted small">— click one for its day</span></h4>
+      <div class="kdb-scroll"><table class="log small cpmdr-t"><thead><tr><th>Customer</th><th>Tech</th><th class="num">A day</th><th>Of the day</th><th class="num">Busiest hour</th><th class="num">Cut-off</th><th class="num">After its cut-off</th></tr></thead><tbody>
+      ${list.map((x) => { const p = x.per.indexOf(Math.max(...x.per)); return `<tr class="cpmdr-row" data-dr="cust" data-v="${esc(x.k)}"><td><b>${esc(x.k)}</b> <span class="muted">${esc(x.name && x.name !== x.k ? x.name : '')}</span></td><td>${x.rs.map((r) => `<b style="color:${cpmTc(r.tech)}">${esc(r.tech)}</b>`).join(' ')}</td><td class="num"><b>${cpmK(x.day)}</b></td><td>${bar(all ? x.day / all : 0, cpmTc(x.rs[0].tech))}</td><td class="num">${x.per[p] > 0.05 ? `${hl(p)} <span class="muted">${cpmK(x.per[p])}</span>` : '—'}</td><td class="num">${hhmm(x.rs[0].cutoff)}</td><td class="num">${x.late > 0.5 ? `<b class="pl-late">${cpmK(x.late)}</b>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
+  }
+  const crumbs = [`<button type="button" class="link small" data-dr="day">${esc(d.label)}</button>`, ...(s.hour !== null ? [`<b>${hl(s.hour)}</b>`] : []), ...(s.cust ? [`<b>${esc(s.cust)}</b>`] : [])].join(' › ');
+  $('#cpmdr').innerHTML = `
+    <div class="modal-head"><h2 style="margin:0">${cpmDr.hist.length ? '<button type="button" class="small" data-dr="back">← Back</button> ' : ''}🔎 ${title}</h2></div>
+    <div class="row small" style="gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 10px"><span class="muted">${crumbs}${d.scenario ? ` · scenario <b>${esc(d.scenario.name)}</b>` : ''} · the day as it comes in</span><div class="spacer"></div>
+      ${s.cust ? '' : `<div class="seg cpm-mini">${[['all', 'All'], ...d.techs.map((t) => [t, t])].map(([k, l]) => `<button type="button" data-dr="tech" data-v="${esc(k)}" class="${s.tech === k ? 'on' : ''}">${k === 'all' ? '' : CPM_TECH_ICON[k] || ''} ${esc(l)}</button>`).join('')}</div>`}
+      <div class="seg cpm-mini"><button type="button" data-dr="view" data-v="cards" class="${cards ? 'on' : ''}">Cards</button><button type="button" data-dr="view" data-v="need" class="${cards ? '' : 'on'}">Capacity needed (÷ OEE)</button></div></div>
+    ${html}`;
 }
 
 async function cpmFlex(body) {
