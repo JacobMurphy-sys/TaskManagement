@@ -2538,6 +2538,29 @@ async function waitForServer() {
           const kd2 = dy.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD'); const at12 = dy.hours.indexOf(12);
           assert.ok(Math.abs(kd2.need_rnw - (kd2.month_volume * 0.25) / dy.workdays / 0.55) < 0.01 && Math.abs(kd2.need_daily - (kd2.month_volume * 0.75) / dy.workdays / 0.5) < 0.01, 'renewals a quarter, at the OEE + 5 points');
           assert.ok(Math.abs(dy.tech.DOD.renewals[at12] - dy.renewals.DOD.need / 2) < 0.01 && dy.tech.DOD.renewals[dy.hours.indexOf(14)] === 0, 'renewals in their window only');
+          // 📦 a scenario's flat volume: its cards spread over the working days of its months, on the customer's split — kept apart as added
+          { const scF = await call('POST', '/cpm/scenarios', { name: 'KBC flat', changes: [{ type: 'volume', customer: 'KBC', flat: 30000, from: `${Y}-02`, to: `${Y}-03` }] });
+            const ovF = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${scF.id}&live=1`); const sF = ovF.scenarios[0];
+            const addedCards = sF.periods.reduce((a, p) => a + Object.values(p.techs).reduce((b, x) => b + (x.added || 0), 0), 0);
+            assert.ok(Math.abs(addedCards - 30000) < 0.5, `the flat cards all added, once (${addedCards})`);
+            assert.ok(sF.periods[0].techs.DOD.added === 0 && sF.periods[1].techs.DOD.added > 0 && sF.periods[2].techs.DOD.added > 0 && sF.periods[3].techs.DOD.added === 0, 'only in its months');
+            const feb = sF.periods[1]; const mar = sF.periods[2]; const fa = Object.values(feb.techs).reduce((b, x) => b + x.added, 0); const ma = Object.values(mar.techs).reduce((b, x) => b + x.added, 0);
+            assert.ok(Math.abs(fa / ma - feb.workdays / mar.workdays) < 1e-6, 'spread by working days');
+            const dF = await call('GET', `/cpm/day?year=${Y}&month=2&flex=0&scenario=${scF.id}&regen=1`);
+            const kAdd = dF.rows.filter((r) => r.trigram === 'KBC' && r.added === 'scenario');
+            assert.ok(kAdd.length && Math.abs(kAdd.reduce((a2, r) => a2 + r.month_volume, 0) - fa) < 0.5, 'on the day: a line of its own for what the scenario adds');
+            assert.ok(Math.abs(dF.tech.DOD.added.reduce((a2, b) => a2 + b, 0) - dF.rows.filter((r) => r.tech === 'DOD' && r.added).reduce((a2, r) => a2 + r.need_daily, 0)) < 0.01, 'and drawn apart');
+            await call('DELETE', `/cpm/scenarios/${scF.id}`); }
+          // 📣 a campaign: a customer's cards over some days, on its split, a line of its own; off: not counted
+          { await call('PUT', '/cpm/settings', { cpm_campaigns: JSON.stringify([{ name: 'Reissue', customer: 'KBC', qty: 21000, from: `${Y}-01-01`, to: `${Y}-01-31` }, { name: 'Paused', customer: 'KBC', qty: 99999, from: `${Y}-01-01`, to: `${Y}-01-31`, off: true }]) });
+            const dC = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`);
+            const cr = dC.rows.filter((r) => r.added === 'campaign');
+            assert.ok(cr.length && cr.every((r) => r.campaign === 'Reissue'), 'the campaign that\'s on');
+            assert.ok(Math.abs(cr.reduce((a2, r) => a2 + r.daily, 0) - 21000 / dC.workdays) < 0.01, 'its cards a working day, on the customer\'s split');
+            const baseK = dC.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD' && !r.added); const cK = cr.find((r) => r.tech === 'DOD');
+            assert.ok(cK && cK.shares.every((v, i) => Math.abs(v - baseK.shares[i]) < 1e-9), 'timed as the customer\'s own day');
+            assert.equal((await call('GET', `/cpm/day?year=${Y}&month=2&flex=0&regen=1`)).rows.filter((r) => r.added === 'campaign').length, 0, 'not in a month it doesn\'t touch');
+            await call('PUT', '/cpm/settings', { cpm_campaigns: '[]' }); await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`); }
           const dx = await fetch(`${BASE}/cpm/day/export?year=${Y}&month=1&flex=0`, { headers: { 'X-Requested-With': 'TaskManager' } });
           assert.equal(dx.status, 200);
           assert.deepEqual(require('../src/xlsxread').readBook(Buffer.from(await dx.arrayBuffer())).sheets.map((x) => x.name), [`Day January ${Y}`, 'Hour profile', 'Charts']);

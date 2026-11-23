@@ -450,7 +450,7 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
     if (c.type === 'add_machine' && !(c.techs || []).map(normTech).filter(Boolean).length) warnings.push(`${c.name || 'The machine added'} runs no technology — tick what it runs, or it adds nothing`);
     if (c.type === 'capabilities' && c.machine && !(c.techs || []).map(normTech).filter(Boolean).length) warnings.push(`${c.machine} is set to run nothing${when(c)} — the same as removing it`);
     if (c.type === 'new_customer') { const sp = Object.values(c.split || {}).reduce((a, b) => a + (Number(b) || 0), 0); if (c.split && Object.keys(c.split).length && Math.abs(sp - 1) > 0.005) warnings.push(`${c.name || 'The new customer'}'s split adds up to ${Math.round(sp * 100)}% — it's taken as shares of 100%`); if (!(Number(c.qty) > 0)) warnings.push(`${c.name || 'The new customer'} has no cards a month — it adds nothing`); }
-    if ((c.type === 'oee' && !Number(c.points)) || ((c.type === 'volume' || c.type === 'speed') && !Number(c.pct))) warnings.push(`A ${c.type} change of 0 — it does nothing`);
+    if ((c.type === 'oee' && !Number(c.points)) || ((c.type === 'volume' || c.type === 'speed') && !Number(c.pct) && !Number(c.flat))) warnings.push(`A ${c.type} change of 0 — it does nothing`);
     if (c.type === 'rnw_window') warnings.push(`The ${c.tech || ''} renewal window only changes 🕐 Day by hour — not the month or week figures`.replace('The  ', 'The '));
   }
   // CPM's own per-machine settings: availability (share of its hours for perso) and speed per technology
@@ -483,6 +483,13 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
     for (const t of m.techs) x[t] = (x[t] || 0) + ((Number(o.speed?.[t]) || sp[t] || 0) * a) / m.techs.length; }
     const tot = Object.values(x).reduce((p, q) => p + q, 0); return tot ? Object.fromEntries(Object.entries(x).map(([t, q]) => [t, q / tot])) : null; })();
   const extra = changes.filter((c) => c.type === 'new_customer');
+  // a customer volume change with a flat number of cards: spread over the working days of its months (from … until;
+  // no until: its from month only; no from: the year)
+  const flats = changes.filter((c) => c.type === 'volume' && Number(c.flat));
+  for (const c of flats) if (!c.customer) warnings.push('A flat volume needs a customer — it does nothing');
+  const flatSpan = (c) => { const a = c.from || ym(year, 1); const b = c.to || (c.from ? c.from : ym(year, 12)); return a <= b ? [a, b] : [b, a]; };
+  const calCache = new Map(); const workdaysIn = (mon) => { const y = Number(mon.slice(0, 4)); if (!calCache.has(y)) { const w = {}; for (const d of calendarOf(y)) if (d.work) w[d.month] = (w[d.month] || 0) + 1; calCache.set(y, w); } return calCache.get(y)[mon] || 0; };
+  const flatDays = (c) => { const [a, b] = flatSpan(c); let n = 0; for (let y = Number(a.slice(0, 4)), mm = Number(a.slice(5)); `${y}-${pad(mm)}` <= b; mm === 12 ? (y++, mm = 1) : mm++) n += workdaysIn(`${y}-${pad(mm)}`); return n; };
   // machines that may only run some customers / cards: their fields' mix per customer, learned from what ran
   const restricts = changes.filter((c) => c.type === 'restrict' && c.machine);
   const fcTris = new Set([...fc.by.keys()].map((k) => k.split('|')[0]));
@@ -491,15 +498,16 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
   const mixOf = rFields.length ? cardMix(cards, rFields) : new Map();
   if (rFields.length && !cards) warnings.push('A machine is restricted to some cards, but the card database isn\'t linked — its cards can\'t be told apart, so it gets none of that work');
   for (let m = 1; m <= 12; m++) {
-    const month = ym(year, m); const md = monthDemand[month] = Object.fromEntries(TECHS.map((t) => [t, { fc: 0, demand: 0, need: 0, buckets: new Map() }]));
-    const add = (tri, qty, split, oeeOf, name = tri, raw = qty) => {
+    const month = ym(year, m); const md = monthDemand[month] = Object.fromEntries(TECHS.map((t) => [t, { fc: 0, demand: 0, need: 0, added: 0, added_need: 0, buckets: new Map() }]));
+    const add = (tri, qty, split, oeeOf, name = tri, raw = qty, extra = 0) => {
       for (const [t0, share] of Object.entries(split)) { const t = normTech(t0); if (!md[t] || !share) continue;
         const oee0 = Math.max(0.05, Math.min(1, oeeOf(t))); let oee = oeeOf(t); for (const c of changes) if (c.type === 'oee' && (!c.customer || c.customer === tri) && (!c.tech || normTech(c.tech) === t) && inRange(month, c)) oee += (Number(c.points) || 0) / 100;
         oee = Math.max(0.05, Math.min(1, oee));
-        md[t].demand += qty * share; md[t].need += (qty * share) / oee;
+        md[t].demand += qty * share; md[t].need += (qty * share) / oee; md[t].added += extra * share; md[t].added_need += (extra * share) / oee;
         // each customer and technology, for the export: the customer's forecast (× flex, scenario), its split and OEE
         const dk = `${tri}|${t}`; const D = detail.get(dk) || detail.set(dk, { trigram: tri.startsWith('~') ? '' : tri, name, tech: t, oee: oee0, months: {} }).get(dk);
-        D.months[m] = { fc: qty, raw, split: share, oee };
+        const prev = D.months[m];
+        D.months[m] = prev ? { ...prev, fc: prev.fc + qty, raw: prev.raw + raw, extra: (prev.extra || 0) + extra } : { fc: qty, raw, split: share, oee, extra };
         if (restricts.length) { // by customer and card, for the machines that may only run some
           const mix = mixOf.get(`${tri}|${t}`) || mixOf.get(`*|${t}`) || new Map([['{}', 1]]);
           for (const [sig, f] of mix) { const k = `${tri}\u0001${sig}`; md[t].buckets.set(k, (md[t].buckets.get(k) || 0) + ((qty * share) / oee) * f); }
@@ -513,9 +521,16 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
       if (!split) { warnings.push(`${c.unlinked ? `“${c.name}”` : c.trigram}: no technology split — set one on Customers`); continue; }
       for (const [t0, share] of Object.entries(split)) { const t = normTech(t0); if (md[t]) md[t].fc += qty * share; }
       if (fx) qty *= fx.factor(c.trigram, m);
+      const before = qty;
       for (const ch of changes) if (ch.type === 'volume' && (!ch.customer || ch.customer === c.trigram) && inRange(month, ch)) qty *= 1 + (Number(ch.pct) || 0) / 100;
       const oeeOf = (t) => Number(c.oee?.[t]) || Number(prodOee.get(c.trigram)) || oeeDefault;
-      add(c.trigram, qty, split, oeeOf, c.name || c.trigram, f.total || Object.values(f.tech).reduce((a, b) => a + b, 0));
+      add(c.trigram, qty, split, oeeOf, c.name || c.trigram, f.total || Object.values(f.tech).reduce((a, b) => a + b, 0), Math.max(0, qty - before));
+    }
+    for (const ch of flats) {
+      const [a, b] = flatSpan(ch); if (month < a || month > b) continue;
+      const c = all.find((x) => x.trigram === ch.customer); const per = (Number(ch.flat) * workdaysIn(month)) / (flatDays(ch) || 1); if (!c || !per) continue;
+      const split = custSplit(c, m); if (!split) { warnings.push(`${c.trigram}: no technology split for the flat volume — set one on Customers`); continue; }
+      add(c.trigram, per, split, (t) => Number(c.oee?.[t]) || Number(prodOee.get(c.trigram)) || oeeDefault, c.name || c.trigram, 0, per);
     }
     for (const nc of extra) if (inRange(month, nc)) { // its split as shares of 100% (50 / 30 is 62.5% / 37.5%), none: all DOD
       const sp = Object.fromEntries(Object.entries(nc.split || {}).filter(([, v]) => Number(v) > 0)); const tot = Object.values(sp).reduce((a, b) => a + Number(b), 0);
@@ -529,14 +544,14 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
   for (const d of cal) {
     const k = keyOf(d);
     const P = periods.get(k) || periods.set(k, { key: k, label: period === 'week' ? `${k.slice(5)} · ${weekOf(d.day).monday.slice(5).split('-').reverse().join('/')}` : new Date(`${d.day}T12:00`).toLocaleDateString('en-GB', { month: 'short' }), start: d.day, end: d.day, workdays: 0,
-      techs: Object.fromEntries(TECHS.map((t) => [t, { fc: 0, demand: 0, need: 0, capacity: 0, actual: 0 }])), machines: {} }).get(k);
+      techs: Object.fromEntries(TECHS.map((t) => [t, { fc: 0, demand: 0, need: 0, capacity: 0, actual: 0, added: 0, added_need: 0 }])), machines: {} }).get(k);
     P.end = d.day;
     for (const t of TECHS) P.techs[t].actual += actBy.get(`${d.day}|${t}`) || 0;
     if (!d.work) continue;
     P.workdays++;
     const share = 1 / (wdm[d.month] || 1);
     P.share = P.share || {}; P.share[d.month] = (P.share[d.month] || 0) + share;
-    for (const t of TECHS) { const md = monthDemand[d.month][t]; P.techs[t].fc += md.fc * share; P.techs[t].demand += md.demand * share; P.techs[t].need += md.need * share;
+    for (const t of TECHS) { const md = monthDemand[d.month][t]; P.techs[t].fc += md.fc * share; P.techs[t].demand += md.demand * share; P.techs[t].need += md.need * share; P.techs[t].added += md.added * share; P.techs[t].added_need += md.added_need * share;
       if (md.buckets.size) { const B = P.buckets || (P.buckets = new Map()); for (const [k, q] of md.buckets) { const kk = `${t}\u0001${k}`; B.set(kk, (B.get(kk) || 0) + q * share); } } }
     const { s, h } = shiftAt(d.month);
     P.hours = (P.hours || 0) + s * h; P.shifts = s; P.hph = h;
@@ -701,4 +716,4 @@ function siteCapacity(year, cards = null) {
     months, techs: TECHS, speed_from: Object.fromEntries(Object.entries(sp).map(([t, x]) => [t, x])), machines, total: sum((m) => m.counted), by_tech: byTech, counted_by_tech: countedBy, cards: !!cards, warnings: [...new Set(warnings)] };
 }
 
-module.exports = { forecastUnchanged, beneluxCompact, AMEX_ROWS, detectForecast, TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity, machineMix };
+module.exports = { calendarOf, forecastUnchanged, beneluxCompact, AMEX_ROWS, detectForecast, TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity, machineMix };
