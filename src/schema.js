@@ -209,6 +209,16 @@ const TABLES = {
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
     UNIQUE (list_id, task_id)`,
 
+  // 📐 Capacity planning's views as last generated (as the weekly report keeps its snapshots): key = the view and what
+  // it was asked for (year, period, flex, scenario…); kept until ⟳ Regenerate. stale: something it's worked out from
+  // has changed since (a setting, a customer, a scenario, a forecast sent in…)
+  cpm_cache: `
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    key          TEXT    NOT NULL UNIQUE,
+    data         TEXT    NOT NULL,
+    stale        INTEGER NOT NULL DEFAULT 0,
+    generated_at TEXT    NOT NULL DEFAULT (${NOW})`,
+
   // 🎯 Home's focus: what someone sets out to do today or this week, typed in (or a suggestion picked). person: whose
   // focus it is (their name; '' with accounts off); scope 'day' (period: the date) or 'week' (period: its Monday).
   // One not done carries on into the next day or week until it's ticked or removed.

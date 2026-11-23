@@ -24,6 +24,17 @@ const collab = require('./collab');
 const reschedule = require('./reschedule');
 
 const router = express.Router();
+// 📐 Capacity planning's kept views (cpm_cache, below) are marked out of date by any change to what they're worked out
+// from: its own settings, customers, scenarios, headcount and history; Production's machines, speeds and OEE; the app's
+// settings (working days, holidays…); a forecast sent in. (Registered first, so it sees every route's answer.)
+const cpmStale = () => { try { db.run('UPDATE cpm_cache SET stale = 1 WHERE stale = 0'); } catch { /* none kept yet */ } };
+router.use((req, res, next) => {
+  // (marked as the answer is sent, not after: done before whoever asked carries on)
+  if (req.method !== 'GET' && /^\/(cpm|settings|forecasts|plan\/(machines|speeds|oee|setup|otto))(\/|$)/.test(req.path)) {
+    const end = res.end; res.end = function endAndMark(...a) { if (res.statusCode < 400) cpmStale(); return end.apply(this, a); };
+  }
+  next();
+});
 
 // Wraps handlers so errors (sync or async) reach the error middleware.
 const h = (fn) => (req, res, next) => {
@@ -3843,13 +3854,34 @@ function cpmRefresh(force = false) {
   const set = getSettings();
   // 📈 the file linked in Sources, or the newest forecast sent in after it (currentForecast)
   const files = Object.keys(kpiData.FORECASTS).map((key) => {
+    // its name and date first (quick on the share); the file itself only when it's new, or asked to read again
+    const head = currentForecast(key, { set });
+    if (head.from === 'workbook') return { key };
+    const info = { key, file: head.from === 'sent_in' ? `📈 ${head.file}` : head.path, modified: head.modified };
+    if (!force && !head.error && cpm.forecastUnchanged(info)) return { ...info, unchanged: true, ...(head.sent_in ? { sent_in: head.sent_in.id } : {}) };
     const c = currentForecast(key, { withData: true, set });
-    if (c.from === 'workbook') return { key };
     return { key, file: c.from === 'sent_in' ? `📈 ${c.file}` : c.path, modified: c.modified, ...(c.buf ? { buf: c.buf } : { error: c.error }), ...(c.sent_in ? { sent_in: c.sent_in.id } : {}) };
   });
   let read = null; try { read = cpm.refreshForecasts(files, force); } catch (err) { log.warn('CPM forecasts', err.message); }
-  return { files: files.map(({ buf, ...f }) => f), read };
+  return { files: files.map(({ buf, unchanged, ...f }) => f), read };
 }
+// 📐 Capacity planning's views as last generated (cpm_cache), as the weekly report keeps its snapshots: a view is worked
+// out when it's first asked for, or on ⟳ Regenerate (?regen=1), and kept until then — not on every visit. ?live=1:
+// worked out and not kept (the editing tabs' own checks). Anything it's worked out from changing marks them stale.
+function cpmCached(req, kind, work) {
+  const q = new URLSearchParams(Object.entries(req.query).filter(([k]) => !['regen', 'reread', 'live'].includes(k)).map(([k, v]) => [k, String(v)])); q.sort();
+  const key = `${kind}?${q}`;
+  if (req.query.live === '1') return work();
+  if (req.query.regen !== '1' && req.query.reread !== '1') {
+    const row = db.get('SELECT data, stale, generated_at FROM cpm_cache WHERE key = ?', [key]);
+    if (row) { try { return { ...JSON.parse(row.data), generated: { at: row.generated_at, stale: !!row.stale, kept: true } }; } catch { /* worked out again */ } }
+  }
+  const data = work(); const at = nowIso();
+  db.run('INSERT INTO cpm_cache (key, data, stale, generated_at) VALUES (?, ?, 0, ?) ON CONFLICT(key) DO UPDATE SET data = excluded.data, stale = 0, generated_at = excluded.generated_at', [key, JSON.stringify(data), at]);
+  db.run("DELETE FROM cpm_cache WHERE generated_at < ?", [new Date(Date.now() - 60 * 86400000).toISOString()]); // views not looked at for two months
+  return { ...data, generated: { at, stale: false, kept: false } };
+}
+
 // 📈 Forecast: forecasts sent in (forecasts.js); each new one is read into Capacity planning straight away
 const forecasts = require('./forecasts');
 forecasts.useRefresh(() => cpmRefresh());
@@ -3888,17 +3920,22 @@ const cpmScenario = (req, id) => {
 };
 const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines', 'cpm_rnw_hours', 'cpm_rnw_bonus', 'cpm_rnw_share', 'cpm_hour_full', 'cpm_day_profile', 'cpm_day_shape', 'cpm_cutoffs', 'cpm_cutoff_default', 'cpm_cutoff_cust', 'cpm_day_manual'];
 router.get('/cpm/overview', h((req, res) => {
+  // the scenarios asked for must be ones this person may see, whether worked out now or kept
+  String(req.query.scenarios || '').split(',').filter(Boolean).slice(0, 2).forEach((id) => cpmScenario(req, Number(id)));
+  res.json(cpmCached(req, 'overview', () => cpmOverviewOf(req)));
+}));
+function cpmOverviewOf(req) {
   const files = cpmRefresh(req.query.reread === '1');
   const year = Number(req.query.year) || new Date().getFullYear();
   const period = req.query.period === 'week' ? 'week' : 'month';
   const useFlex = req.query.flex !== '0'; const cards = cpmCards();
   const base = cpm.compute({ year, period, useFlex, cards });
   const scenarios = String(req.query.scenarios || '').split(',').filter(Boolean).slice(0, 2).map((id) => cpmScenario(req, Number(id)));
-  res.json({ ...base, files: files.files, forecast_status: cpm.forecastStatus(), cards: !!cards, settings: Object.fromEntries(CPM_SETTINGS.map((k) => [k, getSettings()[k]])),
-    scenarios: scenarios.map((sc) => ({ id: sc.id, name: sc.name, ...cpm.compute({ year, period, useFlex, cards, changes: sc.changes }) })) });
-}));
+  return { ...base, files: files.files, forecast_status: cpm.forecastStatus(), cards: !!cards, settings: Object.fromEntries(CPM_SETTINGS.map((k) => [k, getSettings()[k]])),
+    scenarios: scenarios.map((sc) => ({ id: sc.id, name: sc.name, ...cpm.compute({ year, period, useFlex, cards, changes: sc.changes }) })) };
+}
 // 🏭 Theoretical site capacity per machine: run speed × available hours, no OEE (src/cpm.js)
-router.get('/cpm/site', h((req, res) => res.json(cpm.siteCapacity(Number(req.query.year) || new Date().getFullYear(), cpmCards()))));
+router.get('/cpm/site', h((req, res) => res.json(cpmCached(req, 'site', () => cpm.siteCapacity(Number(req.query.year) || new Date().getFullYear(), cpmCards())))));
 router.put('/cpm/settings', h((req, res) => {
   for (const k of CPM_SETTINGS) if (req.body[k] !== undefined) db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, String(req.body[k]).trim()]);
   res.json(Object.fromEntries(CPM_SETTINGS.map((k) => [k, getSettings()[k]])));
@@ -3933,13 +3970,15 @@ router.delete('/cpm/customers/:trigram', h((req, res) => { db.run('DELETE FROM c
 const cpmHc = require('./cpmhc');
 const hcErr = (fn) => { try { return fn(); } catch (err) { throw err.status ? new HttpError(err.status, err.message) : err; } };
 router.get('/cpm/headcount', h((req, res) => {
-  cpmRefresh();
-  const year = Number(req.query.year) || new Date().getFullYear(); const useFlex = req.query.flex !== '0'; const cards = cpmCards();
   const sc = req.query.scenario ? cpmScenario(req, Number(req.query.scenario)) : null;
-  const plan = cpmHc.headcount({ year, useFlex, cards, changes: sc?.changes || [] });
-  // with a scenario: the base plan's people needed beside it
-  const base = sc ? cpmHc.headcount({ year, useFlex, cards }).months.map((m) => ({ month: m.month, total: m.total, fte_needed: m.fte_needed })) : null;
-  res.json({ ...plan, scenario: sc ? { id: sc.id, name: sc.name } : null, base });
+  res.json(cpmCached(req, 'headcount', () => {
+    cpmRefresh();
+    const year = Number(req.query.year) || new Date().getFullYear(); const useFlex = req.query.flex !== '0'; const cards = cpmCards();
+    const plan = cpmHc.headcount({ year, useFlex, cards, changes: sc?.changes || [] });
+    // with a scenario: the base plan's people needed beside it
+    const base = sc ? cpmHc.headcount({ year, useFlex, cards }).months.map((m) => ({ month: m.month, total: m.total, fte_needed: m.fte_needed })) : null;
+    return { ...plan, scenario: sc ? { id: sc.id, name: sc.name } : null, base };
+  }));
 }));
 router.put('/cpm/headcount/config', h((req, res) => res.json(hcErr(() => cpmHc.save(req.body || {})))));
 // 📥 the old HC Forecast workbook: its rates, matching split per customer, other work, one-off hours and people
@@ -3979,7 +4018,8 @@ router.get('/cpm/export', h((req, res) => {
   res.send(buf);
 }));
 // 🕐 a working day of a month, hour by hour (the CPM daily sheet), for the base plan or one scenario
-const cpmDayOf = (req) => {
+const cpmDayOf = (req) => { if (req.query.scenario) cpmScenario(req, Number(req.query.scenario)); return cpmCached(req, 'day', () => cpmDayWork(req)); };
+const cpmDayWork = (req) => {
   cpmRefresh();
   const year = Number(req.query.year) || new Date().getFullYear(); const month = Math.min(12, Math.max(1, Number(req.query.month) || new Date().getMonth() + 1));
   const sc = req.query.scenario ? cpmScenario(req, Number(req.query.scenario)) : null;
@@ -3988,11 +4028,13 @@ const cpmDayOf = (req) => {
 };
 router.get('/cpm/day', h((req, res) => res.json(cpmDayOf(req))));
 router.get('/cpm/day/compare', h((req, res) => {
-  cpmRefresh();
-  const year = Number(req.query.year) || new Date().getFullYear(); const month = Math.min(12, Math.max(1, Number(req.query.month) || new Date().getMonth() + 1));
   const sc = req.query.scenario ? cpmScenario(req, Number(req.query.scenario)) : null;
-  const full = req.query.full !== undefined ? req.query.full !== '0' : getSettings().cpm_hour_full !== '0';
-  res.json(require('./cpmday').compareShapes({ year, month, changes: sc?.changes || [], useFlex: req.query.flex !== '0', cards: cpmCards(), full }));
+  res.json(cpmCached(req, 'day-compare', () => {
+    cpmRefresh();
+    const year = Number(req.query.year) || new Date().getFullYear(); const month = Math.min(12, Math.max(1, Number(req.query.month) || new Date().getMonth() + 1));
+    const full = req.query.full !== undefined ? req.query.full !== '0' : getSettings().cpm_hour_full !== '0';
+    return require('./cpmday').compareShapes({ year, month, changes: sc?.changes || [], useFlex: req.query.flex !== '0', cards: cpmCards(), full });
+  }));
 }));
 router.get('/cpm/day/export', h((req, res) => {
   const d = cpmDayOf(req);
@@ -4012,7 +4054,7 @@ router.put('/cpm/day/renewals', h((req, res) => {
 }));
 // a card database column's values, for restricting a machine to some cards
 router.get('/cpm/card-values', h((req, res) => { const cards = cpmCards(); res.json({ fields: cpm.CARD_FIELDS, linked: !!cards, values: cpm.cardValues(cards, String(req.query.field || '')).slice(0, 500) }); }));
-router.get('/cpm/flex', h((req, res) => { cpmRefresh(); const f = cpm.flex({ cards: cpmCards() }); res.json({ customers: f.customers, overall: f.overall, pairs: f.pairs, history: cpm.historyCoverage() }); }));
+router.get('/cpm/flex', h((req, res) => res.json(cpmCached(req, 'flex', () => { cpmRefresh(); const f = cpm.flex({ cards: cpmCards() }); return { customers: f.customers, overall: f.overall, pairs: f.pairs, history: cpm.historyCoverage() }; }))));
 router.post('/cpm/history', express.raw({ type: '*/*', limit: '60mb' }), h((req, res) => {
   const name = String(req.get('X-File-Name') || 'upload.xlsx');
   let rows; try { rows = cpm.parseHistory(req.body, { kind: ['forecast', 'actual'].includes(req.query.kind) ? req.query.kind : null, year: Number(req.query.year) || null }); } catch (err) { throw new HttpError(400, `${name}: ${err.message}`); }

@@ -42,14 +42,45 @@ const CPM_TECH_ICON = { DOD: '🖨', Emboss: '🔠', Laser: '🔆' };
 // each technology's colour, as the CPM workbook colours its rows (DOD teal, Laser purple, Emboss dark)
 const cpmTc = (t) => `var(--tech-${String(t).toLowerCase()}, var(--accent))`;
 
+// 📐 the report tabs keep what was last generated (on the server) until ⟳ Regenerate, as the weekly report does;
+// the editing tabs (Customers, Capacity, Scenarios) are always live. A change saved on a report tab (its own settings)
+// regenerates that tab when it's drawn again; anywhere else, the kept views show they're out of date.
+const CPM_KEPT = ['overview', 'site', 'headcount', 'day', 'flex'];
+let cpmRegenNext = false; // the tab being drawn is to be generated again
+let cpmRegenTab = null; // a change was saved on this tab: generate it again when it's next drawn
+async function cpmGet(u) {
+  const d = await api.get(cpmRegenNext ? `${u}${u.includes('?') ? '&' : '?'}regen=1` : u);
+  if (d?.generated) cpmShowGen(d.generated);
+  return d;
+}
+function cpmShowGen(g) {
+  const el = $('#cpm-gen'); if (!el || !g) return;
+  const when = new Date(g.at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  el.innerHTML = `${g.stale ? '<span class="pl-warn" title="A setting, customer, scenario or forecast it\'s worked out from has changed since: ⟳ Regenerate to bring it up to date">⚠ Out of date</span> · ' : ''}<span class="muted">Generated ${esc(when)}</span>`;
+  $('#cpm-regen')?.classList.toggle('primary', !!g.stale);
+}
+// a change saved from Capacity planning: its tab is generated again when it's next drawn
+function cpmHookWrites() { // (installed when Capacity planning first opens: app.js, which makes api, loads after this file)
+  if (api.__cpmHooked) return;
+  api.__cpmHooked = true;
+  for (const m of ['put', 'post', 'patch', 'del']) {
+    const f = api[m]; if (typeof f !== 'function') continue;
+    api[m] = async (u, ...rest) => { const out = await f.call(api, u, ...rest); if (/^\/cpm\//.test(String(u))) cpmRegenTab = store.get('cpmTab', 'overview'); return out; };
+  }
+}
+
 async function renderCpm(tab) {
+  cpmHookWrites();
   tab = CPM_TABS.some(([k]) => k === tab) ? tab : store.get('cpmTab', 'overview');
   store.set('cpmTab', tab);
+  if (cpmRegenTab === tab) cpmRegenNext = true; cpmRegenTab = null;
+  const kept = CPM_KEPT.includes(tab);
   const head = `<div class="kanban-tools"><h1 style="margin:0">📐 Capacity planning</h1>
       <div class="pl-halves cpm-tabs">${CPM_TABS.map(([k, l]) => `<div class="pl-half ${k === tab ? 'on' : ''}"><a href="#/cpm/${k}" class="button">${l}</a></div>`).join('')}</div>
-      <div class="spacer"></div><span class="cpm-foldall"><button type="button" class="icon" data-fold-all="1" title="Fold every section">⊟</button><button type="button" class="icon" data-fold-all="0" title="Open every section">⊞</button></span></div>`;
+      <div class="spacer"></div>${kept ? `<span class="small cpm-gen" id="cpm-gen">${cpmRegenNext ? '<span class="muted">Generating…</span>' : ''}</span><button type="button" class="small" id="cpm-regen" title="Work this tab out again from the forecast, the production data and the settings as they are now (it's kept as it was last generated until then)">⟳ Regenerate</button>` : ''}<span class="cpm-foldall"><button type="button" class="icon" data-fold-all="1" title="Fold every section">⊟</button><button type="button" class="icon" data-fold-all="0" title="Open every section">⊞</button></span></div>`;
   main().innerHTML = `${head}<div id="cpm-body"><p class="muted">Loading…</p></div>`;
   const body = $('#cpm-body'); cpmFoldable(body, tab);
+  const rg = $('#cpm-regen'); if (rg) rg.onclick = () => { cpmRegenNext = true; rg.disabled = true; rg.textContent = '⏳ Generating…'; renderCpm(tab); };
   try {
     if (tab === 'overview') await cpmOverview(body);
     else if (tab === 'site') await cpmSite(body);
@@ -60,6 +91,7 @@ async function renderCpm(tab) {
     else if (tab === 'capacity') await cpmCapacity(body);
     else await cpmScenarios(body);
   } catch (err) { body.innerHTML = `<div class="card"><h3>Something went wrong</h3><p class="pre">${esc(err.message)}</p></div>`; }
+  cpmRegenNext = false;
 }
 
 // every section (a card with a heading) folds away from its heading, and stays folded (per tab, per section)
@@ -88,7 +120,7 @@ async function cpmOverview(body) {
   const period = store.get('cpmPeriod', 'month');
   const flex = store.get('cpmFlex', true);
   const scen = (store.get('cpmCompare', []) || []).slice(0, 2);
-  const [d, all] = await Promise.all([api.get(`/cpm/overview?year=${year}&period=${period}&flex=${flex ? 1 : 0}&scenarios=${scen.join(',')}${cpmReread ? '&reread=1' : ''}`), api.get('/cpm/scenarios')]);
+  const [d, all] = await Promise.all([cpmGet(`/cpm/overview?year=${year}&period=${period}&flex=${flex ? 1 : 0}&scenarios=${scen.join(',')}${cpmReread ? '&reread=1' : ''}`), api.get('/cpm/scenarios')]);
   const now = new Date().toISOString().slice(0, 10);
   const SC_COL = ['#7a5cff', '#e0861a'];
   const labels = period === 'month'; // data labels on the monthly charts; by week, hover for the figures
@@ -261,12 +293,13 @@ async function cpmOverview(body) {
 // ---- 📈 Forecast vs actual: the flex -----------------------------------------------------------------
 // ---- 🕐 Day by hour: a working day of a month, hour by hour (the CPM daily sheet) ----------------------
 async function cpmDay(body) {
+  const dayRegen = cpmRegenNext; // (its comparison, asked for later, is generated again with it)
   const year = Number(store.get('cpmYear', new Date().getFullYear()));
   const month = Number(store.get('cpmDayMonth', new Date().getMonth() + 1));
   const flex = store.get('cpmFlex', true); const scId = Number(store.get('cpmDayScenario', 0)) || 0;
   const full = store.get('cpmDayFull', null);
   const q = `year=${year}&month=${month}&flex=${flex ? 1 : 0}${scId ? `&scenario=${scId}` : ''}${full === null ? '' : `&full=${full ? 1 : 0}`}`;
-  const [d, scs] = await Promise.all([api.get(`/cpm/day?${q}`).catch((err) => { if (scId) store.set('cpmDayScenario', 0); throw err; }), api.get('/cpm/scenarios')]);
+  const [d, scs] = await Promise.all([cpmGet(`/cpm/day?${q}`).catch((err) => { if (scId) store.set('cpmDayScenario', 0); throw err; }), api.get('/cpm/scenarios')]);
   const H = d.hours; const T = d.techs; const hl = (h) => `${String(h).padStart(2, '0')}:00`;
   // run periods: an entry per customer (and technology) — periods, or hourly values pasted
   const manShares = (v) => { const out = Array(24).fill(0); const hmm = (x) => { const m = String(x || '').match(/^(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
@@ -469,7 +502,7 @@ async function cpmDay(body) {
   // the three ways of learning the day, side by side (worked out after the page is up)
   (async () => {
     const box = $('#cpm-cmp'); if (!box) return;
-    let c; try { c = await api.get(`/cpm/day/compare?${q}`); } catch (err) { box.querySelector('p').textContent = err.message; return; }
+    let c; try { c = await api.get(`/cpm/day/compare?${q}${dayRegen ? '&regen=1' : ''}`); } catch (err) { box.querySelector('p').textContent = err.message; return; }
     if (!document.body.contains(box)) return;
     const SH = [['typical', 'Typical day', ''], ['worst', 'Worst case', 'cpm-cmp-worst'], ['average', 'All days averaged', 'cpm-cmp-avg']];
     const chart = (t) => { const W = 760; const Hh = 190; const L = 50; const B = 22; const T0 = 10; const n = c.hours.length; const x = (i) => L + ((i + 0.5) * (W - L - 6)) / n;
@@ -547,7 +580,7 @@ async function cpmDay(body) {
 }
 
 async function cpmFlex(body) {
-  const d = await api.get('/cpm/flex');
+  const d = await cpmGet('/cpm/flex');
   const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const cell = (r) => (r === null || r === undefined ? '<td class="num muted">—</td>' : `<td class="num cpm-flex ${r > 1.1 ? 'up' : r < 0.9 ? 'down' : ''}" title="actual ÷ forecast = ${cpmPct(r, 1)}">${r >= 1 ? '+' : ''}${cpmPct(r - 1)}</td>`);
   body.innerHTML = `
@@ -568,6 +601,7 @@ async function cpmFlex(body) {
       <p class="small muted">+12% = 12% more done than forecast. The expected flex for a customer and month is its own average for that month over the years; without one, its yearly flex, then everyone's for the month. Kept within ×0.2 – ×3.</p></div>`;
   $('#cpm-hfile').onchange = async (e) => {
     const files = [...e.target.files]; e.target.value = ''; const kind = $('#cpm-hkind').value; const year = $('#cpm-hyear').value;
+    cpmRegenTab = 'flex';
     for (const f of files) {
       const r = await fetch(`/api/cpm/history?kind=${kind}&year=${year}`, { method: 'POST', body: f, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': f.name } });
       const x = await r.json().catch(() => ({}));
@@ -628,7 +662,7 @@ async function cpmCustomers(body) {
 
 // ---- ⚙ Capacity: shifts, productive hours, holidays, machines --------------------------------------
 async function cpmCapacity(body) {
-  const d = await api.get(`/cpm/overview?year=${new Date().getFullYear()}&period=month&flex=0`);
+  const d = await api.get(`/cpm/overview?year=${new Date().getFullYear()}&period=month&flex=0&live=1`);
   const st = d.settings; const opts = (() => { try { return JSON.parse(st.cpm_machines || '{}'); } catch { return {}; } })();
   body.innerHTML = `<div class="card"><h3 class="pl-h">Working time</h3><div class="form-grid">
       <label class="f">Shifts a day<input type="number" min="0" max="4" step="1" data-cpm-set="cpm_shifts" value="${esc(st.cpm_shifts)}"></label>
@@ -663,7 +697,7 @@ async function cpmCapacity(body) {
 // ---- 🏭 Site capacity: what the machines could make flat out — run speed × available hours, no OEE ----
 async function cpmSite(body) {
   const year = Number(store.get('cpmSiteYear', new Date().getFullYear())) || new Date().getFullYear();
-  const d = await api.get(`/cpm/site?year=${year}`);
+  const d = await cpmGet(`/cpm/site?year=${year}`);
   const names = d.machines.map((m) => m.name);
   const top = Math.max(1, ...d.machines.map((m) => m.counted?.year || 0));
   const anyMix = d.machines.some((m) => m.mix); const anyFast = d.machines.some((m) => m.counted?.basis === 'fastest');
@@ -724,10 +758,10 @@ const CPM_CHANGES = {
   new_customer: { label: '🆕 New customer', fields: ['name', 'qty', 'split', 'oee'] },
 };
 async function cpmScenarios(body) {
-  const [list, ov, cs] = await Promise.all([api.get('/cpm/scenarios'), api.get(`/cpm/overview?year=${new Date().getFullYear()}&period=month&flex=0`), api.get('/cpm/customers')]);
+  const [list, ov, cs] = await Promise.all([api.get('/cpm/scenarios'), api.get(`/cpm/overview?year=${new Date().getFullYear()}&period=month&flex=0&live=1`), api.get('/cpm/customers')]);
   const openId = Number(store.get('cpmScenario', 0)) || null; const sc = list.find((s) => s.id === openId) || null;
   // what in it would do nothing, or only show elsewhere (as saved)
-  const scWarn = sc ? await api.get(`/cpm/overview?year=${new Date().getFullYear()}&period=month&flex=0&scenarios=${sc.id}`).then((o) => o.scenarios[0].warnings.filter((w) => !o.warnings.includes(w))).catch(() => []) : [];
+  const scWarn = sc ? await api.get(`/cpm/overview?year=${new Date().getFullYear()}&period=month&flex=0&scenarios=${sc.id}&live=1`).then((o) => o.scenarios[0].warnings.filter((w) => !o.warnings.includes(w))).catch(() => []) : [];
   const baseMachines = ov.machines.filter((m) => !m.added).map((m) => m.name);
   let machines = baseMachines; // with the machines this scenario adds, so they can be changed too
   const T = ov.techs; const custs = [...new Set([...cs.customers.map((c) => c.trigram), ...cs.not_set_up.map((c) => c.trigram)])].sort();
@@ -844,7 +878,7 @@ function cpmFcTotals(d) {
 async function cpmHeadcount(body) {
   const year = Number(store.get('cpmYear', new Date().getFullYear())) || new Date().getFullYear();
   const flex = store.get('cpmFlex', true); const scId = Number(store.get('cpmHcScenario', 0)) || 0;
-  const [d, scs] = await Promise.all([api.get(`/cpm/headcount?year=${year}&flex=${flex ? 1 : 0}${scId ? `&scenario=${scId}` : ''}`), api.get('/cpm/scenarios').catch(() => [])]);
+  const [d, scs] = await Promise.all([cpmGet(`/cpm/headcount?year=${year}&flex=${flex ? 1 : 0}${scId ? `&scenario=${scId}` : ''}`), api.get('/cpm/scenarios').catch(() => [])]);
   const C = d.config; const M = d.months;
   const h1 = (v) => cpmN(v, 0); const p1 = (v) => (v === null || v === undefined ? '—' : Number(v).toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
   const sum = (f) => M.reduce((a, m) => a + (f(m) || 0), 0);
@@ -993,6 +1027,7 @@ async function cpmHeadcount(body) {
     try {
       const r = await fetch('/api/cpm/headcount/import', { method: 'POST', body: f, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
       const x = await r.json(); if (!r.ok) throw new Error(x.error || r.statusText);
+      cpmRegenTab = 'headcount';
       toast(`Read ${x.rates} rates, ${x.customers} customers' matching, ${x.other} kinds of other work, ${x.months} months of people${x.unknown.length ? ` — ${x.unknown.length} names not linked to a customer here` : ''}`);
       renderCpm('headcount');
     } catch (err) { toast(err.message, 'error'); }

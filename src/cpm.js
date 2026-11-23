@@ -179,13 +179,17 @@ function dateOf(x) {
 // Reads the linked forecast files into this month's snapshot when they changed (a file that couldn't be
 // read is tried again next time). files: [{ key, file, modified, buf, error }]. force: read them anyway.
 // What each read gave (or why not) is kept for the Overview: status().
+const fcSig = (f) => `${f.key}|${f.file}|${f.modified}${f.key === 'amex' ? `|r${AMEX_READ}` : ''}`; // (read again when the Amex rules change)
+const fcDone = () => { const asOf = ymd(new Date()).slice(0, 7); const done = String(setting('cpm_fc_sig', '')); return done.startsWith(`${asOf}#`) ? done.slice(asOf.length + 1).split(';') : []; };
+// a forecast file read already, as it stands (by its name and date): it needn't be read off the share again
+const forecastUnchanged = (f) => !!f.modified && fcDone().includes(fcSig(f));
 function refreshForecasts(files, force = false) {
   const asOf = ymd(new Date()).slice(0, 7);
-  const okSig = (f) => `${f.key}|${f.file}|${f.modified}${f.key === 'amex' ? `|r${AMEX_READ}` : ''}`; // (read again when the Amex rules change)
-  const done = String(setting('cpm_fc_sig', '')); const doneOf = done.startsWith(`${asOf}#`) ? done.slice(asOf.length + 1).split(';') : [];
+  const okSig = fcSig;
+  const doneOf = fcDone();
   const todo = files.filter((f) => f.buf && (force || !doneOf.includes(okSig(f))));
   const status = json(setting('cpm_fc_status', '{}'), {});
-  for (const f of files) if (!f.buf) status[f.key] = f.file ? { file: f.file, error: f.error || 'can\'t be opened', at: new Date().toISOString() } : { error: 'not linked in Reporting › Sources' };
+  for (const f of files) if (!f.buf && !f.unchanged) status[f.key] = f.file ? { file: f.file, error: f.error || 'can\'t be opened', at: new Date().toISOString() } : { error: 'not linked in Reporting › Sources' };
   const names = nameMap(); const now = new Date().toISOString(); const got = {};
   db.tx(() => {
     for (const f of todo) {
@@ -198,7 +202,7 @@ function refreshForecasts(files, force = false) {
       }
       got[f.key] = status[f.key] = { file: f.file, modified: f.modified, rows: rows.length, years: [...new Set(rows.map((r) => r.year))].sort(), ...info, at: now };
     }
-    const ok = files.filter((f) => f.buf && !status[f.key]?.error).map(okSig);
+    const ok = files.filter((f) => (f.buf && !status[f.key]?.error) || f.unchanged).map(okSig);
     const put = (k, val) => db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, val]);
     put('cpm_fc_sig', `${asOf}#${ok.join(';')}`); put('cpm_fc_status', JSON.stringify(status));
   });
@@ -693,4 +697,4 @@ function siteCapacity(year, cards = null) {
     months, techs: TECHS, speed_from: Object.fromEntries(Object.entries(sp).map(([t, x]) => [t, x])), machines, total: sum((m) => m.counted), by_tech: byTech, counted_by_tech: countedBy, cards: !!cards, warnings: [...new Set(warnings)] };
 }
 
-module.exports = { beneluxCompact, AMEX_ROWS, detectForecast, TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity, machineMix };
+module.exports = { forecastUnchanged, beneluxCompact, AMEX_ROWS, detectForecast, TECHS, CARD_FIELDS, cardValues, cardMix, oeeFallback, forecastStatus, normTech, customers, nameMap, parseBenelux, parseAmex, refreshForecasts, remapForecasts, forecastOf, actuals, parseHistory, storeHistory, historyCoverage, flex, speeds, compute, learnedSplit, parseConfig, weekOf, siteCapacity, machineMix };
