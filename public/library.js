@@ -221,7 +221,7 @@ function libTreeHtml(docs, currentId, folderNames = {}) {
   const draw = (node, prefix) => [...node.folders.entries()].map(([name, child]) => [name, child, prefix ? `${prefix}/${name}` : name])
     .sort((a, b) => cmp(label(a[2], a[0]), label(b[2], b[0]))).map(([name, child, p]) => {
     const open = !closed.has(p) || (cur && (cur.folder === p || cur.folder.startsWith(`${p}/`)));
-    return `<details class="lib-folder" data-folder="${esc(p)}" ${open ? 'open' : ''}><summary><span ${folderNames[p] ? `title="In the vault: ${esc(name)}"` : ''}>${esc(label(p, name))}</span> <span class="muted small">${count(child)}</span>
+    return `<details class="lib-folder" data-folder="${esc(p)}" ${open ? 'open' : ''}><summary>📁 <span ${folderNames[p] ? `title="In the vault: ${esc(name)}"` : ''}>${esc(label(p, name))}</span> <span class="muted small">${count(child)}</span>
       <button class="icon lib-folder-del lib-folder-ren" data-lib-ren-folder="${esc(p)}" data-name="${esc(label(p, name))}" data-vault="${esc(name)}" title="Rename this folder (in the app; the vault keeps its own name)">✎</button>
       <button class="icon lib-folder-del" data-lib-del-folder="${esc(p)}" data-count="${count(child)}" title="Remove this folder from the library">🗑</button></summary>
       <div class="lib-children">${draw(child, p)}</div></details>`;
@@ -432,7 +432,7 @@ async function importVaultFiles(all) {
     }
     await flush();
     const r = await api.post(`/library/import/${id}/finish`);
-    box.innerHTML = `<div class="ok-note"><b>${r.notes} notes</b> and ${r.files} attachments are in the library.
+    box.innerHTML = `<div class="ok-note">✅ <b>${r.notes} notes</b> and ${r.files} attachments are in the library.
       ${state.library?.docs?.length ? `<br><span class="small">${r.added} new · ${r.updated} changed · ${r.unchanged} unchanged · ${r.removed} removed</span>` : ''}
       ${r.left_out ? `<br><span class="small">${r.left_out} file${r.left_out === 1 ? '' : 's'} left out because you removed them from the library earlier</span>` : ''}
       ${tooBig.length ? `<br><span class="small">Left out (over 55 MB): ${tooBig.map(esc).join(', ')}</span>` : ''}</div>

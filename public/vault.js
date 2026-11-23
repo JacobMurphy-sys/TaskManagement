@@ -31,7 +31,7 @@ async function renderKpiVault(pick) {
     const [src, p] = pick.split('|'); const v = at.get(pick); const live = d.live[src]?.[p];
     const [y, m] = p.split('-').map(Number); const label = `${d.sources[src]?.label || src} · ${VAULT_MON[m - 1]} ${y}`;
     detail = `<div class="card vt-detail"><div class="row"><h3 style="margin:0">${esc(label)}</h3><div class="spacer"></div><button type="button" class="icon" data-vt-close title="Close">✕</button></div>
-      ${v ? `<p class="small">${v.status === 'sealed' ? '<b>Sealed</b>' : '↺ <b>Reopened</b>'} — sealed ${esc(fmtDateTime(v.sealed_at))}, ${esc(v.how)}${v.sealed_by ? ` by ${esc(v.sealed_by)}` : ''}.
+      ${v ? `<p class="small">${v.status === 'sealed' ? '🔒 <b>Sealed</b>' : '↺ <b>Reopened</b>'} — sealed ${esc(fmtDateTime(v.sealed_at))}, ${esc(v.how)}${v.sealed_by ? ` by ${esc(v.sealed_by)}` : ''}.
           ${v.status === 'reopened' ? `Reopened ${esc(fmtDateTime(v.reopened_at))} by ${esc(v.reopened_by || '?')}: the file's figures are used for this month until it's sealed again.` : 'Reports read these figures for this month, whatever the file says now.'}</p>
         <div class="kdb-tiles">${[['Rows', v.rows.toLocaleString('en-GB')], ['Quantity', vaultQty(v.qty)], ...(v.scrap ? [['Scrap', vaultQty(v.scrap)]] : []), ['File kept', v.file_id ? esc(v.file_name) : '—', v.file_modified ? `saved ${esc(fmtDateTime(v.file_modified))}` : v.file_id ? '' : v.how.startsWith('kept') ? 'the file had moved on' : 'too big, or not found']]
     .map(([l, val, sub]) => `<div class="kdb-tile"><div class="kdb-tile-l">${l}</div><div class="kdb-tile-v" style="font-size:1rem">${val}</div>${sub ? `<div class="kdb-tile-s">${sub}</div>` : ''}</div>`).join('')}</div>

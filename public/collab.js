@@ -91,7 +91,7 @@ function collabChip() {
   const el = $('#collab-chip'); if (!el) return;
   const names = [...new Set(COLLAB.others.map((o) => o.name))];
   el.hidden = false;
-  el.innerHTML = names.length ? `<span class="collab-n">${names.length}</span>` : '👤';
+  el.innerHTML = names.length ? `👥 <span class="collab-n">${names.length}</span>` : '👤';
   el.title = names.length ? `Also here:\n${COLLAB.others.map((o) => `${o.name} — ${collabWhere(o)}`).join('\n')}` : 'Nobody else has SITHUB open';
 }
 function collabHere() {
@@ -114,7 +114,7 @@ function collabModalNote(c, taskId) {
   const head = $('#modal-body .modal-head'); if (!head) return;
   let note = $('#collab-modal-note');
   if (!note) { note = document.createElement('div'); note.id = 'collab-modal-note'; note.className = 'collab-banner'; head.after(note); }
-  note.innerHTML = `<div><b>${esc(c.by)}</b> ${esc(c.text)}</div><button class="small" data-action="open-task" data-id="${esc(taskId)}">🔄 Reload this task</button>`;
+  note.innerHTML = `<div>✏ <b>${esc(c.by)}</b> ${esc(c.text)}</div><button class="small" data-action="open-task" data-id="${esc(taskId)}">🔄 Reload this task</button>`;
 }
 document.addEventListener('click', async (e) => {
   const b = e.target.closest('[data-collab]'); if (!b) return;

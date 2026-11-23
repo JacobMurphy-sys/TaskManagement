@@ -85,7 +85,7 @@
     if (!r || !r.ok) { $('#gone').hidden = false; $('#gone-why').textContent = j.error || 'SITHUB can\'t be reached right now. Try again in a moment.'; $('#app').hidden = true; return; }
     $('#app').hidden = false; list(j.mine || []);
   }
-  const pick = (f) => { if (!f) return; file = f; $('#drop-t').innerHTML = `<b>${esc(f.name)}</b> <span class="muted small">${Math.max(1, Math.round(f.size / 1024))} KB · click to change</span>`; $('#msg').hidden = true; };
+  const pick = (f) => { if (!f) return; file = f; $('#drop-t').innerHTML = `📄 <b>${esc(f.name)}</b> <span class="muted small">${Math.max(1, Math.round(f.size / 1024))} KB · click to change</span>`; $('#msg').hidden = true; };
   $('#drop').addEventListener('click', () => $('#file').click());
   $('#drop').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#file').click(); } });
   $('#file').addEventListener('change', (e) => pick(e.target.files[0]));
