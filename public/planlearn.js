@@ -1,11 +1,11 @@
-// 🔬 Planning › Learned: what the production runs say about the planning setup (src/planlearn.js),
+// Planning › Learned: what the production runs say about the planning setup (src/planlearn.js),
 // with the speeds and OEE ready to apply. Rendered by renderPlanning() when the view is 'learn'.
 const PLL = {
   days: [[30, '30 days'], [60, '60 days'], [90, '90 days'], [180, '6 months'], [365, '1 year']],
   conf: { high: ['●●●', 'High: 30+ runs over 5+ days'], medium: ['●●○', 'Medium: 10+ runs over 2+ days'], low: ['●○○', 'Low: fewer runs — worth watching, not applying yet'] },
   icon: { deploy: '🛠', pattern: '🔍', trend: '📈', quality: '⚠' },
 };
-// ⤢ on a table: opens it up in the 🔎 Explode window (pllExplode), grouped by `by`
+// ⤢ on a table: opens it up in the Explode window (pllExplode), grouped by `by`
 const pllX = (by, opts = {}) => `<button type="button" class="icon pll-x" title="Explode: open this up with any dates, % of total and drill-down" data-pll-explode="${esc(JSON.stringify({ by, ...opts }))}">⤢</button>`;
 const pllN = (v, d = 0) => (v === null || v === undefined ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: d }));
 const pllKind = (s) => [s.type, s.material, s.sides].filter(Boolean).map(esc).join(' · ') || '<span class="muted">any card</span>';
@@ -28,8 +28,8 @@ function planLearnHtml(L) {
   const days = L.days;
   const pick = `<div class="seg">${PLL.days.map(([d, l]) => `<button type="button" data-pll-days="${d}" class="${d === days ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   if (!L.runs.used) {
-    return `<div class="row pl-views">${pick}</div><div class="card lib-empty"><h2>🔬 Nothing to learn from yet</h2>
-      <p>This learns from the runs in the ⏱ Production timing reports (🧠 Insights › ⏱ Timing): link the perso report there, and the planning setup is compared with what really ran.
+    return `<div class="row pl-views">${pick}</div><div class="card lib-empty"><h2>Nothing to learn from yet</h2>
+      <p>This learns from the runs in the Production timing reports (Insights › Timing): link the perso report there, and the planning setup is compared with what really ran.
       ${L.runs.total ? `There ${L.runs.total === 1 ? 'is 1 run' : `are ${pllN(L.runs.total)} runs`} in this window, all set aside as anomalies.` : 'There are no runs in this window — try a longer one.'}</p></div>`;
   }
   const A = L.accuracy;
@@ -46,13 +46,13 @@ function planLearnHtml(L) {
     <div class="kdb-tiles">
       ${accTile(A.now, 'Planned within 25% — now', 'the setup as it is')}
       ${accTile(A.learned, 'With learned speeds + OEE', A.tested_on === 'newest' ? `learned on older runs, tested on the newest ${pllN(A.runs)}` : 'all runs')}
-      ${accTile(A.items, `🔬 Card by card${L.learned_on ? ' — in use' : ''}`, 'each card\'s own time + set-up')}
+      ${accTile(A.items, `Card by card${L.learned_on ? ' — in use' : ''}`, 'each card\'s own time + set-up')}
       <div class="kdb-tile"><div class="kdb-tile-l">Runs vs plan</div><div class="kdb-tile-v ${A.now && Math.abs(A.now.bias) >= 15 ? 'kdb-bad' : ''}">${A.now?.bias === null || !A.now ? '—' : `${A.now.bias > 0 ? '+' : ''}${pllN(A.now.bias)}%`}</div><div class="kdb-tile-s">typical run, against its planned time</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Set-up a run</div><div class="kdb-tile-v">${L.setup.all === null ? '—' : `${pllN(L.setup.all)} min`}</div><div class="kdb-tile-s">before cards flow, usual</div></div>
       <div class="kdb-tile"><div class="kdb-tile-l">Remakes</div><div class="kdb-tile-v">${L.runs.cards ? `${pllN((L.runs.remade / L.runs.cards) * 100, 1)}%` : '—'}</div><div class="kdb-tile-s">${pllN(L.runs.remade)} cards</div></div>
     </div>
-    <div class="kc-note pll-switch">${L.learned_on ? `🔬 Planning is timing each card line from its card's own runs. <button type="button" class="small" data-pll="learned-off">Go back to the speeds and OEE</button>`
-      : `🔬 <b>Card by card</b>: time each card line in a work order from that card's own runs (and its kind's, while it has few), plus the set-up — so a work order is timed by what's actually in it.${A.items && A.learned && A.items.within > A.learned.within ? ` It has been the closest of the three (${pllN(A.items.within)}% within 25%).` : ''} <button type="button" class="primary small" data-pll="learned-on">Use it in the plan</button>`}</div>
+    <div class="kc-note pll-switch">${L.learned_on ? `Planning is timing each card line from its card's own runs. <button type="button" class="small" data-pll="learned-off">Go back to the speeds and OEE</button>`
+      : `<b>Card by card</b>: time each card line in a work order from that card's own runs (and its kind's, while it has few), plus the set-up — so a work order is timed by what's actually in it.${A.items && A.learned && A.items.within > A.learned.within ? ` It has been the closest of the three (${pllN(A.items.within)}% within 25%).` : ''} <button type="button" class="primary small" data-pll="learned-on">Use it in the plan</button>`}</div>
     ${L.findings.length ? `<div class="card"><h3 class="pl-h">What stands out</h3><ul class="pll-find">${L.findings.map((f) => `<li class="pll-${f.kind}"><span>${PLL.icon[f.kind] || '•'}</span> ${esc(f.text)}</li>`).join('')}</ul></div>` : ''}
 
     <div class="card"><h3 class="pl-h">Speeds by kind of card <span class="muted small">— running speed once a run is going (its machine's usual set-up taken off), the middle of its runs weighted by cards</span>${pllX('kind')}</h3>
@@ -63,7 +63,7 @@ function planLearnHtml(L) {
         <td>${s.suggest ? `<button type="button" class="small" data-pll-speed="${esc(JSON.stringify({ type: s.type, material: s.material, sides: s.sides, speed: s.speed }))}">Apply ${pllN(s.speed)}/h</button>` : '<span class="small pl-ok">✔ as planned</span>'}</td></tr>`).join('') || '<tr><td colspan="9" class="muted">No kind of card has 5 runs yet.</td></tr>'}
       </tbody></table></div>
       <div class="row" style="margin-top:6px">${toApply.length ? `<button type="button" class="primary" data-pll="speeds">Apply the ${toApply.length} confident speed${toApply.length === 1 ? '' : 's'}</button>` : ''}
-        <span class="small muted">Applying adds (or updates) the speed rule for exactly that kind of card in ⚙ Setup › Speeds. Low-confidence rows are left for you to judge.</span></div></div>
+        <span class="small muted">Applying adds (or updates) the speed rule for exactly that kind of card in Setup › Speeds. Low-confidence rows are left for you to judge.</span></div></div>
 
     <div class="card"><h3 class="pl-h">Estimated OEE by customer <span class="muted small">— the time each customer's runs would take at the speeds planned now ÷ the time they took</span>${pllX('customer')}</h3>
       <div class="kdb-scroll"><table class="log pll-t"><thead><tr><th>Customer</th><th class="num">Runs</th><th class="num">Cards</th><th class="num">Measured</th><th class="num">Planned now</th><th>Confidence</th><th></th></tr></thead><tbody>
@@ -76,7 +76,7 @@ function planLearnHtml(L) {
         <span class="small muted">${toApply.length ? '⚠ Apply the speeds first: OEE is measured against the speeds as they are now, and these figures change once the speeds do.' : 'The OEE takes in each customer\'s set-ups, stops and slower cards, so planned times match what runs.'}</span></div></div>
 
     <div class="grid two pll-grid">
-      ${pllPatternTable('By shift', P.shift, { label: 'Shift', by: 'shift', note: 'Shifts from the shift start times in ⚙ Setup › Modifiers. Pace: the time the cards would take at their kind\'s learned speed ÷ the time they took.' })}
+      ${pllPatternTable('By shift', P.shift, { label: 'Shift', by: 'shift', note: 'Shifts from the shift start times in Setup › Modifiers. Pace: the time the cards would take at their kind\'s learned speed ÷ the time they took.' })}
       ${pllPatternTable('By job size', P.size, { label: 'Cards in the run', by: 'size', note: `Small runs carry the set-up${L.setup.all ? ` (about ${pllN(L.setup.all)} min)` : ''} on few cards.` })}
       ${pllPatternTable('By machine', P.machine, { label: 'Machine', by: 'machine', note: L.setup.machines.length ? `Usual set-up: ${L.setup.machines.map((m) => `${esc(m.machine)} ${pllN(m.setup)} min`).join(' · ')}` : '' })}
       ${pllPatternTable('By weekday', P.weekday, { label: 'Day', by: 'weekday' })}
@@ -104,7 +104,7 @@ function planLearnHtml(L) {
       </tbody></table></div></div>` : ''}
       ${L.lateness.jobs ? `<div class="card"><h3 class="pl-h">Late by customer and shipper <span class="muted small">— ${pllN(L.lateness.jobs)} jobs done, ${pllN(L.lateness.late_pct, 1)}% after the cut-off (plan history)</span></h3>
         <div class="kdb-scroll"><table class="log pll-t"><thead><tr><th>Customer / shipper</th><th class="num">Jobs</th><th class="num">Late</th><th class="num">Share</th><th class="num">Average late</th></tr></thead><tbody>
-        ${[...L.lateness.customer.slice(0, 8).map((x) => ({ ...x, what: 'customer' })), ...L.lateness.shipper.slice(0, 6).map((x) => ({ ...x, what: 'shipper' }))].map((x) => `<tr><td>${x.what === 'shipper' ? '🚚 ' : ''}<b>${esc(x.label)}</b> <span class="small muted">${esc(x.name || '')}</span></td>
+        ${[...L.lateness.customer.slice(0, 8).map((x) => ({ ...x, what: 'customer' })), ...L.lateness.shipper.slice(0, 6).map((x) => ({ ...x, what: 'shipper' }))].map((x) => `<tr><td>${x.what === 'shipper' ? '' : ''}<b>${esc(x.label)}</b> <span class="small muted">${esc(x.name || '')}</span></td>
           <td class="num">${pllN(x.jobs)}</td><td class="num">${pllN(x.late)}</td><td class="num ${x.late_pct >= 10 ? 'pl-late' : ''}">${pllN(x.late_pct, 1)}%</td><td class="num">${x.avg_late ? fmtSpan(x.avg_late) : '—'}</td></tr>`).join('')}
         </tbody></table></div></div>` : ''}
     </div>
@@ -115,8 +115,8 @@ function planLearnHtml(L) {
         <td class="num">${c.current ? `${pllN(c.current)}/h` : c.machine_avg ? `${pllN(c.machine_avg)}/h<div class="small muted">machines</div>` : '—'}</td><td class="num">${pllChange(c.change)}</td><td>${pllConf(c.confidence)}</td>
         <td>${c.suggest ? `<button type="button" class="small" data-pll-otto="${esc(c.customer)}" data-speed="${c.speed}">Apply ${pllN(c.speed)}/h</button>` : '<span class="small pl-ok">✔ as planned</span>'}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No customer has 5 Matching runs yet.</td></tr>'}
       </tbody></table></div>
-      ${mApply.length ? `<div class="row" style="margin-top:6px"><button type="button" class="primary" data-pll="ottos">Apply the ${mApply.length} confident Matching speed${mApply.length === 1 ? '' : 's'}</button><span class="small muted">Sets the customer's speed in ⚙ Setup › Matching speeds by customer.</span></div>` : ''}</div>` : ''}
-    <p class="small muted">Learned from the ⏱ Production runs between ${esc(fmtDateTime(L.runs.first))} and ${esc(fmtDateTime(L.runs.last))}, anomalies (Normal) left out. Nothing changes in ⚙ Setup until you apply it; each change is in the audit log and can be set back in ⚙ Setup.</p>`;
+      ${mApply.length ? `<div class="row" style="margin-top:6px"><button type="button" class="primary" data-pll="ottos">Apply the ${mApply.length} confident Matching speed${mApply.length === 1 ? '' : 's'}</button><span class="small muted">Sets the customer's speed in Setup › Matching speeds by customer.</span></div>` : ''}</div>` : ''}
+    <p class="small muted">Learned from the Production runs between ${esc(fmtDateTime(L.runs.first))} and ${esc(fmtDateTime(L.runs.last))}, anomalies (Normal) left out. Nothing changes in Setup until you apply it; each change is in the audit log and can be set back in Setup.</p>`;
 }
 
 // Clicks in the Learned view; true if handled.
@@ -158,7 +158,7 @@ async function planLearnClick(e, L, rerender) {
   return false;
 }
 
-// ---- 🔎 Explode -------------------------------------------------------------------------------------
+// ---- Explode -------------------------------------------------------------------------------------
 // One table opened up in a window: any dates, grouped by anything (src/planlearn.js explode()), each
 // row's % of the total, sortable, and a row clicked to filter down to it (shown as chips to step back).
 const PLX = {
@@ -239,7 +239,7 @@ function plxDraw() {
   const tr = D.trend; const trMax = Math.max(1, ...tr.map((t) => t.per_hour || 0));
   const trLabel = (l) => (D.trend_step === 'day' ? `${Number(l.slice(8))}/${Number(l.slice(5, 7))}` : `w/c ${Number(l.slice(8))}/${Number(l.slice(5, 7))}`);
   $('#pllx').innerHTML = `
-    <div class="modal-head"><h2 style="margin:0">${plx.hist.length || plx.back ? `<button type="button" class="small" data-plx-back title="${esc(plx.hist.length ? 'Back to how it was before' : `Back to ${plx.back.label}`)}">← Back</button> ` : ''}🔎 ${otto ? 'Matching' : 'Production'} runs${D.filter_labels.map((f) => ` <span class="pllx-step">› ${esc(f.dim_label)}: <b>${esc(f.label)}</b></span>`).join('')}
+    <div class="modal-head"><h2 style="margin:0">${plx.hist.length || plx.back ? `<button type="button" class="small" data-plx-back title="${esc(plx.hist.length ? 'Back to how it was before' : `Back to ${plx.back.label}`)}">← Back</button> ` : ''}${otto ? 'Matching' : 'Production'} runs${D.filter_labels.map((f) => ` <span class="pllx-step">› ${esc(f.dim_label)}: <b>${esc(f.label)}</b></span>`).join('')}
       <span class="pllx-step pllx-by">› by ${esc(dim.label.toLowerCase())}</span>
       <div class="pllx-sub">${esc(fmtDate(`${D.from}T12:00`))} – ${esc(fmtDate(`${D.to}T12:00`))} · ${D.days} day${D.days === 1 ? '' : 's'}${D.prev ? ' · compared with the period before' : ''}</div></h2><button class="icon" data-action="close-modal">✕</button></div>
     <div class="pllx-bar">

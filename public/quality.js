@@ -1,5 +1,5 @@
 'use strict';
-// 🧪 Quality and ⛑ EHS: Reporting's month-by-month pages (the Quality module), from the Salesforce export
+// Quality and EHS: Reporting's month-by-month pages (the Quality module), from the Salesforce export
 // and the safety concern forms (src/quality.js). Pick a month: its tiles, the 12 months up to it, where things
 // came from (the month against the year to date), then the month's cases or forms and what's still open.
 // Loaded before app.js; uses its helpers and kpi.js's kpiTabsHtml.
@@ -24,15 +24,15 @@ async function renderQualityTab(kind) {
     ? `<div class="kpi-action notice"><span>⚠ Couldn't read ${srcName}: ${esc(read.error || `can't find ${read.file}`)}</span>${sourcesLink}</div>`
     : !src && read.status === 'not set up' ? `<div class="kpi-action notice"><span>⚠ Where ${srcName} is saved isn't set yet.</span>${sourcesLink}</div>` : '';
   main().innerHTML = `
-    <div class="kanban-tools kpi-tools"><h1 style="margin:0">📊 Reporting</h1>
+    <div class="kanban-tools kpi-tools"><h1 style="margin:0">Reporting</h1>
       <select id="q-month" class="kpi-pick" title="The month to show">${d.months.map((m) => `<option value="${m.month}" ${m.month === (d.period?.key || d.month) ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select>
       ${kpiTabsHtml(kind)}
       <div class="spacer"></div>
-      <span class="small muted q-src" title="${esc(kind === 'operations' ? Object.entries(d.sources || {}).filter(([, s]) => s).map(([k, s]) => `${k}: ${s.file || ''}`).join('\n') : src?.file || '')}">${kind === 'operations' ? opsSourcesLine(d) : src ? `${kind === 'quality' ? '🧪 Salesforce' : '⛑ Safety concern forms'} · read ${esc(fmtDateTime(src.imported_at))}${src.modified ? ` · file saved ${esc(fmtDateTime(src.modified))}` : ''}` : ''}</span>
+      <span class="small muted q-src" title="${esc(kind === 'operations' ? Object.entries(d.sources || {}).filter(([, s]) => s).map(([k, s]) => `${k}: ${s.file || ''}`).join('\n') : src?.file || '')}">${kind === 'operations' ? opsSourcesLine(d) : src ? `${kind === 'quality' ? 'Salesforce' : 'Safety concern forms'} · read ${esc(fmtDateTime(src.imported_at))}${src.modified ? ` · file saved ${esc(fmtDateTime(src.modified))}` : ''}` : ''}</span>
     </div>
     ${note}
     ${kind === 'quality' ? qualityHtml(d) : kind === 'operations' ? opsHtml(d) : ehsHtml(d)}`;
-  main().classList.add('cockpit-main', 'kpi-dash'); // 🧪 Quality and ⛑ EHS are dashboards: one screen, panels scroll on their own
+  main().classList.add('cockpit-main', 'kpi-dash'); // Quality and EHS are dashboards: one screen, panels scroll on their own
   qDrawCharts(); if (kind === 'operations') opsDraw();
   $('#q-month').addEventListener('change', (e) => { store.set('qMonth', e.target.value); renderQualityTab(kind); });
   // a case or form opens out to its details
@@ -149,7 +149,7 @@ function qBars(title, list, monthLabel) {
 // a case's or form's text: a click on it copies it (for the monthly slides); selecting part of it still works
 const qText = (label, v) => (v ? `<div class="q-more-f"><b>${label}</b><div class="pre q-copy" data-q-copy="${esc(label)}" title="Click to copy">${esc(v)}</div></div>` : '');
 
-// ---- 🧪 Quality -----------------------------------------------------------------------------------
+// ---- Quality -----------------------------------------------------------------------------------
 function qualityHtml(d) {
   const t = d.tiles; const sev = t.severity;
   const sevChips = (s) => Q_SEV.filter(([k]) => s[k]).map(([k, cls]) => `<span class="q-chip"><i class="q-sw ${cls}"></i>${s[k]} ${k.toLowerCase()}</span>`).join('') || '<span class="muted">none</span>';
@@ -187,7 +187,7 @@ function qualityHtml(d) {
     </div>
     <div class="qd-top">
       <section class="ck-panel qd-charts">
-        <div class="ck-ph"><h3 title="${esc(pk.span)}">📈</h3><div class="seg qd-tabs">${chartKeys.map(([k, l, title]) => tab('chart', k, esc(l), title)).join('')}</div>
+        <div class="ck-ph"><h3 title="${esc(pk.span)}">Charts</h3><div class="seg qd-tabs">${chartKeys.map(([k, l, title]) => tab('chart', k, esc(l), title)).join('')}</div>
           <span class="spacer"></span>
           ${pk.missing.length ? `<span class="chip overdue" title="The OTD and CPMS charts need ${esc(pk.missing.join(' and '))} — read on Reporting's Sources">⚠ data missing</span>` : ''}
           <span class="qd-chart-tools"${cur === 'trend' ? ' hidden' : ''}><button class="small primary" data-qcopy="${cur === 'trend' ? 'otd' : cur}" title="Copy for PowerPoint: the chart as a picture, then paste it into the slide (Ctrl+V)">📋 Copy</button>
@@ -261,7 +261,7 @@ document.addEventListener('click', async (e) => {
   if (!c && !g) return;
   const k = (c || g).dataset.qcopy || (c || g).dataset.qpng; const svg = qPackSvgs[k]; if (!svg) return;
   try {
-    if (c) { const how = await qxCopy(svg, qPackReady[k] || null); toast(how === 'image' ? '📋 Copied — paste it into the slide (Ctrl+V)' : '📋 Copied — paste it into the slide (Ctrl+V); if nothing appears, use ⬇ PNG'); }
+    if (c) { const how = await qxCopy(svg, qPackReady[k] || null); toast(how === 'image' ? '📋 Copied — paste it into the slide (Ctrl+V)' : 'Copied — paste it into the slide (Ctrl+V); if nothing appears, use ⬇ PNG'); }
     else await qxDownload(svg, `${k}-${$('#q-month')?.value || 'chart'}`);
   } catch (err) { toast(err.message, 'error'); }
 });
@@ -271,7 +271,7 @@ document.addEventListener('change', async (e) => {
   try { await api.put('/kpi/quality/targets', body); toast('Saved'); const open = tg.closest('details')?.open; await renderQualityTab('quality'); if (open) $('.q-pack-set')?.setAttribute('open', ''); } catch (err) { toast(err.message, 'error'); }
 });
 
-// ---- ⛑ EHS ----------------------------------------------------------------------------------------
+// ---- EHS ----------------------------------------------------------------------------------------
 function ehsHtml(d) {
   const t = d.tiles;
   const typeLabel = Object.fromEntries(d.types);
@@ -308,7 +308,7 @@ function ehsHtml(d) {
     </div>
     <div class="qd-top">
       <section class="ck-panel qd-charts">
-        <div class="ck-ph"><h3>📈</h3><div class="seg qd-tabs">${tab('echart', 'trend', 'By month', 'Forms by the month of the incident, by type')}${tab('echart', 'risk', `Risk in ${d.year}`, 'How often × how bad, as scored on the form; this year\'s forms in their cell')}</div></div>
+        <div class="ck-ph"><h3>Charts</h3><div class="seg qd-tabs">${tab('echart', 'trend', 'By month', 'Forms by the month of the incident, by type')}${tab('echart', 'risk', `Risk in ${d.year}`, 'How often × how bad, as scored on the form; this year\'s forms in their cell')}</div></div>
         <div class="qd-body qd-chart-body">
           ${pane('echart', 'trend', `<div class="qd-trend">${qLegend(series)}${qStackChart(d.trend, series, d.month)}</div>`)}
           ${pane('echart', 'risk', matrix)}

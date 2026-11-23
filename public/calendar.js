@@ -1,5 +1,5 @@
 'use strict';
-// 📅 Calendar: the app's own meetings in month, week and day views. Click a meeting to
+// Calendar: the app's own meetings in month, week and day views. Click a meeting to
 // open it, click an empty slot to add one, drag to reschedule, drag the bottom edge
 // (week/day) to change its length. Loaded before app.js; uses its helpers.
 
@@ -44,7 +44,7 @@ async function renderCalendar() {
   const shown = new Map(meetings.map((m) => [m.project_id || 0, m.project_name || 'No project']));
   main().innerHTML = `
     <div class="kanban-tools cal-tools">
-      <h1 style="margin:0">📅 Calendar</h1>
+      <h1 style="margin:0">Calendar</h1>
       <div class="row" style="gap:4px"><button data-cal-nav="-1" title="Previous (←)">‹</button><button data-cal-nav="0">Today</button>
         <button data-cal-nav="1" title="Next (→)">›</button></div>
       <h2 class="cal-title">${esc(title)}</h2>
@@ -106,7 +106,7 @@ async function calMove(m, start, duration) {
 }
 
 const calTip = (m) => [m.title, `${calTime(new Date(m.held_at))}–${calTime(meetingEnd(m))}`, m.project_name || 'No project',
-  m.task_title && `re: ${m.task_title}`, m.location && `📍 ${m.location}`, m.attendees && `👥 ${m.attendees}`,
+  m.task_title && `re: ${m.task_title}`, m.location && `📍 ${m.location}`, m.attendees && `${m.attendees}`,
   m.action_count && `☑ ${m.actions_done}/${m.action_count} actions`].filter(Boolean).join('\n');
 
 // ---- month -----------------------------------------------------------------------------

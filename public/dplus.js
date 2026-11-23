@@ -1,6 +1,6 @@
 'use strict';
-// 🧠 Production › Insights: 🔬 Learned (planlearn.js), 📆 D+ due out and ⏱ Timing (production.js).
-// 📆 D+ due out: how much notice work orders come with (src/dplus.js) — D+0 due out the day
+// Production › Insights: Learned (planlearn.js), D+ due out and Timing (production.js).
+// D+ due out: how much notice work orders come with (src/dplus.js) — D+0 due out the day
 // they came in, D+1 the next working day… — perso, Matching or both, over a time frame, as totals and an
 // average a working day, with the arrivals day by day. Click a row for that bucket's customers, job
 // sizes, shippers / machines, priorities, weekdays, how it went and its largest work orders.
@@ -21,8 +21,8 @@ function dplRange(q, since) {
 
 // The Insights tab: Production's tabs, then Learned / D+ due out.
 const plInsightsHead = (sub, extra = '') => `
-    <div class="kanban-tools"><h1 style="margin:0">🏭 Production</h1>${plHalvesHtml('insights')}</div>
-    <div class="row pl-views"><div class="seg">${[['learn', '🔬 Learned'], ['dplus', '📆 D+ due out'], ['timing', '⏱ Timing'], ['optimise', '🔎 Optimisation']].map(([k, l]) => `<button type="button" data-pl-insight="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>${extra}</div>`;
+    <div class="kanban-tools"><h1 style="margin:0">Production</h1>${plHalvesHtml('insights')}</div>
+    <div class="row pl-views"><div class="seg">${[['learn', 'Learned'], ['dplus', 'D+ due out'], ['timing', 'Timing'], ['optimise', 'Optimisation']].map(([k, l]) => `<button type="button" data-pl-insight="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>${extra}</div>`;
 // a click on Production's tabs or Insights' own: true when handled
 function plInsightsClick(e) {
   const hf = e.target.closest('[data-pl-half]'); if (hf) { store.set('planHalf', hf.dataset.plHalf); renderPlanning(); return true; }
@@ -84,7 +84,7 @@ async function renderPlanDplus() {
     ${plInsightsHead('dplus', `<div class="seg">${[['perso', 'Perso'], ['otto', 'Matching'], ['disp', 'Dispatch'], ['both', 'All']].map(([k, l]) => `<button type="button" data-dpl-source="${k}" class="${d.source === k ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
     <p class="small muted" style="margin:6px 0 10px">How much notice work orders come with, in working days (Planning's working days): <b>D+0</b> is due the day it came in, <b>D+1</b> the next working day, and so on.
       ${d.basis === 'report' ? `Perso: each work order's <b>Import Date</b> against its <b>Due Date</b>, from the production report (${d.since ? `from ${esc(fmtDate(`${d.since}T12:00`))}` : ''}), so it doesn't matter whether SITHUB was open. Work orders not run yet come from the open work orders export, from when they first appeared in it.`
-        : `The day each first appeared in its export (perso: the open work orders; Matching and Dispatch: their jobs, by work order) against its due-out day (Matching: its plan date)${d.basis === 'mixed' ? '; perso from the production report\'s Import and Due Dates' : ''}. ${d.since ? `Recorded since ${esc(fmtDate(`${d.since}T12:00`))}; what was already in the export when recording began is left out (when it came in isn't known).` : ''}${d.source === 'perso' ? ' Link the production report (Reporting › ⏱ Production) to use its Import Dates instead, whether or not SITHUB was open.' : ''}`}</p>
+        : `The day each first appeared in its export (perso: the open work orders; Matching and Dispatch: their jobs, by work order) against its due-out day (Matching: its plan date)${d.basis === 'mixed' ? '; perso from the production report\'s Import and Due Dates' : ''}. ${d.since ? `Recorded since ${esc(fmtDate(`${d.since}T12:00`))}; what was already in the export when recording began is left out (when it came in isn't known).` : ''}${d.source === 'perso' ? ' Link the production report (Reporting › Production) to use its Import Dates instead, whether or not SITHUB was open.' : ''}`}</p>
     ${!d.since ? `<div class="card muted">Nothing recorded yet${otto ? ' for Matching' : disp ? ' for Dispatch' : ''}. This builds up from the linked export${otto ? ' (Matching\'s, recorded from now on)' : disp ? ' (Dispatch\'s, recorded from now on)' : both ? 's' : ' of open work orders'}: each new version is recorded, and what's new in it counted.</div>` : `
     <div class="row dpl-controls" style="gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
       <label class="f"><span>From</span><input type="date" id="dpl-from" value="${esc(d.from)}"></label>

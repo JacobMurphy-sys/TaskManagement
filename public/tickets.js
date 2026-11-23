@@ -1,5 +1,5 @@
 'use strict';
-// 🎫 Tickets: a bug report, a feature request or a question, sent from 💬 in the top bar with where it
+// Tickets: a bug report, a feature request or a question, sent from 💬 in the top bar with where it
 // was sent from (the page, the version, the browser, the last error messages) and, if wanted, a
 // screenshot pasted in. The Tickets page lists them; someone with the "Handle tickets" right sets their
 // status and answers them. Loaded before app.js.
@@ -21,13 +21,13 @@ function ticketDialog(kind = store.get('ticketKind', 'bug')) {
   const page = location.hash || '#/dashboard';
   const where = document.title && $('#topnav a.on, #topnav a.active')?.textContent?.trim();
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">💬 Report a bug or ask for something</h2><button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0">Report a bug or ask for something</h2><button class="icon" data-action="close-modal">✕</button></div>
     <div class="seg" id="tk-kind">${Object.entries(TICKET_KIND).map(([k, [i, l]]) => `<button type="button" data-kind="${k}" class="${k === kind ? 'on' : ''}">${i} ${l}</button>`).join('')}</div>
     <label class="f" style="margin-top:10px">Title<input id="tk-title" maxlength="200" placeholder="In a few words, e.g. “Gantt doesn't show subtasks”"></label>
     <label class="f" style="margin-top:8px">Details<textarea id="tk-desc" rows="7"></textarea></label>
     <label class="small row" id="tk-block-row" style="margin-top:6px"><input type="checkbox" id="tk-blocking"> It stops me from working</label>
     <div class="tk-shot" id="tk-shot" tabindex="0" title="Paste a screenshot here (Ctrl+V), drop an image, or click to choose one">
-      <span class="muted small">📷 <b>Screenshot</b> (optional): press <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>, then paste it here with <kbd>Ctrl</kbd>+<kbd>V</kbd> — or click to choose a file</span>
+      <span class="muted small"><b>Screenshot</b> (optional): press <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>, then paste it here with <kbd>Ctrl</kbd>+<kbd>V</kbd> — or click to choose a file</span>
       <input type="file" id="tk-file" accept="image/*" hidden></div>
     <p class="small muted" style="margin:8px 0 0">Sent with it: the page you're on (${esc(where || page)}), SITHUB's version, your browser${noticeErrors.length ? ' and the last error messages' : ''}, and your name.</p>
     <div class="row" style="margin-top:12px"><a class="small" href="#/tickets" data-action="close-modal-go">🎫 See all tickets</a><div class="spacer"></div>
@@ -91,7 +91,7 @@ async function renderTickets() {
         ${canHandle ? `<button class="link small danger tk-del">Delete this ticket</button>` : ''}</details>
     </div>`;
   main().innerHTML = `
-    <div class="kanban-tools"><h1 style="margin:0">🎫 Tickets</h1>
+    <div class="kanban-tools"><h1 style="margin:0">Tickets</h1>
       <div class="seg" id="tk-show">${[['open', 'Open'], ['closed', 'Done'], ['all', 'All']].map(([k, l]) => `<button type="button" data-show="${k}" class="${f.show === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <select id="tk-filter-kind" style="width:auto"><option value="">Every kind</option>${Object.entries(TICKET_KIND).map(([k, [i, l]]) => `<option value="${k}" ${f.kind === k ? 'selected' : ''}>${i} ${l} (${count(k)} open)</option>`).join('')}</select>
       ${me ? `<label class="small muted row"><input type="checkbox" id="tk-mine" ${f.mine ? 'checked' : ''}> only mine</label>` : ''}
@@ -132,8 +132,8 @@ async function renderTickets() {
 async function ticketPopout(id) {
   let t;
   try { t = await api.get(`/tickets/${id}`); } catch (err) { toast(err.message === 'Ticket not found' ? 'That ticket has been deleted' : err.message, 'error'); return; }
-  const [icon, kindLabel] = TICKET_KIND[t.kind] || ['🎫', 'Ticket'];
-  openModal(`<div class="modal-head"><h2 style="margin:0">${icon} ${esc(t.title)}</h2><button class="icon" data-action="close-modal">✕</button></div>
+  const [, kindLabel] = TICKET_KIND[t.kind] || ['🎫', 'Ticket'];
+  openModal(`<div class="modal-head"><h2 style="margin:0">${esc(t.title)}</h2><button class="icon" data-action="close-modal">✕</button></div>
     <div class="tk-pop">
       <div class="row small" style="gap:8px;flex-wrap:wrap;align-items:center">${ticketPill(t.status)}<span class="muted">${esc(kindLabel)} · ${esc(t.ref)}${t.reporter ? ` · from ${esc(t.reporter)}` : ''} · ${esc(fmtDateTime(t.created_at))}</span></div>
       ${t.reply ? `<div class="tk-pop-answer"><b>↩ The answer</b><div class="pre">${linkify(t.reply)}</div></div>`

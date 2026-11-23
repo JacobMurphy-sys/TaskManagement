@@ -1,5 +1,5 @@
-// 📈 Forecast (the Forecast module): the customer forecasts sent in — through the upload link (no account needed) or
-// from here — who sent which and when, what each held month by month, and which one 📐 Capacity planning reads.
+// Forecast (the Forecast module): the customer forecasts sent in — through the upload link (no account needed) or
+// from here — who sent which and when, what each held month by month, and which one Capacity planning reads.
 // An admin (the setup right) switches the link on or off and makes a new one (src/forecasts.js).
 
 const fcQty = (n) => (Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : Math.abs(n) >= 1e3 ? `${Math.round(n / 1e3)}k` : String(Math.round(n)));
@@ -29,15 +29,15 @@ async function renderForecast() {
       <td class="small">${esc(u.note || '')}</td>
       <td>${d.link.can_edit ? `<button type="button" class="icon" data-fc-del="${u.id}" title="Remove this forecast">✕</button>` : ''}</td></tr>`;
   main().innerHTML = `
-    <div class="kanban-tools"><h1 style="margin:0">📈 Forecast</h1>
+    <div class="kanban-tools"><h1 style="margin:0">Forecast</h1>
       <div class="seg">${[['', 'All'], ...Object.entries(d.kinds)].map(([k, l]) => `<button type="button" data-fc-kind="${k}" class="${kind === k ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
       <div class="spacer"></div>
       <label class="button primary" title="Upload a BeNeLux or Amex forecast workbook">⬆ Upload a forecast<input type="file" id="fc-file" accept=".xlsx,.xlsm" hidden></label></div>
-    <p class="small muted">The customer forecasts sent in, newest first. Each is checked when it arrives; the newest of each kind then feeds <b>everything using the forecast</b>: the A3 built from then on (% of forecast, Missing), the Database's report tables and 📐 Capacity planning, in place of the file linked in Reporting › Sources (unless that file is newer).</p>
-    <div class="card fc-viz" id="fc-viz"><h2 style="margin:0">📊 The forecast</h2><div class="empty small">Reading the forecast…</div></div>
+    <p class="small muted">The customer forecasts sent in, newest first. Each is checked when it arrives; the newest of each kind then feeds <b>everything using the forecast</b>: the A3 built from then on (% of forecast, Missing), the Database's report tables and Capacity planning, in place of the file linked in Reporting › Sources (unless that file is newer).</p>
+    <div class="card fc-viz" id="fc-viz"><h2 style="margin:0">The forecast</h2><div class="empty small">Reading the forecast…</div></div>
     <div class="kdb-tiles">${Object.keys(d.kinds).map(cap).join('')}</div>
     <div class="card">
-      <div class="row"><h2 style="margin:0">🔗 Upload link</h2><span class="small ${d.link.on ? '' : 'muted'}">${d.link.on ? '● on' : '○ off'}</span><div class="spacer"></div>
+      <div class="row"><h2 style="margin:0">Upload link</h2><span class="small ${d.link.on ? '' : 'muted'}">${d.link.on ? '● on' : '○ off'}</span><div class="spacer"></div>
         ${d.link.can_edit ? `<button type="button" data-fc-link="${d.link.on ? 'off' : 'on'}">${d.link.on ? 'Switch off' : 'Switch on'}</button>${d.link.on ? '<button type="button" data-fc-renew title="Make a new link: the old one stops working">↻ New link</button>' : ''}` : ''}</div>
       <p class="small muted">For the people who send forecasts but have no SITHUB account: the link opens a page that only sends a forecast (they give their name) and shows what was sent from that browser before. Nothing else of SITHUB. Anyone with the link can send one, so share it only with them; make a new link if it goes further.</p>
       ${d.link.on && url ? `<div class="row"><input type="text" readonly value="${esc(url)}" id="fc-url" style="flex:1;min-width:0"><button type="button" class="primary" data-fc-copy>📋 Copy</button><a class="button" href="${esc(d.link.path)}" target="_blank" rel="noopener">Open ↗</a></div>${/^(localhost|127\.|\[?::1)/.test(location.hostname) ? '<div class="small pl-late" style="margin-top:6px">⚠ This link uses this PC\'s own address, so it only works here. Copy it from another PC (opening SITHUB by the server\'s name) to share it.</div>' : ''}`
@@ -47,7 +47,7 @@ async function renderForecast() {
       ${list.length ? `<div class="kdb-scroll"><table class="log"><thead><tr><th>When</th><th>From</th><th>Forecast</th><th>Months · total</th><th>File</th><th>Note</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table></div>`
     : '<div class="empty">No forecasts sent in yet.</div>'}</div>`;
   $$('[data-fc-kind]').forEach((b) => b.addEventListener('click', () => { store.set('fcKind', b.dataset.fcKind); renderForecast(); }));
-  fcViz(kind, d).catch((err) => { const b = $('#fc-viz'); if (b) b.innerHTML = `<h2 style="margin:0">📊 The forecast</h2><div class="empty small">${esc(err.message)}</div>`; });
+  fcViz(kind, d).catch((err) => { const b = $('#fc-viz'); if (b) b.innerHTML = `<h2 style="margin:0">The forecast</h2><div class="empty small">${esc(err.message)}</div>`; });
   $('#fc-file')?.addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
     try {
@@ -71,7 +71,7 @@ async function renderForecast() {
   }));
 }
 
-// ---- 📊 The forecast, drawn: the forecast in use now (each kind: the linked file or the newest sent in), month by month
+// ---- The forecast, drawn: the forecast in use now (each kind: the linked file or the newest sent in), month by month
 // for a year, stacked by customer (the 7 biggest in their own colours, the rest as Other), with a version sent in
 // earlier as a dashed mark on each month to see what changed. A table view below.
 const FC_TOP = 7;
@@ -91,7 +91,7 @@ async function fcViz(kind, d0) {
   const rows = v.rows.filter((r) => kinds.includes(r.kind));
   const from = kinds.map((k) => { const c = v.current[k]; return c?.error ? `${esc(v.kinds[k])}: <span class="pl-late">⚠ ${esc(c.error)}</span>` : c?.from === 'sent_in' ? `${esc(v.kinds[k])}: 📈 sent in by ${esc(c.sent_in.submitter)}, ${esc(fmtDateTime(c.sent_in.created_at))}` : c?.from === 'file' ? `${esc(v.kinds[k])}: 🔗 the linked file${c.modified ? `, saved ${esc(fmtDateTime(c.modified))}` : ''}` : `${esc(v.kinds[k])}: <span class="muted">none</span>`; }).join(' · ');
   const years = [...new Set(rows.map((r) => r.year))].sort();
-  if (!years.length) { box.innerHTML = `<h2 style="margin:0">📊 The forecast</h2><p class="small muted">${from}</p><div class="empty">No forecast to draw yet: send one in, or link the files in Reporting › Sources.</div>`; return; }
+  if (!years.length) { box.innerHTML = `<h2 style="margin:0">The forecast</h2><p class="small muted">${from}</p><div class="empty">No forecast to draw yet: send one in, or link the files in Reporting › Sources.</div>`; return; }
   const thisYear = new Date().getFullYear();
   let year = Number(store.get('fcYear', 0)); if (!years.includes(year)) year = years.includes(thisYear) ? thisYear : years[years.length - 1];
   // customers in a fixed order (all years of what's shown), so a colour stays with its customer when the year changes
@@ -118,7 +118,7 @@ async function fcViz(kind, d0) {
     <thead><tr><th>Customer</th>${FC_MON.map((m) => `<th class="num">${m}</th>`).join('')}<th class="num">${year}</th>${cmpRows ? '<th class="num" title="Against the version compared">vs before</th>' : ''}</tr></thead>
     <tbody>${custs.map(([c, t]) => `<tr><td>${esc(c)}</td>${FC_MON.map((_, i) => { const x = cell(c, i + 1); return `<td class="num">${x ? fcN(x) : ''}</td>`; }).join('')}<td class="num"><b>${fcN(t)}</b></td>${cmpRows ? `<td class="num">${cmpCust(c) ? `${t >= cmpCust(c) ? '▲' : '▼'} ${pct(t, cmpCust(c))}` : 'new'}</td>` : ''}</tr>`).join('')}
     <tr class="fc-total"><td><b>Total</b></td>${totals.map((x) => `<td class="num"><b>${x ? fcN(x) : ''}</b></td>`).join('')}<td class="num"><b>${fcN(yearTot)}</b></td>${cmpRows ? `<td class="num"><b>${pct(yearTot, cmpYear)}</b></td>` : ''}</tr></tbody></table></div></details>`;
-  box.innerHTML = `<div class="row"><h2 style="margin:0">📊 The forecast</h2><div class="spacer"></div>
+  box.innerHTML = `<div class="row"><h2 style="margin:0">The forecast</h2><div class="spacer"></div>
       <span class="seg">${years.map((y) => `<button type="button" data-fc-year="${y}" class="${y === year ? 'on' : ''}">${y}</button>`).join('')}</span>
       ${kind ? `<label class="small">Compare with <select id="fc-cmp"><option value="">nothing</option>${versions.filter((u) => u.id !== d0.newest[kind] || v.current[kind]?.from !== 'sent_in').map((u) => `<option value="${u.id}" ${String(u.id) === cmp ? 'selected' : ''}>${esc(fmtDateTime(u.created_at))} · ${esc(u.submitter)}</option>`).join('')}</select></label>` : '<span class="small muted" title="Pick BeNeLux or Amex above to compare with an earlier version">compare: one forecast at a time</span>'}</div>
     <p class="small muted" style="margin:4px 0 8px">In use now — ${from}</p>

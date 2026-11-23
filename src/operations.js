@@ -109,7 +109,7 @@ function operations(month, { names = new Map(), today = new Date() } = {}) {
   for (const yy of [Number(y) - 1, Number(y)]) for (const w of kpiData.weeksOf(yy)) weekMonth.set(w.week, `${yy}-${pad(kpiData.monthIndex(w.month) + 1)}`);
   const delays = db.all("SELECT week, customer, type, qty, extra FROM kpi_rows WHERE source = 'otd' AND week <> ''")
     .map((r) => { const x = parseExtra(r.extra); return { month: weekMonth.get(String(r.week).toUpperCase()), customer: r.customer, internal: /^int/i.test(r.type || ''), external: /^ext/i.test(r.type || ''), qty: r.qty || 0, reason: x.reason || null,
-      renewal: typeof x.renewal === 'boolean' ? x.renewal : null }; }) // daily or renewal: known for delays logged against a work order (🚚 OTD), not for the report's rows
+      renewal: typeof x.renewal === 'boolean' ? x.renewal : null }; }) // daily or renewal: known for delays logged against a work order (OTD), not for the report's rows
     .filter((r) => r.month);
   const delaysOf = (mm) => ({ internal: sumBy(delays.filter((r) => r.month === mm && r.internal), (r) => r.qty), external: sumBy(delays.filter((r) => r.month === mm && r.external), (r) => r.qty) });
   const otdOf = (mm) => { const s = vol(shipped, mm); const d = delaysOf(mm); return { shipped: s, ...d, otd_sc: s ? 1 - d.internal / s : null, otd_c: s ? 1 - d.external / s : null }; };

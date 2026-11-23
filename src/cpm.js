@@ -435,8 +435,8 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
   const fx = useFlex ? flex({ cards }) : null;
   const learned = learnedSplit(cards);
   const warnings = [];
-  if (!db.get('SELECT 1 FROM plan_machines WHERE active = 1')) warnings.push('No machines in Production › ⚙ Setup — there\'s no capacity to plan against');
-  for (const t of TECHS) if (!sp[t]) warnings.push(`No speed for ${t} in Production › ⚙ Setup › speeds — its capacity can't be worked out`);
+  if (!db.get('SELECT 1 FROM plan_machines WHERE active = 1')) warnings.push('No machines in Production › Setup — there\'s no capacity to plan against');
+  for (const t of TECHS) if (!sp[t]) warnings.push(`No speed for ${t} in Production › Setup › speeds — its capacity can't be worked out`);
   // machines: Production's, with the scenario's changes (dated by month)
   const base = db.all('SELECT * FROM plan_machines WHERE active = 1 ORDER BY sort_order, id').map((m) => ({ name: m.name, techs: String(m.types || '').split(/[,;/]/).map(normTech).filter(Boolean), base: true }));
   for (const m of base) if (!m.techs.length) m.techs = [...TECHS];
@@ -446,12 +446,12 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
   const when = (c) => `${c.from ? ` from ${c.from}` : ''}${c.to ? ` until ${c.to}` : ''}`;
   for (const c of changes) {
     if (c.from && c.to && c.to < c.from) warnings.push(`A ${c.type.replace('_', ' ')} change runs from ${c.from} until ${c.to} — it never applies`);
-    if (['remove_machine', 'capabilities', 'restrict'].includes(c.type) || (c.type === 'speed' && c.machine)) { if (!c.machine) warnings.push(`A ${c.type.replace('_', ' ')} change has no machine chosen — it does nothing`); else if (!names.has(c.machine)) warnings.push(`${c.machine} isn't a machine in Production › ⚙ Setup (or added by this scenario) — that change does nothing`); }
+    if (['remove_machine', 'capabilities', 'restrict'].includes(c.type) || (c.type === 'speed' && c.machine)) { if (!c.machine) warnings.push(`A ${c.type.replace('_', ' ')} change has no machine chosen — it does nothing`); else if (!names.has(c.machine)) warnings.push(`${c.machine} isn't a machine in Production › Setup (or added by this scenario) — that change does nothing`); }
     if (c.type === 'add_machine' && !(c.techs || []).map(normTech).filter(Boolean).length) warnings.push(`${c.name || 'The machine added'} runs no technology — tick what it runs, or it adds nothing`);
     if (c.type === 'capabilities' && c.machine && !(c.techs || []).map(normTech).filter(Boolean).length) warnings.push(`${c.machine} is set to run nothing${when(c)} — the same as removing it`);
     if (c.type === 'new_customer') { const sp = Object.values(c.split || {}).reduce((a, b) => a + (Number(b) || 0), 0); if (c.split && Object.keys(c.split).length && Math.abs(sp - 1) > 0.005) warnings.push(`${c.name || 'The new customer'}'s split adds up to ${Math.round(sp * 100)}% — it's taken as shares of 100%`); if (!(Number(c.qty) > 0)) warnings.push(`${c.name || 'The new customer'} has no cards a month — it adds nothing`); }
     if ((c.type === 'oee' && !Number(c.points)) || ((c.type === 'volume' || c.type === 'speed') && !Number(c.pct) && !Number(c.flat))) warnings.push(`A ${c.type} change of 0 — it does nothing`);
-    if (c.type === 'rnw_window') warnings.push(`The ${c.tech || ''} renewal window only changes 🕐 Day by hour — not the month or week figures`.replace('The  ', 'The '));
+    if (c.type === 'rnw_window') warnings.push(`The ${c.tech || ''} renewal window only changes Day by hour — not the month or week figures`.replace('The  ', 'The '));
   }
   // CPM's own per-machine settings: availability (share of its hours for perso) and speed per technology
   const opts = json(setting('cpm_machines', '{}'), {});
@@ -682,7 +682,7 @@ function siteCapacity(year, cards = null) {
     const per = {};
     for (const t of techs) {
       const own = Number(o.speed?.[t]) || 0; const speed = own || sp[t]?.speed || 0;
-      if (!speed) warnings.push(`${m.name}: no ${t} speed (Production › ⚙ Setup › speeds, or ⚙ Capacity) — counted as 0`);
+      if (!speed) warnings.push(`${m.name}: no ${t} speed (Production › Setup › speeds, or Capacity) — counted as 0`);
       per[t] = { speed, from: own ? 'machine' : sp[t]?.speed ? 'production' : null, hour: speed, day: speed * h, week: speed * h * weekDays, months: months.map((mo) => speed * h * mo.workdays), year: speed * h * workdays };
     }
     const bestT = techs.reduce((b, t) => (!b || per[t].speed > per[b].speed ? t : b), null);
@@ -703,15 +703,15 @@ function siteCapacity(year, cards = null) {
     const counted = mix ? { basis: 'mix', ...mix } : best ? { basis: techs.length > 1 ? 'fastest' : 'only', ...best } : null;
     return { name: m.name, techs, avail, hours_day: h, hours_year: h * workdays, per, best, mix, counted };
   });
-  if (!machines.length) warnings.push('No machines in Production › ⚙ Setup — there\'s no capacity to show');
-  if (!dayHours) warnings.push('No working hours: set the shifts a day and productive hours a shift on ⚙ Capacity');
+  if (!machines.length) warnings.push('No machines in Production › Setup — there\'s no capacity to show');
+  if (!dayHours) warnings.push('No working hours: set the shifts a day and productive hours a shift on Capacity');
   const sum = (pick) => ({ day: 0, week: 0, year: 0, months: months.map(() => 0), ...machines.reduce((acc, m) => { const x = pick(m); if (!x) return acc;
     acc.day = (acc.day || 0) + x.day; acc.week = (acc.week || 0) + x.week; acc.year = (acc.year || 0) + x.year; acc.months = (acc.months || months.map(() => 0)).map((v, i) => v + x.months[i]); return acc; }, {}) });
   const byTech = Object.fromEntries(TECHS.map((t) => [t, { machines: machines.filter((m) => m.per[t]).length, ...sum((m) => m.per[t]) }]));
   // the site total by technology: each machine's cards at its mix (or its one / fastest technology)
   const countedBy = Object.fromEntries(TECHS.map((t) => [t, sum((m) => { const c = m.counted; if (!c) return null; const f = c.basis === 'mix' ? c.split[t] || 0 : c.tech === t ? 1 : 0;
     return f ? { day: c.day * f, week: c.week * f, year: c.year * f, months: c.months.map((v) => v * f) } : null; })]));
-  for (const m of machines) if (m.techs.length > 1 && !m.mix && m.best) warnings.push(`${m.name}: no record of what it ran by technology in the last 12 months${cards ? '' : ' (the card database, which tells the technology, isn\'t linked in Production › ⚙ Setup)'}, so it's counted at its fastest`);
+  for (const m of machines) if (m.techs.length > 1 && !m.mix && m.best) warnings.push(`${m.name}: no record of what it ran by technology in the last 12 months${cards ? '' : ' (the card database, which tells the technology, isn\'t linked in Production › Setup)'}, so it's counted at its fastest`);
   return { year, shifts, hours: SHIFT_HOURS, hours_day: dayHours, week_days: weekDays, workdays, holidays: cal.filter((d) => !d.work && String(setting('plan_days', '1,2,3,4,5')).split(',').map(Number).includes(d.dow)).length,
     months, techs: TECHS, speed_from: Object.fromEntries(Object.entries(sp).map(([t, x]) => [t, x])), machines, total: sum((m) => m.counted), by_tech: byTech, counted_by_tech: countedBy, cards: !!cards, warnings: [...new Set(warnings)] };
 }

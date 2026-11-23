@@ -1,9 +1,9 @@
-// 👥 Several people on one SITHUB (the shared server, src/collab.js):
+// Several people on one SITHUB (the shared server, src/collab.js):
 // - your name, asked once, so others see who's here and who changed what;
 // - 👥 in the top bar: who else has it open, and where; on a page someone else is on, a line says so;
 // - when someone else changes what you're looking at: lists refresh by themselves (unless you're in
-//   the middle of something), other pages say what changed with a 🔄 Refresh button;
-// - the dialog for two edits of the same text (see request() in app.js), and 🕘 History with ↩ Put back.
+//   the middle of something), other pages say what changed with a Refresh button;
+// - the dialog for two edits of the same text (see request() in app.js), and History with ↩ Put back.
 const COLLAB = { on: false, seq: -1, others: [], timer: null, notes: [] };
 const COLLAB_VIEWS = { dashboard: 'Home', tasks: 'Tasks', calendar: 'Calendar', kanban: 'Projects', ideas: 'Ideas', idea: 'an idea', library: 'Library', kpi: 'Reporting',
   planning: 'Production', report: 'the archived report', contacts: 'Contacts', settings: 'Settings', log: 'Activity log', backups: 'Backups', project: 'a project', search: 'Search' };
@@ -47,7 +47,7 @@ function collabDialog(html, cls = '') {
 // ---- your name ----------------------------------------------------------------------------------
 function collabAskName(again = false) {
   return new Promise((resolve) => {
-    const d = collabDialog(`<form method="dialog" class="cd-name"><h3 style="margin-top:0">👋 ${again ? 'Your name' : 'Who\'s using SITHUB?'}</h3>
+    const d = collabDialog(`<form method="dialog" class="cd-name"><h3 style="margin-top:0">${again ? 'Your name' : 'Who\'s using SITHUB?'}</h3>
       <p class="small muted">Several people use this copy. Your name shows others who's here and who changed what, and goes in the history of each change. It's kept in this browser.</p>
       <input type="text" name="n" required maxlength="60" value="${esc(me.name)}" placeholder="e.g. Sam Taylor" autocomplete="name">
       <div class="row" style="margin-top:10px"><span class="spacer"></span>${again ? '<button value="cancel" formnovalidate>Cancel</button>' : ''}<button class="primary" value="ok">Save</button></div></form>`);
@@ -91,7 +91,7 @@ function collabChip() {
   const el = $('#collab-chip'); if (!el) return;
   const names = [...new Set(COLLAB.others.map((o) => o.name))];
   el.hidden = false;
-  el.innerHTML = names.length ? `👥 <span class="collab-n">${names.length}</span>` : '👤';
+  el.innerHTML = names.length ? `<span class="collab-n">${names.length}</span>` : '👤';
   el.title = names.length ? `Also here:\n${COLLAB.others.map((o) => `${o.name} — ${collabWhere(o)}`).join('\n')}` : 'Nobody else has SITHUB open';
 }
 function collabHere() {
@@ -114,7 +114,7 @@ function collabModalNote(c, taskId) {
   const head = $('#modal-body .modal-head'); if (!head) return;
   let note = $('#collab-modal-note');
   if (!note) { note = document.createElement('div'); note.id = 'collab-modal-note'; note.className = 'collab-banner'; head.after(note); }
-  note.innerHTML = `<div>✏ <b>${esc(c.by)}</b> ${esc(c.text)}</div><button class="small" data-action="open-task" data-id="${esc(taskId)}">🔄 Reload this task</button>`;
+  note.innerHTML = `<div><b>${esc(c.by)}</b> ${esc(c.text)}</div><button class="small" data-action="open-task" data-id="${esc(taskId)}">🔄 Reload this task</button>`;
 }
 document.addEventListener('click', async (e) => {
   const b = e.target.closest('[data-collab]'); if (!b) return;
@@ -141,8 +141,8 @@ async function collabStart() {
 // → the text to save: theirs, or yours (as you leave it in the box: you can copy bits across).
 function collabConflict(c, mine) {
   return new Promise((resolve) => {
-    const d = collabDialog(`<h3 style="margin-top:0">✏ ${esc(c.by)} changed this while you were editing it</h3>
-      <p class="small muted">Their version was saved ${esc(fmtDateTime(c.at))}. Keep theirs, or save yours — edit it first to take in anything of theirs. Whichever isn't kept stays in the 🕘 History.</p>
+    const d = collabDialog(`<h3 style="margin-top:0">${esc(c.by)} changed this while you were editing it</h3>
+      <p class="small muted">Their version was saved ${esc(fmtDateTime(c.at))}. Keep theirs, or save yours — edit it first to take in anything of theirs. Whichever isn't kept stays in the History.</p>
       <div class="cd-two"><label class="f">Theirs (saved)<textarea readonly rows="10">${esc(c.theirs)}</textarea></label>
         <label class="f">Yours<textarea rows="10" id="cd-mine">${esc(mine)}</textarea></label></div>
       <div class="row" style="margin-top:10px"><span class="spacer"></span><button data-cd="theirs">Keep theirs</button><button class="primary" data-cd="mine">Save mine</button></div>`, 'wide');
@@ -171,7 +171,7 @@ async function collabHistory(kind, id, title = '') {
   let rows;
   try { rows = await api.get(`/history/${kind}/${id}`); } catch (err) { toast(err.message, 'error'); return; }
   const verb = { INSERT: 'created it', DELETE: 'removed it', UPDATE: 'changed' };
-  const d = collabDialog(`<div class="row"><h3 style="margin:0">🕘 History${title ? ` — ${esc(title)}` : ''}</h3><span class="spacer"></span><button class="icon" data-hist="close">✕</button></div>
+  const d = collabDialog(`<div class="row"><h3 style="margin:0">History${title ? ` — ${esc(title)}` : ''}</h3><span class="spacer"></span><button class="icon" data-hist="close">✕</button></div>
     <p class="small muted">Every change, newest first. ↩ Put back sets a field to what it was before that change (itself a new change, so it can be undone too).</p>
     <div class="hist-list">${rows.map((r) => `<div class="hist-row"><div class="small"><b>${esc(r.by || 'Someone')}</b> ${verb[r.action] || r.action} · <span class="muted">${esc(fmtDateTime(r.at))}</span></div>
       ${r.action === 'UPDATE' ? `<table class="log small"><tbody>${r.fields.map((f) => `<tr><td class="nowrap"><b>${esc(histName(f.field))}</b></td><td>${histValue(f.old)}</td><td>→</td><td>${histValue(f.new)}</td>

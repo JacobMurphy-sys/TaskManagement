@@ -1,5 +1,5 @@
 'use strict';
-// 📈 The quality pack: the Quality team's three monthly charts, drawn to look like their Excel ones (white,
+// The quality pack: the Quality team's three monthly charts, drawn to look like their Excel ones (white,
 // Excel's fonts and colours, two axes where theirs have two), and copied as a picture into PowerPoint with
 // one button. Everything is drawn with inline attributes, so the picture copied is exactly the one shown.
 // Loaded before quality.js; uses app.js's helpers.

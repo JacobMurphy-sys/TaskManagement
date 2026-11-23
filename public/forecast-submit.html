@@ -7,7 +7,7 @@
 <meta name="referrer" content="no-referrer">
 <title>Send a forecast · SITHUB</title>
 <link rel="icon" href="/favicon.svg">
-<!-- 📈 The forecast upload link: no account. It sends a forecast workbook (BeNeLux or Amex) and lists what this browser
+<!-- The forecast upload link: no account. It sends a forecast workbook (BeNeLux or Amex) and lists what this browser
      sent before; nothing else of SITHUB (src/forecasts.js). -->
 <style>
   :root { --brand: #430099; --brand-2: #7382e6; --bg: #f5f4fa; --panel: #fff; --text: #1d1a2b; --muted: #6b6880; --border: #dcd8ea; --ok: #238446; --bad: #c93636; }
@@ -37,7 +37,7 @@
 </style>
 </head>
 <body>
-<header><b>📈 SITHUB</b><span>Send a forecast</span></header>
+<header><b>SITHUB</b><span>Send a forecast</span></header>
 <main>
   <div id="gone" class="card" hidden><h1>This link isn't active</h1><p class="muted" id="gone-why"></p></div>
   <div id="app" hidden>
@@ -85,7 +85,7 @@
     if (!r || !r.ok) { $('#gone').hidden = false; $('#gone-why').textContent = j.error || 'SITHUB can\'t be reached right now. Try again in a moment.'; $('#app').hidden = true; return; }
     $('#app').hidden = false; list(j.mine || []);
   }
-  const pick = (f) => { if (!f) return; file = f; $('#drop-t').innerHTML = `📄 <b>${esc(f.name)}</b> <span class="muted small">${Math.max(1, Math.round(f.size / 1024))} KB · click to change</span>`; $('#msg').hidden = true; };
+  const pick = (f) => { if (!f) return; file = f; $('#drop-t').innerHTML = `<b>${esc(f.name)}</b> <span class="muted small">${Math.max(1, Math.round(f.size / 1024))} KB · click to change</span>`; $('#msg').hidden = true; };
   $('#drop').addEventListener('click', () => $('#file').click());
   $('#drop').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#file').click(); } });
   $('#file').addEventListener('change', (e) => pick(e.target.files[0]));

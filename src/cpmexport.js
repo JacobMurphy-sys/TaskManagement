@@ -254,7 +254,7 @@ function buildCpmWorkbook({ base, scenarios = [], period, flex, sources, CARD_FI
   const ab = sheet('Scenarios & notes'); ab.width(1, 26); ab.width(2, 100);
   ab.set(1, 1, 'Scenarios and notes', 'title'); let r = 3;
   const kv = (k2, v) => { ab.set(r, 1, k2, 'bold'); ab.set(r, 2, v, 'wrap'); r++; };
-  kv('Made', `${made} from SITHUB › 📐 Capacity`); kv('Forecast', `as read in ${base.forecast_as_of || '—'}${flex ? ', flex applied (each customer\'s actual ÷ forecast in earlier years)' : ', no flex'}`);
+  kv('Made', `${made} from SITHUB › Capacity`); kv('Forecast', `as read in ${base.forecast_as_of || '—'}${flex ? ', flex applied (each customer\'s actual ÷ forecast in earlier years)' : ', no flex'}`);
   kv('Working time', `${base.shifts} shifts × ${base.hours} productive hours a shift on Production's working days, less the holidays set`);
   kv('Speeds', base.techs.map((t) => `${t} ${base.speeds[t] || '—'}/h (${base.speed_from?.[t] || 'none'})`).join(' · '));
   kv('How it\'s worked out', 'Capacity needed = forecast × split ÷ OEE. Capacity = hours × availability × speed; a machine running several technologies gives its hours to whichever is short (shared evenly when neither is). By week, a month\'s forecast is spread over its working days.');
@@ -294,7 +294,7 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   head(sh, 6, ['Daily %', 'Renewals %', 'Trigram', 'Customer', 'Tech', 'Month', 'Daily /month', 'Daily /day', 'OEE', 'Needed daily', 'RNW /month', 'RNW /day', 'RNW OEE', 'Needed RNW']);
   head(pr, 6, ['', '', 'Trigram', 'Customer', 'Tech', 'From', '', '', '', '', '', '', '', '']);
   pr.set(1, 1, 'Hour profile — the share of each customer\'s day in each hour', 'title');
-  pr.set(2, 1, 'Learned from when its cards were produced (⏱ timing report, the last 4 months): own = its own runs, technology = all runs of the technology, even = spread over the hours worked. Each row should add up to 100%.', 'note');
+  pr.set(2, 1, 'Learned from when its cards were produced (timing report, the last 4 months): own = its own runs, technology = all runs of the technology, even = spread over the hours worked. Each row should add up to 100%.', 'note');
   rows.forEach((r, k) => {
     const row = R0 + k;
     sh.set(row, 2, r.rnw_pct, 'inputPct'); sh.f(row, 1, `1-B${row}`, 'pct', r.daily_pct);

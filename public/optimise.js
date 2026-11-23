@@ -1,5 +1,5 @@
 'use strict';
-// 🔎 Production › Insights › Optimisation (src/optimise.js): a customer's separate work orders that could be one —
+// Production › Insights › Optimisation (src/optimise.js): a customer's separate work orders that could be one —
 // the same card (or kind of card, so the same personalisation method), shipper, shipping time and due-out day —
 // in the open work orders now or the history of the past weeks. What must match is chosen on the page.
 
@@ -18,8 +18,8 @@ async function renderPlanOptimise() {
   const seg = (name, val, opts) => `<div class="seg">${opts.map(([v, l, t]) => `<button type="button" data-opt="${name}" data-v="${v}" class="${String(val) === String(v) ? 'on' : ''}"${t ? ` title="${esc(t)}"` : ''}>${l}</button>`).join('')}</div>`;
   const tick = (name, val, label, t) => `<label class="opt-tick" title="${esc(t)}"><input type="checkbox" data-opt-tick="${name}" ${val ? 'checked' : ''}> ${label}</label>`;
   const where = d.source === 'history' ? `work orders due ${esc(fmtShortDate(d.from))} – ${esc(fmtShortDate(d.to))}` : 'the open work orders now';
-  const note = d.source === 'open' && d.status !== 'ok' ? `<div class="kpi-action notice"><span>⚠ The open work orders export couldn't be read${d.error ? `: ${esc(d.error)}` : ''}. Set it in ⚙ Setup.</span></div>` : '';
-  const cardsNote = d.cards_db !== 'ok' ? '<div class="kpi-action notice"><span>⚠ The card database isn\'t linked (⚙ Setup), so a card\'s technology isn\'t known: cards are matched on their Card AX only.</span></div>' : '';
+  const note = d.source === 'open' && d.status !== 'ok' ? `<div class="kpi-action notice"><span>⚠ The open work orders export couldn't be read${d.error ? `: ${esc(d.error)}` : ''}. Set it in Setup.</span></div>` : '';
+  const cardsNote = d.cards_db !== 'ok' ? '<div class="kpi-action notice"><span>⚠ The card database isn\'t linked (Setup), so a card\'s technology isn\'t known: cards are matched on their Card AX only.</span></div>' : '';
   const method = (g) => (st.card === 'tech' ? g.method || '' : [g.method, g.card?.material, g.card?.sides].filter(Boolean).join(' · '));
   const timeOf = (t) => t || '<span class="muted">no time</span>';
   const custRows = d.customers.filter((c) => c.saving).map((c) => `<tr><td><b>${esc(c.customer)}</b>${c.name ? ` <span class="small muted">${esc(c.name)}</span>` : ''}</td>
@@ -39,7 +39,7 @@ async function renderPlanOptimise() {
   $('.pll-view').innerHTML = `
     <div class="card opt-card">
       <div class="row" style="gap:8px 14px;flex-wrap:wrap;align-items:center">
-        <h3 class="pl-h" style="margin:0">🔎 Work orders that could be merged</h3>
+        <h3 class="pl-h" style="margin:0">Work orders that could be merged</h3>
         ${seg('source', d.source === 'history' ? `h${st.days}` : 'open', [['open', 'Open now', 'The open work orders export, as it is now'], ['h28', 'Last 4 weeks', 'Work orders due in the last 4 weeks (the planner\'s history)'], ['h90', 'Last 90 days']])}
       </div>
       <p class="small muted" style="margin:6px 0 10px">For each customer, separate work orders in ${where} whose cards are made with the same production technology (or, stricter, the same kind of card or the same card), so could be merged into fewer work orders, none over the maximum cards a work order. Fewer work orders: fewer set-ups, change-overs, paperwork and despatches. Choose what has to match:</p>

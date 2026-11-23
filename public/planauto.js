@@ -1,5 +1,5 @@
 'use strict';
-// 📄 Automatic plans (Production › Setup, src/planauto.js): the 📄 Generate plan PDF made on a schedule, like a
+// Automatic plans (Production › Setup, src/planauto.js): the Generate plan PDF made on a schedule, like a
 // report subscription. Each is a saved set-up (Perso or Matching, order, cells or lists, layout, rows, overdue
 // apart, testing), the times and days it runs, and the file it overwrites each time. Loaded after planning.js.
 
@@ -33,12 +33,12 @@ function planAutoDraw() {
         <button type="button" class="icon" data-pa-act="del" title="Remove this automatic plan">🗑</button>
       </div>
       <div class="pa-grid">
-        <label class="f">Plan<select data-pa-f="half"><option value="perso" ${otto ? '' : 'selected'}>💳 Perso — a sheet per cell</option><option value="otto" ${otto ? 'selected' : ''}>✉️ Matching — Incoming / Ready / In Progress</option></select></label>
+        <label class="f">Plan<select data-pa-f="half"><option value="perso" ${otto ? '' : 'selected'}>Perso — a sheet per cell</option><option value="otto" ${otto ? 'selected' : ''}>Matching — Incoming / Ready / In Progress</option></select></label>
         ${otto ? '<div></div>' : `<label class="f">Order<select data-pa-f="mode">${PL_MODES.map(([k, l]) => `<option value="${k}" ${s.mode === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`}
         <label class="f">Layout<select data-pa-f="layout"><option value="pages" ${s.layout !== 'side' ? 'selected' : ''}>A page per ${otto ? 'list' : 'cell'} (portrait)</option><option value="side" ${s.layout === 'side' ? 'selected' : ''}>Side by side (landscape)</option></select></label>
         <label class="f">Rows per ${otto ? 'list' : 'cell'}<input type="number" data-pa-f="limit" min="0" max="500" step="1" value="${s.limit || ''}" placeholder="All"></label>
         <div class="f full"><span>${otto ? 'Lists' : 'Cells'} <span class="muted small">— none ticked: all of them</span></span><div class="row">${lists.map((c) => `<label class="row small"><input type="checkbox" data-pa-cell="${esc(c)}" ${s.cells.includes(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('')}</div></div>
-        <div class="f full row small" style="gap:14px"><label class="row"><input type="checkbox" data-pa-f="split" ${s.split ? 'checked' : ''}> Overdue on a separate list</label><label class="row"><input type="checkbox" data-pa-f="testing" ${s.testing ? 'checked' : ''}> 🧪 Testing mode</label></div>
+        <div class="f full row small" style="gap:14px"><label class="row"><input type="checkbox" data-pa-f="split" ${s.split ? 'checked' : ''}> Overdue on a separate list</label><label class="row"><input type="checkbox" data-pa-f="testing" ${s.testing ? 'checked' : ''}> Testing mode</label></div>
         <label class="f">Times <span class="muted small">— 24 h, e.g. 05:45, 13:45</span><input type="text" data-pa-f="times" value="${esc(s.times.join(', '))}" placeholder="05:45, 13:45, 21:45"></label>
         <div class="f"><span>Days</span><div class="row">${PA_DAYS.map((d, k) => `<label class="row small"><input type="checkbox" data-pa-day="${k}" ${s.days.includes(k) ? 'checked' : ''}> ${d}</label>`).join('')}</div></div>
         <label class="f full">Save into the folder <span class="muted small">— as the server sees it, e.g. S:\\Production\\Plans or \\\\server\\share\\Plans</span><input type="text" data-pa-f="folder" value="${esc(s.folder)}" placeholder="S:\\Production\\Plans"></label>
@@ -49,7 +49,7 @@ function planAutoDraw() {
     </div>`;
   };
   const n0 = (v) => Number(v || 0).toLocaleString('en-GB');
-  box.innerHTML = `${paState.plans.map(item).join('') || '<p class="small muted">None yet. An automatic plan makes the 📄 Generate plan PDF at set times and saves it over the same file, so whoever opens that file sees the latest plan, like a report subscription.</p>'}
+  box.innerHTML = `${paState.plans.map(item).join('') || '<p class="small muted">None yet. An automatic plan makes the Generate plan PDF at set times and saves it over the same file, so whoever opens that file sees the latest plan, like a report subscription.</p>'}
     <div class="row" style="gap:8px;margin-top:8px"><button type="button" data-pa-act="add">＋ Add an automatic plan</button><div class="spacer"></div>
       <span class="small muted" id="pa-dirty" ${paState.dirty ? '' : 'hidden'}>Not saved yet</span><button type="button" class="primary" data-pa-act="save" ${paState.dirty ? '' : 'disabled'}>💾 Save</button></div>`;
 }

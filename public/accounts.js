@@ -1,4 +1,4 @@
-// 👤 Accounts (src/accounts.js): sign-in when they're on, your password, 📥 My work, and the
+// Accounts (src/accounts.js): sign-in when they're on, your password, My work, and the
 // admin's list of accounts in Settings. Off until the first account is made: nothing changes until then.
 const ACCT = { enabled: false, account: null, newCount: 0, modules: [], areas: [], rights: [] };
 
@@ -26,14 +26,14 @@ new MutationObserver((list) => { // only what was just added is looked at
 }).observe(document.documentElement, { childList: true, subtree: true });
 document.addEventListener('DOMContentLoaded', () => pwEyes());
 
-// 🧩 Modules: the parts of the app an account can see (admins and no-accounts: all of them).
+// Modules: the parts of the app an account can see (admins and no-accounts: all of them).
 const MOD_OF_VIEW = { team: 'team', capex: 'capex', kanban: 'projects', project: 'projects', ideas: 'ideas', idea: 'ideas', planning: 'planning', cpm: 'cpm', cards: 'planning', forecast: 'forecast', report: 'report', contacts: 'contacts' };
 // areas (projects, kpi, ideas, planning, report, contacts), each part of a module (Management: projects and kpi)
 const modOk = (area) => !ACCT.account || (ACCT.account.areas || []).includes(area);
-// 📊 Reporting's tabs, each with the area (module) it needs: the Weekly SC Report, Database and Operations (Prod
+// Reporting's tabs, each with the area (module) it needs: the Weekly SC Report, Database and Operations (Prod
 // Management), Quality and EHS (Quality), Sources (Admin). Reporting is in the top bar for any of them.
-const KPI_TABS = [['a3', 'Weekly SC Report', 'kpi', '#/kpi'], ['database', 'Database', 'kpi', '#/kpi/0/database'], ['operations', '🏭 Operations', 'kpi', '#/kpi/operations'], ['otd', '🚚 OTD', 'otd', '#/kpi/otd'], ['quality', '🧪 Quality', 'quality', '#/kpi/quality'],
-  ['ehs', '⛑ EHS', 'quality', '#/kpi/ehs'], ['sources', 'Sources', 'kpi_sources', '#/kpi/sources'], ['vault', '🗄 Legacy Data', 'kpi', '#/kpi/vault']];
+const KPI_TABS = [['a3', 'Weekly SC Report', 'kpi', '#/kpi'], ['database', 'Database', 'kpi', '#/kpi/0/database'], ['operations', 'Operations', 'kpi', '#/kpi/operations'], ['otd', 'OTD', 'otd', '#/kpi/otd'], ['quality', 'Quality', 'quality', '#/kpi/quality'],
+  ['ehs', 'EHS', 'quality', '#/kpi/ehs'], ['sources', 'Sources', 'kpi_sources', '#/kpi/sources'], ['vault', 'Legacy Data', 'kpi', '#/kpi/vault']];
 const kpiTabOk = (tab) => modOk(KPI_TABS.find((t) => t[0] === tab)?.[2] || 'kpi');
 const reportingOk = () => KPI_TABS.some(([k]) => kpiTabOk(k));
 // the Reporting tab an address is on (#/kpi/12/database → database)
@@ -91,7 +91,7 @@ function renderSignIn(msg = '') {
 // Your password: forced (a new account, or one an admin reset) or from the menu.
 function acctPasswordDialog(forced = false) {
   return new Promise((resolve) => {
-    const d = collabDialog(`<form method="dialog" id="pw-form"><h3 style="margin-top:0">🔑 ${forced ? 'Choose your own password' : 'Change your password'}</h3>
+    const d = collabDialog(`<form method="dialog" id="pw-form"><h3 style="margin-top:0">${forced ? 'Choose your own password' : 'Change your password'}</h3>
       ${forced ? '<p class="small muted">You signed in with a password someone else set. Pick one only you know (at least 8 characters).</p>' : ''}
       <label class="f">Current password<input type="password" name="current" autocomplete="current-password" required></label>
       <label class="f">New password<input type="password" name="next" autocomplete="new-password" minlength="8" required></label>
@@ -110,7 +110,7 @@ function acctPasswordDialog(forced = false) {
   });
 }
 
-// The top bar for a signed-in person: 📥 My work (with what's new), and their menu.
+// The top bar for a signed-in person: My work (with what's new), and their menu.
 function acctChrome() {
   const nav = $('#topnav');
   if (nav && !$('[data-nav="mine"]', nav)) nav.insertAdjacentHTML('afterbegin', '<a href="#/mine" data-nav="mine" title="What\'s assigned to you"><span class="ico">📥</span><span class="lbl"> My work</span> <span id="mine-count" class="count" hidden>0</span></a>');
@@ -128,7 +128,7 @@ function acctChrome() {
 function seeAllBar() {
   document.getElementById('see-all-bar')?.remove();
   if (!ACCT.account?.see_all) return;
-  document.getElementById('topbar')?.insertAdjacentHTML('afterend', `<div id="see-all-bar" class="see-all-bar" role="status">👁 <b>All work is on:</b> you see every task and project, not just your own and what you're invited to.
+  document.getElementById('topbar')?.insertAdjacentHTML('afterend', `<div id="see-all-bar" class="see-all-bar" role="status"><b>All work is on:</b> you see every task and project, not just your own and what you're invited to.
     <button type="button" class="small" data-action="see-all">Turn it off</button></div>`);
 }
 async function toggleSeeAll() {
@@ -156,7 +156,7 @@ async function accessPanel(el, kind, id) {
     <div class="acc-line small"><span class="muted">Invited:</span> ${d.invited.length ? d.invited.map((i) => `<span class="chip acc-chip">${esc(i.person)}${d.can_invite ? ` <button type="button" class="icon acc-x" data-acc-remove="${i.account_id}" title="Stop sharing it with ${esc(i.person)}">✕</button>` : ''}</span>`).join(' ') : '<span class="muted">nobody yet</span>'}</div>
     ${d.can_invite ? `<select class="tm-quiet-select" data-acc-pick><option value="">＋ Invite someone…</option>${choices.map((p) => `<option value="${p.id}">${esc(p.person)}</option>`).join('')}</select>
       <div class="small muted">${kind === 'task' ? 'Anyone invited sees this task, its subtasks and notes.' : 'Anyone invited sees the whole project: its tasks, notes and costs. Putting someone on the team does the same.'}</div>` : ''}
-    ${d.note ? `<div class="small muted">🔒 ${esc(d.note)}</div>` : ''}</div>`;
+    ${d.note ? `<div class="small muted">${esc(d.note)}</div>` : ''}</div>`;
   el.querySelector('[data-acc-pick]')?.addEventListener('change', async (e) => {
     const v = e.target.value; if (!v) return;
     try { await api.post(`/access/${kind}/${id}`, { account_id: Number(v) }); toast(`Shared with ${people.find((p) => p.id === Number(v))?.person || 'them'}`); accessPanel(el, kind, id); } catch (err) { toast(err.message, 'error'); }
@@ -175,19 +175,19 @@ async function acctPoll() {
   } catch { /* next time */ }
 }
 
-// ---- 📥 My work ----------------------------------------------------------------------------------
+// ---- My work ----------------------------------------------------------------------------------
 async function renderMine() {
-  if (!ACCT.account) { main().innerHTML = '<div class="card"><h2>📥 My work</h2><p class="muted">My work is for signed-in accounts. Accounts are set up in ⚙ Settings › 👤 Accounts.</p></div>'; return; }
+  if (!ACCT.account) { main().innerHTML = '<div class="card"><h2>My work</h2><p class="muted">My work is for signed-in accounts. Accounts are set up in Settings › Accounts.</p></div>'; return; }
   const w = await api.get('/me/work');
   const when = (iso) => fmtDateTime(iso);
   const taskRow = (t) => `<tr><td><span class="t" data-action="open-task" data-id="${t.id}">${esc(t.title)}</span>${t.project_name ? `<div class="small muted"><a href="#/project/${t.project_id}">${esc(t.project_name)}</a></div>` : ''}</td>
       <td>${statusChip(t.status) || `<span class="muted small">${esc(STATUS[t.status] || t.status)}</span>`}</td><td class="nowrap">${t.due_at ? dueChip(t) : '<span class="muted">—</span>'}</td><td class="small">${esc(splitOwners(t.owner).filter((n) => n.toLowerCase() !== w.account.person.toLowerCase()).join(', '))}</td></tr>`;
   main().innerHTML = `
-    <div class="kanban-tools"><h1 style="margin:0">📥 My work</h1><span class="muted">— ${esc(w.account.person)}</span><div class="spacer"></div>
+    <div class="kanban-tools"><h1 style="margin:0">My work</h1><span class="muted">— ${esc(w.account.person)}</span><div class="spacer"></div>
       ${w.new.length ? '<button data-mine="seen">✓ Mark the new ones as seen</button>' : ''}</div>
     ${w.new.length ? `<div class="card mine-new"><h2>New for you <span class="muted small">— since ${esc(when(w.seen_at))}</span></h2><ul class="mine-list">
-      ${w.new.map((n) => `<li>${n.kind === 'task' ? `✅ <span class="t" data-action="open-task" data-id="${n.id}">${esc(n.title)}</span> <span class="muted small">— a task for you</span>`
-        : `📋 <a href="#/project/${n.id}">${esc(n.title)}</a> <span class="muted small">— you're ${esc(n.role === 'leader' ? 'the leader' : n.role === 'sponsor' ? 'the sponsor' : `on the team (${n.role})`)}</span>`}
+      ${w.new.map((n) => `<li>${n.kind === 'task' ? `<span class="t" data-action="open-task" data-id="${n.id}">${esc(n.title)}</span> <span class="muted small">— a task for you</span>`
+        : `<a href="#/project/${n.id}">${esc(n.title)}</a> <span class="muted small">— you're ${esc(n.role === 'leader' ? 'the leader' : n.role === 'sponsor' ? 'the sponsor' : `on the team (${n.role})`)}</span>`}
         <span class="small muted">· ${n.by ? `by ${esc(n.by)}, ` : ''}${esc(when(n.at))}</span></li>`).join('')}</ul></div>` : ''}
     <div class="card"><h2>My tasks <span class="muted small">${w.tasks.length}</span></h2>
       ${w.tasks.length ? `<table class="log"><thead><tr><th>Task</th><th>Status</th><th>Due</th><th>With</th></tr></thead><tbody>${w.tasks.map(taskRow).join('')}</tbody></table>`
@@ -200,7 +200,7 @@ async function renderMine() {
   $('[data-mine="seen"]')?.addEventListener('click', async () => { await api.post('/me/work/seen', {}); await acctPoll(); renderMine(); });
 }
 
-// ---- ⚙ Settings › 👤 Accounts ------------------------------------------------------------------
+// ---- Settings › Accounts ------------------------------------------------------------------
 async function acctSettingsHtml() {
   if (!acctRight('accounts')) return '';
   const owner = acctOwner();
@@ -214,7 +214,7 @@ async function acctSettingsHtml() {
     : `<div class="mod-ticks">${extra.map((m) => `<label title="${esc(`${m.label}: ${m.what}`)}"><input type="checkbox" data-mod="${m.key}" ${a.modules.includes(m.key) ? 'checked' : ''}> ${m.icon} ${esc(m.label)}</label>`).join('')}</div>`);
   // admin rights: the host chooses them; others see them
   const rightsCell = (a) => {
-    if (a.owner) return '<span class="acct-host">🏠 Host</span> <span class="small muted">— everything; gives the rights</span>';
+    if (a.owner) return '<span class="acct-host">Host</span> <span class="small muted">— everything; gives the rights</span>';
     if (!owner) return a.role === 'admin' ? '<b>Admin</b> <span class="small muted">— every right</span>' : a.rights.length ? esc(ACCT.rights.filter((r) => a.rights.includes(r.key)).map((r) => `${r.icon} ${r.label}`).join(' · ')) : '<span class="muted">User</span>';
     return `<select name="role">${options({ user: 'User', admin: 'Admin — every right' }, a.role)}</select>
       ${a.role === 'admin' ? '' : `<div class="mod-ticks acct-rights">${ACCT.rights.map((r) => `<label title="${esc(`${r.label}: ${r.what}`)}"><input type="checkbox" data-right="${r.key}" ${a.rights.includes(r.key) ? 'checked' : ''}> ${r.icon} ${esc(r.label)}</label>`).join('')}</div>`}`;
@@ -232,19 +232,19 @@ async function acctSettingsHtml() {
       <button class="primary" type="submit">${first ? 'Make my account and turn sign-in on' : 'Add account'}</button>
       <datalist id="acct-people">${people.map((n) => `<option value="${esc(n)}">`).join('')}</datalist></form>`;
   if (!ACCT.enabled) {
-    return `<div class="card acct-card"><h2>👤 Accounts</h2>
+    return `<div class="card acct-card"><h2>Accounts</h2>
       <p class="small muted">Accounts are <b>off</b>: anyone who can reach SITHUB uses it, as now. Make your own account first (as the admin) to turn sign-in on — from then on everyone signs in,
-        and each account is linked to a person in the contacts, so <b>📥 My work</b> shows them the tasks they own and the projects they lead, sponsor or are on the team of, and what's new for them.</p>
+        and each account is linked to a person in the contacts, so <b>My work</b> shows them the tasks they own and the projects they lead, sponsor or are on the team of, and what's new for them.</p>
       ${form(true)}</div>`;
   }
-  return `<div class="card acct-card"><h2>👤 Accounts <span class="muted small">${list.length}</span></h2>
+  return `<div class="card acct-card"><h2>Accounts <span class="muted small">${list.length}</span></h2>
     <p class="small muted">Each account is linked to a person: the name used as a task owner, project leader, sponsor or team member. A first password (and one an admin resets) must be changed at the next sign-in.
       A forgotten admin password can be reset on the server: <code>node scripts/reset-password.js &lt;username&gt; &lt;new password&gt;</code>.</p>
-    <p class="small muted">🔑 <b>Admin rights</b> are given by the host account${owner ? ' (you)' : ''}: an <b>Admin</b> has them all, or tick some for a user — ${ACCT.rights.map((r) => `<span title="${esc(r.what)}">${r.icon} ${esc(r.label)}</span>`).join(', ')} (hover for what each covers).</p>
-    <p class="small muted">🧩 <b>Modules</b> choose what each account sees and can use; ${esc(basic?.label || 'the basic pack')} (${esc(basic?.what || '')}) is always there. Hover over a module for what it covers. A change applies the next time they open or refresh the page.</p>
+    <p class="small muted"><b>Admin rights</b> are given by the host account${owner ? ' (you)' : ''}: an <b>Admin</b> has them all, or tick some for a user — ${ACCT.rights.map((r) => `<span title="${esc(r.what)}">${r.icon} ${esc(r.label)}</span>`).join(', ')} (hover for what each covers).</p>
+    <p class="small muted"><b>Modules</b> choose what each account sees and can use; ${esc(basic?.label || 'the basic pack')} (${esc(basic?.what || '')}) is always there. Hover over a module for what it covers. A change applies the next time they open or refresh the page.</p>
     <table class="log acct-table"><thead><tr><th>Person</th><th>Username</th><th>Role and rights</th><th>Modules</th><th>Last signed in</th><th>Active</th><th></th></tr></thead><tbody>
       ${list.map((a) => `<tr data-acct="${a.id}"><td><input type="text" name="person" list="acct-people" value="${esc(a.person)}" ${canEdit(a) || a.id === ACCT.account?.id ? '' : 'disabled'}></td><td><b>${esc(a.username)}</b>${a.must_change ? ' <span class="small muted">(to change password)</span>' : ''}
-          ${owner && !a.owner && a.role !== 'admin' ? `<label class="small acct-training" title="Works in a training copy of SITHUB only, never the real data: for leading training sessions"><input type="checkbox" data-acct-training ${a.training ? 'checked' : ''}> 🎓 Training account</label>` : a.training ? '<div><span class="chip">🎓 Training account</span></div>' : ''}</td>
+          ${owner && !a.owner && a.role !== 'admin' ? `<label class="small acct-training" title="Works in a training copy of SITHUB only, never the real data: for leading training sessions"><input type="checkbox" data-acct-training ${a.training ? 'checked' : ''}> Training account</label>` : a.training ? '<div><span class="chip">Training account</span></div>' : ''}</td>
         <td>${rightsCell(a)}</td><td>${ticks(a)}</td><td class="small">${a.last_login ? esc(fmtDateTime(a.last_login)) : '<span class="muted">never</span>'}</td>
         <td><input type="checkbox" name="active" ${a.active ? 'checked' : ''} ${canEdit(a) ? '' : 'disabled'}></td>
         <td class="nowrap">${canEdit(a) ? `<button class="small" data-acct-reset="${a.id}">Set a new password</button> <button class="icon" data-acct-del="${a.id}" title="Remove the account">✕</button>` : ''}</td></tr>`).join('')}
@@ -306,7 +306,7 @@ function acctSettingsWire(rerender) {
 // ---- 🖥 the server, from any PC (the Server right) -------------------------------------------------
 function serverCardHtml() {
   if (!ACCT.enabled || !acctRight('server')) return '';
-  return `<div class="card"><h2>🖥 Server</h2>
+  return `<div class="card"><h2>Server</h2>
     <p class="small muted">Look after the shared SITHUB from your own PC: read its log, or restart it. Restarting checks for an update and installs it first; everyone's pages reconnect by themselves after a few seconds.</p>
     <div class="row" style="gap:8px;flex-wrap:wrap"><button data-srv="log">📜 Server log</button><button data-srv="restart">🔄 Restart (and update)</button></div>
     <div id="srv-pw" class="srv-pw"></div></div>`;
@@ -316,11 +316,11 @@ async function serverPwDraw(d) {
   const box = $('#srv-pw'); if (!box) return;
   if (!d) { try { d = await api.get('/server/password'); } catch { box.innerHTML = ''; return; } }
   const day = (iso) => esc(new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }));
-  box.innerHTML = `<h3>🔑 The server PC's password</h3>
+  box.innerHTML = `<h3>The server PC's password</h3>
     <p class="small muted">SITHUB runs on the server PC under ${d.account ? `the Windows account <b>${esc(d.account)}</b>` : 'a Windows account'}, and its scheduled task keeps that account's password. If the password expires or is changed, SITHUB won't start after the next restart, so check it now and then: after a change, give the task the new one (Task Scheduler › <i>SITHUB server</i> › Properties › OK, or run <code>server-install.bat</code> again).</p>
     <div class="srv-pw-row ${d.due ? 'due' : ''}">
       <span>Last checked <b>${day(d.checked_at)}</b>${d.checked_by ? ` by ${esc(d.checked_by)}` : ''}</span>
-      <span class="${d.due ? 'srv-pw-due' : 'muted'}">${!d.weeks ? 'No reminders' : d.due ? '⏰ Due now: a ✉ reminder has gone out' : `Next ✉ reminder ${day(d.due_at)}`}</span>
+      <span class="${d.due ? 'srv-pw-due' : 'muted'}">${!d.weeks ? 'No reminders' : d.due ? 'Due now: a ✉ reminder has gone out' : `Next ✉ reminder ${day(d.due_at)}`}</span>
       <label class="row small" style="gap:6px">Every <input type="number" id="srv-pw-weeks" min="0" max="52" step="1" value="${d.weeks}" style="width:64px"> weeks</label>
       <button class="${d.due ? 'primary' : ''}" data-srv="pw-checked">✓ Checked it</button>
     </div>
@@ -332,7 +332,7 @@ async function serverPwSave(body, msg) {
 async function serverLog(onlyProblems = false) {
   let d; try { d = await api.get('/server/log?lines=600'); } catch (err) { toast(err.message, 'error'); return; }
   const lines = d.lines.filter((l) => !onlyProblems || /\[(WARN|ERROR)\]/.test(l)).reverse();
-  openModal(`<div class="modal-head"><h2 style="margin:0">📜 Server log <span class="muted small">${esc(d.file || 'none yet')}</span></h2><button class="icon" data-action="close-modal">✕</button></div>
+  openModal(`<div class="modal-head"><h2 style="margin:0">Server log <span class="muted small">${esc(d.file || 'none yet')}</span></h2><button class="icon" data-action="close-modal">✕</button></div>
     <div class="row" style="gap:8px;margin:6px 0"><label class="row small" style="gap:4px"><input type="checkbox" id="srv-problems" ${onlyProblems ? 'checked' : ''}> Warnings and errors only</label>
       <span class="spacer"></span><button class="small" id="srv-again">↻ Refresh</button></div>
     <pre class="srv-log">${lines.length ? lines.map((l) => `<span class="${/\[ERROR\]/.test(l) ? 'srv-err' : /\[WARN\]/.test(l) ? 'srv-warn' : ''}">${esc(l)}</span>`).join('\n') : 'Nothing logged today.'}</pre>
@@ -355,7 +355,7 @@ async function serverRestart() {
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-srv]'); if (!b) return;
   if (b.dataset.srv === 'log') serverLog(); else if (b.dataset.srv === 'restart') serverRestart();
-  else if (b.dataset.srv === 'pw-checked') serverPwSave({ checked: true }, '🔑 Ticked off: the next reminder is in a few weeks');
+  else if (b.dataset.srv === 'pw-checked') serverPwSave({ checked: true }, 'Ticked off: the next reminder is in a few weeks');
 });
 document.addEventListener('change', (e) => {
   if (e.target.id === 'srv-pw-weeks') serverPwSave({ weeks: Number(e.target.value) }, 'Saved');
@@ -374,7 +374,7 @@ async function trainingBanner() {
   const cur = views.find((v) => (v.modules ? v.modules.join(',') : null) === (mine || null))?.key ?? 'custom';
   const old = document.getElementById('training-bar'); if (old) old.outerHTML = '';
   document.getElementById('topbar')?.insertAdjacentHTML('afterend', `<div id="training-bar" class="training-bar" role="status">
-    <b>🎓 Training</b><span class="tb-what">a practice copy of SITHUB${t?.copied_at ? `, copied from the real data ${esc(fmtDateTime(t.copied_at))}` : ''}: the site's planning and reporting data, with no one's tasks, projects or notes. Nothing here changes the real SITHUB.</span>
+    <b>Training</b><span class="tb-what">a practice copy of SITHUB${t?.copied_at ? `, copied from the real data ${esc(fmtDateTime(t.copied_at))}` : ''}: the site's planning and reporting data, with no one's tasks, projects or notes. Nothing here changes the real SITHUB.</span>
     <label class="tb-view">Viewing as <select id="training-view">${views.map((v) => `<option value="${esc(v.key)}" ${v.key === cur ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}${cur === 'custom' ? '<option value="custom" selected>Custom</option>' : ''}</select></label>
     <button type="button" class="small" id="training-reset" title="Throw away what's been done in training and copy the real data again">↺ Fresh copy from live</button></div>`);
   $('#training-view')?.addEventListener('change', async (e) => {
