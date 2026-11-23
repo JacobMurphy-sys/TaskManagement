@@ -2904,3 +2904,8 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .cpm-subtabs a.button + a.button { border-left: 1px solid var(--border); }
 .cpm-subtabs a.button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .cpm-set-link { margin: 4px 0 12px; }
+/* 🕐 Day by hour: the technologies in one card, picked with a small tab */
+#cpm-techs .cpm-tech { margin-top: 12px; }
+#cpm-techs .cpm-tech + .cpm-tech { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 16px; }
+#cpm-techs h4.cpm-tech-h { font-size: 1em; }
+#cpm-techs [data-cpm-tsel].on[style] { color: var(--c); }
