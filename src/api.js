@@ -3934,6 +3934,20 @@ function cpmOverviewOf(req) {
   return { ...base, files: files.files, forecast_status: cpm.forecastStatus(), cards: !!cards, settings: Object.fromEntries(CPM_SETTINGS.map((k) => [k, getSettings()[k]])),
     scenarios: scenarios.map((sc) => ({ id: sc.id, name: sc.name, ...cpm.compute({ year, period, useFlex, cards, changes: sc.changes }) })) };
 }
+// a scenario change (a customer volume) on its own against the base plan, month by month: the numbers it moves —
+// cards, capacity needed and the load, per technology (a GET, worked out live: it changes nothing)
+router.get('/cpm/scenario-preview', h((req, res) => {
+  let change; try { change = JSON.parse(String(req.query.change || '{}')); } catch { throw new HttpError(400, 'Which change?'); }
+  const ch = cpmChanges([change])[0]; if (!ch) throw new HttpError(400, 'Not a change that can be previewed');
+  cpmRefresh(); const cards = cpmCards(); const useFlex = req.query.flex !== '0';
+  const year = Number(String(ch.from || '').slice(0, 4)) || Number(req.query.year) || new Date().getFullYear();
+  const base = cpm.compute({ year, period: 'month', useFlex, cards }); const withIt = cpm.compute({ year, period: 'month', useFlex, cards, changes: [ch] });
+  const months = base.periods.map((p, i) => { const q = withIt.periods[i];
+    const techs = Object.fromEntries(base.techs.map((t) => { const a = p.techs[t]; const b = q.techs[t];
+      return [t, { cards0: a.demand, cards1: b.demand, need0: a.need, need1: b.need, capacity: b.capacity, load0: a.capacity ? a.need / a.capacity : null, load1: b.capacity ? b.need / b.capacity : null }]; }));
+    return { key: p.key, label: p.label, workdays: p.workdays, techs }; }).filter((m) => Object.values(m.techs).some((x) => Math.abs(x.cards1 - x.cards0) > 0.5 || Math.abs(x.need1 - x.need0) > 0.5));
+  res.json({ year, flex: useFlex, techs: base.techs, months, warnings: withIt.warnings.filter((w) => !base.warnings.includes(w)) });
+}));
 // 🏭 Theoretical site capacity per machine: run speed × available hours, no OEE (src/cpm.js)
 router.get('/cpm/site', h((req, res) => res.json(cpmCached(req, 'site', () => cpm.siteCapacity(Number(req.query.year) || new Date().getFullYear(), cpmCards())))));
 router.put('/cpm/settings', h((req, res) => {

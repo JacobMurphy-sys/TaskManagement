@@ -2930,3 +2930,6 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .cpm-added-t { color: var(--cpm-added); font-weight: 600; }
 .cpm-g-added td, .cpm-g-added th { background: color-mix(in srgb, var(--cpm-added) 10%, transparent); }
 .cpm-g-added .cpm-g-name b { color: var(--cpm-added); }
+.cpm-vprev { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.cpm-vprev-t td, .cpm-vprev-t th { white-space: nowrap; }
+.cpm-added-rnw { opacity: .55; }
