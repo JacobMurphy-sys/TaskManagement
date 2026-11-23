@@ -269,7 +269,7 @@ async function waitForServer() {
       raw.prepare("INSERT INTO cpm_forecast (as_of, source, year, month, trigram, name, tech, qty, read_at) VALUES ('2031-01', 'benelux', 2031, 1, 'HCT', 'Headcount test', NULL, 15000, '2031-01-01T00:00:00Z'), ('2031-01', 'benelux', 2031, 3, 'HCT', 'Headcount test', NULL, 30000, '2031-01-01T00:00:00Z')").run();
       raw.close();
       await call('PUT', '/cpm/headcount/config', { match: { HCT: { OTTO: 0.5 } } });
-      const hc = await call('GET', '/cpm/headcount?year=2031&flex=0');
+      const hc = await call('GET', '/cpm/headcount?year=2031&flex=0&regen=1');
       const c = hc.customers.find((x) => x.trigram === 'HCT');
       // Jan: 15000 × 0.6 ÷ 1500 + 15000 × 0.4 ÷ 500 = 18 h perso; matching 15000 × (0.5 ÷ 3000 + 0.5 ÷ 400) = 21.25 h
       assert.ok(Math.abs(c.hours[0] - 39.25) < 0.01, `customer hours ${c.hours[0]}`);
@@ -286,6 +286,24 @@ async function waitForServer() {
       // the old HC Forecast workbook: other work (hours a day, or one-off months), people per month
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       const days = [20, 20, 22, 21, 20, 22, 23, 21, 22, 22, 21, 22];
+      // 📐 kept as last generated: the same view again is the kept one (with when it was made), until ⟳ Regenerate;
+      // a change marks it out of date; ?live=1 works it out without keeping it
+      const k1 = await call('GET', '/cpm/headcount?year=2031&flex=0&regen=1');
+      assert.ok(k1.generated && !k1.generated.stale && !k1.generated.kept, 'generated now');
+      const k2 = await call('GET', '/cpm/headcount?year=2031&flex=0');
+      assert.ok(k2.generated.kept && k2.generated.at === k1.generated.at && !k2.generated.stale, 'the same view: the kept one');
+      await call('PUT', '/cpm/headcount/config', { day_hours: 8 });
+      const k3 = await call('GET', '/cpm/headcount?year=2031&flex=0');
+      assert.ok(k3.generated.kept && k3.generated.stale && k3.config.day_hours === 7.5, 'after a change: still the kept one, marked out of date');
+      const k4 = await call('GET', '/cpm/headcount?year=2031&flex=0&regen=1');
+      assert.ok(!k4.generated.stale && k4.config.day_hours === 8, 'regenerated: the change taken in');
+      const k5 = await call('GET', '/cpm/headcount?year=2031&flex=0&live=1');
+      assert.ok(!k5.generated, 'live: worked out, not kept');
+      await call('GET', '/cpm/headcount?year=2031&flex=0&regen=1');
+      await call('PATCH', '/settings', { currency: '€' }); // (an app setting changing marks them too)
+      assert.ok((await call('GET', '/cpm/headcount?year=2031&flex=0')).generated.stale, 'a setting changed: out of date');
+      await call('PATCH', '/settings', { currency: '£' });
+      await call('PUT', '/cpm/headcount/config', { day_hours: 7.5 });
       const { buildXlsx: xlsxOf } = require('../src/xlsx');
       const old = xlsxOf([{ name: 'HC Forecast v3', columns: [{ header: 'Customer' }, { header: '' }, { header: 'Service' }, ...months.map((m) => ({ header: m })), { header: '2031' }],
         rows: [['', '', '', ...days], ['WORKING HOURS REQUIRED', '', 'CORE SERVICES'], ['', '', 'OTHER SERVICES'],
@@ -293,7 +311,7 @@ async function waitForServer() {
           ['HEADCOUNT', '', 'TYPE'], ['', '', 'Direct Permanent', ...days.map(() => 30)], ['', '', 'Direct Agency', ...days.map(() => 2)], ['', '', 'Direct Temporary', ...days.map(() => 1)], ['', '', 'Longtime Sick', ...days.map(() => 1)]] }]);
       const imp = await fetch(`${BASE}/cpm/headcount/import`, { method: 'POST', body: old, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } }).then((r) => r.json());
       assert.deepStrictEqual([imp.year, imp.other, imp.extra, imp.months], [2031, 1, 1, 12]);
-      const cfg = (await call('GET', '/cpm/headcount?year=2031&flex=0')).config;
+      const cfg = (await call('GET', '/cpm/headcount?year=2031&flex=0&regen=1')).config;
       assert.deepStrictEqual([cfg.other.map((o) => `${o.name}=${o.per_day}`), cfg.extra['2031-03'], cfg.staff['2031-06']], [['Carrier printing=15'], 120, { perm: 30, agency: 3, sick: 1 }]);
       const bad = await fetch(`${BASE}/cpm/headcount/import`, { method: 'POST', body: xlsxOf([{ name: 'X', columns: [{ header: 'A' }], rows: [] }]), headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
       assert.equal(bad.status, 400, 'not an HC Forecast workbook');
@@ -2320,7 +2338,7 @@ async function waitForServer() {
             const s0 = await call('GET', '/settings');
             await call('PUT', '/cpm/settings', { cpm_shifts: '2', cpm_hours: '7.5', cpm_holidays: `${Y}-01-02`, cpm_machines: JSON.stringify({ 'SITE A': { speed: { DOD: 1200 } }, 'SITE B': { avail: 0.5, speed: { Laser: 900, DOD: 600 } } }) });
             const ma = await call('POST', '/plan/machines', { name: 'SITE A', types: 'DOD' }); const mb = await call('POST', '/plan/machines', { name: 'SITE B', types: 'DOD, Laser' });
-            const st = await call('GET', `/cpm/site?year=${Y}`);
+            const st = await call('GET', `/cpm/site?year=${Y}&regen=1`);
             const A = st.machines.find((m) => m.name === 'SITE A'); const B = st.machines.find((m) => m.name === 'SITE B');
             const days = new Set(String(s0.plan_days || '1,2,3,4,5').split(',').map(Number));
             let jan = 0; for (let dd = new Date(Y, 0, 1, 12); dd.getMonth() === 0; dd.setDate(dd.getDate() + 1)) if (days.has(dd.getDay())) jan++;
@@ -2340,7 +2358,7 @@ async function waitForServer() {
             const dy = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
             const insR = sqs.prepare("INSERT INTO prod_runs (source, job, machine, start_at, end_at, qty, remake, item, trigram, read_at) VALUES ('perso', ?, 'Site B', ?, ?, ?, 0, ?, 'KBC', ?)");
             insR.run('SJ1', `${dy}T08:00`, `${dy}T09:00`, 7000, 'SA1', dy); insR.run('SJ2', `${dy}T10:00`, `${dy}T11:00`, 3000, 'SB1', dy);
-            const st2 = await call('GET', `/cpm/site?year=${Y}`); const B2 = st2.machines.find((m) => m.name === 'SITE B');
+            const st2 = await call('GET', `/cpm/site?year=${Y}&regen=1`); const B2 = st2.machines.find((m) => m.name === 'SITE B');
             const mixHour = 1 / (0.7 / 600 + 0.3 / 900);
             assert.deepEqual([B2.mix?.split.DOD, B2.mix?.split.Laser, B2.mix?.cards, B2.counted.basis, Math.round(B2.mix?.day)], [0.7, 0.3, 10000, 'mix', Math.round(mixHour * 7.5)], 'its usual mix: 70% DOD at 600/h, 30% Laser at 900/h');
             assert.equal(Math.round(st2.total.year), Math.round(st2.machines.reduce((t, m) => t + (m.counted?.year || 0), 0)), 'the site counts it at its mix');
@@ -2352,7 +2370,7 @@ async function waitForServer() {
           }
           await call('PUT', '/cpm/settings', { cpm_machines: '{}' });
           const pm = await call('POST', '/plan/machines', { name: 'CPM DOD', types: 'DOD' });
-          const ov0 = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0`);
+          const ov0 = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&regen=1`);
           const fcOf = (p) => TECHS_.reduce((t, x) => t + p.techs[x].fc, 0); const TECHS_ = ['DOD', 'Emboss', 'Laser'];
           assert.equal(Math.round(ov0.periods[0].techs.Laser.fc), 300, 'no customers set up: the forecast still counts (Amex by its own technology rows)');
           assert.equal(Math.round(fcOf(ov0.periods[1])), 2000 + 1000, 'a forecast name not linked to a customer counts too (with the mix of everything persoed)');
@@ -2360,13 +2378,13 @@ async function waitForServer() {
           await call('DELETE', `/plan/machines/${pm.id}`);
           assert.equal(ov0.oee_fallback, 0.35, 'no OEE anywhere: capacity planning\'s default');
           await call('PATCH', '/settings', { plan_oee_default: '50' });
-          const ovO = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0`);
+          const ovO = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&regen=1`);
           assert.deepEqual([ovO.oee_fallback, ovO.oee_fallback_from], [0.5, 'production'], 'a customer without an OEE takes Production\'s default before capacity planning\'s');
           await call('PATCH', '/settings', { plan_oee_default: '' });
           await call('PUT', '/cpm/customers/KBC', { name: 'KBC Bank NV', fc_names: ['KBC Bank NV'], split: { DOD: 0.5, EMB: 0.5 }, oee: { DOD: 0.5, Emboss: 0.5 } });
           await call('PUT', '/cpm/customers/AES', { name: 'AMEX', oee: { DOD: 0.5, Laser: 0.5 } }); // split: from the Amex forecast's own rows
           await call('PUT', '/cpm/settings', { cpm_machines: JSON.stringify({ 'CPM X': { speed: { DOD: 1000 } } }) });
-          let ov = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0`);
+          let ov = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&regen=1`);
           const jan = ov.periods[0].techs;
           assert.deepEqual([jan.DOD.fc, jan.Emboss.fc, jan.Laser.fc].map(Math.round), [500 + 700, 500, 300], 'BeNeLux: Benelux + "basic" only; Amex: TOTAL BAU, split by its own technology rows');
           assert.deepEqual([jan.DOD.need, jan.Emboss.need, jan.Laser.need].map(Math.round), [1000 + 1400, 1000, 600], 'needed = forecast × split ÷ OEE');
@@ -2377,23 +2395,23 @@ async function waitForServer() {
           const up = (kind, body) => fetch(`${BASE}/cpm/history?kind=${kind}&year=${Y - 1}`, { method: 'POST', body, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': `${kind}.xlsx` } }).then((r) => r.json());
           assert.equal((await up('forecast', hx([['KBC', 'KBC Bank NV', 1000, 1000]]))).rows, 2);
           await up('actual', hx([['', 'KBC Bank NV', 1200, 900]])); // matched by name
-          const fl = await call('GET', '/cpm/flex');
+          const fl = await call('GET', '/cpm/flex?regen=1');
           const kbc = fl.customers.find((c) => c.trigram === 'KBC');
           assert.deepEqual([kbc.months[0], kbc.months[1], kbc.year].map((x) => Math.round(x * 100) / 100), [1.2, 0.9, 1.05], 'flex = actual ÷ forecast, by month and for the year');
-          ov = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=1`);
+          ov = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=1&regen=1`);
           assert.equal(Math.round(ov.periods[0].techs.DOD.need), Math.round((1000 + 1400) * 1.2), 'flex applied (Amex has none of its own: everyone\'s January)');
           // a scenario: a DOD machine from February — capacity up by its speed × working days × shifts × hours
           const sc = await call('POST', '/cpm/scenarios', { name: 'Extra DOD', changes: [{ type: 'add_machine', name: 'CPM X', techs: ['DOD'], from: `${Y}-02` }, { type: 'bogus' }] });
           assert.equal(sc.changes.length, 1, 'unknown changes dropped');
-          ov = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${sc.id}`);
+          ov = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${sc.id}&regen=1`);
           const s0 = ov.scenarios[0];
           assert.deepEqual([s0.periods[0].techs.DOD.capacity - ov.periods[0].techs.DOD.capacity, s0.periods[1].techs.DOD.capacity - ov.periods[1].techs.DOD.capacity], [0, 1000 * ov.periods[1].workdays * 3 * 6], 'from its month on');
-          const wk = await call('GET', `/cpm/overview?year=${Y}&period=week&flex=0`);
+          const wk = await call('GET', `/cpm/overview?year=${Y}&period=week&flex=0&regen=1`);
           assert.ok(wk.periods.length >= 52 && Math.abs(wk.periods.reduce((t, p) => t + p.techs.DOD.need, 0) - ov.periods.reduce((t, p) => t + p.techs.DOD.need, 0)) < 1, 'by week: the same year, spread over its working days');
           const base0Techs = (o) => o.techs.length;
           // a machine that may only run KBC: Amex's DOD work has nowhere to go
           const rs = await call('POST', '/cpm/scenarios', { name: 'KBC only', changes: [{ type: 'add_machine', name: 'CPM X', techs: ['DOD'] }, { type: 'restrict', machine: 'CPM X', customers: ['KBC'] }] });
-          const ovR2 = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${rs.id}`);
+          const ovR2 = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${rs.id}&regen=1`);
           const rj = ovR2.scenarios[0].periods[0].techs.DOD;
           assert.deepEqual([Math.round(rj.need), Math.round(rj.unplaced)], [1000 + 1400, 1400], 'restricted to KBC: Amex\'s DOD work can\'t be placed');
           assert.ok(rj.util > 1 && rj.gap < -1399, 'work that can\'t be placed shows as over');
@@ -2424,20 +2442,20 @@ async function waitForServer() {
           const bn2 = path.join(tmp, 'Benelux Forecast 2.xlsx');
           fs.writeFileSync(bn2, bx([{ name: 'Notes', columns: [{ header: 'x' }], rows: [['y']] }, { name: 'LIVE_EU_PAY_CARDS', columns: hdr.map((header, i) => ({ header, type: [0, 38].includes(i) ? 'number' : undefined })), rows: [rowOf(`${Y}-01`, 'KBC Bank NV', 4000), rowOf('2', 'KBC Bank NV', 100)] }]));
           await call('PATCH', '/settings', { kpi_fc_benelux: bn2 });
-          const ovR = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&reread=1`);
+          const ovR = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&reread=1&regen=1`);
           assert.deepEqual([ovR.forecast_sources.benelux[0], ovR.forecast_sources.benelux[1], ovR.forecast_status.benelux.by_position.length, ovR.forecast_status.benelux.sheet], [4000, 100, 1, 'LIVE_EU_PAY_CARDS'], 'BeNeLux read as Reporting reads it');
           await call('PATCH', '/settings', { kpi_fc_benelux: path.join(tmp, 'nope.xlsx') });
-          assert.match((await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0`)).forecast_status.benelux.error, /can't find/, 'a file that can\'t be read says so');
+          assert.match((await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&regen=1`)).forecast_status.benelux.error, /can't find/, 'a file that can\'t be read says so');
           // 🕐 a day by the hour: the month's volume a working day, ÷ OEE, over the hours; renewals in their window
           await call('PUT', '/cpm/day/renewals', { trigram: 'KBC', tech: 'DOD', share: 0 }); // earlier tests' Low work orders would make KBC all renewals
-          let dy = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`);
+          let dy = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`);
           const kd = dy.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
           assert.ok(kd && kd.month_volume === 4000 * 0.5 && Math.abs(kd.need_daily - kd.month_volume / 0.5 / dy.workdays) < 0.01, 'KBC DOD a day: forecast × split ÷ OEE ÷ working days');
           assert.equal(dy.hours.length, 24); assert.equal(dy.hours[0], 6, 'the day starts at Production\'s day start');
           assert.ok(Math.abs(kd.hours.reduce((a, b) => a + b, 0) - kd.need_daily) < 0.01, 'the hours add up to the day');
           await call('PUT', '/cpm/day/renewals', { trigram: 'KBC', tech: 'DOD', share: 0.25 });
           await call('PUT', '/cpm/settings', { cpm_rnw_hours: JSON.stringify({ DOD: [12, 13] }), cpm_rnw_bonus: '0.05' });
-          dy = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`);
+          dy = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`);
           const kd2 = dy.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD'); const at12 = dy.hours.indexOf(12);
           assert.ok(Math.abs(kd2.need_rnw - (kd2.month_volume * 0.25) / dy.workdays / 0.55) < 0.01 && Math.abs(kd2.need_daily - (kd2.month_volume * 0.75) / dy.workdays / 0.5) < 0.01, 'renewals a quarter, at the OEE + 5 points');
           assert.ok(Math.abs(dy.tech.DOD.renewals[at12] - dy.renewals.DOD.need / 2) < 0.01 && dy.tech.DOD.renewals[dy.hours.indexOf(14)] === 0, 'renewals in their window only');
@@ -2447,13 +2465,13 @@ async function waitForServer() {
           // the day with a machine kept for KBC: it counts only KBC's work in an hour, the rest is idle
           const dm = await call('POST', '/plan/machines', { name: 'CPM D1', types: 'DOD' });
           const rsd = await call('POST', '/cpm/scenarios', { name: 'D1 for KBC', changes: [{ type: 'restrict', machine: 'CPM D1', customers: ['KBC'] }] });
-          const dyR = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&scenario=${rsd.id}`); const dyB = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`);
+          const dyR = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&scenario=${rsd.id}&regen=1`); const dyB = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`);
           const kbcDay = dyR.rows.filter((r) => r.trigram === 'KBC' && r.tech === 'DOD').reduce((a, r) => a + r.need_daily + r.need_rnw, 0);
           assert.ok(Math.abs(dyR.tech.DOD.total.capacity - kbcDay) < 0.5 && dyR.tech.DOD.total.idle > 0 && dyB.tech.DOD.total.capacity > dyR.tech.DOD.total.capacity, 'a day: the restricted machine counts only its customer\'s work');
           await call('DELETE', `/cpm/scenarios/${rsd.id}`); await call('DELETE', `/plan/machines/${dm.id}`);
           // changes that would do nothing say so; a new customer's split is taken as shares of 100%
           const ws = await call('POST', '/cpm/scenarios', { name: 'odd', changes: [{ type: 'add_machine', name: 'X9', techs: [] }, { type: 'speed', machine: 'NOPE', pct: 5 }, { type: 'volume', pct: 10, from: `${Y}-05`, to: `${Y}-02` }, { type: 'new_customer', name: 'NEWC', qty: 1000, split: { DOD: 0.5, Laser: 0.3 } }] });
-          const ow = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${ws.id}`);
+          const ow = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${ws.id}&regen=1`);
           const w = ow.scenarios[0].warnings.join(' | ');
           assert.ok(/X9 runs no technology/.test(w) && /NOPE isn't a machine/.test(w) && /never applies/.test(w) && /adds up to 80%/.test(w), `warnings: ${w}`);
           const nb = ow.periods[0].techs; const nsx = ow.scenarios[0].periods[0].techs;
@@ -2525,7 +2543,7 @@ async function waitForServer() {
             job('ARRLOW', 'Low', reads[1]); job('ARRGAP', 'High', reads[3]);
             sq2.close();
             await call('PUT', '/cpm/settings', { cpm_day_profile: 'arrival' });
-            const da = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); const kr = da.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
+            const da = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`); const kr = da.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
             assert.equal(kr.profile, 'arrivals-own'); assert.equal(da.arrivals_seen, 6, 'the Low order and the one after a 4-hour gap left out');
             assert.ok(Math.abs(kr.arrive_avg - 9.5) < 1e-6 && kr.arrive_seen === 6, 'KBC\'s files come in around 09:30 (6 timed)');
             assert.ok(da.warnings.some((w) => /wasn't read at/.test(w)), 'hours the export wasn\'t read are said');
@@ -2549,7 +2567,7 @@ async function waitForServer() {
             for (const t of ['13:00', '14:00']) { const r = `${day1}T${t}:00`; reads.push(r); sq4.prepare('INSERT OR IGNORE INTO plan_history_reads (file_modified, read_at) VALUES (?, ?)').run(r, r); }
             for (let i = 0; i < 6; i++) sq4.prepare("INSERT INTO plan_history_jobs (key, wo, customer, qty, prio, first_seen, last_seen) VALUES (?, ?, 'KBC', 100, 'High', ?, ?)").run(`ARRB${i}`, `ARRB${i}`, reads[reads.length - 1], reads[reads.length - 1]);
             sq4.close();
-            const kOf = async () => { const x = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); const r = x.rows.find((q) => q.trigram === 'KBC' && q.tech === 'DOD'); return [9, 11, 13].map((h) => Math.round(r.learned_shares[x.hours.indexOf(h)] * 100) / 100); };
+            const kOf = async () => { const x = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`); const r = x.rows.find((q) => q.trigram === 'KBC' && q.tech === 'DOD'); return [9, 11, 13].map((h) => Math.round(r.learned_shares[x.hours.indexOf(h)] * 100) / 100); };
             assert.deepEqual(await kOf(), [0, 1, 0], 'a typical day: one clump, at the usual time');
             await call('PUT', '/cpm/settings', { cpm_day_shape: 'average' });
             assert.deepEqual(await kOf(), [0.5, 0, 0.5], 'all days averaged: spread over both');
@@ -2562,16 +2580,16 @@ async function waitForServer() {
             const r2 = ['09:00', '10:00', '11:00', '12:00', '13:00'].map((t) => `${day2}T${t}:00`); for (const r of r2) { reads.push(r); sq5.prepare('INSERT OR IGNORE INTO plan_history_reads (file_modified, read_at) VALUES (?, ?)').run(r, r); }
             for (let i = 0; i < 4; i++) for (let k = 0; k < 2; k++) sq5.prepare("INSERT INTO plan_history_jobs (key, wo, customer, qty, prio, first_seen, last_seen) VALUES (?, ?, 'KBC', 100, 'High', ?, ?)").run(`ARRC${i}${k}`, `ARRC${i}${k}`, r2[i + 1], r2[i + 1]);
             sq5.close();
-            const peakOf = async () => { const x = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); return Math.max(...x.rows.find((q) => q.trigram === 'KBC' && q.tech === 'DOD').learned_shares); };
+            const peakOf = async () => { const x = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`); return Math.max(...x.rows.find((q) => q.trigram === 'KBC' && q.tech === 'DOD').learned_shares); };
             const pTyp = await peakOf(); await call('PUT', '/cpm/settings', { cpm_day_shape: 'worst' }); const pWorst = await peakOf(); await call('PUT', '/cpm/settings', { cpm_day_shape: 'typical' });
             assert.ok(pTyp < 1 && pWorst === 1, `typical ${pTyp} spread a bit, the worst case all in one hour`);
-            const cmp = await call('GET', `/cpm/day/compare?year=${Y}&month=1&flex=0`);
+            const cmp = await call('GET', `/cpm/day/compare?year=${Y}&month=1&flex=0&regen=1`);
             const sumN = (k) => cmp.shapes[k].DOD.need.reduce((a, b) => a + b, 0);
             assert.ok(['typical', 'worst', 'average'].every((k) => cmp.shapes[k].DOD) && sumN('worst') > sumN('average') + 1 && Math.abs(sumN('typical') - sumN('average')) < 0.01 && cmp.shapes.worst.DOD.peak >= cmp.shapes.average.DOD.peak - 1e-9, 'the three side by side: the worst case bigger and peaking highest');
             // worst-case volume: the busiest day submitted (800 cards) ÷ the average over the 3 days read (2,000 / 3) = × 1.2;
             // KBC seen on under 5 days, so everyone's
-            const dT = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); await call('PUT', '/cpm/settings', { cpm_day_shape: 'worst' });
-            const dW = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); await call('PUT', '/cpm/settings', { cpm_day_shape: 'typical' });
+            const dT = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`); await call('PUT', '/cpm/settings', { cpm_day_shape: 'worst' });
+            const dW = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`); await call('PUT', '/cpm/settings', { cpm_day_shape: 'typical' });
             const kT = dT.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD'); const kW = dW.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
             assert.ok(Math.abs(kW.peak.factor - 1.2) < 1e-9 && kW.peak.peak === 800 && kW.peak.own === false && Math.abs(kW.daily - kT.daily * 1.2) < 1e-6 && Math.abs(kW.renew - kT.renew) < 1e-9 && kT.peak === null, `worst case: daily × 1.2, renewals as they are (${JSON.stringify(kW.peak)})`);
             const sq3 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
@@ -2579,29 +2597,29 @@ async function waitForServer() {
           }
           // run periods set by hand: KBC's own beats what's learned; everyone else's for the rest
           await call('PUT', '/cpm/settings', { cpm_day_manual: JSON.stringify({ 'KBC|*': { periods: [{ from: '13:00', to: '15:00', share: 100 }] }, '*|*': { periods: [{ from: '22:00', to: '02:00', share: 1 }] } }) });
-          const dm2 = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); const km = dm2.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD'); const am = dm2.rows.find((r) => r.trigram === 'AES');
+          const dm2 = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`); const km = dm2.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD'); const am = dm2.rows.find((r) => r.trigram === 'AES');
           assert.deepEqual([km.profile, km.shares[dm2.hours.indexOf(13)], km.shares[dm2.hours.indexOf(14)], am.profile, am.shares[dm2.hours.indexOf(0)]], ['manual', 0.5, 0.5, 'manual-default', 0.25], 'run periods: 13–15 for KBC; 22–02 for everyone else');
           assert.ok(Math.abs(km.learned_shares.reduce((a, b) => a + b, 0) - 1) < 1e-9 && km.learned_from !== 'manual', 'what\'s learned is kept beside what\'s set');
           // the grid: a row of % by clock hour, not adding up to 100, scaled to it
           const g = Array(24).fill(0); g[9] = 30; g[10] = 30; await call('PUT', '/cpm/settings', { cpm_day_manual: JSON.stringify({ 'KBC|*': { hours: g } }) });
-          const dm3 = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); const kg = dm3.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
+          const dm3 = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`); const kg = dm3.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
           assert.deepEqual([kg.profile, kg.shares[dm3.hours.indexOf(9)], kg.shares[dm3.hours.indexOf(10)]], ['manual', 0.5, 0.5], 'grid row: 30% + 30% read as half each');
           await call('PUT', '/cpm/settings', { cpm_day_manual: '{}' });
           // shipment times set on the tab (shown, labelled), a customer's own cut-off typed in
           await call('PUT', '/cpm/settings', { cpm_cutoffs: JSON.stringify([{ time: '17:00', label: 'PostNL' }, { time: '08:00', label: '' }, { time: 'nope' }]), cpm_cutoff_cust: JSON.stringify({ KBC: '11:00' }) });
-          const dc = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`);
+          const dc = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`);
           assert.deepEqual([dc.cutoffs, dc.cutoff_labels, dc.ship_times.own], [['08:00', '17:00'], ['', 'PostNL'], true], 'the shipment times set, sorted, a wrong one dropped');
           assert.equal(dc.rows.find((r) => r.trigram === 'KBC').cutoff, 11, 'KBC\'s own cut-off');
           await call('PUT', '/cpm/settings', { cpm_cutoffs: '', cpm_cutoff_cust: '{}' });
-          assert.equal((await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`)).ship_times.own, false, 'back to the learned ones');
+          assert.equal((await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`)).ship_times.own, false, 'back to the learned ones');
           // deadlines at 23:59 (a date, no time) aren't a shipment time; a customer with none ships at the default
           { const sq6 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); const now6 = new Date().toISOString().slice(0, 16);
             for (let i = 0; i < 4; i++) sq6.prepare("INSERT INTO plan_history_jobs (key, wo, customer, qty, prio, first_seen, last_seen, deadline) VALUES (?, ?, 'KBC', 100, 'High', ?, ?, ?)").run(`CUT${i}`, `CUT${i}`, now6, now6, `${now6.slice(0, 10)}T23:59`);
             sq6.close();
-            const dd = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`); const kr6 = dd.rows.find((r) => r.trigram === 'KBC');
+            const dd = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`); const kr6 = dd.rows.find((r) => r.trigram === 'KBC');
             assert.ok(!dd.cutoffs.includes('23:59') && dd.cutoffs.includes('17:00') && kr6.cutoff === 17 && kr6.cutoff_default === true && kr6.cutoff_learned === null, `23:59 left out, KBC at the default 17:00 (${dd.cutoffs})`);
             await call('PUT', '/cpm/settings', { cpm_cutoff_default: '15:30' });
-            const dd2 = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0`);
+            const dd2 = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`);
             assert.ok(dd2.rows.find((r) => r.trigram === 'KBC').cutoff === 15.5 && dd2.cutoffs.includes('15:30') && dd2.cutoff_default === '15:30', 'the default changed on the tab');
             await call('PUT', '/cpm/settings', { cpm_cutoff_default: '17:00' });
             const sq7 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); sq7.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'CUT%'").run(); sq7.close(); }

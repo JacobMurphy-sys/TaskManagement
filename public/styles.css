@@ -2839,3 +2839,6 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .cxni-line { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
 .cxni-basis { flex: 1 1 220px; } .cxni-basis input { width: 100%; }
 .cxni-total { margin-top: 8px; padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, var(--danger) 9%, transparent); font-size: 13.5px; }
+
+/* 📐 Capacity planning: when the tab was generated, and ⟳ Regenerate */
+.cpm-gen { white-space: nowrap; margin-right: 4px; }

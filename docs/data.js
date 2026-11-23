@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'cpm-kept', date: '2026-11-23', area: 'capacity', title: 'Capacity planning: quick to move around',
+    text: 'Capacity planning\'s report tabs keep what they last worked out, like the weekly report, and are worked out again only with Regenerate, so moving between tabs is quick.',
+    points: ['When each tab was generated, shown in its header', 'Marked out of date when a setting, customer, scenario or forecast changes', 'Forecast files read again only when they\'ve changed'] },
   { id: 'capex-not-investing', date: '2026-11-20', area: 'projects', title: 'CAPEX: the cost of not investing',
     text: 'The IR step by step now asks what the business could lose if the investment isn\'t made, with how likely it is, when and what it would cost a year, and shows the return as the model works it out while the savings are typed in.',
     points: ['Prompts that fit the reason for the investment', 'The total at stake a year, set against the investment', 'The deck\'s risks of not investing carry their figures', 'A weak or missing return points to the cost of not investing'] },
