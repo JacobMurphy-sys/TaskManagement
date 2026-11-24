@@ -2455,7 +2455,13 @@ async function waitForServer() {
           const xr = await fetch(`${BASE}/cpm/export?year=${Y}&period=month&flex=0&scenarios=${rs.id}`, { headers: { 'X-Requested-With': 'TaskManager' } });
           assert.equal(xr.status, 200);
           const xb = require('../src/xlsxread').readBook(Buffer.from(await xr.arrayBuffer()));
-          assert.deepEqual(xb.sheets.map((x) => x.name), [`CPM ${Y}`, 'S1 KBC only', 'Charts', 'Forecast check', 'Scenarios & notes']);
+          assert.deepEqual(xb.sheets.map((x) => x.name), ['Capacity summary', `CPM ${Y}`, 'S1 KBC only', 'Summary S1 KBC only', 'Charts', 'Forecast check', 'Scenarios & notes']);
+          // 📋 the capacity summary: the OEE modifier (an input, 1), demand = IF(modifier, needed, forecast) over the plan sheet, remaining = capacity − demand
+          { const sm = xb.sheet('Capacity summary'); const sc = [...sm.cells.values()]; const lab = (t) => sc.find((c) => c.v === t);
+            assert.equal(sm.cells.get('C4').v, 1, 'the OEE modifier starts on');
+            const dd = sm.cells.get(`C${lab('Dem. DOD').row}`); assert.ok(/^IF\(\$C\$4=1,'CPM \d+'!\$?[A-Z]+\$?\d+,'CPM \d+'!\$?[A-Z]+\$?\d+\)$/.test(dd.f), `demand by the modifier: ${dd.f}`);
+            const rd = sm.cells.get(`C${lab('Rem. DOD').row}`); assert.equal(rd.f, `C${lab('Cap. DOD').row}-C${lab('Dem. DOD').row}`, 'remaining = capacity − demand');
+            assert.ok(lab('Total theoretical capacity') && lab('Total open capacity') && lab('Total forecast demand'), 'the totals'); }
           const xs = xb.sheet('S1 KBC only'); const cellsOf = [...xs.cells.values()];
           const loadRow = cellsOf.find((c) => c.v === 'Load (needed ÷ capacity)' && cellsOf.some((d) => d.row === c.row && d.v === 'DOD'));
           const loadJan = xs.cells.get(`G${loadRow.row}`);
@@ -2563,7 +2569,7 @@ async function waitForServer() {
               const xr = await fetch(`${BASE}/cpm/site/export?year=${Y}`, { headers: { 'X-Requested-With': 'TaskManager' } }); const bk = require('../src/xlsxread').readBook(Buffer.from(await xr.arrayBuffer()));
               assert.deepEqual(bk.sheets.map((x) => x.name), [`Site Capacity ${Y}`, `Matching ${Y}`], 'the workbook: a Matching sheet'); }
             // 🔗 Matching to Excel: its month, its day (perso's workbook laid out for Matching) and its customers hour by hour
-            for (const [u, names, nCharts] of [[`/cpm/match/monthly.xlsx?year=${Y}&flex=0`, [`Matching ${Y}`, 'Chart'], 2], [`/cpm/day/export?year=${Y}&month=1&flex=0&line=match`, [`Matching ${md.label}`.slice(0, 31), 'Hour profile', 'Charts'], 2], [`/cpm/day/customers.xlsx?year=${Y}&month=1&flex=0&line=match&view=cards`, ['Cards by hour'], 0]]) {
+            for (const [u, names, nCharts] of [[`/cpm/match/monthly.xlsx?year=${Y}&flex=0`, ['Capacity summary', `Matching ${Y}`, 'Chart'], 2], [`/cpm/day/export?year=${Y}&month=1&flex=0&line=match`, [`Matching ${md.label}`.slice(0, 31), 'Hour profile', 'Charts'], 2], [`/cpm/day/customers.xlsx?year=${Y}&month=1&flex=0&line=match&view=cards`, ['Cards by hour'], 0]]) {
               const xr = await fetch(`${BASE}${u}`, { headers: { 'X-Requested-With': 'TaskManager' } }); assert.equal(xr.status, 200, u);
               const buf = Buffer.from(await xr.arrayBuffer()); const bk = require('../src/xlsxread').readBook(buf);
               assert.deepEqual(bk.sheets.map((x) => x.name), names, `${u}: its sheets`);
