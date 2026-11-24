@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'cpm-config-line', date: '2026-11-24', area: 'capacity', title: 'Configuration for Perso and Matching',
+    text: 'Configuration has the same Perso / Matching switch as the views, so Matching\'s settings sit on the same Customers, Capacity and CPM Daily pages as perso\'s. Priorities on CPM Daily are now a tick, with daily work and renewals by default.' },
   { id: 'cpm-match-daily', date: '2026-11-24', area: 'capacity', title: 'Matching on CPM Daily, as perso',
     text: 'The Matching day now works like the perso one: the same chart and views, renewals and daily work in their colours, the work orders on the machines, the drill-down and campaigns.',
     points: ['As it comes in, smoothed, or as work orders on the Matching machines', 'Renewals in a Matching renewal window', 'Campaigns can count on Matching too', 'Click an hour to see who feeds it'] },

@@ -2957,3 +2957,4 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .fc-cbar-m { font-size: 11px; color: var(--muted); }
 .cpm-ck td, .cpm-ck th { vertical-align: top; }
 .cpm-ck tr.cpm-ck-flag td:first-child { box-shadow: inset 3px 0 0 var(--danger, #c0392b); }
+.cpm-cfg-line { margin-left: 14px; display: inline-flex; vertical-align: middle; }
