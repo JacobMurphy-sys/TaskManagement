@@ -125,7 +125,8 @@ function scenarioAt(changes, ymKey, M, R, OE) {
 const LINES = { otto: 'OTTO', hand: 'Hand match' };
 function lineOfRun(M, name) {
   const n = String(name || '').trim(); const low = n.toLowerCase(); if (!n) return { line: 'otto', from: 'none' };
-  const m = M.list.find((x) => x.key && low.includes(x.key)); if (m) return { line: m.hand ? 'hand' : 'otto', from: 'setup', machine: m.name };
+  // the Setup machine it names: its own name exactly, else the longest one inside it (so "OTTO 1" doesn't take "OTTO 12" or "OTTO 1 hand")
+  const m = M.list.find((x) => x.key && low === x.key) || M.list.filter((x) => x.key && low.includes(x.key)).sort((a, b) => b.key.length - a.key.length)[0]; if (m) return { line: m.hand ? 'hand' : 'otto', from: 'setup', machine: m.name };
   const typed = json(setting('cpm_match_line_of', '{}'), {})[n]; if (['otto', 'hand', 'skip'].includes(typed)) return { line: typed, from: 'typed' };
   return { line: /hand/i.test(n) ? 'hand' : 'otto', from: 'guess' };
 }
