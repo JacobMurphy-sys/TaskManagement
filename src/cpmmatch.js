@@ -35,19 +35,19 @@ function machines() {
 }
 
 // each customer's share of its persoed cards that went through Matching, the last 4 months: items matched ÷ cards
-// persoed (from the two timing reports); '*' everyone's. Customers with too little history fall back on '*'.
+// persoed (from the two timing reports), at most 100% — an item is matched once at most; '*' everyone's. Customers with too little history fall back on '*'.
 function learnedRatios() {
   const q = (src) => { try { return db.all(`SELECT upper(trigram) AS tri, SUM(qty) AS q FROM prod_runs WHERE source = ? AND remake = 0 AND trigram IS NOT NULL AND trigram <> '' AND start_at >= ? GROUP BY upper(trigram)`, [src, since()]); } catch { return []; } };
   const perso = new Map(q('perso').map((r) => [r.tri, r.q || 0])); const match = new Map(q('otto').map((r) => [r.tri, r.q || 0]));
   const out = new Map(); let P = 0; let M = 0;
-  for (const [tri, p] of perso) { const m = match.get(tri) || 0; P += p; M += m; if (p >= 500) out.set(tri, { ratio: Math.min(3, m / p), perso: p, match: m }); }
-  out.set('*', { ratio: P ? Math.min(3, M / P) : 0, perso: P, match: M });
+  for (const [tri, p] of perso) { const m = match.get(tri) || 0; P += p; M += m; if (p >= 500) out.set(tri, { ratio: Math.min(1, m / p), perso: p, match: m }); }
+  out.set('*', { ratio: P ? Math.min(1, M / P) : 0, perso: P, match: M });
   return out;
 }
 // each customer's share: typed (Configuration › Matching) wins, else learned, else everyone's
 function ratios() {
   const typed = json(setting('cpm_match_ratio', '{}'), {}); const learned = learnedRatios(); const all = learned.get('*');
-  return { of: (tri) => { const t = typed[tri]; if (t !== undefined && t !== null && t !== '') return { ratio: Number(t), from: 'typed' }; const l = learned.get(tri); return l ? { ratio: l.ratio, from: 'learned' } : { ratio: all ? all.ratio : 0, from: 'everyone' }; },
+  return { of: (tri) => { const t = typed[tri]; if (t !== undefined && t !== null && t !== '') return { ratio: Math.min(1, Math.max(0, Number(t) || 0)), from: 'typed' }; const l = learned.get(tri); return l ? { ratio: l.ratio, from: 'learned' } : { ratio: all ? all.ratio : 0, from: 'everyone' }; },
     typed, learned };
 }
 
