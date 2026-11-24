@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'cpm-matching', date: '2026-11-24', area: 'capacity', title: 'Capacity planning for Matching',
+    text: 'CPM Monthly and CPM Daily switch between Perso and Matching: a best guess of the Matching machines\' load from the forecast, each customer\'s share through Matching learned from history, and one Matching OEE.',
+    points: ['Each customer\'s share through Matching learned from the timing reports, or typed', 'One Matching OEE, and the customers\' own Matching speeds', 'By month, and a day hour by hour'] },
   { id: 'cpm-names', date: '2026-11-23', area: 'capacity', title: 'Capacity planning: CPM Monthly and CPM Daily',
     text: 'The month view is now CPM Monthly and the hour-by-hour day CPM Daily, side by side; Forecast vs actual is Flex, and Site Capacity is capitalised.' },
   { id: 'cpm-excel', date: '2026-11-23', area: 'capacity', title: 'Capacity planning in Excel, charts and all',

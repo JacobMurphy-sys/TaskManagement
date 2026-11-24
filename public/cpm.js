@@ -3,7 +3,7 @@
 // OEE, the capacity settings, and each person's scenarios (src/cpm.js does the sums).
 const CPM_TABS = [['overview', 'CPM Monthly'], ['day', 'CPM Daily'], ['site', 'Site Capacity'], ['headcount', 'Headcount'], ['flex', 'Flex'], ['config', 'Configuration']];
 // Configuration holds the set-up, each its own sub-tab (their addresses, #/cpm/customers…, still open them)
-const CPM_CONFIG = [['customers', 'Customers'], ['capacity', 'Capacity'], ['scenarios', 'Scenarios'], ['dayset', 'CPM Daily'], ['check', 'Forecast check']];
+const CPM_CONFIG = [['customers', 'Customers'], ['capacity', 'Capacity'], ['scenarios', 'Scenarios'], ['dayset', 'CPM Daily'], ['check', 'Forecast check'], ['match', 'Matching']];
 const cpmN = (v, d = 0) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: d }));
 // each machine's colour, the same on every chart (by its place among the machines)
 const CPM_MACH_COL = ['#e4572e', '#f3a712', '#3fa34d', '#2e86ab', '#9b5de5', '#f15bb5', '#00a6a6', '#8d6a9f', '#c0843b', '#5c8001'];
@@ -87,6 +87,7 @@ async function renderCpm(tab) {
   const sub = top === 'config' ? `<div class="seg cpm-subtabs" role="tablist" aria-label="Configuration">${CPM_CONFIG.map(([k, l]) => `<a href="#/cpm/${k}" class="button ${k === tab ? 'on' : ''}" role="tab" aria-selected="${k === tab}">${l}</a>`).join('')}</div>` : '';
   main().innerHTML = `${head}${sub}<div id="cpm-body"><p class="muted">Loading…</p></div>`;
   const body = $('#cpm-body'); cpmFoldable(body, tab);
+  body.addEventListener('click', (e) => { const b = e.target.closest('[data-cpm-line]'); if (!b || b.dataset.cpmLine === cpmLine()) return; store.set('cpmLine', b.dataset.cpmLine); renderCpm(tab); });
   const rg = $('#cpm-regen'); if (rg) rg.onclick = () => { cpmRegenNext = true; rg.disabled = true; rg.textContent = '⏳ Generating…'; renderCpm(tab); };
   try {
     if (tab === 'overview') await cpmOverview(body);
@@ -95,6 +96,7 @@ async function renderCpm(tab) {
     else if (tab === 'day') await cpmDay(body);
     else if (tab === 'dayset') await cpmDay(body, true);
     else if (tab === 'check') await cpmCheck(body);
+    else if (tab === 'match') await cpmMatchConfig(body);
     else if (tab === 'flex') await cpmFlex(body);
     else if (tab === 'customers') await cpmCustomers(body);
     else if (tab === 'capacity') await cpmCapacity(body);
@@ -125,6 +127,7 @@ function cpmFoldable(body, tab) {
 // ---- Overview: demand against capacity, per technology --------------------------------------------
 let cpmReread = false; // the next Overview reads the forecast files again
 async function cpmOverview(body) {
+  if (cpmLine() === 'match') return cpmMatchMonthly(body);
   const year = Number(store.get('cpmYear', new Date().getFullYear()));
   const period = store.get('cpmPeriod', 'month');
   const flex = store.get('cpmFlex', true);
@@ -266,7 +269,7 @@ async function cpmOverview(body) {
   const fvaSel = ['all', ...d.techs].includes(store.get('cpmFva', 'all')) ? store.get('cpmFva', 'all') : 'all';
   const years = [year - 1, year, year + 1];
   body.innerHTML = `
-    <div class="row pl-filters" style="gap:10px;flex-wrap:wrap">
+    <div class="row pl-filters" style="gap:10px;flex-wrap:wrap">${cpmLineSeg()}
       <select id="cpm-year">${years.map((y) => `<option ${y === year ? 'selected' : ''}>${y}</option>`).join('')}</select>
       <div class="seg"><button type="button" data-cpm-period="month" class="${period === 'month' ? 'on' : ''}">By month</button><button type="button" data-cpm-period="week" class="${period === 'week' ? 'on' : ''}">By week</button></div>
       <label class="row small"><input type="checkbox" id="cpm-flex" ${flex ? 'checked' : ''}> apply flex${d.flex?.overall ? ` <span class="muted">(overall ${cpmPct(d.flex.overall - 1, 1)})</span>` : ''}</label>
@@ -303,6 +306,7 @@ async function cpmOverview(body) {
 // ---- CPM Daily: a working day of a month, hour by hour (the CPM daily sheet) ----------------------
 // (settings: Configuration › CPM Daily — only its renewal windows, run periods and shipment times, worked out live)
 async function cpmDay(body, settings = false) {
+  if (!settings && cpmLine() === 'match') return cpmMatchDaily(body);
   const dayRegen = cpmRegenNext; // (its comparison, asked for later, is generated again with it)
   const year = Number(store.get('cpmYear', new Date().getFullYear()));
   const month = Number(store.get('cpmDayMonth', new Date().getMonth() + 1));
@@ -553,7 +557,7 @@ async function cpmDay(body, settings = false) {
     $('#cpm-dayset-month').onchange = (e) => { store.set('cpmDayMonth', Number(e.target.value)); renderCpm('dayset'); };
   } else {
   body.innerHTML = `
-    <div class="row pl-filters" style="gap:10px;flex-wrap:wrap">
+    <div class="row pl-filters" style="gap:10px;flex-wrap:wrap">${cpmLineSeg()}
       <select id="cpm-day-month">${MONTHS.map((m, i) => `<option value="${i + 1}" ${i + 1 === month ? 'selected' : ''}>${m} ${year}</option>`).join('')}</select>
       <label class="row small"><input type="checkbox" id="cpm-day-flex" ${flex ? 'checked' : ''}> apply flex</label>
       <select id="cpm-day-sc"><option value="0">Base plan</option>${scs.map((s) => `<option value="${s.id}" ${s.id === scId ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
@@ -846,6 +850,107 @@ async function cpmCheck(body) {
   $('#cpm-ck-month').onchange = (e) => { store.set('cpmDayMonth', Number(e.target.value)); renderCpm('check'); };
   $('#cpm-ck-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('check'); };
   $('#cpm-ck-only').onchange = (e) => { store.set('cpmCheckFlagged', e.target.checked); renderCpm('check'); };
+}
+
+// ---- Matching: CPM Monthly and CPM Daily for the Matching machines (src/cpmmatch.js) ---------------------
+// a best guess: each customer's forecast cards × its share through Matching (learned: items matched ÷ cards
+// persoed; or typed), ÷ one Matching OEE, against the Matching machines' speed over the hours worked
+const CPM_MATCH_COL = '#2563EB'; // blue: apart from the technologies' colours and the orange of what's added
+const cpmLine = () => (store.get('cpmLine', 'perso') === 'match' ? 'match' : 'perso');
+const cpmLineSeg = () => `<div class="seg" role="tablist" aria-label="Perso or Matching"><button type="button" data-cpm-line="perso" class="${cpmLine() === 'perso' ? 'on' : ''}">Perso</button><button type="button" data-cpm-line="match" class="${cpmLine() === 'match' ? 'on' : ''}" title="The Matching machines: a best guess from the history there is">Matching</button></div>`;
+const cpmMatchWarn = (w) => (w.length ? `<div class="kpi-actions">${w.map((x) => `<div class="kpi-action notice"><span>⚠ ${esc(x)}</span></div>`).join('')}</div>` : '');
+const cpmMatchAbout = (d) => `<details class="cpm-about small muted"><summary>ⓘ How Matching is worked out</summary> Each customer's forecast cards${d.flex ? ' (× flex)' : ''} × its share through Matching — learned from the last 4 months (items matched ÷ cards persoed), or typed on <a href="#/cpm/match">Configuration › Matching</a> — ÷ the Matching OEE (${cpmPct(d.oee)}), × the machines' usual speed ÷ the customer's own Matching speed where Production sets one; against the Matching machines' speed over the hours worked (Production › Setup). It's a best guess: the history behind it is thinner than perso's.</details>`;
+// a bar per period / hour (needed, what's added in orange) against capacity (a step line), and what's carried over
+function cpmMatchChart(cats, need, cap, { added = null, backlog = null, off = null, hint = '' } = {}) {
+  const n = cats.length; const W = Math.max(640, n * 46); const Hh = 280; const L = 50; const B = 28; const T0 = 18;
+  const { max, ticks } = cpmScale(Math.max(1, ...need, ...cap, ...(backlog || [])) * 1.12);
+  const slot = (W - L - 6) / n; const x = (i) => L + (i + 0.5) * slot; const bw = slot * 0.62; const y = (v) => T0 + (Hh - T0 - B) * (1 - v / max);
+  const step = cap.map((c, i) => `${i ? 'L' : 'M'}${L + i * slot},${y(c)} L${L + (i + 1) * slot},${y(c)}`).join(' ');
+  return `<svg class="cpm-chart" viewBox="0 0 ${W} ${Hh}" preserveAspectRatio="xMinYMin meet">
+    ${ticks.map((v) => `<line x1="${L}" x2="${W - 4}" y1="${y(v)}" y2="${y(v)}" class="cpm-grid"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="cpm-ax">${cpmAxis(v)}</text>`).join('')}
+    ${off ? off.map((o, i) => (o ? `<rect x="${L + i * slot}" y="${T0}" width="${slot}" height="${Hh - T0 - B}" class="cpm-off"/>` : '')).join('') : ''}
+    ${need.map((v, i) => { const over = v > cap[i] + 0.5; const ad = Math.min(v, added?.[i] || 0);
+      return `<g><title>${esc(`${cats[i]}: needed ${cpmN(v)}${ad > 0.5 ? ` (${cpmN(ad)} added)` : ''} · capacity ${cpmN(cap[i])}${cap[i] ? ` · ${cpmPct(v / cap[i])}` : ''}${hint}`)}</title>
+        <rect x="${x(i) - bw / 2}" y="${y(v)}" width="${bw}" height="${Math.max(0, y(0) - y(v))}" style="fill:${CPM_MATCH_COL}" class="cpm-allbar ${over ? 'cpm-over' : ''}"/>
+        ${ad > 0.5 ? `<rect x="${x(i) - bw / 2}" y="${y(v)}" width="${bw}" height="${Math.max(0, y(v - ad) - y(v))}" class="cpm-added"/>` : ''}
+        ${v >= 0.5 && n <= 24 ? `<text x="${x(i)}" y="${y(v) - 4}" text-anchor="middle" class="cpm-lbl ${over ? 'over' : ''}">${esc(cpmK(v))}</text>` : ''}</g>`; }).join('')}
+    <path d="${step}" fill="none" class="cpm-capstep"/>
+    ${backlog && backlog.some((v) => v > 0.5) ? `<polyline fill="none" class="cpm-backlog" points="${backlog.map((v, i) => `${x(i)},${y(v)}`).join(' ')}"/>` : ''}
+    ${cats.map((c, i) => `<text x="${x(i)}" y="${Hh - 9}" text-anchor="middle" class="cpm-ax">${esc(c)}</text>`).join('')}
+  </svg>`;
+}
+const cpmMatchLegend = (extra = '', added = false) => `<div class="cpm-legend"><span><i class="sw" style="background:${CPM_MATCH_COL}"></i>Needed (items ÷ OEE)</span>${added ? '<span><i class="sw cpm-added-sw"></i>added: a scenario\'s volume</span>' : ''}<span><i class="ln"></i>Capacity</span>${extra}</div>`;
+
+async function cpmMatchMonthly(body) {
+  const year = Number(store.get('cpmYear', new Date().getFullYear())); const flex = store.get('cpmFlex', true);
+  const d = await cpmGet(`/cpm/match/monthly?year=${year}&flex=${flex ? 1 : 0}`);
+  const Y = (f) => d.months.reduce((a, m) => a + (f(m) || 0), 0); const capY = Y((m) => m.capacity); const needY = Y((m) => m.need);
+  const peak = d.months.reduce((w, m) => ((m.load || 0) > (w?.load || 0) ? m : w), null);
+  const years = [year - 1, year, year + 1];
+  const tile = (l, v, s = '') => `<div class="kdb-tile"><div class="kdb-tile-l">${l}</div><div class="kdb-tile-v">${v}</div>${s ? `<div class="kdb-tile-s">${s}</div>` : ''}</div>`;
+  body.innerHTML = `<div class="row pl-filters" style="gap:10px;flex-wrap:wrap">${cpmLineSeg()}
+      <select id="cpm-m-year">${years.map((y) => `<option ${y === year ? 'selected' : ''}>${y}</option>`).join('')}</select>
+      <label class="row small"><input type="checkbox" id="cpm-m-flex" ${flex ? 'checked' : ''}> apply flex</label></div>
+    ${cpmMatchAbout(d)}${cpmMatchWarn(d.warnings)}
+    <div class="kdb-tiles pl-tiles">${tile(`${year} items matched`, cpmK(Y((m) => m.items)), `from ${cpmK(Y((m) => m.cards))} cards`)}${tile('Machine time needed', cpmK(needY), `÷ OEE ${cpmPct(d.oee)}`)}
+      ${tile('Capacity', cpmK(capY), `${d.machines.length} machine${d.machines.length === 1 ? '' : 's'} · ${cpmK(d.capacity_hour)} an hour`)}${tile('Load over the year', capY ? `<span class="cpm-u ${cpmUtilCls(needY / capY)}">${cpmPct(needY / capY)}</span>` : '—')}
+      ${tile('Busiest month', peak ? esc(peak.label) : '—', peak?.load ? `<span class="cpm-u ${cpmUtilCls(peak.load)}">${cpmPct(peak.load)}</span>` : '')}</div>
+    <div class="card"><h3 class="pl-h">Matching — needed against capacity, by month</h3>${cpmMatchLegend('', d.months.some((m) => m.added > 0.5))}${cpmMatchChart(d.months.map((m) => m.label), d.months.map((m) => m.need), d.months.map((m) => m.capacity), { added: d.months.map((m) => m.added) })}</div>
+    <div class="card"><h3 class="pl-h">By month</h3><div class="kdb-scroll"><table class="log small"><thead><tr><th>Month</th><th class="num">Working days</th><th class="num">Cards (forecast)</th><th class="num">Items matched</th><th class="num">Needed (÷ OEE)</th><th class="num">Capacity</th><th class="num">Load</th><th>The biggest</th></tr></thead><tbody>
+      ${d.months.map((m) => `<tr><th>${esc(m.label)}</th><td class="num">${m.workdays}</td><td class="num">${cpmK(m.cards)}</td><td class="num">${cpmK(m.items)}</td><td class="num"><b>${cpmK(m.need)}</b></td><td class="num">${cpmK(m.capacity)}</td>
+        <td class="num cpm-u ${cpmUtilCls(m.load || 0)}">${m.load === null ? '—' : cpmPct(m.load)}</td><td class="small">${m.top.slice(0, 4).map((c) => `${esc(c.trigram || c.name)} <span class="muted">${cpmK(c.need)}</span>`).join(' · ')}</td></tr>`).join('')}</tbody></table></div></div>`;
+  $('#cpm-m-year').onchange = (e) => { store.set('cpmYear', Number(e.target.value)); renderCpm('overview'); };
+  $('#cpm-m-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('overview'); };
+}
+
+async function cpmMatchDaily(body) {
+  const year = Number(store.get('cpmYear', new Date().getFullYear())); const month = Number(store.get('cpmDayMonth', new Date().getMonth() + 1)); const flex = store.get('cpmFlex', true);
+  const d = await cpmGet(`/cpm/match/day?year=${year}&month=${month}&flex=${flex ? 1 : 0}`);
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const hl = (h) => String(h).padStart(2, '0'); const T = d.total; const top = Math.max(1, ...d.rows.flatMap((r) => r.hours));
+  const tile = (l, v, s = '') => `<div class="kdb-tile"><div class="kdb-tile-l">${l}</div><div class="kdb-tile-v">${v}</div>${s ? `<div class="kdb-tile-s">${s}</div>` : ''}</div>`;
+  const FROM = { own: 'its runs', matching: 'all runs', even: 'evenly' };
+  const RFROM = { typed: 'typed', learned: 'learned', everyone: 'everyone\'s' };
+  body.innerHTML = `<div class="row pl-filters" style="gap:10px;flex-wrap:wrap">${cpmLineSeg()}
+      <select id="cpm-md-month">${MONTHS.map((m, i) => `<option value="${i + 1}" ${i + 1 === month ? 'selected' : ''}>${m} ${year}</option>`).join('')}</select>
+      <label class="row small"><input type="checkbox" id="cpm-md-flex" ${flex ? 'checked' : ''}> apply flex</label></div>
+    ${cpmMatchAbout(d)}${cpmMatchWarn(d.warnings)}
+    <div class="kdb-tiles pl-tiles">${tile('Items a day', cpmK(T.items), `${d.rows.length} customers`)}${tile('Needed a day', cpmK(T.need), `÷ OEE ${cpmPct(d.oee)}`)}${tile('Capacity a day', cpmK(T.capacity), `${d.machines.length} machine${d.machines.length === 1 ? '' : 's'}`)}
+      ${tile('Load', T.load === null ? '—' : `<span class="cpm-u ${cpmUtilCls(T.load)}">${cpmPct(T.load)}</span>`, `${T.hours_over} hour${T.hours_over === 1 ? '' : 's'} over`)}${tile('Left at the day\'s end', T.end_backlog > 0.5 ? `<span class="pl-late">${cpmK(T.end_backlog)}</span>` : '0')}</div>
+    <div class="card"><h3 class="pl-h">Matching — the day hour by hour</h3>${cpmMatchLegend('<span><i class="ln dash cpm-bl-sw"></i>Carried over to the next hour</span><span><i class="sw cpm-sw-off"></i>not worked</span>', d.added.some((v) => v > 0.5))}
+      ${cpmMatchChart(d.hours.map(hl), d.need, d.capacity, { added: d.added, backlog: d.backlog, off: d.worked.map((w) => !w) })}</div>
+    <div class="card"><h3 class="pl-h">Customers hour by hour <span class="muted small">— needed (÷ OEE) per hour</span></h3><div class="kdb-scroll"><table class="log small cpm-gantt"><thead><tr><th>Customer</th><th class="num">Cards a day</th><th class="num" title="Its share of the cards that go through Matching">Through Matching</th><th class="num">Items a day</th><th class="num" title="Its own Matching speed, where Production sets one: machine time × the usual speed ÷ its own">Own speed</th><th class="num">Needed a day</th><th>Timed by</th>${d.hours.map((h) => `<th class="num">${hl(h)}</th>`).join('')}</tr></thead><tbody>
+      ${d.rows.map((r) => `<tr><td class="cpm-g-name"><b>${esc(r.trigram || '—')}</b> <span class="muted">${esc(r.name || '')}</span></td><td class="num">${cpmK(r.cards_day)}</td><td class="num" title="${esc(RFROM[r.ratio_from] || '')}">${cpmPct(r.ratio)} <span class="muted small">${esc(RFROM[r.ratio_from] || '')}</span></td><td class="num">${cpmK(r.items_day)}</td>
+        <td class="num">${r.own_speed ? `${cpmK(r.own_speed)}/h` : ''}</td><td class="num"><b>${cpmK(r.need_day)}</b></td><td class="small muted">${esc(FROM[r.profile] || '')}</td>
+        ${r.hours.map((v, i) => `<td class="cpm-heat" style="--a:${Math.min(1, v / top).toFixed(3)};--c:${CPM_MATCH_COL}" title="${esc(`${r.trigram || r.name} ${hl(d.hours[i])}:00: ${cpmN(v)}`)}">${v >= 0.5 ? cpmK(v) : ''}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${7 + 24}" class="muted">No Matching volume this month — no forecast, or no share through Matching (Configuration › Matching).</td></tr>`}</tbody>
+      <tfoot><tr class="cpm-gtot cpm-gtot-all"><th>All</th><td></td><td></td><td class="num">${cpmK(T.items)}</td><td></td><td class="num">${cpmK(T.need)}</td><td></td>${d.need.map((v) => `<td class="num">${v >= 0.5 ? cpmK(v) : ''}</td>`).join('')}</tr>
+        <tr class="cpm-gtot"><th>Capacity</th><td colspan="6"></td>${d.capacity.map((v) => `<td class="num muted">${v ? cpmK(v) : ''}</td>`).join('')}</tr>
+        <tr class="cpm-gtot"><th>Load</th><td colspan="6"></td>${d.load.map((v) => `<td class="num cpm-u ${cpmUtilCls(v ?? 9)}">${v === null ? '—' : v ? cpmPct(v) : ''}</td>`).join('')}</tr></tfoot></table></div></div>`;
+  $('#cpm-md-month').onchange = (e) => { store.set('cpmDayMonth', Number(e.target.value)); renderCpm('day'); };
+  $('#cpm-md-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('day'); };
+}
+
+// 🛠 Configuration › Matching: the Matching OEE, and each customer's share through Matching (learned / typed)
+async function cpmMatchConfig(body) {
+  const d = await api.get('/cpm/match/config');
+  const row = (c) => `<tr><td><b>${esc(c.trigram)}</b> <span class="muted">${esc(c.name || '')}</span></td><td class="num">${c.perso ? cpmK(c.perso) : '<span class="muted">—</span>'}</td><td class="num">${c.match ? cpmK(c.match) : '<span class="muted">—</span>'}</td>
+    <td class="num">${c.learned === null ? `<span class="muted" title="Too little history: everyone's share is used">everyone's ${cpmPct(d.everyone?.ratio || 0)}</span>` : cpmPct(c.learned)}</td>
+    <td class="num"><input type="number" class="cpm-mr" data-tri="${esc(c.trigram)}" min="0" max="300" step="1" value="${c.typed === null || c.typed === undefined ? '' : Math.round(c.typed * 100)}" placeholder="${Math.round((c.learned ?? d.everyone?.ratio ?? 0) * 100)}" style="width:80px"></td>
+    <td class="num">${c.own_speed ? `${cpmK(c.own_speed)}/h` : ''}</td></tr>`;
+  body.innerHTML = `<div class="card"><h3 class="pl-h">Matching OEE <span class="muted small">— one figure for the Matching machines: the losses (stops, set-ups, slow running) counted once, as each customer's OEE does for perso</span></h3>
+      <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap"><label class="row small" style="gap:6px">OEE <input type="number" id="cpm-moee" min="1" max="100" step="1" value="${Math.round(d.oee * 100)}" style="width:80px"> %</label>
+        <span class="small muted">Machines (Production › Setup): ${d.machines.length ? d.machines.map((m) => `${esc(m.name)} <b>${m.speed ? `${cpmK(m.speed)}/h` : 'no speed'}</b>`).join(' · ') : 'none set up'}${d.customer_speeds.length ? ` · customers with their own speed: ${d.customer_speeds.map((c) => `${esc(c.customer)} ${cpmK(c.speed)}/h`).join(', ')}` : ''}</span></div></div>
+    <div class="card"><h3 class="pl-h">Share through Matching <span class="muted small">— each customer's items matched ÷ cards persoed, the last 4 months (the two timing reports). Blank: learned (customers with little history take everyone's: ${cpmPct(d.everyone?.ratio || 0)}); type a % to set it — over 100% when a card is matched more than once.</span></h3>
+      <div class="kdb-scroll"><table class="log small"><thead><tr><th>Customer</th><th class="num">Persoed (4 months)</th><th class="num">Matched (4 months)</th><th class="num">Learned</th><th class="num">Share %</th><th class="num">Own speed</th></tr></thead><tbody>${d.customers.map(row).join('')}</tbody></table></div>
+      <div class="row" style="gap:8px;margin-top:6px;align-items:center"><div class="spacer"></div><span class="small pl-warn" id="cpm-m-dirty" hidden>Not saved yet</span><button class="small" id="cpm-m-undo" disabled>Undo changes</button><button class="small primary" id="cpm-m-save" disabled>💾 Save</button></div></div>`;
+  const now = () => { const o = { ...(Object.fromEntries(d.customers.filter((c) => c.typed !== null && c.typed !== undefined).map((c) => [c.trigram, c.typed]))) };
+    for (const el of $$('.cpm-mr')) { const v = String(el.value).trim(); if (v === '') delete o[el.dataset.tri]; else o[el.dataset.tri] = Math.max(0, Number(v) / 100 || 0); } return o; };
+  const o0 = JSON.stringify(now()); const oee0 = String(Math.round(d.oee * 100));
+  const dirty = () => { const ch = JSON.stringify(now()) !== o0 || $('#cpm-moee').value !== oee0; $('#cpm-m-save').disabled = !ch; $('#cpm-m-undo').disabled = !ch; $('#cpm-m-dirty').hidden = !ch; };
+  $$('.cpm-mr').forEach((el) => { el.oninput = dirty; }); $('#cpm-moee').oninput = dirty;
+  $('#cpm-m-undo').onclick = () => renderCpm('match');
+  $('#cpm-m-save').onclick = async () => { const v = Number($('#cpm-moee').value); if (!(v > 0 && v <= 100)) { toast('The OEE is a % from 1 to 100', 'error'); return; }
+    try { await api.put('/cpm/settings', { cpm_match_oee: String(v / 100), cpm_match_ratio: JSON.stringify(now()) }); toast('Matching saved'); renderCpm('match'); } catch (err) { toast(err.message, 'error'); } };
 }
 
 async function cpmFlex(body) {

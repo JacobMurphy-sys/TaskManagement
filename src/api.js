@@ -3751,7 +3751,7 @@ const SETTING_DEFAULTS = {
   // The customer forecast files (blank: the workbook's copy of them).
   kpi_fc_benelux: '', kpi_fc_amex: '', plan_db_key: '',
   // ⏱ The daily timing reports (each job's start and end on its machine), perso and Matching.
-  kpi_time_perso: '', kpi_time_otto: '', cpm_shifts: '3', cpm_hours: '6', cpm_holidays: '', cpm_oee_default: '0.35', cpm_machines: '{}', cpm_rnw_hours: '{}', cpm_rnw_bonus: '0.05', cpm_rnw_share: '{}', cpm_campaigns: '[]', cpm_shift_hours: '8', cpm_hour_full: '1', cpm_day_profile: 'arrival', cpm_day_shape: 'typical', cpm_cutoffs: '', cpm_cutoff_default: '17:00', cpm_cutoff_cust: '{}', cpm_day_manual: '{}', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
+  kpi_time_perso: '', kpi_time_otto: '', cpm_shifts: '3', cpm_hours: '6', cpm_holidays: '', cpm_oee_default: '0.35', cpm_machines: '{}', cpm_rnw_hours: '{}', cpm_rnw_bonus: '0.05', cpm_rnw_share: '{}', cpm_campaigns: '[]', cpm_shift_hours: '8', cpm_match_oee: '0.6', cpm_match_ratio: '{}', cpm_hour_full: '1', cpm_day_profile: 'arrival', cpm_day_shape: 'typical', cpm_cutoffs: '', cpm_cutoff_default: '17:00', cpm_cutoff_cust: '{}', cpm_day_manual: '{}', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
   // 📑 💶 CAPEX's IR pack: where the corporate templates are saved, and the business unit and site they're filled in with
@@ -3867,7 +3867,7 @@ const cpmScenario = (req, id) => {
   if (!sc || (sc.owner !== cpmOwner(req) && !sc.shared)) throw new HttpError(404, 'No such scenario');
   return { ...sc, changes: JSON.parse(sc.changes || '[]'), shared: !!sc.shared, mine: sc.owner === cpmOwner(req) };
 };
-const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines', 'cpm_rnw_hours', 'cpm_rnw_bonus', 'cpm_rnw_share', 'cpm_hour_full', 'cpm_day_profile', 'cpm_day_shape', 'cpm_cutoffs', 'cpm_cutoff_default', 'cpm_cutoff_cust', 'cpm_day_manual', 'cpm_campaigns', 'cpm_shift_hours'];
+const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines', 'cpm_rnw_hours', 'cpm_rnw_bonus', 'cpm_rnw_share', 'cpm_hour_full', 'cpm_day_profile', 'cpm_day_shape', 'cpm_cutoffs', 'cpm_cutoff_default', 'cpm_cutoff_cust', 'cpm_day_manual', 'cpm_campaigns', 'cpm_shift_hours', 'cpm_match_oee', 'cpm_match_ratio'];
 router.get('/cpm/overview', h((req, res) => {
   // the scenarios asked for must be ones this person may see, whether worked out now or kept
   String(req.query.scenarios || '').split(',').filter(Boolean).slice(0, 2).forEach((id) => cpmScenario(req, Number(id)));
@@ -3883,6 +3883,16 @@ function cpmOverviewOf(req) {
   return { ...base, files: files.files, forecast_status: cpm.forecastStatus(), cards: !!cards, settings: Object.fromEntries(CPM_SETTINGS.map((k) => [k, getSettings()[k]])),
     scenarios: scenarios.map((sc) => ({ id: sc.id, name: sc.name, ...cpm.compute({ year, period, useFlex, cards, changes: sc.changes }) })) };
 }
+// 📐 Matching's capacity planning (src/cpmmatch.js): the month view, a day by the hour, and its configuration
+router.get('/cpm/match/monthly', h((req, res) => {
+  const sc = req.query.scenario ? cpmScenario(req, Number(req.query.scenario)) : null;
+  res.json(cpmCached(req, 'match-monthly', () => { cpmRefresh(); return require('./cpmmatch').monthly({ year: Number(req.query.year) || new Date().getFullYear(), useFlex: req.query.flex !== '0', cards: cpmCards(), changes: sc?.changes || [] }); }));
+}));
+router.get('/cpm/match/day', h((req, res) => {
+  const sc = req.query.scenario ? cpmScenario(req, Number(req.query.scenario)) : null;
+  res.json(cpmCached(req, 'match-day', () => { cpmRefresh(); return require('./cpmmatch').day({ year: Number(req.query.year) || new Date().getFullYear(), month: Math.min(12, Math.max(1, Number(req.query.month) || new Date().getMonth() + 1)), useFlex: req.query.flex !== '0', cards: cpmCards(), changes: sc?.changes || [] }); }));
+}));
+router.get('/cpm/match/config', h((req, res) => res.json(require('./cpmmatch').config())));
 // 🔎 the forecast check: for a month, each customer and technology from the forecast line(s) to the capacity a
 // day 🕐 Day by hour counts — the customer's forecast, flex, split, cards, a working day, renewals, OEE, the worst
 // case factor — beside what really ran (the last 3 full months), with what looks out of line flagged
