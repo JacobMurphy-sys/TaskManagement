@@ -2060,6 +2060,16 @@ async function waitForServer() {
         assert.deepEqual(js[2].score_parts.map((x) => x.module), ['Deadline', 'Dispatch', 'Manual'], 'an expired row is left out; a card type row matches');
         P.scoreJobs(js, { now, rules, off: ['Matching', 'deadline'] });
         assert.deepEqual(js.map((j) => j.score), [0, 0, 3], 'modules switched off add nothing');
+        // 🥈 Matching and metal cards: a metal job only on a machine ticked for metal, at its metal speed; none ticked: not planned
+        { const ms = [{ id: 1, name: 'M1', speed: 1000, active: 1, metal: 0 }, { id: 2, name: 'M2', speed: 1000, active: 1, metal: 1, metal_speed: 250 }];
+          const t0 = new Date('2026-10-05T08:00:00'); const cal = { start: 360, end: 1320, days: [1, 2, 3, 4, 5] };
+          const jm = { name: 'CKBCS2610000100MAT', wo: 'CKBCS26100001', customer: 'KBC', qty: 500, metal: true }; const jn = { name: 'CKBCS2610000200MAT', wo: 'CKBCS26100002', customer: 'KBC', qty: 500 };
+          P.projectOtto([], [jm, jn], ms, [{ customer: 'KBC', speed: 2000 }], cal, t0);
+          assert.deepEqual([jm.machine_planned, jm.speed, Math.round(jm.plan_minutes), jn.machine_planned, jn.speed], ['M2', 250, 120, 'M1', 2000], 'metal: on the metal machine at its metal speed (the customer\'s speed is for the rest)');
+          const jx = { name: 'X', wo: 'X', customer: 'KBC', qty: 10, metal: true }; P.projectOtto([], [jx], [ms[0]], [], cal, t0);
+          assert.equal(jx.unplanned, 'metal', 'no machine ticked for metal: not planned, and says so');
+          const jy = { name: 'Y', wo: 'Y', customer: 'KBC', qty: 10, metal: true }; P.projectOtto([], [jy], [{ ...ms[1], metal_speed: null }], [], cal, t0);
+          assert.equal(jy.unplanned, 'metal_speed', 'a metal machine without a metal speed'); }
         assert.deepEqual(P.order([{ key: 'a', score: 1, deadline: '2026-10-06T10:00' }, { key: 'b', score: 9, deadline: '2026-10-09T10:00' }], 'score').map((j) => j.key), ['b', 'a'], 'score mode: highest first');
         // 🛟 mitigation: one machine, 60 min a job back to back from 10:00; deadlines as below
         {
@@ -2521,6 +2531,13 @@ async function waitForServer() {
             assert.ok(Math.abs(mk.hours.reduce((x, y) => x + y, 0) - mk.need_day) < 0.01, 'the hours add up to the day');
             assert.ok(md.capacity.every((v, i) => (md.worked[i] ? Math.abs(v - md.machines.reduce((x, m) => x + m.speed, 0)) < 0.01 : v === 0)), 'capacity in the hours worked only');
             const cfg = await call('GET', '/cpm/match/config'); assert.ok(cfg.customers.find((c) => c.trigram === 'KBC')?.typed === 0.5, 'config: the share typed');
+            // 🥈 metal: KBC's metal cards (40%, typed) at the metal machine's speed (250/h against 1,000/h)
+            { await call('PATCH', `/plan/otto/machines/${mm.id}`, { metal: true, metal_speed: '250' }); await call('PUT', '/cpm/settings', { cpm_match_metal: JSON.stringify({ KBC: 0.4 }) });
+              const mt = (await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1`)).rows.find((r) => r.trigram === 'KBC' && !r.added);
+              assert.ok(mt.metal_share === 0.4 && mt.metal_from === 'typed' && Math.abs(mt.need_day - (mt.items_day / 0.5) * (0.6 + 0.4 * 4)) < 0.01, 'metal cards take the metal machines\' time at the metal speed');
+              const mo3 = await call('GET', `/cpm/match/monthly?year=${Y}&flex=0&live=1`); assert.ok(mo3.metal_machines.join() === 'CPM OTTO' && mo3.months[0].metal.items > 0 && mo3.months[0].metal.load > 0, 'by month: the metal cards against the metal machines');
+              const cf3 = await call('GET', '/cpm/match/config'); assert.ok(cf3.customers.find((c) => c.trigram === 'KBC').metal_typed === 0.4 && cf3.machines.find((m) => m.name === 'CPM OTTO').metal, 'config: metal typed, the metal machine');
+              await call('PATCH', `/plan/otto/machines/${mm.id}`, { metal: false, metal_speed: '' }); await call('PUT', '/cpm/settings', { cpm_match_metal: '{}' }); }
             // a scenario's Matching changes: a machine added, one removed from March, KBC's share and OEE, the renewal window
             { const ms = await call('POST', '/cpm/scenarios', { name: 'Matching test', changes: [{ type: 'm_add', name: 'OTTO X', speed: 500 }, { type: 'm_remove', machine: 'CPM OTTO', from: `${Y}-03` },
                 { type: 'm_share', customer: 'KBC', share: 20 }, { type: 'm_oee', customer: 'KBC', points: 10 }, { type: 'm_rnw_window', hours: [12] }] });

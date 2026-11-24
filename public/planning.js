@@ -399,12 +399,14 @@ async function renderPlanning() {
   const planning_shifts = ['night', 'morning', 'afternoon'];
   const ottoSetup = () => `
       <h3 class="pl-h" style="margin-top:14px">Matching machines <span class="muted small">— items per hour</span></h3>
-      <table class="log pl-speeds pl-machines"><thead><tr><th>Machine</th><th>Named in the export as <span class="muted small">(optional, e.g. HMT PC#1)</span></th><th>Items per hour</th><th></th><th></th></tr></thead><tbody>
+      <table class="log pl-speeds pl-machines"><thead><tr><th>Machine</th><th>Named in the export as <span class="muted small">(optional, e.g. HMT PC#1)</span></th><th>Items per hour</th><th title="It can match metal cards">Metal</th><th title="Items per hour on metal cards">Metal speed</th><th></th><th></th></tr></thead><tbody>
         ${(ot.machines || []).map((m) => `<tr data-plo-machine="${m.id}"><td><input type="text" name="name" value="${esc(m.name)}"></td><td><input type="text" name="match" value="${esc(m.match || '')}" placeholder="—"></td>
-          <td><input type="number" min="1" step="1" name="speed" value="${m.speed ?? ''}" placeholder="items/h"></td><td><label class="row small"><input type="checkbox" name="active" ${m.active ? 'checked' : ''}> running</label></td>
+          <td><input type="number" min="1" step="1" name="speed" value="${m.speed ?? ''}" placeholder="items/h"></td>
+          <td><label class="row small" title="It can match metal cards"><input type="checkbox" name="metal" ${m.metal ? 'checked' : ''}> metal</label></td><td><input type="number" min="1" step="1" name="metal_speed" value="${m.metal_speed ?? ''}" placeholder="${m.metal ? 'items/h' : '—'}" ${m.metal ? '' : 'disabled'} title="Items per hour on metal cards"></td>
+          <td><label class="row small"><input type="checkbox" name="active" ${m.active ? 'checked' : ''}> running</label></td>
           <td><button class="icon" data-plo-del-machine="${m.id}" title="Remove">✕</button></td></tr>`).join('')}
-        <tr><td><input type="text" id="plo-new-machine" placeholder="Machine name"></td><td><input type="text" id="plo-new-match" placeholder="Named in the export as"></td><td><input type="number" min="1" id="plo-new-speed" placeholder="items/h"></td><td></td><td><button class="small" data-pl="add-otto-machine">Add</button></td></tr></tbody></table>
-      <p class="small muted">Each Matching job goes on the running machine where it can finish first. A job whose Machine in the export contains a machine's "named as" text goes on that machine. A job never starts before its perso work order is projected to be done.</p>
+        <tr><td><input type="text" id="plo-new-machine" placeholder="Machine name"></td><td><input type="text" id="plo-new-match" placeholder="Named in the export as"></td><td><input type="number" min="1" id="plo-new-speed" placeholder="items/h"></td><td></td><td></td><td></td><td><button class="small" data-pl="add-otto-machine">Add</button></td></tr></tbody></table>
+      <p class="small muted">Each Matching job goes on the running machine where it can finish first. A job whose Machine in the export contains a machine's "named as" text goes on that machine. A job never starts before its perso work order is projected to be done. <b>Metal</b>: a job whose work order has metal cards (the card's material or tag, or its tag in the priority modifiers, says metal) goes only on a machine ticked for metal, at its metal speed.</p>
       <h3 class="pl-h" style="margin-top:14px">Matching speeds by customer <span class="muted small">— items per hour, instead of the machine's speed</span></h3>
       <div class="kdb-scroll"><table class="log pl-speeds"><thead><tr><th>Customer</th><th>Name</th><th class="num">Jobs open</th><th class="num">Items open</th><th>Items per hour</th></tr></thead><tbody>
         ${(ot.customers || []).map((c) => `<tr><td><b>${esc(c.customer)}</b></td><td>${esc(c.name || '')}</td><td class="num">${c.jobs ? n(c.jobs) : '<span class="muted">none open</span>'}</td><td class="num">${n(c.items)}</td>
@@ -412,7 +414,7 @@ async function renderPlanning() {
       <p class="small muted">The working day and days above are used for Matching too.</p>`;
   const finishO = (o) => (!ot.projected ? '' : o.finish_at ? `<span class="${o.late_minutes > 0 ? 'pl-late' : 'pl-ok'}" title="Projected ${esc(fmtDateTime(o.start_at))} → ${esc(fmtDateTime(o.finish_at))} at ${n(o.speed)} items/h">${PLF.wkHm.format(new Date(o.finish_at))}${o.late_minutes > 0 ? ` · ${fmtSpan(o.late_minutes)} late` : ''}</span>
       <div class="small muted">${esc(o.machine_planned)}${o.waited_perso ? ' · after perso' : ''}</div>`
-    : `<span class="pl-warn">⚠ ${o.unplanned === 'speed' ? 'no speed — Setup' : 'no working time — check the working day'}</span>`);
+    : `<span class="pl-warn">⚠ ${o.unplanned === 'speed' ? 'no speed — Setup' : o.unplanned === 'metal' ? 'metal — no machine ticked for metal (Setup)' : o.unplanned === 'metal_speed' ? 'metal — no metal speed (Setup)' : 'no working time — check the working day'}</span>`);
   // Dispatch: the open dispatch jobs by due date, and where each work order is in the chain
   const dispHtml = () => {
     if (dp.source.status !== 'ok') return `<div class="card lib-empty"><h2>Dispatch</h2><p>Set where the Dispatch export (OpenDespatchWorkorders) is saved in Setup, or try it with Load file…. Each dispatch job is linked to its work order's perso and Matching jobs, so you can see what's ready to go and what's holding the rest up.</p>
@@ -594,7 +596,7 @@ async function renderPlanning() {
     const orow = (o, i) => { const l = left(o); return `<tr class="pl-job ${l.cls ? `${l.cls}-row` : ''} ${behind(o) ? 'pl-late-row' : ''}" data-pl-job="otto:${esc(o.key)}">
       <td class="num muted pl-n">${i === null ? '▶' : i + 1}</td>
       <td><b>${esc(o.due ? dayLabel(o.due) : '—')}</b> <span ${o.time_from ? 'title="The cut-off of the perso work order\'s shipper — the matching export has no time of its own"' : ''}>${esc(o.deadline?.slice(11) || '')}</span><div class="small ${l.cls}">${esc(l.text)}</div></td>
-      <td><b>${esc(o.wo)}</b><span class="muted">${esc(o.name.slice(o.wo.length))}</span><div class="small muted">${o.shipper ? `${esc(o.shipper)}${o.group ? ' · ' : ''}` : ''}${esc(o.group || '')}</div></td>
+      <td><b>${esc(o.wo)}</b><span class="muted">${esc(o.name.slice(o.wo.length))}</span>${o.metal ? ' <span class="pl-metal" title="Metal cards: only on a machine ticked for metal, at its metal speed">metal</span>' : ''}<div class="small muted">${o.shipper ? `${esc(o.shipper)}${o.group ? ' · ' : ''}` : ''}${esc(o.group || '')}</div></td>
       <td>${esc(o.customer || '—')}<div class="small muted">${esc(o.customer_name || '')}</div></td>
       <td class="num"><b>${n(o.qty)}</b></td><td>${prioChip(o.prio)}</td><td>${esc(o.status || '')}<div class="small muted">${esc(o.machine || '')}</div></td><td>${persoCell(o)}</td>${ot.projected ? `<td>${finishO(o)}</td>` : ''}</tr>`; };
     const odetailRow = (o) => `<tr class="pl-detail" data-pl-detail="otto:${esc(o.key)}"><td></td><td colspan="${ot.projected ? 8 : 7}"><div class="small">${o.sub_customer ? `<b>${esc(o.sub_customer)}</b><br>` : ''}${o.comment ? esc(o.comment).replace(/\n/g, '<br>') : '<span class="muted">No comment.</span>'}</div>

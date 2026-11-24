@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'otto-metal', date: '2026-11-24', area: 'production', title: 'Metal cards on Matching',
+    text: 'Matching machines that can match metal cards are ticked in Setup, with their own slower metal speed. Metal jobs are planned only on those machines, and capacity planning counts each customer\'s metal share at that speed.' },
   { id: 'cpm-worst-real', date: '2026-11-24', area: 'capacity', title: 'A more realistic worst case',
     text: 'CPM Daily\'s worst case now uses a busy day rather than a customer\'s single biggest one, counts working days only, and keeps the multiplier to a cap (three times to start), so small or irregular customers no longer jump to twenty times their usual day.' },
   { id: 'cpm-pushed', date: '2026-11-24', area: 'capacity', title: 'Pushed to the next day',
