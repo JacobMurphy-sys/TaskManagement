@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'otto-hand', date: '2026-11-24', area: 'capacity', title: 'OTTO and hand match apart',
+    text: 'Capacity planning now splits Matching between the OTTOs and hand matching: each customer\'s hand share is learned from the Matching report\'s machines (or typed), and each part is planned against its own machines.',
+    points: ['Hand-match stations ticked in Production setup', 'Report machines classed as OTTO or hand match', 'Two lines on CPM Daily; each one\'s load on CPM Monthly and Site Capacity'] },
   { id: 'site-matching', date: '2026-11-24', area: 'capacity', title: 'Site Capacity includes Matching',
     text: 'Site Capacity now shows what the Matching machines could match flat out, beside perso\'s machines, including the metal machines on metal cards, and its Excel workbook has a Matching sheet.' },
   { id: 'cpm-total-volume', date: '2026-11-24', area: 'capacity', title: 'Scenarios: total volume and flat speeds',

@@ -3579,6 +3579,7 @@ const ottoMachineFields = (b) => {
   }
   if ('active' in b) f.active = b.active ? 1 : 0;
   if ('metal' in b) f.metal = b.metal ? 1 : 0; // it can match metal cards
+  if ('hand' in b) f.hand = b.hand ? 1 : 0; // a hand-match station (not an OTTO)
   if ('metal_speed' in b) {
     const raw = String(b.metal_speed ?? '').replace(',', '.').trim();
     f.metal_speed = raw ? Number(raw) : null;
@@ -3587,7 +3588,7 @@ const ottoMachineFields = (b) => {
   return f;
 };
 router.post('/plan/otto/machines', h((req, res) => {
-  const f = ottoMachineFields({ name: req.body.name, match: req.body.match, speed: req.body.speed, active: req.body.active ?? true, ...('metal' in req.body ? { metal: req.body.metal } : {}), ...('metal_speed' in req.body ? { metal_speed: req.body.metal_speed } : {}) });
+  const f = ottoMachineFields({ name: req.body.name, match: req.body.match, speed: req.body.speed, active: req.body.active ?? true, ...('metal' in req.body ? { metal: req.body.metal } : {}), ...('metal_speed' in req.body ? { metal_speed: req.body.metal_speed } : {}), ...('hand' in req.body ? { hand: req.body.hand } : {}) });
   const order = (db.get('SELECT MAX(sort_order) AS m FROM plan_otto_machines')?.m ?? -1) + 1;
   res.status(201).json(fresh('plan_otto_machines', insertRow('plan_otto_machines', { ...f, sort_order: order })));
 }));
@@ -3820,7 +3821,7 @@ const SETTING_DEFAULTS = {
   // The customer forecast files (blank: the workbook's copy of them).
   kpi_fc_benelux: '', kpi_fc_amex: '', plan_db_key: '',
   // ⏱ The daily timing reports (each job's start and end on its machine), perso and Matching.
-  kpi_time_perso: '', kpi_time_otto: '', cpm_shifts: '3', cpm_hours: '6', cpm_holidays: '', cpm_oee_default: '0.35', cpm_machines: '{}', cpm_rnw_hours: '{}', cpm_rnw_bonus: '0.05', cpm_rnw_share: '{}', cpm_campaigns: '[]', cpm_shift_hours: '8', cpm_match_oee: '0.6', cpm_match_ratio: '{}', cpm_match_oee_machines: '[]', cpm_match_cust_oee: '{}', cpm_prio_mix: '{}', cpm_fc_ignore: '[]', cpm_peak_cap: '3', cpm_match_metal: '{}', cpm_hour_full: '1', cpm_day_profile: 'arrival', cpm_day_shape: 'typical', cpm_cutoffs: '', cpm_cutoff_default: '17:00', cpm_cutoff_cust: '{}', cpm_day_manual: '{}', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
+  kpi_time_perso: '', kpi_time_otto: '', cpm_shifts: '3', cpm_hours: '6', cpm_holidays: '', cpm_oee_default: '0.35', cpm_machines: '{}', cpm_rnw_hours: '{}', cpm_rnw_bonus: '0.05', cpm_rnw_share: '{}', cpm_campaigns: '[]', cpm_shift_hours: '8', cpm_match_oee: '0.6', cpm_match_ratio: '{}', cpm_match_oee_machines: '[]', cpm_match_cust_oee: '{}', cpm_prio_mix: '{}', cpm_fc_ignore: '[]', cpm_peak_cap: '3', cpm_match_metal: '{}', cpm_match_hand: '{}', cpm_match_line_of: '{}', cpm_hour_full: '1', cpm_day_profile: 'arrival', cpm_day_shape: 'typical', cpm_cutoffs: '', cpm_cutoff_default: '17:00', cpm_cutoff_cust: '{}', cpm_day_manual: '{}', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
   // 📑 💶 CAPEX's IR pack: where the corporate templates are saved, and the business unit and site they're filled in with
@@ -3938,7 +3939,7 @@ const cpmScenario = (req, id) => {
   if (!sc || (sc.owner !== cpmOwner(req) && !sc.shared)) throw new HttpError(404, 'No such scenario');
   return { ...sc, changes: JSON.parse(sc.changes || '[]'), shared: !!sc.shared, mine: sc.owner === cpmOwner(req) };
 };
-const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines', 'cpm_rnw_hours', 'cpm_rnw_bonus', 'cpm_rnw_share', 'cpm_hour_full', 'cpm_day_profile', 'cpm_day_shape', 'cpm_cutoffs', 'cpm_cutoff_default', 'cpm_cutoff_cust', 'cpm_day_manual', 'cpm_campaigns', 'cpm_shift_hours', 'cpm_match_oee', 'cpm_match_ratio', 'cpm_match_oee_machines', 'cpm_match_cust_oee', 'cpm_prio_mix', 'cpm_fc_ignore', 'cpm_peak_cap', 'cpm_match_metal'];
+const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines', 'cpm_rnw_hours', 'cpm_rnw_bonus', 'cpm_rnw_share', 'cpm_hour_full', 'cpm_day_profile', 'cpm_day_shape', 'cpm_cutoffs', 'cpm_cutoff_default', 'cpm_cutoff_cust', 'cpm_day_manual', 'cpm_campaigns', 'cpm_shift_hours', 'cpm_match_oee', 'cpm_match_ratio', 'cpm_match_oee_machines', 'cpm_match_cust_oee', 'cpm_prio_mix', 'cpm_fc_ignore', 'cpm_peak_cap', 'cpm_match_metal', 'cpm_match_hand', 'cpm_match_line_of'];
 router.get('/cpm/overview', h((req, res) => {
   // the scenarios asked for must be ones this person may see, whether worked out now or kept
   String(req.query.scenarios || '').split(',').filter(Boolean).slice(0, 2).forEach((id) => cpmScenario(req, Number(id)));

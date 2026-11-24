@@ -8,7 +8,7 @@ const { sheet, buildBook } = require('./xlsxbook');
 const { colName } = require('./xlsx');
 
 // the CPM workbook's technology colours (DOD teal, Laser purple, Emboss black — a dark grey for bars)
-const TECH_COL = { DOD: '008080', Emboss: '404040', Laser: '7030A0', Matching: '2563EB' };
+const TECH_COL = { DOD: '008080', Emboss: '404040', Laser: '7030A0', Matching: '2563EB', OTTO: '2563EB', 'Hand match': '0EA5E9' };
 const SC_COL = ['7A5CFF', 'E0861A'];
 const FIRST = 7; // the first period column (G)
 
@@ -276,7 +276,7 @@ function buildCpmWorkbook({ base, scenarios = [], period, flex, sources, CARD_FI
 // cards a day ÷ OEE) with its day over the hours (× the hour profile on its own sheet); the renewal
 // windows; the hours worked and each machine's share of each hour per technology; and per technology the
 // day's demand, capacity, load and what's carried over — formulas over the blue-on-yellow inputs.
-const TECH_LIGHT = { DOD: '7FC0C0', Emboss: 'A6A6A6', Laser: 'B597D0', Matching: '93B4F5' };
+const TECH_LIGHT = { DOD: '7FC0C0', Emboss: 'A6A6A6', Laser: 'B597D0', Matching: '93B4F5', OTTO: '93B4F5', 'Hand match': '9BD9F5' };
 function buildDayWorkbook(d, { scenario = null } = {}) {
   const T = d.techs; const H = d.hours; const HC = 16; const n = 24; const hc = (i) => HC + i; const L = (c) => colName(c - 1);
   const hl = (h) => `${String(h).padStart(2, '0')}:00`;
@@ -544,7 +544,7 @@ function buildSiteWorkbook(d) {
   const mw = mh + 1; ms.set(mw, 1, 'Working days', 'bold'); M.forEach((_, i) => ms.f(mw, MC(i), `${site}!${L(mc(i))}${wd}`, 'int', d.months[i].workdays)); ms.f(mw, MY, `SUM(${L(MC(0))}${mw}:${L(MC(11))}${mw})`, 'intBold');
   const Q0 = mw + 1; let q = Q0;
   for (const m of mm) {
-    ms.set(q, 1, m.name, 'bold'); ms.set(q, 2, m.speed, 'input'); if (m.metal) ms.set(q, 3, m.metal_speed || 0, 'input'); else ms.set(q, 3, '—', 'note');
+    ms.set(q, 1, m.hand ? `${m.name} (hand match)` : m.name, 'bold'); ms.set(q, 2, m.speed, 'input'); if (m.metal) ms.set(q, 3, m.metal_speed || 0, 'input'); else ms.set(q, 3, '—', 'note');
     ms.f(q, 4, `${site}!$B$4*${site}!$D$4`, 'dec', m.hours_day); ms.f(q, 5, `B${q}*D${q}`, 'int', m.day);
     M.forEach((_, i) => ms.f(q, MC(i), `$E${q}*${L(MC(i))}$${mw}`, 'int', m.months[i])); ms.f(q, MY, `SUM(${L(MC(0))}${q}:${L(MC(11))}${q})`, 'intBold', m.year); q++;
   }
