@@ -2817,6 +2817,19 @@ function backlogOf(jobs, hidden, record, capacity, maxAge) {
     catch_up: planning.catchUp({ overdue: over.reduce((t, j) => t + j.qty, 0), ...record, days: 7, workDays: capacity.days }),
   };
 }
+// 🥈 the work orders with metal cards: any of its lines' card is metal — its material, its tag in the card
+// database, or the tag set on it in the priority modifiers (each read as containing "metal")
+function metalWosOf(wos) {
+  const out = new Set(); if (!wos.length) return out;
+  let cards = null; try { cards = cpmCards(); } catch { /* not linked */ }
+  const tagBy = new Map(db.all('SELECT ax, tag FROM plan_card_tags').map((t) => [planning.axKey(t.ax), t.tag]));
+  const metal = new Map(); const isMetal = (ax) => { const k = planning.axKey(ax); if (!metal.has(k)) { const c = cards?.get(k); metal.set(k, /metal/i.test([c?.material, c?.tag, tagBy.get(k)].filter(Boolean).join(' '))); } return metal.get(k); };
+  for (let i = 0; i < wos.length; i += 400) {
+    const part = wos.slice(i, i + 400);
+    for (const l of db.all(`SELECT DISTINCT upper(wo) AS wo, article FROM plan_history_lines WHERE upper(wo) IN (${part.map(() => '?').join(',')})`, part)) if (isMetal(l.article)) out.add(l.wo);
+  }
+  return out;
+}
 function ottoOf(set, persoJobs, capacity) {
   const o = planning.readSource({ file: cleanPath(set.plan_otto_src) || null, uploaded: OTTO_UPLOAD, parser: planning.parseOtto });
   recordOtto(o);
@@ -2841,6 +2854,7 @@ function ottoOf(set, persoJobs, capacity) {
   }
   planning.shipFromPerso(open, persoJobs, past);
   planning.linkOtto(persoJobs, open);
+  const metalWos = metalWosOf(wos); for (const j of open) j.metal = metalWos.has(String(j.wo || '').toUpperCase()) || (persoJobs.some((p) => String(p.wo).toUpperCase() === String(j.wo || '').toUpperCase() && (p.articles || []).some((a) => /metal/i.test([a.card?.material, a.card?.tag].filter(Boolean).join(' ')))));
   const running = planning.orderOtto(open.filter((j) => j.running)); const queue = planning.orderOtto(open.filter((j) => !j.running));
   const load = planning.projectOtto(running, queue, machines, speeds, capacity, new Date());
   // customers for the speeds table: those in the open Matching jobs, and any with a speed set before
@@ -3564,10 +3578,16 @@ const ottoMachineFields = (b) => {
     if (f.speed !== null && !(f.speed > 0)) throw new HttpError(400, 'Speed must be a number of items per hour above 0');
   }
   if ('active' in b) f.active = b.active ? 1 : 0;
+  if ('metal' in b) f.metal = b.metal ? 1 : 0; // it can match metal cards
+  if ('metal_speed' in b) {
+    const raw = String(b.metal_speed ?? '').replace(',', '.').trim();
+    f.metal_speed = raw ? Number(raw) : null;
+    if (f.metal_speed !== null && !(f.metal_speed > 0)) throw new HttpError(400, 'The metal speed must be a number of items per hour above 0');
+  }
   return f;
 };
 router.post('/plan/otto/machines', h((req, res) => {
-  const f = ottoMachineFields({ name: req.body.name, match: req.body.match, speed: req.body.speed, active: req.body.active ?? true });
+  const f = ottoMachineFields({ name: req.body.name, match: req.body.match, speed: req.body.speed, active: req.body.active ?? true, ...('metal' in req.body ? { metal: req.body.metal } : {}), ...('metal_speed' in req.body ? { metal_speed: req.body.metal_speed } : {}) });
   const order = (db.get('SELECT MAX(sort_order) AS m FROM plan_otto_machines')?.m ?? -1) + 1;
   res.status(201).json(fresh('plan_otto_machines', insertRow('plan_otto_machines', { ...f, sort_order: order })));
 }));
@@ -3800,7 +3820,7 @@ const SETTING_DEFAULTS = {
   // The customer forecast files (blank: the workbook's copy of them).
   kpi_fc_benelux: '', kpi_fc_amex: '', plan_db_key: '',
   // ⏱ The daily timing reports (each job's start and end on its machine), perso and Matching.
-  kpi_time_perso: '', kpi_time_otto: '', cpm_shifts: '3', cpm_hours: '6', cpm_holidays: '', cpm_oee_default: '0.35', cpm_machines: '{}', cpm_rnw_hours: '{}', cpm_rnw_bonus: '0.05', cpm_rnw_share: '{}', cpm_campaigns: '[]', cpm_shift_hours: '8', cpm_match_oee: '0.6', cpm_match_ratio: '{}', cpm_match_oee_machines: '[]', cpm_match_cust_oee: '{}', cpm_prio_mix: '{}', cpm_fc_ignore: '[]', cpm_peak_cap: '3', cpm_hour_full: '1', cpm_day_profile: 'arrival', cpm_day_shape: 'typical', cpm_cutoffs: '', cpm_cutoff_default: '17:00', cpm_cutoff_cust: '{}', cpm_day_manual: '{}', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
+  kpi_time_perso: '', kpi_time_otto: '', cpm_shifts: '3', cpm_hours: '6', cpm_holidays: '', cpm_oee_default: '0.35', cpm_machines: '{}', cpm_rnw_hours: '{}', cpm_rnw_bonus: '0.05', cpm_rnw_share: '{}', cpm_campaigns: '[]', cpm_shift_hours: '8', cpm_match_oee: '0.6', cpm_match_ratio: '{}', cpm_match_oee_machines: '[]', cpm_match_cust_oee: '{}', cpm_prio_mix: '{}', cpm_fc_ignore: '[]', cpm_peak_cap: '3', cpm_match_metal: '{}', cpm_hour_full: '1', cpm_day_profile: 'arrival', cpm_day_shape: 'typical', cpm_cutoffs: '', cpm_cutoff_default: '17:00', cpm_cutoff_cust: '{}', cpm_day_manual: '{}', kpi_perso_data: '', kpi_pdata_remakes: '1', kpi_pdata_live: '0', kpi_pdata_m: '1',
   // 🏭 Planning: the open work orders export, and the capacity the plan is projected with
   // (cards per hour per line × lines, working hours and days 0 = Sun … 6 = Sat).
   // 📑 💶 CAPEX's IR pack: where the corporate templates are saved, and the business unit and site they're filled in with
@@ -3918,7 +3938,7 @@ const cpmScenario = (req, id) => {
   if (!sc || (sc.owner !== cpmOwner(req) && !sc.shared)) throw new HttpError(404, 'No such scenario');
   return { ...sc, changes: JSON.parse(sc.changes || '[]'), shared: !!sc.shared, mine: sc.owner === cpmOwner(req) };
 };
-const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines', 'cpm_rnw_hours', 'cpm_rnw_bonus', 'cpm_rnw_share', 'cpm_hour_full', 'cpm_day_profile', 'cpm_day_shape', 'cpm_cutoffs', 'cpm_cutoff_default', 'cpm_cutoff_cust', 'cpm_day_manual', 'cpm_campaigns', 'cpm_shift_hours', 'cpm_match_oee', 'cpm_match_ratio', 'cpm_match_oee_machines', 'cpm_match_cust_oee', 'cpm_prio_mix', 'cpm_fc_ignore', 'cpm_peak_cap'];
+const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines', 'cpm_rnw_hours', 'cpm_rnw_bonus', 'cpm_rnw_share', 'cpm_hour_full', 'cpm_day_profile', 'cpm_day_shape', 'cpm_cutoffs', 'cpm_cutoff_default', 'cpm_cutoff_cust', 'cpm_day_manual', 'cpm_campaigns', 'cpm_shift_hours', 'cpm_match_oee', 'cpm_match_ratio', 'cpm_match_oee_machines', 'cpm_match_cust_oee', 'cpm_prio_mix', 'cpm_fc_ignore', 'cpm_peak_cap', 'cpm_match_metal'];
 router.get('/cpm/overview', h((req, res) => {
   // the scenarios asked for must be ones this person may see, whether worked out now or kept
   String(req.query.scenarios || '').split(',').filter(Boolean).slice(0, 2).forEach((id) => cpmScenario(req, Number(id)));
@@ -3943,7 +3963,7 @@ router.get('/cpm/match/day', h((req, res) => {
   const sc = req.query.scenario ? cpmScenario(req, Number(req.query.scenario)) : null;
   res.json(cpmCached(req, 'match-day', () => { cpmRefresh(); return require('./cpmmatch').day({ year: Number(req.query.year) || new Date().getFullYear(), month: Math.min(12, Math.max(1, Number(req.query.month) || new Date().getMonth() + 1)), useFlex: req.query.flex !== '0', cards: cpmCards(), changes: sc?.changes || [] }); }));
 }));
-router.get('/cpm/match/config', h((req, res) => res.json(require('./cpmmatch').config())));
+router.get('/cpm/match/config', h((req, res) => res.json(require('./cpmmatch').config((() => { try { return cpmCards(); } catch { return null; } })()))));
 // 🔎 the forecast check: for a month, each customer and technology from the forecast line(s) to the capacity a
 // day 🕐 Day by hour counts — the customer's forecast, flex, split, cards, a working day, renewals, OEE, the worst
 // case factor — beside what really ran (the last 3 full months), with what looks out of line flagged

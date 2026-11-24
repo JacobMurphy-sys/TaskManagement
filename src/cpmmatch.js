@@ -26,12 +26,14 @@ const oee = () => { const v = Number(setting('cpm_match_oee', '0.6')); return v 
 // the Matching machines, as Production has them: active ones with a speed (items an hour); and the customers'
 // own Matching speeds
 function machines() {
-  let ms = []; try { ms = db.all('SELECT name, speed, match FROM plan_otto_machines WHERE active = 1 ORDER BY sort_order, id'); } catch { /* none */ }
+  let ms = []; try { ms = db.all('SELECT name, speed, match, metal, metal_speed FROM plan_otto_machines WHERE active = 1 ORDER BY sort_order, id'); } catch { /* none */ }
   let cs = []; try { cs = db.all('SELECT customer, speed FROM plan_otto_speeds'); } catch { /* none */ }
   const elig = new Set(json(setting('cpm_match_oee_machines', '[]'), []).map((x) => String(x).toLowerCase()));
-  const list = ms.map((m) => ({ name: m.name, speed: Number(m.speed) || 0, match: m.match || '', key: String(m.match || m.name || '').trim().toLowerCase(), measure: elig.has(String(m.name).toLowerCase()) }));
-  const fast = list.filter((m) => m.speed > 0);
-  return { list, ref: fast.length ? fast.reduce((a, m) => a + m.speed, 0) / fast.length : 0, cust: new Map(cs.map((c) => [String(c.customer).toUpperCase(), Number(c.speed) || 0])) };
+  const list = ms.map((m) => ({ name: m.name, speed: Number(m.speed) || 0, match: m.match || '', key: String(m.match || m.name || '').trim().toLowerCase(), measure: elig.has(String(m.name).toLowerCase()), metal: !!m.metal, metal_speed: m.metal ? Number(m.metal_speed) || 0 : 0 }));
+  const fast = list.filter((m) => m.speed > 0); const mt = list.filter((m) => m.metal && m.metal_speed > 0);
+  // metal cards: only on the machines ticked for metal, at their metal speed (Production › Setup)
+  return { list, ref: fast.length ? fast.reduce((a, m) => a + m.speed, 0) / fast.length : 0, cust: new Map(cs.map((c) => [String(c.customer).toUpperCase(), Number(c.speed) || 0])),
+    metal_ref: mt.length ? mt.reduce((a, m) => a + m.metal_speed, 0) / mt.length : 0, metal_cap: mt.reduce((a, m) => a + m.metal_speed, 0), metal_machines: list.filter((m) => m.metal).map((m) => m.name) };
 }
 
 // each customer's share of its persoed cards that went through Matching, the last 4 months: items matched ÷ cards
@@ -115,6 +117,23 @@ function scenarioAt(changes, ymKey, M, R, OE) {
     OE: { ...OE, of: (tri) => { const e = OE.of(tri); const p = pts(tri); return p ? { oee: Math.max(0.05, Math.min(1, e.oee + p)), from: 'scenario' } : e; } } };
 }
 
+// 🥈 each customer's share of metal cards, from its work orders' lines the last 4 months (a card is metal when
+// its material or tag in the card database, or its tag in the priority modifiers, says so); typed on
+// Configuration › Customers (Matching picked) wins. No history: none.
+function metalShares(cards) {
+  const typed = json(setting('cpm_match_metal', '{}'), {}); const learned = new Map();
+  try {
+    const planning = require('./planning'); const tagBy = new Map(db.all('SELECT ax, tag FROM plan_card_tags').map((t) => [planning.axKey(t.ax), t.tag]));
+    const memo = new Map(); const isMetal = (ax) => { const k = planning.axKey(ax); if (!memo.has(k)) { const c = cards?.get?.(k); memo.set(k, /metal/i.test([c?.material, c?.tag, tagBy.get(k)].filter(Boolean).join(' '))); } return memo.get(k); };
+    const acc = new Map(); const add = (k, q, m) => { const a = acc.get(k) || acc.set(k, { qty: 0, metal: 0 }).get(k); a.qty += q; if (m) a.metal += q; };
+    for (const l of db.all('SELECT upper(j.customer) AS tri, l.article, l.qty FROM plan_history_lines l JOIN plan_history_jobs j ON j.key = l.key WHERE j.first_seen >= ? AND j.customer IS NOT NULL', [since()])) {
+      const q = Number(l.qty) || 0; if (!q) continue; const m = isMetal(l.article); add(l.tri, q, m); add('*', q, m);
+    }
+    for (const [k, a] of acc) if (a.qty > 0) learned.set(k, { share: a.metal / a.qty, qty: a.qty, metal: a.metal });
+  } catch { /* no history */ }
+  return { typed, learned, of: (tri) => { const t = typed[tri]; if (t !== undefined && t !== null && t !== '') return { share: Math.min(1, Math.max(0, Number(t) || 0)), from: 'typed' }; const l = learned.get(tri); return l ? { share: l.share, from: 'learned' } : { share: 0, from: 'none' }; } };
+}
+
 // the customers' Matching items for a month of a plan (cpm.compute), with how they're worked out
 // each customer's Matching work by priority, learned from Matching's work orders (an average day): its own with
 // 3 days or more, else everyone's, else all Normal
@@ -124,32 +143,41 @@ function prios() {
   return { of: (tri) => { const o = tri ? pm.get(tri) : null; const p = o && o.days >= 3 ? o : all && all.days ? all : null;
     return { mix: p ? { urgent: p.urgent, high: p.high, normal: p.normal, low: p.low } : { urgent: 0, high: 0, normal: 1, low: 0 }, from: p === o && o ? 'learned' : p ? 'everyone' : 'none', days: o ? o.days : 0 }; }, all: all || null, map: pm };
 }
-function customersOf(plan, m, R, M, OE = oees(M), PR = prios()) {
+function customersOf(plan, m, R, M, OE = oees(M), PR = prios(), MS = metalShares(null)) {
   const by = new Map();
   for (const D of plan.detail) { const x = D.months[m]; if (!x) continue; const k = D.trigram || `~${D.name}`; const c = by.get(k) || by.set(k, { trigram: D.trigram || '', name: D.name, cards: 0, added: 0 }).get(k); c.cards += x.fc * x.split; c.added += (x.extra || 0) * x.split; }
   return [...by.values()].map((c) => {
     const r = R.of(c.trigram); const items = c.cards * r.ratio; const cs = M.cust.get(c.trigram) || 0; const slow = cs > 0 && M.ref > 0 ? M.ref / cs : 1; const e = OE.of(c.trigram);
     const pr = PR.of(c.trigram);
-    return { ...c, prio: pr.mix, prio_from: pr.from, ratio: r.ratio, ratio_from: r.from, items, own_speed: cs || null, speed_factor: slow, oee: e.oee, oee_from: e.from, need: (items / e.oee) * slow, added_items: c.added * r.ratio };
+    // metal items at the metal machines' speed (none ticked or no metal speed: as the rest, with a warning)
+    const ms = MS.of(c.trigram); const metalItems = items * ms.share; const mf = M.metal_ref > 0 && M.ref > 0 ? M.ref / M.metal_ref : 1;
+    const need = ((items - metalItems) / e.oee) * slow + (metalItems / e.oee) * mf;
+    return { ...c, prio: pr.mix, prio_from: pr.from, ratio: r.ratio, ratio_from: r.from, items, own_speed: cs || null, own_factor: slow, speed_factor: items > 0 ? (need * e.oee) / items : slow, oee: e.oee, oee_from: e.from, need, added_items: c.added * r.ratio,
+      metal_share: ms.share, metal_from: ms.from, metal_items: metalItems, metal_load: M.metal_ref > 0 ? metalItems / e.oee : 0 };
   }).filter((c) => c.items > 0.5).sort((a, b) => b.need - a.need);
 }
 
 // 📊 the year by month: Matching's items, the machine time they need, against the machines' capacity
 function monthly({ year, useFlex = true, cards = null, changes = [] }) {
   const plan = cpm.compute({ year, period: 'month', useFlex, cards, changes });
-  const R = ratios(); const M = machines(); const o = oee(); const OE = oees(M); const PR = prios(); const capH = M.list.reduce((a, m) => a + m.speed, 0); const warnings = [];
+  const R = ratios(); const M = machines(); const o = oee(); const OE = oees(M); const PR = prios(); const MS = metalShares(cards); const capH = M.list.reduce((a, m) => a + m.speed, 0); const warnings = [];
   if (!M.list.length) warnings.push('No Matching machines in Production › Setup — there\'s no Matching capacity to plan against');
   else if (!capH) warnings.push('The Matching machines have no speed (Production › Setup) — their capacity can\'t be worked out');
   if (!R.learned.get('*')?.match) warnings.push('No Matching timing runs in the last 4 months — each customer\'s share through Matching can\'t be learned; type them on Configuration › Matching');
   const months = plan.periods.map((P, i) => {
     const X = scenarioAt(changes, `${year}-${pad(i + 1)}`, M, R, OE); const capHm = X.M.list.reduce((a, m) => a + m.speed, 0);
-    const custs = customersOf(plan, i + 1, X.R, M, X.OE, PR); const items = custs.reduce((a, c) => a + c.items, 0); const need = custs.reduce((a, c) => a + c.need, 0);
+    const custs = customersOf(plan, i + 1, X.R, M, X.OE, PR, MS); const items = custs.reduce((a, c) => a + c.items, 0); const need = custs.reduce((a, c) => a + c.need, 0);
     const capacity = capHm * (P.hours || 0); // speed × (working days × shifts × hours a shift counted)
     return { key: P.key, label: P.label, workdays: P.workdays, hours: P.hours || 0, cards: custs.reduce((a, c) => a + c.cards, 0), items, need, capacity, load: capacity ? need / capacity : null,
       prio: Object.fromEntries(PRIOS.map((k) => [k, custs.reduce((a, c) => a + c.need * c.prio[k], 0)])),
+      metal: (() => { const it = custs.reduce((a, c) => a + c.metal_items, 0); const ld = custs.reduce((a, c) => a + c.metal_items / c.oee, 0); const cap = M.metal_cap * (P.hours || 0); return { items: it, load: cap ? ld / cap : null }; })(),
       added: custs.reduce((a, c) => a + (c.added_items / c.oee) * c.speed_factor, 0), top: custs.slice(0, 8).map((c) => ({ trigram: c.trigram, name: c.name, items: c.items, need: c.need })) };
   });
-  return { year, flex: !!useFlex, oee: o, machines: M.list, ref_speed: M.ref, capacity_hour: capH, months, warnings, forecast_as_of: plan.forecast_as_of };
+  const metalAny = months.some((x) => x.metal.items > 0.5);
+  if (metalAny && !M.metal_machines.length) warnings.push('Some customers have metal cards, but no Matching machine is ticked for metal (Production › Setup) — they\'re counted at the usual speed');
+  else if (metalAny && !(M.metal_ref > 0)) warnings.push('The Matching machines ticked for metal have no metal speed (Production › Setup) — metal cards are counted at the usual speed');
+  for (const x of months) if (x.metal.load > 1) warnings.push(`${x.label}: the metal cards need ${Math.round(x.metal.load * 100)}% of the metal machines' time (${M.metal_machines.join(', ')}) — more than they have, even running nothing else`);
+  return { year, flex: !!useFlex, oee: o, metal_machines: M.metal_machines, metal_ref: M.metal_ref, machines: M.list, ref_speed: M.ref, capacity_hour: capH, months, warnings, forecast_as_of: plan.forecast_as_of };
 }
 
 // 🕐 a working day of a month, hour by hour — laid out as perso's CPM Daily is (a technology of its own,
@@ -198,10 +226,14 @@ function day({ year, month, useFlex = true, cards = null, changes = [] }) {
       workdays: days, daily, renew, need_daily: daily / eff, need_rnw: renew / effR, profile: from, peak: null, learned_shares: shares, learned_from: from, produced_shares: shares, arrive_avg: pp ? CD.meanHour(pp) : null, arrive_seen: null, shares,
       hours: shares.map((s) => (daily / eff) * s), cards_hours: shares.map((s) => daily * s), cutoff: cutoffOf(c.trigram), cutoff_typed: (c.trigram && typedCut[c.trigram]) || null,
       cutoff_learned: c.trigram && cuts.has(c.trigram) ? cuts.get(c.trigram) : null, ...extra };
-    r.cutoff_default = !r.cutoff_typed && r.cutoff_learned === null; r.cards_day = days ? (v / (c.ratio || 1)) / days : 0; r.items_day = daily + renew; r.need_day = r.need_daily + r.need_rnw;
+    r.cutoff_default = !r.cutoff_typed && r.cutoff_learned === null; r.metal_share = c.metal_share || 0; r.metal_from = c.metal_from || 'none'; r.cards_day = days ? (v / (c.ratio || 1)) / days : 0; r.items_day = daily + renew; r.need_day = r.need_daily + r.need_rnw;
     rows.push(r); return r;
   };
-  const custs = customersOf(plan, month, R, M0, OE, PR); // (the speed factor against the machines as they are)
+  const MS = metalShares(cards); const custs = customersOf(plan, month, R, M0, OE, PR, MS); // (the speed factor against the machines as they are)
+  const metalIt = custs.reduce((a, c) => a + c.metal_items, 0); const metalLd = custs.reduce((a, c) => a + c.metal_items / c.oee, 0); const metalCapDay = M0.metal_cap * (worked.size * factor) * (days || 0);
+  if (metalIt > 0.5 && !M0.metal_machines.length) warnings.push('Some customers have metal cards, but no Matching machine is ticked for metal (Production › Setup) — they\'re counted at the usual speed');
+  else if (metalIt > 0.5 && !(M0.metal_ref > 0)) warnings.push('The Matching machines ticked for metal have no metal speed (Production › Setup) — metal cards are counted at the usual speed');
+  else if (metalCapDay && metalLd > metalCapDay) warnings.push(`The metal cards need ${Math.round((metalLd / metalCapDay) * 100)}% of the metal machines' time (${M0.metal_machines.join(', ')}) — more than they have, even running nothing else`);
   const byTri = new Map();
   for (const c of custs) {
     const pr = PR.of(c.trigram); const cc = { ...c, prio_days: pr.days }; byTri.set(c.trigram, cc);
@@ -249,14 +281,14 @@ function day({ year, month, useFlex = true, cards = null, changes = [] }) {
 }
 
 // what Configuration › Matching shows: each customer's learned and typed share, the machines and the OEE
-function config() {
-  const R = ratios(); const M = machines(); const OE = oees(M); const PR = prios(); const names = new Map(cpm.customers().map((c) => [c.trigram, c.name || c.trigram]));
+function config(cards = null) {
+  const R = ratios(); const M = machines(); const OE = oees(M); const PR = prios(); const MS = metalShares(cards); const names = new Map(cpm.customers().map((c) => [c.trigram, c.name || c.trigram]));
   const tris = [...new Set([...R.learned.keys(), ...Object.keys(R.typed), ...cpm.customers().filter((c) => c.active).map((c) => c.trigram)])].filter((t) => t && t !== '*').sort();
   return { oee: oee(), everyone: R.learned.get('*') || null, machines: M.list.map((m) => ({ ...m, runs: OE.measured.runs.get(m.name) ?? null })), ref_speed: M.ref, measured_all: OE.measured.by.get('*') || null, customer_speeds: [...M.cust].map(([customer, speed]) => ({ customer, speed })),
     customers: tris.map((t) => { const l = R.learned.get(t) || null; const ms = OE.measured.by.get(t) || null;
       return { trigram: t, name: names.get(t) || '', learned: l ? l.ratio : null, perso: l ? l.perso : 0, match: l ? l.match : 0, typed: R.typed[t] ?? null, own_speed: M.cust.get(t) || null,
-        oee_measured: ms ? ms.oee : null, oee_raw: ms ? ms.raw : null, oee_hours: ms ? ms.hours : 0, oee_typed: OE.typed[t] ?? null, prio: PR.of(t) }; }), prio_all: PR.all,
+        oee_measured: ms ? ms.oee : null, oee_raw: ms ? ms.raw : null, oee_hours: ms ? ms.hours : 0, oee_typed: OE.typed[t] ?? null, prio: PR.of(t), metal_learned: MS.learned.get(t)?.share ?? null, metal_typed: MS.typed[t] ?? null }; }), prio_all: PR.all, metal_machines: M.metal_machines, metal_ref: M.metal_ref,
     rnw_hours: json(setting('cpm_rnw_hours', '{}'), {}), window: (json(setting('cpm_rnw_hours', '{}'), {}).Matching || []).map(Number), hours: Array.from({ length: 24 }, (_, i) => (Math.floor(hm(setting('plan_day_start', '06:00'), 360) / 60) + i) % 24) };
 }
 
-module.exports = { monthly, day, config, learnedRatios, profiles, machines, oee, measuredOee, oees };
+module.exports = { metalShares, monthly, day, config, learnedRatios, profiles, machines, oee, measuredOee, oees };

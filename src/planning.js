@@ -254,13 +254,16 @@ function projectOtto(running, queue, machines, speeds, { start = 360, end = 1320
   const load = new Map(active.map((m) => [m.id, { id: m.id, name: m.name, items: 0, jobs: 0, minutes: 0, until: null, days: {} }]));
   for (const j of [...running, ...queue]) {
     Object.assign(j, { machine_planned: null, start_at: null, finish_at: null, late_minutes: null, plan_minutes: null, unplanned: null, speed: null, waited_perso: false });
-    const named = active.filter((m) => ottoMatches(m, j));
-    const able = named.length ? named : active;
+    // metal cards only on the machines ticked for metal, at their metal speed
+    const pool = j.metal ? active.filter((m) => m.metal) : active;
+    if (!pool.length) { j.unplanned = 'metal'; continue; }
+    const named = pool.filter((m) => ottoMatches(m, j));
+    const able = named.length ? named : pool;
     // perso still open: not before its projected finish (now when it isn't projected)
     const release = j.perso_finish_at ? new Date(j.perso_finish_at) : now;
     let best = null;
     for (const m of able) {
-      const speed = bySpeed.get(String(j.customer || '').toUpperCase()) ?? (Number(m.speed) > 0 ? Number(m.speed) : null);
+      const speed = j.metal ? (Number(m.metal_speed) > 0 ? Number(m.metal_speed) : null) : bySpeed.get(String(j.customer || '').toUpperCase()) ?? (Number(m.speed) > 0 ? Number(m.speed) : null);
       if (!speed) continue;
       const from = free.get(m.id) > release ? free.get(m.id) : release;
       const s = addWorking(from, 0, cal);
@@ -270,7 +273,7 @@ function projectOtto(running, queue, machines, speeds, { start = 360, end = 1320
       if (!best || f < best.f) best = { m, s, f, minutes, speed, waited: release > now && release > free.get(m.id) };
     }
     if (!best) {
-      j.unplanned = able.some((m) => bySpeed.has(String(j.customer || '').toUpperCase()) || Number(m.speed) > 0) ? 'time' : 'speed';
+      j.unplanned = j.metal ? (able.some((m) => Number(m.metal_speed) > 0) ? 'time' : 'metal_speed') : able.some((m) => bySpeed.has(String(j.customer || '').toUpperCase()) || Number(m.speed) > 0) ? 'time' : 'speed';
       continue;
     }
     free.set(best.m.id, best.f);
