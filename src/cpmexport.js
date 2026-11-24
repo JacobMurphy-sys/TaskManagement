@@ -532,7 +532,33 @@ function buildSiteWorkbook(d) {
     series: T.map((t) => ({ name: t, ref: sh.full(tr[t], mc(0), tr[t], mc(11)), kind: 'bar', color: COLS[t] || '6B7280' })) });
   if (R1 >= R0) sh.charts.push({ title: 'Each machine — cards a year', cats: sh.full(R0, 1, R1, 1), from: [2 + W, at0], to: [2 + 2 * W, at0 + HH - 1],
     series: [{ name: String(d.year), ref: sh.full(R0, YC, R1, YC), kind: 'bar', color: '7382E6' }] });
-  return buildBook([sh]);
+  const mm = d.match?.machines || []; if (!mm.length) return buildBook([sh]);
+  // 🔗 Matching: the same hours (the perso sheet's shifts × hours a shift), its machines' speed; metal at the metal speed
+  const ms = sheet(`Matching ${d.year}`); const MC = (i) => 6 + i; const MY = MC(12);
+  ms.width(1, 22).width(2, 11).width(3, 11).width(4, 11).width(5, 11); for (let i = 0; i < 12; i++) ms.width(MC(i), 11); ms.width(MY, 13);
+  ms.set(1, 1, `Matching ${d.year} — what the Matching machines could match flat out`, 'title');
+  ms.set(2, 1, `Items: run speed × hours a day (the shifts × hours on the site sheet) × working days — no OEE. Metal: the machines ticked for metal running metal cards only, at their metal speed.`, 'note');
+  const site = `'Site Capacity ${d.year}'`;
+  const mh = 4; [['Machine', 1], ['Speed /h', 2], ['Metal /h', 3], ['Hours a day', 4], ['A day', 5]].forEach(([l, c]) => ms.set(mh, c, l, c >= 2 ? 'headerNum' : 'header'));
+  M.forEach((m, i) => ms.set(mh, MC(i), m.label, 'headerNum')); ms.set(mh, MY, String(d.year), 'headerNum');
+  const mw = mh + 1; ms.set(mw, 1, 'Working days', 'bold'); M.forEach((_, i) => ms.f(mw, MC(i), `${site}!${L(mc(i))}${wd}`, 'int', d.months[i].workdays)); ms.f(mw, MY, `SUM(${L(MC(0))}${mw}:${L(MC(11))}${mw})`, 'intBold');
+  const Q0 = mw + 1; let q = Q0;
+  for (const m of mm) {
+    ms.set(q, 1, m.name, 'bold'); ms.set(q, 2, m.speed, 'input'); if (m.metal) ms.set(q, 3, m.metal_speed || 0, 'input'); else ms.set(q, 3, '—', 'note');
+    ms.f(q, 4, `${site}!$B$4*${site}!$D$4`, 'dec', m.hours_day); ms.f(q, 5, `B${q}*D${q}`, 'int', m.day);
+    M.forEach((_, i) => ms.f(q, MC(i), `$E${q}*${L(MC(i))}$${mw}`, 'int', m.months[i])); ms.f(q, MY, `SUM(${L(MC(0))}${q}:${L(MC(11))}${q})`, 'intBold', m.year); q++;
+  }
+  const Q1 = q - 1; const mt = q; ms.set(mt, 1, 'Matching', 'bold');
+  for (const c of [5, ...M.map((_, i) => MC(i)), MY]) ms.f(mt, c, `SUM(${L(c)}${Q0}:${L(c)}${Q1})`, 'intBold');
+  let mtl = null;
+  if (mm.some((m) => m.metal)) { mtl = mt + 1; ms.set(mtl, 1, 'Metal only', 'bold'); ms.set(mtl, 2, 'the metal machines on metal cards', 'note');
+    ms.f(mtl, 5, `SUMPRODUCT(IFERROR(C${Q0}:C${Q1}*1,0),D${Q0}:D${Q1})`, 'intBold', d.match.metal?.day || 0);
+    M.forEach((_, i) => ms.f(mtl, MC(i), `$E${mtl}*${L(MC(i))}$${mw}`, 'int', d.match.metal?.months[i] || 0)); ms.f(mtl, MY, `SUM(${L(MC(0))}${mtl}:${L(MC(11))}${mtl})`, 'intBold', d.match.metal?.year || 0); }
+  ms.freeze = { row: mh, col: 1 };
+  const mat0 = (mtl || mt) + 3; const mcats = ms.full(mh, MC(0), mh, MC(11));
+  ms.charts.push({ title: 'Items the Matching machines could match each month', cats: mcats, from: [1, mat0], to: [1 + W, mat0 + HH - 1],
+    series: [{ name: 'Matching', ref: ms.full(mt, MC(0), mt, MC(11)), kind: 'bar', color: '2563EB' }, ...(mtl ? [{ name: 'Metal only', ref: ms.full(mtl, MC(0), mtl, MC(11)), kind: 'line', color: '6B7280' }] : [])] });
+  return buildBook([sh, ms]);
 }
 
 module.exports = { buildMatchMonthWorkbook, buildCpmWorkbook, buildDayWorkbook, buildHeadcountWorkbook, buildSiteWorkbook, describe };
