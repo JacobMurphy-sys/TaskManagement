@@ -746,13 +746,14 @@ function siteCapacity(year, cards = null) {
   for (const m of machines) if (m.techs.length > 1 && !m.mix && m.best) warnings.push(`${m.name}: no record of what it ran by technology in the last 12 months${cards ? '' : ' (the card database, which tells the technology, isn\'t linked in Production › Setup)'}, so it's counted at its fastest`);
   // 🔗 Matching: its running machines (Production › Setup) flat out the same hours — items, no OEE; the machines
   // ticked for metal also as they'd do metal cards only, at their metal speed
-  let om = []; try { om = db.all('SELECT name, speed, metal, metal_speed FROM plan_otto_machines WHERE active = 1 ORDER BY sort_order, id'); } catch { /* none */ }
+  let om = []; try { om = db.all('SELECT name, speed, metal, metal_speed, hand FROM plan_otto_machines WHERE active = 1 ORDER BY sort_order, id'); } catch { /* none */ }
   const flat = (speed) => ({ hour: speed, day: speed * dayHours, week: speed * dayHours * weekDays, months: months.map((mo) => speed * dayHours * mo.workdays), year: speed * dayHours * workdays });
   const mMachines = om.map((m) => { const speed = Number(m.speed) || 0; const ms = m.metal ? Number(m.metal_speed) || 0 : 0;
     if (!speed) warnings.push(`${m.name}: no Matching speed (Production › Setup) — counted as 0`);
-    return { name: m.name, speed, hours_day: dayHours, metal: !!m.metal, metal_speed: ms || null, ...flat(speed), metal_flat: ms ? flat(ms) : null }; });
+    return { name: m.name, speed, hours_day: dayHours, hand: !!m.hand, metal: !!m.metal, metal_speed: ms || null, ...flat(speed), metal_flat: ms ? flat(ms) : null }; });
   const mSum = (list, pick) => list.reduce((acc, m) => { const x = pick(m); if (!x) return acc; return { day: acc.day + x.day, week: acc.week + x.week, year: acc.year + x.year, months: acc.months.map((v, i) => v + x.months[i]) }; }, { day: 0, week: 0, year: 0, months: months.map(() => 0) });
-  const match = { machines: mMachines, total: mSum(mMachines, (m) => m), metal: mMachines.some((m) => m.metal_flat) ? mSum(mMachines, (m) => m.metal_flat) : null };
+  const match = { machines: mMachines, total: mSum(mMachines, (m) => m), metal: mMachines.some((m) => m.metal_flat) ? mSum(mMachines, (m) => m.metal_flat) : null,
+    otto: mSum(mMachines, (m) => (m.hand ? null : m)), hand: mMachines.some((m) => m.hand) ? mSum(mMachines, (m) => (m.hand ? m : null)) : null };
   return { match, year, shifts, hours: shiftHours(), hours_day: dayHours, week_days: weekDays, workdays, holidays: cal.filter((d) => !d.work && String(setting('plan_days', '1,2,3,4,5')).split(',').map(Number).includes(d.dow)).length,
     months, techs: TECHS, speed_from: Object.fromEntries(Object.entries(sp).map(([t, x]) => [t, x])), machines, total: sum((m) => m.counted), by_tech: byTech, counted_by_tech: countedBy, cards: !!cards, warnings: [...new Set(warnings)] };
 }

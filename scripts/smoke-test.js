@@ -2542,6 +2542,21 @@ async function waitForServer() {
             assert.ok(Math.abs(mk.hours.reduce((x, y) => x + y, 0) - mk.need_day) < 0.01, 'the hours add up to the day');
             assert.ok(md.capacity.every((v, i) => (md.worked[i] ? Math.abs(v - md.machines.reduce((x, m) => x + m.speed, 0)) < 0.01 : v === 0)), 'capacity in the hours worked only');
             const cfg = await call('GET', '/cpm/match/config'); assert.ok(cfg.customers.find((c) => c.trigram === 'KBC')?.typed === 0.5, 'config: the share typed');
+            // ✋ OTTO and hand match: a hand-match station (200/h); KBC 25% hand (typed); the report's machines classified
+            { const hm = await call('POST', '/plan/otto/machines', { name: 'CPM HAND', speed: '200', hand: true });
+              const sqh = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); const dh = new Date(Date.now() - 10 * 864e5).toISOString().slice(0, 10);
+              const insH = sqh.prepare("INSERT INTO prod_runs (source, job, machine, start_at, end_at, qty, remake, trigram, read_at) VALUES ('otto', ?, ?, ?, ?, ?, 0, 'KBC', ?)");
+              insH.run('HM1', 'CPM HAND 2', `${dh}T08:00`, `${dh}T09:00`, 300, dh); insH.run('HM2', 'Mystery bench', `${dh}T09:00`, `${dh}T10:00`, 100, dh);
+              await call('PUT', '/cpm/settings', { cpm_match_hand: JSON.stringify({ KBC: 0.25 }), cpm_match_line_of: JSON.stringify({ 'Mystery bench': 'hand' }) });
+              const ch = await call('GET', '/cpm/match/config'); const rm = (n) => ch.report_machines.find((r) => r.name === n);
+              assert.ok(rm('CPM HAND 2').line === 'hand' && rm('CPM HAND 2').from === 'setup' && rm('Mystery bench').line === 'hand' && rm('Mystery bench').from === 'typed' && ch.customers.find((c) => c.trigram === 'KBC').hand_typed === 0.25, 'the report\'s machines: by Setup, else as picked');
+              const dd = await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1`); const ko = dd.rows.find((r) => r.trigram === 'KBC' && !r.added && r.tech === 'OTTO'); const kh = dd.rows.find((r) => r.trigram === 'KBC' && !r.added && r.tech === 'Hand match');
+              assert.ok(dd.techs.join() === 'OTTO,Hand match' && kh && Math.abs(kh.month_volume / (ko.month_volume + kh.month_volume) - 0.25) < 1e-9, 'a customer split: 25% hand match, the rest OTTO');
+              assert.ok(Math.abs(kh.need_daily - kh.daily / kh.oee_match) < 1e-6 && dd.tech['Hand match'].capacity.every((v, i) => (dd.worked[i] ? Math.abs(v - 200 * dd.hour_share) < 1e-6 : v === 0)), 'hand match: items ÷ OEE against the hand stations\' speed');
+              const mh = await call('GET', `/cpm/match/monthly?year=${Y}&flex=0&live=1`); assert.ok(Math.abs(mh.months[0].lines.hand.capacity - 200 * mh.months[0].hours) < 0.5 && mh.months[0].lines.hand.items > 0, 'by month: hand match against its stations');
+              const sth = await call('GET', `/cpm/site?year=${Y}&regen=1`); assert.ok(sth.match.hand && Math.abs(sth.match.hand.year - 200 * sth.hours_day * sth.workdays) < 0.5, 'Site Capacity: hand match apart');
+              sqh.prepare("DELETE FROM prod_runs WHERE job IN ('HM1', 'HM2')").run(); sqh.close();
+              await call('DELETE', `/plan/otto/machines/${hm.id}`); await call('PUT', '/cpm/settings', { cpm_match_hand: '{}', cpm_match_line_of: '{}' }); }
             // 🏭 Site Capacity with Matching: its machines flat out, the same hours; the workbook's Matching sheet
             { const st = await call('GET', `/cpm/site?year=${Y}&regen=1`); const om = st.match.machines.find((m) => m.name === 'CPM OTTO');
               assert.ok(om && Math.abs(om.year - 1000 * st.hours_day * st.workdays) < 0.5 && Math.abs(st.match.total.year - st.match.machines.reduce((a, m) => a + m.year, 0)) < 0.5, 'Site Capacity: Matching flat out, the same hours');
@@ -2568,7 +2583,7 @@ async function waitForServer() {
               const base = mm2.capacity_hour; const [jan, mar] = [mm2.months[0], mm2.months[2]];
               assert.ok(Math.abs(jan.capacity - (base + 600) * jan.hours) < 0.5 && Math.abs(mar.capacity - (base + 600 - 1000) * mar.hours) < 0.5, 'Matching scenario: a machine added (500/h, +100 flat), one removed from March');
               const sd = await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1&scenario=${ms.id}`); const sk = sd.rows.find((r) => r.trigram === 'KBC' && !r.added);
-              assert.ok(sk.ratio === 0.2 && sk.ratio_from === 'scenario' && Math.abs(sk.oee_match - 0.6) < 1e-9 && sd.renewals.Matching.hours.join() === '12', 'Matching scenario: share, OEE points and renewal window');
+              assert.ok(sk.ratio === 0.2 && sk.ratio_from === 'scenario' && Math.abs(sk.oee_match - 0.6) < 1e-9 && sd.renewals.OTTO.hours.join() === '12', 'Matching scenario: share, OEE points and renewal window');
               const pv = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${ms.id}&live=1`);
               assert.ok(pv.scenarios[0].warnings.some((w) => /Matching view/.test(w)), 'perso says a Matching change shows on the Matching view');
               await call('DELETE', `/cpm/scenarios/${ms.id}`); }
@@ -2596,11 +2611,11 @@ async function waitForServer() {
             assert.ok(mp.hours.every((_, i) => Math.abs(['urgent', 'high', 'normal', 'low'].reduce((x, k) => x + mp.prio[k][i], 0) - mp.need[i]) < 0.01), 'the priorities add up to each hour');
             assert.ok(Math.abs(['urgent', 'high', 'normal', 'low'].reduce((x, k) => x + mp.total.end_prio[k], 0) - mp.total.end_backlog) < 0.5 && (mp.total.end_prio.low >= mp.total.end_prio.urgent), 'what\'s left at the day\'s end, Low before Urgent');
             // laid out as perso's day: smoothed, as work orders; campaigns ticked for Matching; its renewal window
-            assert.ok(mp.techs[0] === 'Matching' && mp.tech.Matching.smooth && mp.blocks && mp.blocks.per.Matching && mp.tech.Matching.prio, 'Matching\'s day as perso\'s: smoothed, work orders, priorities');
+            assert.ok(mp.techs[0] === 'OTTO' && mp.tech.OTTO.smooth && mp.blocks && mp.blocks.per.OTTO && mp.tech.OTTO.prio, 'Matching\'s day as perso\'s: smoothed, work orders, priorities');
             await call('PUT', '/cpm/settings', { cpm_campaigns: JSON.stringify([{ name: 'MCamp', customer: 'KBC', qty: 21000, from: `${Y}-01-01`, to: `${Y}-01-31` }, { name: 'NoMatch', customer: 'KBC', qty: 5000, from: `${Y}-01-01`, to: `${Y}-01-31`, match: false }]), cpm_rnw_hours: JSON.stringify({ Matching: [10, 11] }) });
             const mc = await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1`); const cr = mc.rows.filter((r) => r.added === 'campaign');
-            assert.ok(cr.length === 1 && cr[0].campaign === 'MCamp' && Math.abs(cr[0].daily - (21000 / mc.workdays) * 0.5) < 0.01 && cr[0].renew === 0, 'a campaign ticked for Matching: its own line; one unticked left out');
-            assert.ok(mc.tech.Matching.added.some((v) => v > 0) && mc.renewals.Matching.window && mc.renewals.Matching.hours.join() === '10,11', 'drawn as added; renewals in Matching\'s window');
+            assert.ok(cr.every((r) => r.campaign === 'MCamp') && Math.abs(cr.reduce((x, r) => x + r.daily, 0) - (21000 / mc.workdays) * 0.5) < 0.01 && cr.every((r) => r.renew === 0) && cr.length === (cr[0].hand_share > 0 ? 2 : 1), 'a campaign ticked for Matching: its own line (OTTO and hand match by the hand share); one unticked left out');
+            assert.ok(mc.tech.OTTO.added.some((v) => v > 0) && mc.renewals.OTTO.window && mc.renewals.OTTO.hours.join() === '10,11', 'drawn as added; renewals in Matching\'s window');
             await call('PUT', '/cpm/settings', { cpm_campaigns: '[]', cpm_rnw_hours: '{}' });
             sqm.prepare("DELETE FROM plan_otto_jobs WHERE key LIKE 'PO%'").run();
             sqm.prepare("DELETE FROM prod_runs WHERE job IN ('MO1', 'MO2', 'MO3', 'MO4', 'MO5', 'MO6')").run(); sqm.close();

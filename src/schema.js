@@ -728,7 +728,8 @@ const TABLES = {
     created_at  TEXT    NOT NULL DEFAULT (${NOW}),
     updated_at  TEXT    NOT NULL DEFAULT (${NOW}),
     metal       INTEGER NOT NULL DEFAULT 0,
-    metal_speed REAL`,
+    metal_speed REAL,
+    hand        INTEGER NOT NULL DEFAULT 0`,
 
   // 🏭 Planning, Matching: items per hour for a customer (trigram) — wins over the machine's speed.
   plan_otto_speeds: `
