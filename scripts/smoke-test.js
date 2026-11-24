@@ -2595,9 +2595,27 @@ async function waitForServer() {
             await call('PUT', '/cpm/settings', { cpm_match_cust_oee: JSON.stringify({ KBC: 0.25 }) });
             const mk3 = (await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1`)).rows.find((r) => r.trigram === 'KBC');
             assert.ok(mk3.oee_from === 'typed' && mk3.oee === 0.25, 'typed for the customer wins');
+            // Matching's work by priority, learned from its work orders: each hour's capacity to the Urgent first, Low last
+            const insO = sqm.prepare("INSERT INTO plan_otto_jobs (key, wo, customer, qty, prio, first_seen, last_seen) VALUES (?, ?, 'KBC', ?, ?, ?, ?)");
+            for (let k = 1; k <= 3; k++) { const dd = new Date(Date.now() - k * 864e5).toISOString().slice(0, 10); insO.run(`PO${k}U`, `PO${k}U`, 100, 'Urgent', dd, dd); insO.run(`PO${k}N`, `PO${k}N`, 200, 'Normal', dd, dd); insO.run(`PO${k}L`, `PO${k}L`, 100, 'Low', dd, dd); }
+            const mp = await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1`); const mpk = mp.rows.find((r) => r.trigram === 'KBC');
+            assert.ok(mpk.prio_from === 'learned' && Math.abs(['urgent', 'high', 'normal', 'low'].reduce((x, k) => x + mpk.prio[k], 0) - 1) < 1e-9 && mpk.prio.urgent > 0 && mpk.prio.low > 0, 'Matching priorities: an average day of its work orders');
+            assert.ok(mp.hours.every((_, i) => Math.abs(['urgent', 'high', 'normal', 'low'].reduce((x, k) => x + mp.prio[k][i], 0) - mp.need[i]) < 0.01), 'the priorities add up to each hour');
+            assert.ok(Math.abs(['urgent', 'high', 'normal', 'low'].reduce((x, k) => x + mp.total.end_prio[k], 0) - mp.total.end_backlog) < 0.5 && (mp.total.end_prio.low >= mp.total.end_prio.urgent), 'what\'s left at the day\'s end, Low before Urgent');
+            sqm.prepare("DELETE FROM plan_otto_jobs WHERE key LIKE 'PO%'").run();
             sqm.prepare("DELETE FROM prod_runs WHERE job IN ('MO1', 'MO2')").run(); sqm.close();
             await call('PUT', '/cpm/settings', { cpm_match_oee_machines: '[]', cpm_match_cust_oee: '{}' });
             await call('DELETE', `/plan/otto/machines/${mm.id}`); await call('PUT', '/cpm/settings', { cpm_match_oee: '0.6', cpm_match_ratio: '{}' }); }
+          // the daily work by priority: typed for a customer, and the smoothing fits the Urgent work first
+          { await call('PUT', '/cpm/settings', { cpm_prio_mix: JSON.stringify({ KBC: { urgent: 0.2, high: 0.3 } }) });
+            const dp = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`); const kp = dp.rows.find((r) => r.trigram === 'KBC' && !r.added);
+            assert.ok(kp.prio_from === 'typed' && kp.prio.urgent === 0.2 && kp.prio.high === 0.3 && Math.abs(kp.prio.normal - 0.5) < 1e-9, 'a customer\'s priorities set by hand');
+            for (const t of dp.techs) { const X = dp.tech[t]; const sum = (a) => a.reduce((x, y) => x + y, 0);
+              assert.ok(Math.abs(sum(X.prio.urgent) + sum(X.prio.high) + sum(X.prio.normal) - sum(X.daily)) < 0.01, `${t}: the priorities add up to the daily work`);
+              assert.ok(Math.abs(sum(X.smooth.prio.urgent) + sum(X.smooth.prio.high) + sum(X.smooth.prio.normal) - sum(X.smooth.daily)) < 0.01, `${t}: smoothed too`); }
+            const sd = require('../src/cpmday').smoothDay(Array.from({ length: 24 }, (_, i) => i), [{ trigram: 'X', oee: 1, hours: [20, ...Array(23).fill(0)], prio: { urgent: 0.25, high: 0, normal: 0.75 } }, { trigram: 'Y', oee: 1, hours: [0, 10, ...Array(22).fill(0)], prio: { urgent: 1, high: 0, normal: 0 } }], Array(24).fill(0), Array(24).fill(10), () => null);
+            assert.deepEqual([sd.byPrio.urgent.slice(0, 3), sd.byPrio.normal.slice(0, 3)], [[5, 10, 0], [5, 0, 10]], 'Urgent first: the Normal work waits for the next spare hour');
+            await call('PUT', '/cpm/settings', { cpm_prio_mix: '{}' }); }
           // 📣 a campaign: a customer's cards over some days, on its split, a line of its own; off: not counted
           { await call('PUT', '/cpm/settings', { cpm_campaigns: JSON.stringify([{ name: 'Reissue', customer: 'KBC', qty: 21000, from: `${Y}-01-01`, to: `${Y}-01-31` }, { name: 'Paused', customer: 'KBC', qty: 99999, from: `${Y}-01-01`, to: `${Y}-01-31`, off: true }]) });
             const dC = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`);
