@@ -2514,6 +2514,21 @@ async function waitForServer() {
             assert.ok(Math.abs(mk.hours.reduce((x, y) => x + y, 0) - mk.need_day) < 0.01, 'the hours add up to the day');
             assert.ok(md.capacity.every((v, i) => (md.worked[i] ? Math.abs(v - md.machines.reduce((x, m) => x + m.speed, 0)) < 0.01 : v === 0)), 'capacity in the hours worked only');
             const cfg = await call('GET', '/cpm/match/config'); assert.ok(cfg.customers.find((c) => c.trigram === 'KBC')?.typed === 0.5, 'config: the share typed');
+            // the customer's OEE measured on the machines ticked for it: items ÷ (run hours × the machine's speed)
+            const sqm = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); const dm = new Date(Date.now() - 20 * 864e5).toISOString().slice(0, 10);
+            const insM = sqm.prepare("INSERT INTO prod_runs (source, job, machine, start_at, end_at, qty, remake, trigram, read_at) VALUES ('otto', ?, ?, ?, ?, ?, 0, 'KBC', ?)");
+            insM.run('MO1', 'CPM OTTO 01', `${dm}T08:00`, `${dm}T11:00`, 1200, dm); insM.run('MO2', 'Hand table', `${dm}T08:00`, `${dm}T11:00`, 50, dm);
+            assert.equal(md.rows.find((r) => r.trigram === 'KBC').oee_from, 'default', 'no machine ticked: the one Matching OEE');
+            await call('PUT', '/cpm/settings', { cpm_match_oee_machines: JSON.stringify(['CPM OTTO']) });
+            const cfg2 = await call('GET', '/cpm/match/config'); const ck2 = cfg2.customers.find((c) => c.trigram === 'KBC');
+            assert.ok(Math.abs(ck2.oee_measured - 0.4) < 0.001 && ck2.oee_hours === 3 && cfg2.machines.find((m) => m.name === 'CPM OTTO')?.runs === 1, 'measured on the ticked machine only: 1,200 ÷ (3 h × 1,000/h)');
+            const mk2 = (await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1`)).rows.find((r) => r.trigram === 'KBC');
+            assert.ok(mk2.oee_from === 'measured' && Math.abs(mk2.need_day - (mk2.items_day / 0.4) * mk2.speed_factor) < 0.01, 'the day ÷ its measured OEE');
+            await call('PUT', '/cpm/settings', { cpm_match_cust_oee: JSON.stringify({ KBC: 0.25 }) });
+            const mk3 = (await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1`)).rows.find((r) => r.trigram === 'KBC');
+            assert.ok(mk3.oee_from === 'typed' && mk3.oee === 0.25, 'typed for the customer wins');
+            sqm.prepare("DELETE FROM prod_runs WHERE job IN ('MO1', 'MO2')").run(); sqm.close();
+            await call('PUT', '/cpm/settings', { cpm_match_oee_machines: '[]', cpm_match_cust_oee: '{}' });
             await call('DELETE', `/plan/otto/machines/${mm.id}`); await call('PUT', '/cpm/settings', { cpm_match_oee: '0.6', cpm_match_ratio: '{}' }); }
           // 📣 a campaign: a customer's cards over some days, on its split, a line of its own; off: not counted
           { await call('PUT', '/cpm/settings', { cpm_campaigns: JSON.stringify([{ name: 'Reissue', customer: 'KBC', qty: 21000, from: `${Y}-01-01`, to: `${Y}-01-31` }, { name: 'Paused', customer: 'KBC', qty: 99999, from: `${Y}-01-01`, to: `${Y}-01-31`, off: true }]) });
