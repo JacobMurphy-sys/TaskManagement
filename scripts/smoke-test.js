@@ -2531,6 +2531,13 @@ async function waitForServer() {
             assert.ok(Math.abs(mk.hours.reduce((x, y) => x + y, 0) - mk.need_day) < 0.01, 'the hours add up to the day');
             assert.ok(md.capacity.every((v, i) => (md.worked[i] ? Math.abs(v - md.machines.reduce((x, m) => x + m.speed, 0)) < 0.01 : v === 0)), 'capacity in the hours worked only');
             const cfg = await call('GET', '/cpm/match/config'); assert.ok(cfg.customers.find((c) => c.trigram === 'KBC')?.typed === 0.5, 'config: the share typed');
+            // 🔗 Matching to Excel: its month, its day (perso's workbook laid out for Matching) and its customers hour by hour
+            for (const [u, names, nCharts] of [[`/cpm/match/monthly.xlsx?year=${Y}&flex=0`, [`Matching ${Y}`, 'Chart'], 2], [`/cpm/day/export?year=${Y}&month=1&flex=0&line=match`, [`Matching ${md.label}`.slice(0, 31), 'Hour profile', 'Charts'], 2], [`/cpm/day/customers.xlsx?year=${Y}&month=1&flex=0&line=match&view=cards`, ['Cards by hour'], 0]]) {
+              const xr = await fetch(`${BASE}${u}`, { headers: { 'X-Requested-With': 'TaskManager' } }); assert.equal(xr.status, 200, u);
+              const buf = Buffer.from(await xr.arrayBuffer()); const bk = require('../src/xlsxread').readBook(buf);
+              assert.deepEqual(bk.sheets.map((x) => x.name), names, `${u}: its sheets`);
+              if (nCharts) assert.ok([...bk.sheet(names[0]).cells.values()].some((c) => c.f), `${u}: formulas, not just values`);
+            }
             // 🥈 metal: KBC's metal cards (40%, typed) at the metal machine's speed (250/h against 1,000/h)
             { await call('PATCH', `/plan/otto/machines/${mm.id}`, { metal: true, metal_speed: '250' }); await call('PUT', '/cpm/settings', { cpm_match_metal: JSON.stringify({ KBC: 0.4 }) });
               const mt = (await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1`)).rows.find((r) => r.trigram === 'KBC' && !r.added);
