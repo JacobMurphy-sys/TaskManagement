@@ -30,11 +30,18 @@ function cpmMachStack(parts, names, xs, y, { step = false, slot = 0, labelAt = n
 const cpmMachLegend = (parts, names) => parts.filter((m) => m.per.some((v) => v > 0.5)).map((m) => `<span><i class="sw" style="background:${cpmMachCol(m.name, names)}"></i>${esc(m.name)}</span>`).join('');
 // a volume axis in even steps: 0.1M for small figures, else 0.25M, else 0.5M (1M past 6M)
 function cpmScale(top) {
-  // below 0.6M (an hour, a small technology) round steps of 1 / 2 / 2.5 / 5 × 10ⁿ, about six of them
-  const small = () => { const raw = top / 6; const p = 10 ** Math.floor(Math.log10(Math.max(raw, 1))); return [1, 2, 2.5, 5, 10].map((m) => m * p).find((x) => x >= raw) || 10 * p; };
-  const step = top <= 600000 ? Math.max(small(), top <= 1 ? 1 : 0) || 100000 : top <= 2500000 ? 250000 : top <= 6000000 ? 500000 : 1000000;
-  const max = Math.max(step, Math.ceil(top / step) * step);
-  return { max, ticks: Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step) };
+  // the axis: round steps (1 / 2 / 2.5 / 5 × 10ⁿ) giving 4 to 8 gridlines, the one whose top is nearest above the
+  // figures (not the first step that fits: 15.5k then went to 20k in 5k steps rather than 16k in 2k)
+  if (!(top > 1)) return { max: 1, ticks: [0, 1] };
+  const p0 = 10 ** Math.floor(Math.log10(top / 8)); let best = null;
+  for (const p of [p0 / 10, p0, p0 * 10]) for (const m of [1, 2, 2.5, 5]) {
+    const step = Math.round(m * p * 1e6) / 1e6; if (!(step > 0) || (top > 4 && step < 1)) continue; const max = Math.ceil(top / step - 1e-9) * step; const n = Math.round(max / step);
+    if (n < 4 || n > 8) continue;
+    if (!best || max < best.max - 1e-9 || (Math.abs(max - best.max) < 1e-9 && step > best.step)) best = { max, step };
+  }
+  if (!best) { const step = 10 ** Math.ceil(Math.log10(top / 6)); best = { step, max: Math.ceil(top / step) * step }; }
+  best.max = Math.round(best.max * 1e6) / 1e6;
+  return { max: best.max, ticks: Array.from({ length: Math.round(best.max / best.step) + 1 }, (_, i) => Math.round(i * best.step * 1e6) / 1e6) };
 }
 const cpmAxis = (v) => (v === 0 ? '0' : v < 100000 ? `${(v / 1000).toLocaleString('en-GB', { maximumFractionDigits: 1 })}k` : `${(v / 1e6).toLocaleString('en-GB', { minimumFractionDigits: v % 500000 ? 2 : 1, maximumFractionDigits: 2 })}M`);
 const cpmK = (v) => (v === null || v === undefined ? '—' : Math.abs(v) >= 1e6 ? `${(v / 1e6).toLocaleString('en-GB', { maximumFractionDigits: 2 })}M` : Math.abs(v) >= 1e3 ? `${Math.round(v / 1e3).toLocaleString('en-GB')}k` : cpmN(v));
