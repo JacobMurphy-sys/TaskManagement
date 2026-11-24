@@ -2643,6 +2643,8 @@ async function waitForServer() {
               assert.ok(Math.abs(sum(X.smooth.prio.urgent) + sum(X.smooth.prio.high) + sum(X.smooth.prio.normal) - sum(X.smooth.daily)) < 0.01, `${t}: smoothed too`); }
             const sd = require('../src/cpmday').smoothDay(Array.from({ length: 24 }, (_, i) => i), [{ trigram: 'X', oee: 1, hours: [20, ...Array(23).fill(0)], prio: { urgent: 0.25, high: 0, normal: 0.75 } }, { trigram: 'Y', oee: 1, hours: [0, 10, ...Array(22).fill(0)], prio: { urgent: 1, high: 0, normal: 0 } }], Array(24).fill(0), Array(24).fill(10), () => null);
             assert.deepEqual([sd.byPrio.urgent.slice(0, 3), sd.byPrio.normal.slice(0, 3)], [[5, 10, 0], [5, 0, 10]], 'Urgent first: the Normal work waits for the next spare hour');
+            const pd = require('../src/cpmday').smoothDay(Array.from({ length: 24 }, (_, i) => i), [{ trigram: 'X', oee: 0.5, hours: [...Array(22).fill(0), 30, 0] }], [...Array(23).fill(0), 15], Array(24).fill(10), () => null);
+            assert.deepEqual([pd.pushed, pd.pushedCards, pd.pushedAt[0], pd.pushedRow[0], pd.deferred], [10, 5, 10, 10, 15], 'smoothed: daily work only fitting after the day\'s end is pushed to the next day (its first hour); the renewals left over too');
             await call('PUT', '/cpm/settings', { cpm_prio_mix: '{}' }); }
           // 📣 a campaign: a customer's cards over some days, on its split, a line of its own; off: not counted
           { await call('PUT', '/cpm/settings', { cpm_campaigns: JSON.stringify([{ name: 'Reissue', customer: 'KBC', qty: 21000, from: `${Y}-01-01`, to: `${Y}-01-31` }, { name: 'Paused', customer: 'KBC', qty: 99999, from: `${Y}-01-01`, to: `${Y}-01-31`, off: true }]) });
