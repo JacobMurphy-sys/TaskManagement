@@ -1178,24 +1178,27 @@ async function cpmSite(body) {
 }
 
 // ---- Scenarios: changes over the base, each person's own -----------------------------------------
+// a scenario's changes, by what they change: both lines (the forecast and the plan), perso's machines, Matching's
 const CPM_CHANGES = {
-  speed: { label: 'Speed change', fields: ['machine', 'tech', 'pct'] },
-  add_machine: { label: '➕ Add a machine', fields: ['name', 'techs'] },
-  remove_machine: { label: '➖ Remove a machine / downtime', fields: ['machine'] },
-  capabilities: { label: 'Change what a machine runs', fields: ['machine', 'techs'] },
-  restrict: { label: 'Restrict a machine to customers / cards', fields: ['machine', 'customers', 'cards'] },
-  rnw_window: { label: 'Renewal window (CPM Daily only)', fields: ['tech', 'hours'] },
-  shifts: { label: 'Shifts', fields: ['shifts'] },
-  oee: { label: 'OEE change', fields: ['customer', 'tech', 'points'] },
-  volume: { label: 'Customer volume', fields: ['customer', 'pct', 'flat'] },
-  new_customer: { label: 'New customer', fields: ['name', 'qty', 'split', 'oee'] },
-  m_add: { label: 'Matching: add a machine', fields: ['name', 'speed'] },
-  m_remove: { label: 'Matching: remove a machine / downtime', fields: ['mmachine'] },
-  m_speed: { label: 'Matching: speed change', fields: ['mmachine_all', 'pct'] },
-  m_oee: { label: 'Matching: OEE change', fields: ['customer', 'points'] },
-  m_share: { label: 'Matching: share through Matching', fields: ['customer', 'share'] },
-  m_rnw_window: { label: 'Matching: renewal window (CPM Daily only)', fields: ['hours'] },
+  volume: { line: 'both', label: 'Customer volume', fields: ['customer', 'pct', 'flat'] },
+  new_customer: { line: 'both', label: 'New customer', fields: ['name', 'qty', 'split', 'oee'] },
+  shifts: { line: 'both', label: 'Shifts', fields: ['shifts'] },
+  speed: { line: 'perso', label: 'Speed change', fields: ['machine', 'tech', 'pct'] },
+  add_machine: { line: 'perso', label: 'Add a machine', fields: ['name', 'techs'] },
+  remove_machine: { line: 'perso', label: 'Remove a machine / downtime', fields: ['machine'] },
+  capabilities: { line: 'perso', label: 'Change what a machine runs', fields: ['machine', 'techs'] },
+  restrict: { line: 'perso', label: 'Restrict a machine to customers / cards', fields: ['machine', 'customers', 'cards'] },
+  oee: { line: 'perso', label: 'OEE change', fields: ['customer', 'tech', 'points'] },
+  rnw_window: { line: 'perso', label: 'Renewal window (CPM Daily only)', fields: ['tech', 'hours'] },
+  m_add: { line: 'match', label: 'Add a Matching machine', fields: ['name', 'speed'] },
+  m_remove: { line: 'match', label: 'Remove a Matching machine / downtime', fields: ['mmachine'] },
+  m_speed: { line: 'match', label: 'Speed change', fields: ['mmachine_all', 'pct'] },
+  m_oee: { line: 'match', label: 'OEE change', fields: ['customer', 'points'] },
+  m_share: { line: 'match', label: 'Share through Matching', fields: ['customer', 'share'] },
+  m_rnw_window: { line: 'match', label: 'Renewal window (CPM Daily only)', fields: ['hours'] },
 };
+const CPM_CH_LINES = [['both', 'Perso & Matching', 'the forecast and the plan: shows on both'], ['perso', 'Perso', 'perso\'s machines: shows with Perso picked'], ['match', 'Matching', 'the Matching machines: shows with Matching picked']];
+const cpmLineTag = (line) => `<span class="cpm-ltag cpm-ltag-${line}">${esc(CPM_CH_LINES.find(([k]) => k === line)?.[1] || '')}</span>`;
 async function cpmScenarios(body) {
   const [list, ov, cs, mc] = await Promise.all([api.get('/cpm/scenarios'), api.get(`/cpm/overview?year=${new Date().getFullYear()}&period=month&flex=0&live=1`), api.get('/cpm/customers'), api.get('/cpm/match/config').catch(() => ({ machines: [] }))]);
   const mMachines = () => [...(mc.machines || []).map((m) => m.name), ...(sc?.changes || []).filter((c) => c.type === 'm_add' && c.name).map((c) => c.name)];
@@ -1242,9 +1245,13 @@ async function cpmScenarios(body) {
     return `<label class="f">${L[0]}<input type="${f === 'name' ? 'text' : 'number'}" name="${f}" value="${esc(c[f] ?? (f === 'oee' && c.oee ? Math.round(c.oee * 100) : ''))}" placeholder="${L[1]}"></label>`;
   };
   const refreshMachines = () => { machines = [...baseMachines, ...(sc?.changes || []).filter((c) => c.type === 'add_machine' && c.name && !baseMachines.includes(c.name)).map((c) => c.name)]; };
-  const changeHtml = (c, i) => `<div class="card cpm-change" data-i="${i}" data-type="${esc(c.type)}"><div class="row" style="justify-content:space-between"><b>${CPM_CHANGES[c.type].label}</b><button class="link small" data-cpm-rm="${i}">✕ remove</button></div>
+  const changeHtml = (c, i) => `<div class="card cpm-change" data-i="${i}" data-type="${esc(c.type)}"><div class="row" style="justify-content:space-between"><b>${cpmLineTag(CPM_CHANGES[c.type].line)} ${CPM_CHANGES[c.type].label}</b><button class="link small" data-cpm-rm="${i}">✕ remove</button></div>
       <div class="form-grid">${CPM_CHANGES[c.type].fields.map((f) => field(c, f)).join('')}
         <label class="f">From month<input type="month" name="from" value="${esc(c.from || '')}"></label><label class="f" title="Leave blank to keep the change from then on">Until (blank: from then on)<input type="month" name="to" value="${esc(c.to || '')}"></label></div>${c.type === 'volume' ? '<div class="cpm-vprev"><p class="small muted">Preview: pick a customer and a change.</p></div>' : ''}</div>`;
+  // the changes in three groups (each keeps its place in the list, so editing and removing work as before)
+  const changesHtml = (list) => { const idx = list.map((c, i) => [c, i]);
+    return CPM_CH_LINES.map(([k, l, what]) => { const g = idx.filter(([c]) => (CPM_CHANGES[c.type]?.line || 'perso') === k); return g.length ? `<div class="cpm-chg-group cpm-chg-${k}"><h4 class="cpm-chg-h">${cpmLineTag(k)} <span class="muted small">— ${what}</span></h4>${g.map(([c, i]) => changeHtml(c, i)).join('')}</div>` : ''; }).join(''); };
+  const addSel = () => `<select id="cpm-add-type">${CPM_CH_LINES.map(([k, l]) => `<optgroup label="${esc(l)}">${Object.entries(CPM_CHANGES).filter(([, v]) => v.line === k).map(([t, v]) => `<option value="${t}" ${t === (cpmLine() === 'match' ? 'm_add' : 'volume') ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</optgroup>`).join('')}</select>`;
   refreshMachines();
   body.innerHTML = `<div class="cpm-scen"><div class="card cpm-scen-list"><h3 class="pl-h">Scenarios</h3>
       ${list.map((s) => `<div class="cpm-scen-item ${s.id === openId ? 'on' : ''}" data-cpm-open="${s.id}"><b>${esc(s.name)}</b><div class="small muted">${s.changes.length} change${s.changes.length === 1 ? '' : 's'} · ${s.mine ? (s.shared ? 'yours, shared' : 'yours') : `${esc(s.owner_name || 'someone')}'s`}</div></div>`).join('') || '<p class="small muted">None yet.</p>'}
@@ -1256,8 +1263,8 @@ async function cpmScenarios(body) {
         <button class="small" id="cpm-sc-compare">📊 Compare on CPM Monthly</button>${ddMenu('⋯', `<button id="cpm-sc-copy">⧉ Make a copy</button>${sc.mine ? '<hr><button class="danger" id="cpm-sc-del">🗑 Delete this scenario</button>' : ''}`, { title: 'Copy or delete' })}</div>
         <textarea id="cpm-sc-notes" rows="2" placeholder="Notes — what it's for" ${sc.mine ? '' : 'disabled'} style="margin-top:6px">${esc(sc.notes || '')}</textarea></div>
       <div id="cpm-sc-warn">${scWarn.length ? `<div class="kc-note">⚠ ${scWarn.map(esc).join('<br>⚠ ')}</div>` : ''}</div>
-      <div id="cpm-changes">${sc.changes.map(changeHtml).join('') || '<p class="muted">No changes yet — add one below.</p>'}</div>
-      ${sc.mine ? `<div class="row" style="gap:6px;flex-wrap:wrap"><select id="cpm-add-type">${Object.entries(CPM_CHANGES).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select><button class="small" id="cpm-add-change">+ Add change</button><div class="spacer"></div><button class="primary" id="cpm-sc-save">💾 Save</button></div>` : ''}`
+      <div id="cpm-changes">${changesHtml(sc.changes) || '<p class="muted">No changes yet — add one below.</p>'}</div>
+      ${sc.mine ? `<div class="row" style="gap:6px;flex-wrap:wrap">${addSel()}<button class="small" id="cpm-add-change">+ Add change</button><div class="spacer"></div><button class="primary" id="cpm-sc-save">💾 Save</button></div>` : ''}`
       : '<div class="card lib-empty"><p>Pick a scenario on the left, or make a new one.</p><p class="small muted">A scenario is a list of changes laid over the base plan — machines added, removed or changed, speeds, shifts, OEE, customer volumes — each from a month (and until one). The base forecast keeps updating underneath.</p></div>'}</div></div>`;
   const readOne = (el) => {
     const c = { type: sc.changes[Number(el.dataset.i)].type };
@@ -1301,8 +1308,8 @@ async function cpmScenarios(body) {
   $('#cpm-sc-copy').onclick = async () => { const s = await api.post('/cpm/scenarios', { name: `${sc.name} (copy)`, notes: sc.notes, changes: sc.mine ? read() : sc.changes }); store.set('cpmScenario', s.id); toast('Copied — it\'s yours to change'); renderCpm('scenarios'); };
   if (!sc.mine) return;
   $('#cpm-sc-del').onclick = async () => { if (!confirm(`Delete “${sc.name}”?`)) return; await api.del(`/cpm/scenarios/${sc.id}`); store.set('cpmScenario', 0); renderCpm('scenarios'); };
-  $('#cpm-add-change').onclick = () => { sc.changes = [...read(), { type: $('#cpm-add-type').value }]; refreshMachines(); $('#cpm-changes').innerHTML = sc.changes.map(changeHtml).join(''); wireRm(); loadCards(); };
-  const wireRm = () => { wirePrev(); return $$('[data-cpm-rm]').forEach((b) => { b.onclick = () => { const l = read(); l.splice(Number(b.dataset.cpmRm), 1); sc.changes = l; refreshMachines(); $('#cpm-changes').innerHTML = l.map(changeHtml).join('') || '<p class="muted">No changes yet — add one below.</p>'; wireRm(); loadCards(); }; }); };
+  $('#cpm-add-change').onclick = () => { sc.changes = [...read(), { type: $('#cpm-add-type').value }]; refreshMachines(); $('#cpm-changes').innerHTML = changesHtml(sc.changes); wireRm(); loadCards(); };
+  const wireRm = () => { wirePrev(); return $$('[data-cpm-rm]').forEach((b) => { b.onclick = () => { const l = read(); l.splice(Number(b.dataset.cpmRm), 1); sc.changes = l; refreshMachines(); $('#cpm-changes').innerHTML = changesHtml(l) || '<p class="muted">No changes yet — add one below.</p>'; wireRm(); loadCards(); }; }); };
   wireRm();
   $('#cpm-sc-save').onclick = async () => {
     try { await api.put(`/cpm/scenarios/${sc.id}`, { name: $('#cpm-sc-title').value, notes: $('#cpm-sc-notes').value, shared: $('#cpm-sc-share').checked, changes: read() }); toast('Scenario saved'); renderCpm('scenarios'); } catch (err) { toast(err.message, 'error'); }
