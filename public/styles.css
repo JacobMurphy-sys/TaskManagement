@@ -2912,3 +2912,7 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .cpm-push.cpm-push-ok { border-left-color: var(--ok, #16a34a); background: color-mix(in srgb, var(--ok, #16a34a) 7%, transparent); }
 
 .pl-metal { display: inline-block; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 8px; background: linear-gradient(135deg, #9ca3af, #e5e7eb, #9ca3af); color: #1f2937; vertical-align: 1px; }
+
+/* Production › Setup: edits kept until one Save */
+.pl-setup-bar { position: sticky; top: 0; z-index: 5; display: flex; gap: 8px; align-items: center; padding: 6px 10px; margin: -4px -4px 8px; border-radius: 6px; background: var(--card, #fff); border: 1px solid var(--warn, #d97706); box-shadow: 0 2px 6px rgba(0,0,0,.08); }
+.pl-dirty { outline: 2px solid var(--warn, #d97706); outline-offset: 1px; }

@@ -116,7 +116,12 @@ async function plNoSpeed() {
   };
 }
 
+// ⚙ Setup's changes not saved yet (see plPend): drawing the page again would lose them — asked first
+let plSetupPending = null;
+window.addEventListener('beforeunload', (e) => { if (plSetupPending?.size) { e.preventDefault(); e.returnValue = ''; } });
 async function renderPlanning() {
+  if (plSetupPending?.size && !confirm(`${plSetupPending.size} change${plSetupPending.size === 1 ? '' : 's'} in Setup not saved yet — drop ${plSetupPending.size === 1 ? 'it' : 'them'}?`)) return;
+  plSetupPending = null;
   if (['insights', 'dplus'].includes(store.get('planHalf', 'perso'))) return renderPlanInsights(); // Insights (dplus.js)
   const mode = ['bau', 'score', 'mitigation'].includes(store.get('planMode', 'fifo')) ? store.get('planMode') : 'fifo';
   const half = ['otto', 'disp'].includes(store.get('planHalf', 'perso')) ? store.get('planHalf') : 'perso';
@@ -652,6 +657,7 @@ async function renderPlanning() {
     ${half === 'perso' ? modsHtml() : ''}
     ${src.status === 'ok' ? '' : '<div class="card only-not-admin"><p>Planning isn\'t set up yet: an admin links the open work orders export in Setup.</p></div>'}
     <div class="card pl-setup admin-only" id="pl-setup" ${src.status === 'ok' && !store.get('planSetupOpen', false) ? 'hidden' : ''}>
+      <div class="pl-setup-bar" id="pl-setup-bar" hidden><span class="pl-warn" id="pl-setup-n"></span><div class="spacer"></div><button class="small" id="pl-setup-undo">Undo changes</button><button class="small primary" id="pl-setup-save">💾 Save</button></div>
       <div class="row"><h2 style="margin:0">Setup</h2><div class="spacer"></div>${ddMenu('⋯', `<a href="/api/plan/setup" download title="Machines, speeds, OEE, modifiers, card tags, pins and these settings — to move them to the shared planner (or back)">⬇ Export setup</a><a href="/api/plan/setup?history=1" download title="The setup plus the history built up from the exports (the pace, catch-up and on-time figures) and the Production runs — so a new install starts where this one is">⬇ Export setup + history</a><label title="Replace this setup with one exported before">⬆ Import setup…<input type="file" accept=".json" hidden id="pl-setup-file"></label>`, { title: 'Export or import the setup' })}</div>
       ${p.shared_setup ? `<p class="small muted" style="margin:6px 0 0">From the network: <span title="${esc(p.shared_setup.file)}">${esc(p.shared_setup.file.split(/[\\/]/).pop())}</span>, ${esc(fmtDateTime(p.shared_setup.at))} —
         ${p.shared_setup.setup ? 'setup applied' : 'this install\'s own setup kept'}${p.shared_setup.history ? `; history added: ${n(p.shared_setup.history.reads)} exports, ${n(p.shared_setup.history.jobs + p.shared_setup.history.jobs_updated)} jobs, ${n(p.shared_setup.history.prod_runs)} production runs` : ''}.
@@ -844,44 +850,56 @@ ${half === 'otto' ? ottoSetup() : `
     } catch (err) { toast(err.message, 'error'); }
   });
   if (state.mode === 'planner') startPlanPresence();
-  $$('#pl-setup input[name]').forEach((el) => el.addEventListener('change', async () => {
-    // the production reports: read straight away
+  // ⚙ Setup: edits are kept until one Save (with Undo), as Capacity planning's settings — each change queued
+  // (the latest for a field wins), saved together, then the page drawn once
+  const plPend = new Map(); plSetupPending = plPend; // a field's key → () => Promise (its save)
+  const plBar = () => { const n = plPend.size; const bar = $('#pl-setup-bar'); if (!bar) return; bar.hidden = !n; $('#pl-setup-n').textContent = `${n} change${n === 1 ? '' : 's'} not saved yet`; };
+  const queue = (key, run, el) => { plPend.set(key, run); el?.classList.add('pl-dirty'); plBar(); };
+  // save what's queued; quiet: no toast (before an add / remove, which then draws the page)
+  const plFlush = async (quiet = false) => {
+    if (!plPend.size) return true; const runs = [...plPend.values()]; plPend.clear(); const errs = [];
+    for (const run of runs) { try { await run(); } catch (err) { errs.push(err.message); } }
+    if (errs.length) toast(`${runs.length - errs.length} saved — ${errs.length} not: ${errs.join(' · ')}`, 'error'); else if (!quiet) toast(`${runs.length} change${runs.length === 1 ? '' : 's'} saved`);
+    store.set('planSetupOpen', true); return !errs.length;
+  };
+  $('#pl-setup-save')?.addEventListener('click', async () => { const b = $('#pl-setup-save'); b.disabled = true; b.textContent = 'Saving…'; await plFlush(); renderPlanning(); });
+  $('#pl-setup-undo')?.addEventListener('click', () => { plPend.clear(); store.set('planSetupOpen', true); renderPlanning(); });
+  $$('#pl-setup input[name]').filter((el) => !el.closest('[data-plo-machine], [data-pl-machine]') && !el.matches('.pl-speed, .pl-oee, .plo-speed, [data-pl-day], [data-pl-learned], [data-pdata-set]')).forEach((el) => el.addEventListener('change', () => { // (the settings; machines, speeds and the rest have their own below)
+    // the production reports: read when saved
     const report = { kpi_perso_data: 'pdata', kpi_time_perso: 'perso' }[el.name];
     if (report) {
-      try {
+      queue(`set:${el.name}`, async () => {
         await api.patch('/settings', { [el.name]: el.value.trim().replace(/^"|"$/g, '') });
         const r = el.value.trim() ? await api.post('/prod/read', { source: report }) : null;
-        toast(!r ? 'Saved' : r.status === 'read' ? `Read ${n(r.rows)} ${report === 'pdata' ? 'rows' : 'runs'}` : r.status === 'missing' ? 'Saved — but the file can\'t be found there' : r.error || 'Saved', r && r.status !== 'read' ? 'error' : '');
-      } catch (err) { toast(err.message, 'error'); }
-      store.set('planSetupOpen', true); renderPlanning(); return;
+        if (r) toast(r.status === 'read' ? `Read ${n(r.rows)} ${report === 'pdata' ? 'rows' : 'runs'}` : r.status === 'missing' ? 'Saved — but the file can\'t be found there' : r.error || 'Saved', r.status !== 'read' ? 'error' : '');
+      }, el); return;
     }
-    try { state.settings = await api.patch('/settings', { [el.name]: el.value.trim().replace(/^"|"$/g, '') }); toast('Saved'); if (el.name === 'planner_url' && typeof plannerLink === 'function') plannerLink(); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+    queue(`set:${el.name}`, async () => { state.settings = await api.patch('/settings', { [el.name]: el.value.trim().replace(/^"|"$/g, '') }); if (el.name === 'planner_url' && typeof plannerLink === 'function') plannerLink(); }, el);
   }));
-  $$('[data-pl-learned]').forEach((el) => el.addEventListener('change', async () => {
-    try { state.settings = await api.patch('/settings', { plan_learned_times: el.dataset.plLearned }); toast(el.dataset.plLearned === '1' ? 'Planning now uses the learned run times' : 'Planning uses the speeds and OEE'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+  $$('[data-pl-learned]').forEach((el) => el.addEventListener('change', () => {
+    queue('learned', async () => { state.settings = await api.patch('/settings', { plan_learned_times: el.dataset.plLearned }); }, el.closest('label') || el);
   }));
-  $$('[data-pl-day]').forEach((el) => el.addEventListener('change', async () => {
-    const days = $$('[data-pl-day]').filter((x) => x.checked).map((x) => x.dataset.plDay).join(',');
-    try { await api.patch('/settings', { plan_days: days }); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+  $$('[data-pl-day]').forEach((el) => el.addEventListener('change', () => {
+    queue('days', async () => { await api.patch('/settings', { plan_days: $$('[data-pl-day]').filter((x) => x.checked).map((x) => x.dataset.plDay).join(',') }); }, el.closest('label') || el);
   }));
-  $$('.pl-speed').forEach((el) => el.addEventListener('change', async () => {
-    const speed = el.value.trim();
+  $$('.pl-speed').forEach((el) => el.addEventListener('change', () => {
     const body = { type: el.dataset.type || null, material: el.dataset.material || null, sides: el.dataset.sides || null };
-    try {
+    queue(`speed:${body.type}|${body.material}|${body.sides}`, async () => {
+      const speed = el.value.trim();
       if (speed) await api.post('/plan/speeds', { ...body, speed });
       else { const r = p.rules.find((x) => (x.type || '') === (body.type || '') && (x.material || '') === (body.material || '') && (x.sides || '') === (body.sides || '')); if (r) await api.del(`/plan/speeds/${r.id}`); }
-      toast('Speed saved'); store.set('planSetupOpen', true); renderPlanning();
-    } catch (err) { toast(err.message, 'error'); }
+    }, el);
   }));
-  $$('.pl-oee').forEach((el) => el.addEventListener('change', async () => {
-    try { await api.put(`/plan/oee/${encodeURIComponent(el.dataset.customer)}`, { oee: el.value.trim() }); toast('OEE saved'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+  $$('.pl-oee').forEach((el) => el.addEventListener('change', () => {
+    queue(`oee:${el.dataset.customer}`, async () => { await api.put(`/plan/oee/${encodeURIComponent(el.dataset.customer)}`, { oee: el.value.trim() }); }, el);
   }));
-  $$('[data-plo-machine] input').forEach((el) => el.addEventListener('change', async () => {
-    const id = el.closest('[data-plo-machine]').dataset.ploMachine;
-    try { await api.patch(`/plan/otto/machines/${id}`, { [el.name]: el.type === 'checkbox' ? el.checked : el.value }); toast('Saved'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+  $$('[data-plo-machine] input').forEach((el) => el.addEventListener('change', () => {
+    const tr = el.closest('[data-plo-machine]'); const id = tr.dataset.ploMachine;
+    if (el.name === 'metal') { const sp = tr.querySelector('[name="metal_speed"]'); if (sp) { sp.disabled = !el.checked; sp.placeholder = el.checked ? 'items/h' : '—'; } } // (unlocked now; saved with the rest)
+    queue(`otto:${id}:${el.name}`, async () => { await api.patch(`/plan/otto/machines/${id}`, { [el.name]: el.type === 'checkbox' ? el.checked : el.value }); }, el);
   }));
-  $$('.plo-speed').forEach((el) => el.addEventListener('change', async () => {
-    try { await api.put(`/plan/otto/speeds/${encodeURIComponent(el.dataset.customer)}`, { speed: el.value.trim() }); toast('Speed saved'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+  $$('.plo-speed').forEach((el) => el.addEventListener('change', () => {
+    queue(`ospeed:${el.dataset.customer}`, async () => { await api.put(`/plan/otto/speeds/${encodeURIComponent(el.dataset.customer)}`, { speed: el.value.trim() }); }, el);
   }));
   const reMods = () => { store.set('planModsOpen', true); renderPlanning(); };
   $$('[data-pl-mod] input').forEach((el) => el.addEventListener('change', async () => {
@@ -907,13 +925,13 @@ ${half === 'otto' ? ottoSetup() : `
     else toast(`Imported: ${Object.entries(d.lists).map(([k, v]) => `${k} ${v}`).join(', ')}${d.shifts ? `, shifts for ${d.shifts} customers` : ''}${d.tags ? `, ${d.tags} card tags` : ''}`);
     reMods();
   });
-  $$('[data-pl-machine] input').forEach((el) => el.addEventListener('change', async () => {
+  $$('[data-pl-machine] input').forEach((el) => el.addEventListener('change', () => {
     const id = el.closest('[data-pl-machine]').dataset.plMachine;
-    try { await api.patch(`/plan/machines/${id}`, { [el.name]: el.type === 'checkbox' ? el.checked : el.value }); toast('Saved'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+    queue(`machine:${id}:${el.name}`, async () => { await api.patch(`/plan/machines/${id}`, { [el.name]: el.type === 'checkbox' ? el.checked : el.value }); }, el);
   }));
   main().onclick = async (e) => {
     const delM = e.target.closest('[data-pl-del-machine]');
-    if (delM) { if (!confirm('Remove this machine?')) return; try { await api.del(`/plan/machines/${delM.dataset.plDelMachine}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
+    if (delM) { if (!confirm('Remove this machine?')) return; await plFlush(true); try { await api.del(`/plan/machines/${delM.dataset.plDelMachine}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
     const addMod = e.target.closest('[data-pl-add-mod]');
     if (addMod) {
       const tr = addMod.closest('tr'); const body = { list: addMod.dataset.plAddMod };
@@ -938,19 +956,19 @@ ${half === 'otto' ? ottoSetup() : `
     if (e.target.closest('[data-pl="print"]')) { printDialog(p, mode, settings, half); return; }
     if (e.target.closest('[data-pl="mods"]')) { const m = $('#pl-mods'); m.hidden = !m.hidden; store.set('planModsOpen', !m.hidden); if (!m.hidden) m.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     const delO = e.target.closest('[data-plo-del-machine]');
-    if (delO) { if (!confirm('Remove this Matching machine?')) return; try { await api.del(`/plan/otto/machines/${delO.dataset.ploDelMachine}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
+    if (delO) { if (!confirm('Remove this Matching machine?')) return; await plFlush(true); try { await api.del(`/plan/otto/machines/${delO.dataset.ploDelMachine}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
     if (e.target.closest('[data-pl="add-otto-machine"]')) {
-      try { await api.post('/plan/otto/machines', { name: $('#plo-new-machine').value, match: $('#plo-new-match').value, speed: $('#plo-new-speed').value }); toast('Machine added'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+      await plFlush(true); try { await api.post('/plan/otto/machines', { name: $('#plo-new-machine').value, match: $('#plo-new-match').value, speed: $('#plo-new-speed').value }); toast('Machine added'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
       return;
     }
     if (e.target.closest('[data-pl="add-machine"]')) {
-      try { await api.post('/plan/machines', { name: $('#pl-new-machine').value, types: $('#pl-new-machine-types').value }); toast('Machine added'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
+      await plFlush(true); try { await api.post('/plan/machines', { name: $('#pl-new-machine').value, types: $('#pl-new-machine-types').value }); toast('Machine added'); store.set('planSetupOpen', true); renderPlanning(); } catch (err) { toast(err.message, 'error'); }
       return;
     }
     const del = e.target.closest('[data-pl-del-speed]');
-    if (del) { try { await api.del(`/plan/speeds/${del.dataset.plDelSpeed}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
+    if (del) { await plFlush(true); try { await api.del(`/plan/speeds/${del.dataset.plDelSpeed}`); renderPlanning(); } catch (err) { toast(err.message, 'error'); } return; }
     if (e.target.closest('[data-pl="add-speed"]')) {
-      try {
+      await plFlush(true); try {
         await api.post('/plan/speeds', { type: $('#pl-new-type').value, material: $('#pl-new-material').value, sides: $('#pl-new-sides').value, speed: $('#pl-new-speed').value });
         toast('Rule added'); store.set('planSetupOpen', true); renderPlanning();
       } catch (err) { toast(err.message, 'error'); }
