@@ -118,38 +118,99 @@ function monthly({ year, useFlex = true, cards = null, changes = [] }) {
   return { year, flex: !!useFlex, oee: o, machines: M.list, ref_speed: M.ref, capacity_hour: capH, months, warnings, forecast_as_of: plan.forecast_as_of };
 }
 
-// 🕐 a working day of a month, hour by hour
+// 🕐 a working day of a month, hour by hour — laid out as perso's CPM Daily is (a technology of its own,
+// 'Matching'), so the same views work on it: as it comes in, smoothed, as work orders, the drill-down.
+// Each customer's items a day split into daily work (Urgent / High / Normal) and renewals (Low), by its Matching
+// work orders; the daily work spread as its Matching runs ended, the renewals over Matching's renewal window
+// (Configuration › Matching; none: every hour worked); campaigns ticked for Matching added in their own colour.
+// "cards" in the shared fields are Matching's items here.
+const MT = 'Matching';
+// each customer's typical Matching work order (items, the median lately): daily (D) and renewals (R) apart
+function orderSizes() {
+  let jobs = []; try { jobs = db.all('SELECT customer, qty, prio FROM plan_otto_jobs WHERE first_seen >= ? AND customer IS NOT NULL AND qty > 0', [since()]); } catch { return new Map(); }
+  const by = new Map(); const add = (k, q) => (by.get(k) || by.set(k, []).get(k)).push(q);
+  for (const j of jobs) { const kind = /^low/i.test(String(j.prio || '')) ? 'R' : 'D'; const tri = String(j.customer).toUpperCase(); add(`${kind}|${tri}|${MT}`, Number(j.qty)); add(`${kind}|*|${MT}`, Number(j.qty)); }
+  const out = new Map(); for (const [k, a] of by) if (a.length >= (k.includes('|*|') ? 1 : 3)) { a.sort((x, y) => x - y); out.set(k, a[Math.floor(a.length / 2)]); }
+  return out;
+}
 function day({ year, month, useFlex = true, cards = null, changes = [] }) {
+  const CD = require('./cpmday');
   const plan = cpm.compute({ year, period: 'month', useFlex, cards, changes }); const P = plan.periods[month - 1] || {};
-  const R = ratios(); const M = machines(); const o = oee(); const prof = profiles(); const warnings = [];
+  const R = ratios(); const M = machines(); const o = oee(); const OE = oees(M); const PR = prios(); const prof = profiles(); const warnings = [];
   const start = Math.floor(hm(setting('plan_day_start', '06:00'), 360) / 60) % 24; const H = Array.from({ length: 24 }, (_, i) => (start + i) % 24);
   const shifts = P.shifts ?? 3; const first = Math.floor(hm(setting('plan_shift_morning', '05:45'), 345) / 60 + 0.5) % 24;
   const worked = new Set(Array.from({ length: Math.min(24, Math.round(shifts * 8)) }, (_, i) => (first + i) % 24));
   const factor = Math.min(1, cpm.shiftHours() / 8); const days = P.workdays || 0;
+  const bonus = Number(setting('cpm_rnw_bonus', '0.05')) || 0;
   if (!M.list.length) warnings.push('No Matching machines in Production › Setup — there\'s no Matching capacity to plan against');
   if (!prof.runs) warnings.push('No Matching timing runs in the last 4 months — each day is spread evenly over the hours worked');
   const even = H.map((h) => (worked.has(h) ? 1 / worked.size : 0));
-  const rows = customersOf(plan, month, R, M).map((c) => {
-    const p = prof.by.get(c.trigram) || prof.by.get('*'); const from = prof.by.get(c.trigram) ? 'own' : p ? 'matching' : 'even';
-    const shares = p ? H.map((h) => p[h]) : even; const itemsDay = days ? c.items / days : 0; const needDay = days ? c.need / days : 0;
-    return { trigram: c.trigram, name: c.name, prio: c.prio, prio_from: c.prio_from, cards_day: days ? c.cards / days : 0, ratio: c.ratio, ratio_from: c.ratio_from, oee: c.oee, oee_from: c.oee_from, items_day: itemsDay, need_day: needDay, own_speed: c.own_speed, speed_factor: c.speed_factor, profile: from, shares,
-      hours: shares.map((s) => needDay * s), items_hours: shares.map((s) => itemsDay * s), added_day: days ? ((c.added_items / c.oee) * c.speed_factor) / days : 0 };
-  });
-  const capacity = H.map((h) => (worked.has(h) ? M.list.reduce((a, m) => a + m.speed, 0) * factor : 0));
-  const byMachine = M.list.map((m) => ({ name: m.name, per: H.map((h) => (worked.has(h) ? m.speed * factor : 0)) }));
-  const need = H.map((_, i) => rows.reduce((a, r) => a + r.hours[i], 0)); const items = H.map((_, i) => rows.reduce((a, r) => a + r.items_hours[i], 0));
-  const added = H.map((_, i) => rows.reduce((a, r) => a + r.added_day * r.shares[i], 0));
-  let carry = 0; const backlog = need.map((v, i) => { carry = Math.max(0, carry + v - capacity[i]); return carry; });
-  const tot = need.reduce((a, b) => a + b, 0); const capTot = capacity.reduce((a, b) => a + b, 0);
-  // by priority: each hour's capacity goes to the Urgent work waiting first, then High, Normal and Low — what
-  // doesn't get done waits for the next hour, so the Low work is what's left when the day is full
-  const prio = Object.fromEntries(PRIOS.map((k) => [k, H.map((_, i) => rows.reduce((a, r) => a + r.hours[i] * r.prio[k], 0))]));
+  // the shipping cut-offs: as perso's (the customer's, typed or learned, else the default)
+  const cuts = CD.customerCutoffs(); const typedCut = json(setting('cpm_cutoff_cust', '{}'), {}); const hrs = (t) => Number(t.slice(0, 2)) + Number(t.slice(3, 5)) / 60; const defCut = CD.defaultCutoff();
+  const cutoffOf = (tri) => (tri && /^\d{2}:\d{2}$/.test(typedCut[tri] || '') ? hrs(typedCut[tri]) : tri && cuts.has(tri) ? cuts.get(tri) : hrs(defCut));
+  const rows = [];
+  // a line: v items a month (its share of a customer), e its OEE, the customer's priorities and timing
+  const line = (c, v, added, extra = {}) => {
+    if (!(v > 0)) return null;
+    const pr = c.prio; const low = extra.kind === 'renewal' ? 1 : extra.kind === 'daily' ? 0 : pr.low; const dmix = 1 - pr.low > 1e-9 ? { urgent: pr.urgent / (1 - pr.low), high: pr.high / (1 - pr.low), normal: pr.normal / (1 - pr.low) } : { urgent: 0, high: 0, normal: 1 };
+    const pp = prof.by.get(c.trigram) || prof.by.get('*'); const from = prof.by.get(c.trigram) ? 'own' : pp ? 'technology' : 'even';
+    const shares = pp ? H.map((h) => pp[h]) : even;
+    const eff = c.oee / c.speed_factor; const effR = Math.min(1, c.oee + bonus) / c.speed_factor; // items per unit of capacity needed (the customer's OEE, its speed)
+    const daily = days ? (v * (1 - low)) / days : 0; const renew = days ? (v * low) / days : 0;
+    const r = { trigram: c.trigram, name: c.name, added: added || null, tech: MT, month_volume: v, daily_pct: 1 - low, rnw_pct: low, rnw_learned: pr.low, rnw_learned_days: c.prio_days || null, rnw_learned_whole: null, rnw_typed: null,
+      prio: dmix, prio_from: c.prio_from === 'none' ? 'none' : c.prio_from, prio_learned: c.prio_from === 'learned' ? dmix : null, prio_days: c.prio_days || 0,
+      oee: eff, oee_rnw: effR, oee_match: c.oee, oee_from: c.oee_from, ratio: c.ratio, ratio_from: c.ratio_from, own_speed: c.own_speed, speed_factor: c.speed_factor,
+      workdays: days, daily, renew, need_daily: daily / eff, need_rnw: renew / effR, profile: from, peak: null, learned_shares: shares, learned_from: from, produced_shares: shares, arrive_avg: pp ? CD.meanHour(pp) : null, arrive_seen: null, shares,
+      hours: shares.map((s) => (daily / eff) * s), cards_hours: shares.map((s) => daily * s), cutoff: cutoffOf(c.trigram), cutoff_typed: (c.trigram && typedCut[c.trigram]) || null,
+      cutoff_learned: c.trigram && cuts.has(c.trigram) ? cuts.get(c.trigram) : null, ...extra };
+    r.cutoff_default = !r.cutoff_typed && r.cutoff_learned === null; r.cards_day = days ? (v / (c.ratio || 1)) / days : 0; r.items_day = daily + renew; r.need_day = r.need_daily + r.need_rnw;
+    rows.push(r); return r;
+  };
+  const custs = customersOf(plan, month, R, M, OE, PR);
+  const byTri = new Map();
+  for (const c of custs) {
+    const pr = PR.of(c.trigram); const cc = { ...c, prio_days: pr.days }; byTri.set(c.trigram, cc);
+    const extra = Math.min(c.items, c.added_items || 0);
+    line(cc, c.items - extra, null); if (extra > 0.5) line({ ...cc, name: `${c.name} — scenario +` }, extra, 'scenario');
+  }
+  // 📣 campaigns ticked for Matching: the cards a working day × its share through Matching, daily or renewals as set
+  const camps = json(setting('cpm_campaigns', '[]'), []); const ymOf = `${year}-${pad(month)}`;
+  for (const c of Array.isArray(camps) ? camps : []) {
+    if (!c || c.off || c.match === false || !(Number(c.qty) > 0) || !c.customer || !/^\d{4}-\d{2}-\d{2}$/.test(c.from || '')) continue;
+    const from = c.from; const to = /^\d{4}-\d{2}-\d{2}$/.test(c.to || '') ? c.to : from; if (to.slice(0, 7) < ymOf || from.slice(0, 7) > ymOf) continue;
+    let all = 0; let here = 0;
+    for (let y = Number(from.slice(0, 4)); y <= Number(to.slice(0, 4)); y++) for (const dd of cpm.calendarOf(y)) if (dd.work && dd.day >= from && dd.day <= to) { all++; if (dd.month === ymOf) here++; }
+    if (!all || !here) continue;
+    const tri = String(c.customer).toUpperCase(); const r = R.of(tri); const e = OE.of(tri); const pr = PR.of(tri); const cs = M.cust.get(tri) || 0;
+    const base = byTri.get(tri) || { trigram: tri, name: tri, prio: pr.mix, prio_from: pr.from, prio_days: pr.days, ratio: r.ratio, ratio_from: r.from, oee: e.oee, oee_from: e.from, own_speed: cs || null, speed_factor: cs > 0 && M.ref > 0 ? M.ref / cs : 1 };
+    const asRnw = c.kind === 'renewal'; const items = (Number(c.qty) / all) * days * base.ratio; // this month's working days' worth
+    line({ ...base, name: `${c.name || 'Campaign'}${asRnw ? ' (renewals)' : ''}` }, items, 'campaign', { kind: asRnw ? 'renewal' : 'daily', campaign: c.name || 'Campaign', campaign_kind: asRnw ? 'renewal' : 'daily' });
+  }
+  for (const r of rows) delete r.kind;
+  rows.sort((a, b) => (a.added ? 1 : 0) - (b.added ? 1 : 0) || b.need_day - a.need_day);
+  // the renewals: over Matching's window (none set: every hour worked)
+  const win = (json(setting('cpm_rnw_hours', '{}'), {})[MT] || []).map(Number).filter((h) => h >= 0 && h < 24);
+  const rHours = win.length ? win : [...worked]; const rNeed = rows.reduce((a, r) => a + r.need_rnw, 0);
+  const rnwT = { need: rNeed, hours: rHours, window: !!win.length, per: H.map((h) => (rHours.includes(h) ? rNeed / rHours.length : 0)) };
+  const cap = H.map((h) => (worked.has(h) ? M.list.reduce((a, m) => a + m.speed, 0) * factor : 0));
+  const tech = CD.techDay({ t: MT, H, rows, rnw: rnwT, cap, cutoffOf });
+  // by priority, as it comes in: each hour's capacity to the Urgent work waiting first, then High, Normal and Low
+  const prio = { urgent: tech.prio.urgent, high: tech.prio.high, normal: tech.prio.normal, low: rnwT.per };
   const left = Object.fromEntries(PRIOS.map((k) => [k, 0])); const waiting = Object.fromEntries(PRIOS.map((k) => [k, Array(24).fill(0)]));
-  H.forEach((_, i) => { let free = capacity[i]; for (const k of PRIOS) { const want = left[k] + prio[k][i]; const done = Math.min(want, free); free -= done; left[k] = want - done; waiting[k][i] = left[k]; } });
-  return { prio, waiting_prio: waiting, year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), oee: o,
-    machines: M.list, ref_speed: M.ref, rows, need, items, added, capacity, by_machine: byMachine, load: need.map((v, i) => (capacity[i] ? v / capacity[i] : v ? null : 0)), backlog,
-    total: { need: tot, items: items.reduce((a, b) => a + b, 0), capacity: capTot, load: capTot ? tot / capTot : null, end_backlog: carry, end_prio: left, hours_over: need.filter((v, i) => v > capacity[i] + 0.5).length },
-    profile_runs: prof.runs, warnings };
+  H.forEach((_, i) => { let free = cap[i]; for (const k of PRIOS) { const want = left[k] + prio[k][i]; const done = Math.min(want, free); free -= done; left[k] = want - done; waiting[k][i] = left[k]; } });
+  // as work orders: each customer's day cut into Matching work orders of its usual size, on the first free machine
+  const mach = M.list.filter((m) => m.speed > 0).map((m) => ({ name: m.name, techs: [MT], speed: { [MT]: m.speed }, avail: 1 }));
+  let blocks = null;
+  try { blocks = CD.runBlocks({ H, rows, machines: mach, workedAt: (i) => worked.has(H[i]), factor, rnwHours: { [MT]: win }, sizes: orderSizes(), allowed: () => 1, cutoffOf }); } catch (err) { warnings.push(`The work-order run couldn't be worked out: ${err.message}`); }
+  const ship = CD.shipTimes(); const T = tech.total;
+  return { line: 'match', unit: 'items', year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), shifts, hph: P.hph, full: true, hour_share: factor,
+    techs: [MT], rows, renewals: { [MT]: rnwT }, windows: { [MT]: win }, bonus, profile_source: 'produced', day_shape: 'typical', peak_source: null, arrivals_seen: null, actual: { days: 0 },
+    capacity_machines: mach.map((m) => ({ ...m, share: H.map(() => ({ [MT]: 1 })) })), capacity_by_machine: { [MT]: mach.map((m) => ({ name: m.name, per: H.map((h) => (worked.has(h) ? m.speed[MT] * factor : 0)) })) },
+    tech: { [MT]: tech }, blocks, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, cutoff_default: defCut,
+    rnw_share_typed: {}, prio_typed: {}, prio_all: PR.all, campaigns: Array.isArray(camps) ? camps : [], manual: {}, learned: { runs: prof.runs, renewals: 0 }, forecast_as_of: plan.forecast_as_of, flex: useFlex, warnings,
+    // Matching's own: the OEE, the machines, the day by priority and what's left of it
+    oee: o, machines: M.list, ref_speed: M.ref, profile_runs: prof.runs, need: tech.need, capacity: cap, backlog: tech.backlog, load: tech.load, added: H.map((_, i) => tech.added[i] + tech.added_rnw[i]), prio, waiting_prio: waiting,
+    total: { need: T.need, items: rows.reduce((a, r) => a + r.items_day, 0), capacity: T.capacity, load: T.load, end_backlog: T.end_backlog, end_prio: left, hours_over: T.hours_over } };
 }
 
 // what Configuration › Matching shows: each customer's learned and typed share, the machines and the OEE
@@ -159,7 +220,8 @@ function config() {
   return { oee: oee(), everyone: R.learned.get('*') || null, machines: M.list.map((m) => ({ ...m, runs: OE.measured.runs.get(m.name) ?? null })), ref_speed: M.ref, measured_all: OE.measured.by.get('*') || null, customer_speeds: [...M.cust].map(([customer, speed]) => ({ customer, speed })),
     customers: tris.map((t) => { const l = R.learned.get(t) || null; const ms = OE.measured.by.get(t) || null;
       return { trigram: t, name: names.get(t) || '', learned: l ? l.ratio : null, perso: l ? l.perso : 0, match: l ? l.match : 0, typed: R.typed[t] ?? null, own_speed: M.cust.get(t) || null,
-        oee_measured: ms ? ms.oee : null, oee_raw: ms ? ms.raw : null, oee_hours: ms ? ms.hours : 0, oee_typed: OE.typed[t] ?? null, prio: PR.of(t) }; }), prio_all: PR.all };
+        oee_measured: ms ? ms.oee : null, oee_raw: ms ? ms.raw : null, oee_hours: ms ? ms.hours : 0, oee_typed: OE.typed[t] ?? null, prio: PR.of(t) }; }), prio_all: PR.all,
+    rnw_hours: json(setting('cpm_rnw_hours', '{}'), {}), window: (json(setting('cpm_rnw_hours', '{}'), {}).Matching || []).map(Number), hours: Array.from({ length: 24 }, (_, i) => (Math.floor(hm(setting('plan_day_start', '06:00'), 360) / 60) + i) % 24) };
 }
 
 module.exports = { monthly, day, config, learnedRatios, profiles, machines, oee, measuredOee, oees };

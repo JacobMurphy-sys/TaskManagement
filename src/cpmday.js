@@ -236,6 +236,43 @@ function customerCutoffs() {
   const top = [...all].sort((a, b) => b[1] - a[1])[0]; if (top) out.set('*', top[0]);
   return out;
 }
+// a technology's day from its rows: as it comes in, smoothed (by priority, around the renewals), in cards and
+// in capacity needed, against its capacity — perso's technologies and Matching alike
+function techDay({ t, H, rows, rnw: R, cap, idle = Array(24).fill(0), cutoffOf, actual = null }) {
+    const tr = rows.filter((r) => r.tech === t);
+    const cDaily = H.map((_, i) => tr.reduce((a, r) => a + r.cards_hours[i], 0));
+    const rCards = tr.reduce((a, r) => a + r.renew, 0);
+    const cRnw = H.map((h) => (R.hours.includes(h) ? rCards / R.hours.length : 0));
+    const daily = H.map((_, i) => tr.reduce((a, r) => a + r.hours[i], 0));
+    const renewals = R.per; const need = daily.map((v, i) => v + renewals[i]);
+    let carry = 0; const backlog = need.map((v, i) => { carry = Math.max(0, carry + v - cap[i]); return carry; });
+    const tot = need.reduce((a, b) => a + b, 0); const capTot = cap.reduce((a, b) => a + b, 0);
+    const cards_ = cDaily.map((v, i) => v + cRnw[i]); const dayRatio = need.reduce((a, b) => a + b, 0) ? cards_.reduce((a, b) => a + b, 0) / need.reduce((a, b) => a + b, 0) : 1;
+    const effCap = cap.map((c, i) => c * (need[i] > 0.5 ? cards_[i] / need[i] : dayRatio));
+    // smoothed: the daily work moved within its hours before the cut-off, to stay under capacity
+    const sm = smoothDay(H, tr, renewals, cap, cutoffOf);
+    const rRatio = R.need > 1e-9 ? rCards / R.need : 0; const sRnwCards = sm.rnw.map((v) => v * rRatio); // renewal cards per capacity needed
+    const sDaily = sm.load.map((v, i) => v - sm.rnw[i]); const sNeed = sm.load; const sCards = sm.cards.map((v, i) => v + sRnwCards[i]);
+    let sc = 0; const sBack = sNeed.map((v, i) => { sc = Math.max(0, sc + v - cap[i]); return sc; });
+    tr.forEach((r, k) => { r.smoothed = sm.perRow[k]; r.smoothed_cards = sm.perRow[k].map((v) => v * r.oee); r.late_hours = sm.lateRow[k]; r.late = sm.lateRow[k].reduce((a, b) => a + b, 0); r.late_cards = r.late * r.oee; });
+    const smooth = { daily: sDaily, need: sNeed, load: sNeed.map((v, i) => (cap[i] ? v / cap[i] : v ? null : 0)), backlog: sBack,
+      renewals: sm.rnw, rnw_deferred: sm.deferred, rnw_deferred_cards: sm.deferred * rRatio,
+      cards: { daily: sm.cards, renewals: sRnwCards, total: sCards, capacity: cap.map((c, i) => c * (sNeed[i] > 0.5 ? sCards[i] / sNeed[i] : dayRatio)) },
+      peak: Math.max(...sNeed.map((v, i) => (cap[i] ? v / cap[i] : 0))), hours_over: sNeed.filter((v, i) => v > cap[i] + 0.5).length, over: sNeed.reduce((a, v, i) => a + Math.max(0, v - cap[i]), 0), late: sm.late, late_at: sm.lateAt, late_cards: tr.reduce((a, r) => a + r.late_cards, 0), late_customers: [...new Set(tr.filter((r) => r.late_cards > 0.5).map((r) => r.trigram || r.name))], unplaced: sm.unplaced, end_backlog: sc };
+    const DP = ['urgent', 'high', 'normal']; const pmx = (r, c) => r.prio?.[c] ?? (c === 'normal' ? 1 : 0);
+    const prio = Object.fromEntries(DP.map((c) => [c, H.map((_, i) => tr.reduce((a, r) => a + r.hours[i] * pmx(r, c), 0))]));
+    const cPrio = Object.fromEntries(DP.map((c) => [c, H.map((_, i) => tr.reduce((a, r) => a + r.cards_hours[i] * pmx(r, c), 0))]));
+    smooth.prio = sm.byPrio; smooth.cards.prio = sm.cardsPrio; smooth.late_prio = sm.latePrio;
+    const addRows = rows.filter((r) => r.tech === t && r.added);
+    const added = H.map((_, i) => addRows.reduce((a, r) => a + r.hours[i], 0)); const cAdded = H.map((_, i) => addRows.reduce((a, r) => a + r.cards_hours[i], 0));
+    // what's added to the renewals: over the renewal window, as all renewals are
+    const wn = R.hours; const inW = (h) => wn.includes(h) && wn.length;
+    const addedRnw = H.map((h) => (inW(h) ? addRows.reduce((a, r) => a + r.need_rnw, 0) / wn.length : 0)); const cAddedRnw = H.map((h) => (inW(h) ? addRows.reduce((a, r) => a + r.renew, 0) / wn.length : 0));
+    return { daily, renewals, need, capacity: cap, idle: idle, backlog, smooth, prio, added, cards_added: cAdded, added_rnw: addedRnw, cards_added_rnw: cAddedRnw,
+      cards: { daily: cDaily, prio: cPrio, renewals: cRnw, total: cards_, capacity: effCap, actual: actual ? H.map((h) => actual[h]) : null, oee: dayRatio }, load: need.map((v, i) => (cap[i] ? v / cap[i] : v ? null : 0)),
+      total: { need: tot, daily: daily.reduce((a, b) => a + b, 0), renewals: R.need, capacity: capTot, idle: idle.reduce((a, b) => a + b, 0), load: capTot ? tot / capTot : null, end_backlog: carry, hours_over: need.filter((v, i) => v > cap[i] + 0.5).length } };
+}
+
 // Smoothing a technology's day as the floor catches up: the daily work is taken in the order it comes in,
 // and each piece goes into the spare capacity of the hour it comes in, then the next hour with spare
 // capacity, and so on — around the renewals (fixed in their window). What only fits after its shipping
@@ -538,39 +575,7 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
   for (const r of rows) { r.cutoff = cutoffOf(r.trigram); r.cutoff_typed = (r.trigram && typedCut[r.trigram]) || null; r.cutoff_learned = r.trigram && cuts.has(r.trigram) ? cuts.get(r.trigram) : null; r.cutoff_default = !r.cutoff_typed && r.cutoff_learned === null; }
   const ship = shipTimes();
   const out = {};
-  for (const t of T) {
-    const cDaily = H.map((_, i) => rows.filter((r) => r.tech === t).reduce((a, r) => a + r.cards_hours[i], 0));
-    const rCards = rows.filter((r) => r.tech === t).reduce((a, r) => a + r.renew, 0);
-    const cRnw = H.map((h) => (rnwByTech[t].hours.includes(h) ? rCards / rnwByTech[t].hours.length : 0));
-    const daily = H.map((_, i) => rows.filter((r) => r.tech === t).reduce((a, r) => a + r.hours[i], 0));
-    const renewals = rnwByTech[t].per; const need = daily.map((v, i) => v + renewals[i]);
-    let carry = 0; const backlog = need.map((v, i) => { carry = Math.max(0, carry + v - cap[t][i]); return carry; });
-    const tot = need.reduce((a, b) => a + b, 0); const capTot = cap[t].reduce((a, b) => a + b, 0);
-    const cards_ = cDaily.map((v, i) => v + cRnw[i]); const dayRatio = need.reduce((a, b) => a + b, 0) ? cards_.reduce((a, b) => a + b, 0) / need.reduce((a, b) => a + b, 0) : 1;
-    const effCap = cap[t].map((c, i) => c * (need[i] > 0.5 ? cards_[i] / need[i] : dayRatio));
-    // smoothed: the daily work moved within its hours before the cut-off, to stay under capacity
-    const tr = rows.filter((r) => r.tech === t); const sm = smoothDay(H, tr, renewals, cap[t], cutoffOf);
-    const rRatio = rnwByTech[t].need > 1e-9 ? rCards / rnwByTech[t].need : 0; const sRnwCards = sm.rnw.map((v) => v * rRatio); // renewal cards per capacity needed
-    const sDaily = sm.load.map((v, i) => v - sm.rnw[i]); const sNeed = sm.load; const sCards = sm.cards.map((v, i) => v + sRnwCards[i]);
-    let sc = 0; const sBack = sNeed.map((v, i) => { sc = Math.max(0, sc + v - cap[t][i]); return sc; });
-    tr.forEach((r, k) => { r.smoothed = sm.perRow[k]; r.smoothed_cards = sm.perRow[k].map((v) => v * r.oee); r.late_hours = sm.lateRow[k]; r.late = sm.lateRow[k].reduce((a, b) => a + b, 0); r.late_cards = r.late * r.oee; });
-    const smooth = { daily: sDaily, need: sNeed, load: sNeed.map((v, i) => (cap[t][i] ? v / cap[t][i] : v ? null : 0)), backlog: sBack,
-      renewals: sm.rnw, rnw_deferred: sm.deferred, rnw_deferred_cards: sm.deferred * rRatio,
-      cards: { daily: sm.cards, renewals: sRnwCards, total: sCards, capacity: cap[t].map((c, i) => c * (sNeed[i] > 0.5 ? sCards[i] / sNeed[i] : dayRatio)) },
-      peak: Math.max(...sNeed.map((v, i) => (cap[t][i] ? v / cap[t][i] : 0))), hours_over: sNeed.filter((v, i) => v > cap[t][i] + 0.5).length, over: sNeed.reduce((a, v, i) => a + Math.max(0, v - cap[t][i]), 0), late: sm.late, late_at: sm.lateAt, late_cards: tr.reduce((a, r) => a + r.late_cards, 0), late_customers: [...new Set(tr.filter((r) => r.late_cards > 0.5).map((r) => r.trigram || r.name))], unplaced: sm.unplaced, end_backlog: sc };
-    const DP = ['urgent', 'high', 'normal']; const pmx = (r, c) => r.prio?.[c] ?? (c === 'normal' ? 1 : 0);
-    const prio = Object.fromEntries(DP.map((c) => [c, H.map((_, i) => tr.reduce((a, r) => a + r.hours[i] * pmx(r, c), 0))]));
-    const cPrio = Object.fromEntries(DP.map((c) => [c, H.map((_, i) => tr.reduce((a, r) => a + r.cards_hours[i] * pmx(r, c), 0))]));
-    smooth.prio = sm.byPrio; smooth.cards.prio = sm.cardsPrio; smooth.late_prio = sm.latePrio;
-    const addRows = rows.filter((r) => r.tech === t && r.added);
-    const added = H.map((_, i) => addRows.reduce((a, r) => a + r.hours[i], 0)); const cAdded = H.map((_, i) => addRows.reduce((a, r) => a + r.cards_hours[i], 0));
-    // what's added to the renewals: over the renewal window, as all renewals are
-    const wn = rnwByTech[t].hours; const inW = (h) => wn.includes(h) && wn.length;
-    const addedRnw = H.map((h) => (inW(h) ? addRows.reduce((a, r) => a + r.need_rnw, 0) / wn.length : 0)); const cAddedRnw = H.map((h) => (inW(h) ? addRows.reduce((a, r) => a + r.renew, 0) / wn.length : 0));
-    out[t] = { daily, renewals, need, capacity: cap[t], idle: idle[t], backlog, smooth, prio, added, cards_added: cAdded, added_rnw: addedRnw, cards_added_rnw: cAddedRnw,
-      cards: { daily: cDaily, prio: cPrio, renewals: cRnw, total: cards_, capacity: effCap, actual: act.per[t] ? H.map((h) => act.per[t][h]) : null, oee: dayRatio }, load: need.map((v, i) => (cap[t][i] ? v / cap[t][i] : v ? null : 0)),
-      total: { need: tot, daily: daily.reduce((a, b) => a + b, 0), renewals: rnwByTech[t].need, capacity: capTot, idle: idle[t].reduce((a, b) => a + b, 0), load: capTot ? tot / capTot : null, end_backlog: carry, hours_over: need.filter((v, i) => v > cap[t][i] + 0.5).length } };
-  }
+  for (const t of T) out[t] = techDay({ t, H, rows, rnw: rnwByTech[t], cap: cap[t], idle: idle[t], cutoffOf, actual: act.per[t] || null });
   // the day as work orders, run in blocks
   let blocks = null;
   try {
@@ -582,4 +587,4 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
     learned: { runs: rs.length, renewals: [...rnw.values()].reduce((a, x) => a + x.qty, 0) }, forecast_as_of: plan.forecast_as_of, flex: useFlex };
 }
 
-module.exports = { prioMix, prioOf, dailyPrio, PRIOS, day, compareShapes, peakVolumes, manualShares, hoursOfDay, profiles, arrivals, actualDay, smoothDay, customerCutoffs, orderSizes, runBlocks, renewalShares, machineHours, cutoffs };
+module.exports = { techDay, meanHour, shipTimes, defaultCutoff, prioMix, prioOf, dailyPrio, PRIOS, day, compareShapes, peakVolumes, manualShares, hoursOfDay, profiles, arrivals, actualDay, smoothDay, customerCutoffs, orderSizes, runBlocks, renewalShares, machineHours, cutoffs };

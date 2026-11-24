@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'cpm-match-daily', date: '2026-11-24', area: 'capacity', title: 'Matching on CPM Daily, as perso',
+    text: 'The Matching day now works like the perso one: the same chart and views, renewals and daily work in their colours, the work orders on the machines, the drill-down and campaigns.',
+    points: ['As it comes in, smoothed, or as work orders on the Matching machines', 'Renewals in a Matching renewal window', 'Campaigns can count on Matching too', 'Click an hour to see who feeds it'] },
   { id: 'cpm-priorities', date: '2026-11-24', area: 'capacity', title: 'Capacity planning by priority',
     text: 'CPM Daily splits the daily work into Urgent, High and Normal, with Low as the renewals, and fits the most urgent work first when the hours are full. Matching does the same with its own priorities.',
     points: ['Each customer\'s mix learned from its work orders on an average day, or typed', 'Urgent and High hatched on the bars; Normal is what waits', 'Matching: what\'s left at the end of the day, by priority'] },
