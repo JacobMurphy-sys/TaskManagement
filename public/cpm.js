@@ -492,7 +492,7 @@ async function cpmDay(body, settings = false) {
       <datalist id="cpm-camp-dl">${campTris.map((t) => `<option value="${esc(t)}">`).join('')}</datalist>
       <div class="kdb-scroll"><table class="log small"><thead><tr><th title="Counted">On</th><th>Campaign</th><th>Customer</th><th>Cards in all</th><th>As</th><th>From</th><th>Until</th><th>A working day</th><th title="Through Matching too">Matching</th><th></th></tr></thead><tbody id="cpm-camp-body">${(d.campaigns || []).map(campRow).join('')}</tbody></table></div>
       <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><button class="small" id="cpm-camp-add">+ Add a campaign</button>
-        <div class="spacer"></div><span class="small pl-warn" id="cpm-camp-dirty" hidden>Not saved yet</span><button class="small" id="cpm-camp-undo" disabled>Undo changes</button><button class="small primary" id="cpm-camp-save" disabled>💾 Save</button></div></div>`;
+        <div class="spacer"></div><span class="small pl-warn" id="cpm-camp-dirty" data-sb-dirty hidden>Not saved yet</span><button class="small" id="cpm-camp-undo" data-sb-undo disabled>Undo changes</button><button class="small primary" id="cpm-camp-save" data-sb-save="Campaigns" disabled>💾 Save</button></div></div>`;
   // the technologies' day charts in one card: All, or one picked with the small tab (remembered)
   const techSel = () => { if (T.length === 1) return T[0]; const v = store.get('cpmDayTech', 'all'); return T.includes(v) ? v : 'all'; };
   const allMode = () => { const m = store.get('cpmDayModeAll', 'arrive'); return m === 'smooth' || (m === 'blocks' && d.blocks) ? m : 'arrive'; };
@@ -563,7 +563,7 @@ async function cpmDay(body, settings = false) {
           <td class="num"><input type="number" min="0" max="100" step="0.1" class="cpm-rnwc" data-k="${esc(`${r.trigram}|${r.tech}`)}" value="${typed ? Math.round(r.rnw_typed * 1000) / 10 : ''}" placeholder="${Math.round((r.rnw_learned || 0) * 1000) / 10}" style="width:80px"></td>
           <td class="num cpm-rnwc-daily">${cpmPct(1 - r.rnw_pct, 1)}</td></tr>`; }).join('') || '<tr><td colspan="7" class="muted">No customers in this month\'s forecast.</td></tr>'}</tbody></table></div>
       <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><span class="small muted">Shown for the customers in the month picked above; a % set holds for every month.</span>
-        <div class="spacer"></div><span class="small pl-warn" id="cpm-rnwc-dirty" hidden>Not saved yet</span><button class="small" id="cpm-rnwc-undo" disabled>Undo changes</button><button class="small primary" id="cpm-rnwc-save" disabled>💾 Save</button></div></div>`;
+        <div class="spacer"></div><span class="small pl-warn" id="cpm-rnwc-dirty" data-sb-dirty hidden>Not saved yet</span><button class="small" id="cpm-rnwc-undo" data-sb-undo disabled>Undo changes</button><button class="small primary" id="cpm-rnwc-save" data-sb-save="Renewal splits" disabled>💾 Save</button></div></div>`;
   // the daily work by priority, per customer: learned (an average day) unless typed (% of its daily work)
   const prioRows = [...new Map(d.rows.filter((r) => r.trigram && !r.added).map((r) => [r.trigram, r])).values()].sort((a, b) => String(a.trigram).localeCompare(String(b.trigram)));
   const prioIn = (r, k) => { const tv = (d.prio_typed || {})[r.trigram]; const v = tv && tv[k] !== undefined && tv[k] !== null ? Math.round(tv[k] * 1000) / 10 : ''; const ph = r.prio_learned ? Math.round(r.prio_learned[k] * 1000) / 10 : d.prio_all?.daily ? Math.round(d.prio_all.daily[k] * 1000) / 10 : 0;
@@ -573,19 +573,19 @@ async function cpmDay(body, settings = false) {
       ${prioRows.map((r) => `<tr><td><b>${esc(r.trigram)}</b> <span class="muted">${esc(r.name && r.name !== r.trigram ? r.name : '')}</span></td><td class="num">${r.prio_learned ? `${cpmPrioMix(r.prio_learned, ['urgent', 'high', 'normal'])} <span class="muted small">${r.prio_days} d</span>` : '<span class="muted">too few — everyone\'s</span>'}</td>
         <td class="num">${prioIn(r, 'urgent')}</td><td class="num">${prioIn(r, 'high')}</td><td class="num cpm-prc-n" data-tri="${esc(r.trigram)}"></td></tr>`).join('') || '<tr><td colspan="5" class="muted">No customers in this month\'s forecast.</td></tr>'}</tbody></table></div>
       <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><span class="small muted">Set both or either; one left blank counts as 0 once the other is set. Clear both to go back to learned.</span>
-        <div class="spacer"></div><span class="small pl-warn" id="cpm-prc-dirty" hidden>Not saved yet</span><button class="small" id="cpm-prc-undo" disabled>Undo changes</button><button class="small primary" id="cpm-prc-save" disabled>💾 Save</button></div></div>`;
+        <div class="spacer"></div><span class="small pl-warn" id="cpm-prc-dirty" data-sb-dirty hidden>Not saved yet</span><button class="small" id="cpm-prc-undo" data-sb-undo disabled>Undo changes</button><button class="small primary" id="cpm-prc-save" data-sb-save="Priorities" disabled>💾 Save</button></div></div>`;
   const editCards = `${rnwCard}${prioCard}
     <div class="card"><h3 class="pl-h">Renewal windows <span class="muted small">— the hours each technology runs renewals (click to toggle); ${d.scenario?.changes?.some((c) => c.type === 'rnw_window') ? 'the scenario sets some — change them in Scenarios' : 'a scenario can set its own'}</span></h3>${win}
       <div class="row" style="gap:10px;margin-top:8px;align-items:center;flex-wrap:wrap"><label class="row small">Renewal OEE: the customer's + <input type="number" id="cpm-rnw-bonus" min="0" max="50" step="1" value="${Math.round(d.bonus * 100)}" style="width:60px"> points</label>
-        <div class="spacer"></div><span class="small pl-warn" id="cpm-win-dirty" hidden>Not saved yet</span><button class="small" id="cpm-win-undo" disabled>Undo changes</button><button class="small primary" id="cpm-win-save" disabled>💾 Save</button></div></div>
+        <div class="spacer"></div><span class="small pl-warn" id="cpm-win-dirty" data-sb-dirty hidden>Not saved yet</span><button class="small" id="cpm-win-undo" data-sb-undo disabled>Undo changes</button><button class="small primary" id="cpm-win-save" data-sb-save="Renewal windows" disabled>💾 Save</button></div></div>
     <div class="card"><h3 class="pl-h">Run periods <span class="muted small">— the % of each customer's daily work typically produced in each hour, as the Daily split sheet. Greyed: <b>when its cards were produced</b> (timing report, last 4 months); click into a row to set it (it starts from those figures), or <b>Set every row from when produced</b>. Paste from Excel into any cell to fill right and down. A customer's own row beats “Everyone else”, which beats what's learned.</span></h3>
       <div class="kdb-scroll"><table class="log small cpm-rp"><thead><tr><th>Customer</th>${H.map((h) => `<th class="num">${String(h).padStart(2, '0')}</th>`).join('')}<th class="num">Total</th><th></th></tr></thead><tbody>${gridCusts.map(gridRow).join('')}</tbody></table></div>
       <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><button class="small" id="cpm-man-prod" title="Fill every row not set yet with when its cards were produced (the greyed figures) — then Save">⏱ Set every row from when produced</button><span class="small muted">A row that doesn't add up to 100% is scaled to it when used. Rows for one technology only (set before) stay as they are.</span>
-        <div class="spacer"></div><span class="small pl-warn" id="cpm-man-dirty" hidden>Not saved yet</span><button class="small" id="cpm-man-undo" disabled>Undo changes</button><button class="small primary" id="cpm-man-save" disabled>💾 Save</button></div></div>
+        <div class="spacer"></div><span class="small pl-warn" id="cpm-man-dirty" data-sb-dirty hidden>Not saved yet</span><button class="small" id="cpm-man-undo" data-sb-undo disabled>Undo changes</button><button class="small primary" id="cpm-man-save" data-sb-save="Run periods" disabled>💾 Save</button></div></div>
     <div class="card"><h3 class="pl-h">Shipment times <span class="muted small">— the cut-offs drawn on the charts; ${d.ship_times.own ? 'set here' : `learned from the work orders lately (${d.ship_times.learned.map((x) => x.time).join(', ') || 'none yet'})`}</span></h3>
       <div id="cpm-ship">${(d.ship_times.times || []).map((x, k) => shipRow(x, k)).join('')}</div>
       <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><button class="small" id="cpm-ship-add">+ Add a time</button>${d.ship_times.own ? `<button class="small" id="cpm-ship-learned" title="Drop the times set here and show the learned ones (${esc(d.ship_times.learned.map((x) => x.time).join(', ') || 'none')})">↺ Use the learned times</button>` : ''}
-        <div class="spacer"></div><span class="small pl-warn" id="cpm-ship-dirty" hidden>Not saved yet</span><button class="small" id="cpm-ship-undo" disabled>Undo changes</button><button class="small primary" id="cpm-ship-save" disabled>💾 Save</button></div>
+        <div class="spacer"></div><span class="small pl-warn" id="cpm-ship-dirty" data-sb-dirty hidden>Not saved yet</span><button class="small" id="cpm-ship-undo" data-sb-undo disabled>Undo changes</button><button class="small primary" id="cpm-ship-save" data-sb-save="Shipment times" disabled>💾 Save</button></div>
       <div class="row small" style="gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap"><label class="row" style="gap:6px;align-items:center">Default shipment time <input type="time" id="cpm-cut-def" value="${esc(d.cutoff_default)}" style="width:110px"></label><span class="muted">— for customers with none registered (none typed below, none learned from their work orders)</span></div>
       <p class="small muted" style="margin:6px 0 0">Each customer's own cut-off (what counts as late) is in CPM Daily's customer table — learned from its work orders, or typed there; greyed: the default. A deadline at 23:59 or 00:00 (a date with no time) doesn't count as a shipment time.</p></div>
 `;
@@ -673,6 +673,8 @@ async function cpmDay(body, settings = false) {
   wireCamp(); campDirty();
   $('#cpm-camp-add').onclick = () => { $('#cpm-camp-body').insertAdjacentHTML('beforeend', campRow({}, $$('.cpm-camp').length)); wireCamp(); $$('.cpm-camp-name').pop().focus(); campDirty(); };
   $('#cpm-camp-undo').onclick = () => { $('#cpm-camp-body').innerHTML = (d.campaigns || []).map(campRow).join(''); wireCamp(); campDirty(); };
+  const campBad = () => { const bad = campNow().find((c) => !c.customer || !c.qty || !c.from || !c.to || c.from > c.to); return bad ? `${bad.name || 'A campaign'}: give it a customer, a number of cards and its dates` : null; };
+  $('#cpm-camp-save').sbCheck = campBad;
   $('#cpm-camp-save').onclick = async () => { const list = campNow();
     const bad = list.find((c) => !c.customer || !c.qty || !c.from || !c.to || c.from > c.to); if (bad) { toast(`${bad.name || 'A campaign'}: give it a customer, a number of cards and its dates`, 'error'); return; }
     try { await api.put('/cpm/settings', { cpm_campaigns: JSON.stringify(list) }); toast('Campaigns saved'); await redraw(); } catch (err) { toast(err.message, 'error'); } };
@@ -1008,7 +1010,7 @@ async function cpmMatchConfig(body, part = 'customers') {
   const winCard = `<div class="card"><h3 class="pl-h">Renewal window <span class="muted small">— the hours Matching runs its renewals (Low priority work orders; click to toggle). None: spread over every hour worked. Daily work goes first; the renewals take what's left from their window on.</span></h3>
       <div class="cpm-win"><div class="row" style="gap:6px;align-items:center;flex-wrap:wrap">${(d.hours || []).map((h) => `<button type="button" class="cpm-hr cpm-mwin ${(d.window || []).includes(h) ? 'on' : ''}" data-h="${h}" style="--c:${CPM_MATCH_COL}">${String(h).padStart(2, '0')}</button>`).join('')}</div></div>
       <p class="small muted" style="margin:8px 0 0">Shipment times and each customer's cut-off are shared with perso: set on Perso's CPM Daily here, and in CPM Daily's customer table. Campaigns are set on CPM Daily, each ticked for Matching or not.</p></div>`;
-  const bar = '<div class="row" style="gap:8px;margin-top:6px;align-items:center"><div class="spacer"></div><span class="small pl-warn" id="cpm-m-dirty" hidden>Not saved yet</span><button class="small" id="cpm-m-undo" disabled>Undo changes</button><button class="small primary" id="cpm-m-save" disabled>💾 Save</button></div>';
+  const bar = '<div class="row" style="gap:8px;margin-top:6px;align-items:center"><div class="spacer"></div><span class="small pl-warn" id="cpm-m-dirty" data-sb-dirty hidden>Not saved yet</span><button class="small" id="cpm-m-undo" data-sb-undo disabled>Undo changes</button><button class="small primary" id="cpm-m-save" data-sb-save="Matching settings" disabled>💾 Save</button></div>';
   body.innerHTML = `<p class="small muted" style="margin:0 0 8px">Matching's settings — switch to Perso above for perso's. The forecast, scenarios and the forecast check are shared by both — forecast names not linked to a customer are linked, or left out, on Customers with Perso picked.</p>${part === 'capacity' ? capCard : part === 'dayset' ? winCard : custCard}${bar}`;
   // what's on this part, saved together
   const has = (sel) => !!$(sel);
@@ -1095,10 +1097,12 @@ async function cpmCustomers(body) {
       <div class="row" style="gap:6px;flex-wrap:wrap">${d.not_set_up.map((c) => `<button class="small" data-cpm-add="${esc(c.trigram)}">+ ${esc(c.trigram)}${c.learned ? ` <span class="muted">${Object.entries(c.learned).map(([t, s]) => `${t} ${Math.round(s * 100)}%`).join(' ')}</span>` : ''}</button>`).join('')}</div></div>` : ''}
     <div class="row small" style="gap:6px"><input type="text" id="cpm-new-tri" placeholder="Trigram (e.g. KBC)" style="width:160px"><button class="small" id="cpm-new">+ Add a customer</button></div>`;
   const save = async (tri, patch) => { try { await api.put(`/cpm/customers/${encodeURIComponent(tri)}`, patch); toast('Saved'); } catch (err) { toast(err.message, 'error'); } };
-  $$('.cpm-in').forEach((el) => { el.onchange = async () => {
+  // the table's fields: kept until Save on the bar (the latest for a field wins), then the tab drawn again
+  saveBar.on('Customers', { after: () => renderCpm('customers'), undo: () => renderCpm('customers') });
+  $$('.cpm-in').forEach((el) => { el.onchange = () => {
     const tri = el.dataset.cpmC; const f = el.dataset.f;
-    if (f === 'split' || f === 'oee') { const o = {}; $$(`.cpm-in[data-cpm-c="${CSS.escape(tri)}"][data-f="${f}"]`).forEach((x) => { if (x.value !== '') o[x.dataset.t] = Number(x.value) / 100; }); await save(tri, { [f]: o }); }
-    else await save(tri, { [f]: f === 'fc_names' ? el.value.split('|') : el.value });
+    const patch = () => { if (f === 'split' || f === 'oee') { const o = {}; $$(`.cpm-in[data-cpm-c="${CSS.escape(tri)}"][data-f="${f}"]`).forEach((x) => { if (x.value !== '') o[x.dataset.t] = Number(x.value) / 100; }); return { [f]: o }; } return { [f]: f === 'fc_names' ? el.value.split('|') : el.value }; };
+    const body = patch(); saveBar.queue(`cust:${tri}:${f}`, () => api.put(`/cpm/customers/${encodeURIComponent(tri)}`, body), { label: 'Customers', el });
   }; });
   $$('[data-cpm-active]').forEach((el) => { el.onchange = async () => { await save(el.dataset.cpmActive, { active: el.checked }); renderCpm('customers'); }; });
   const link = async (name) => {
@@ -1138,19 +1142,21 @@ async function cpmCapacity(body) {
         ${d.techs.map((t) => `<td>${m.techs.includes(t) ? `<span class="row" style="gap:4px;flex-wrap:nowrap"><input type="number" min="0" step="10" class="${opts[m.name]?.speed?.[t] ? 'cpm-manual' : ''}" data-cpm-m="${esc(m.name)}" data-f="speed" data-t="${t}" value="${opts[m.name]?.speed?.[t] ?? ''}" placeholder="${d.speeds[t] || '—'}" title="${opts[m.name]?.speed?.[t] ? `Set by hand for capacity planning — Production's is ${d.speeds[t] || 'none'}/h` : 'Production\'s speed — type to set this machine\'s own'}">${opts[m.name]?.speed?.[t] ? `<button class="small ghost" data-cpm-reset="${esc(m.name)}" data-t="${t}" title="Back to Production's speed (${d.speeds[t] || 'none'}/h)">↺</button>` : ''}</span>` : ''}</td>`).join('')}</tr>`).join('') || '<tr><td colspan="6" class="muted">No machines — add them in Production › Setup.</td></tr>'}
       </tbody></table></div>
       <p class="small muted">A machine that runs several technologies gives its hours to whichever is short each month; what neither needs is shared. Speeds follow Production's as they change; one typed here (marked) is used for that machine instead — ↺ goes back to Production's.</p></div>`;
-  $$('[data-cpm-set]').forEach((el) => { el.onchange = async () => {
+  // kept until Save on the bar (the latest for a field wins), then the tab drawn again
+  saveBar.on('Capacity', { after: () => renderCpm('capacity'), undo: () => renderCpm('capacity') });
+  $$('[data-cpm-set]').forEach((el) => { el.onchange = () => {
     const v = el.hasAttribute('data-pct') ? String(Number(el.value) / 100) : el.tagName === 'TEXTAREA' ? el.value.split(/\s+/).filter(Boolean).join(',') : el.value;
-    try { await api.put('/cpm/settings', { [el.dataset.cpmSet]: v }); toast('Saved'); } catch (err) { toast(err.message, 'error'); }
+    saveBar.queue(`cpmset:${el.dataset.cpmSet}`, () => api.put('/cpm/settings', { [el.dataset.cpmSet]: v }), { label: 'Capacity', el });
   }; });
   $$('[data-cpm-reset]').forEach((b) => { b.onclick = async () => {
     const m = b.dataset.cpmReset; const o = { ...opts, [m]: { ...(opts[m] || {}), speed: { ...(opts[m]?.speed || {}) } } }; delete o[m].speed[b.dataset.t];
     try { await api.put('/cpm/settings', { cpm_machines: JSON.stringify(o) }); toast('Back to Production\'s speed'); renderCpm('capacity'); } catch (err) { toast(err.message, 'error'); }
   }; });
-  $$('[data-cpm-m]').forEach((el) => { el.onchange = async () => {
+  $$('[data-cpm-m]').forEach((el) => { el.onchange = () => {
     const o = { ...opts }; const m = el.dataset.cpmM; o[m] = { ...(o[m] || {}) };
     if (el.dataset.f === 'avail') { if (el.value === '') delete o[m].avail; else o[m].avail = Number(el.value) / 100; } else { o[m].speed = { ...(o[m].speed || {}) }; if (el.value === '') delete o[m].speed[el.dataset.t]; else o[m].speed[el.dataset.t] = Number(el.value); }
     Object.assign(opts, o);
-    try { await api.put('/cpm/settings', { cpm_machines: JSON.stringify(o) }); toast('Saved'); } catch (err) { toast(err.message, 'error'); }
+    saveBar.queue('cpm_machines', () => api.put('/cpm/settings', { cpm_machines: JSON.stringify(opts) }), { label: 'Capacity', el });
   }; });
 }
 
@@ -1301,7 +1307,7 @@ async function cpmScenarios(body) {
         <textarea id="cpm-sc-notes" rows="2" placeholder="Notes — what it's for" ${sc.mine ? '' : 'disabled'} style="margin-top:6px">${esc(sc.notes || '')}</textarea></div>
       <div id="cpm-sc-warn">${scWarn.length ? `<div class="kc-note">⚠ ${scWarn.map(esc).join('<br>⚠ ')}</div>` : ''}</div>
       <div id="cpm-changes">${changesHtml(sc.changes) || '<p class="muted">No changes yet — add one below.</p>'}</div>
-      ${sc.mine ? `<div class="row" style="gap:6px;flex-wrap:wrap">${addSel()}<button class="small" id="cpm-add-change">+ Add change</button><div class="spacer"></div><button class="primary" id="cpm-sc-save">💾 Save</button></div>` : ''}`
+      ${sc.mine ? `<div class="row" style="gap:6px;flex-wrap:wrap">${addSel()}<button class="small" id="cpm-add-change">+ Add change</button><div class="spacer"></div><span id="cpm-sc-dirty" data-sb-dirty hidden></span><button type="button" id="cpm-sc-undo" data-sb-undo>Undo</button><button class="primary" id="cpm-sc-save" data-sb-save="Scenario">💾 Save</button></div>` : ''}`
       : '<div class="card lib-empty"><p>Pick a scenario on the left, or make a new one.</p><p class="small muted">A scenario is a list of changes laid over the base plan — machines added, removed or changed, speeds, shifts, OEE, customer volumes — each from a month (and until one). The base forecast keeps updating underneath.</p></div>'}</div></div>`;
   const readOne = (el) => {
     const c = { type: sc.changes[Number(el.dataset.i)].type };
@@ -1348,6 +1354,11 @@ async function cpmScenarios(body) {
   $('#cpm-add-change').onclick = () => { sc.changes = [...read(), { type: $('#cpm-add-type').value }]; refreshMachines(); $('#cpm-changes').innerHTML = changesHtml(sc.changes); wireRm(); loadCards(); };
   const wireRm = () => { wirePrev(); return $$('[data-cpm-rm]').forEach((b) => { b.onclick = () => { const l = read(); l.splice(Number(b.dataset.cpmRm), 1); sc.changes = l; refreshMachines(); $('#cpm-changes').innerHTML = changesHtml(l) || '<p class="muted">No changes yet — add one below.</p>'; wireRm(); loadCards(); }; }); };
   wireRm();
+  // changed since opened: on the Save bar
+  const scState = () => JSON.stringify([$('#cpm-sc-title').value, $('#cpm-sc-notes').value, $('#cpm-sc-share').checked, read()]); const sc0 = scState();
+  const scDirty = () => { const m = $('#cpm-sc-dirty'); if (m) m.hidden = scState() === sc0; };
+  $('#cpm-sc-undo').onclick = () => renderCpm('scenarios');
+  const scBox = $('.cpm-scen-edit'); scBox.addEventListener('input', scDirty); scBox.addEventListener('change', scDirty); scBox.addEventListener('click', () => setTimeout(scDirty, 0));
   $('#cpm-sc-save').onclick = async () => {
     try { await api.put(`/cpm/scenarios/${sc.id}`, { name: $('#cpm-sc-title').value, notes: $('#cpm-sc-notes').value, shared: $('#cpm-sc-share').checked, changes: read() }); toast('Scenario saved'); renderCpm('scenarios'); } catch (err) { toast(err.message, 'error'); }
   };
@@ -1470,8 +1481,8 @@ async function cpmHeadcount(body) {
           <tr><td><input type="text" id="hc-onew-name" placeholder="＋ e.g. Quality checks"></td><td class="num"><input type="number" min="0" step="0.5" id="hc-onew-day" placeholder="h a day" style="max-width:90px"></td><td><button type="button" class="small" id="hc-onew">Add</button></td></tr></tbody></table>
         <div class="small muted">${p1(C.other.reduce((a, o) => a + (o.per_day || 0), 0))} h a working day in all</div></div></div>`;
   body.innerHTML = `
-    <div class="cpm-hc-savebar" id="hc-savebar"><span class="small muted">Change the people, one-off hours, matching, rates or other work below, then save them together.</span><div class="spacer"></div>
-      <span class="small pl-warn" id="hc-dirty" hidden>Not saved yet</span><button class="small" id="hc-undo" disabled>Undo changes</button><button class="small primary" id="hc-save" disabled>💾 Save</button></div>
+    <div class="cpm-hc-savebar" id="hc-savebar"><span class="small muted">Change the people, one-off hours, matching, rates or other work below, then save them together on the bar at the bottom.</span><div class="spacer"></div>
+      <span class="small pl-warn" id="hc-dirty" data-sb-dirty hidden>Not saved yet</span><button class="small" id="hc-undo" data-sb-undo disabled>Undo changes</button><button class="small primary" id="hc-save" data-sb-save="Headcount" disabled>💾 Save</button></div>
     <div class="card"><div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><h3 style="margin:0">Headcount</h3>
         <span class="row" style="gap:4px"><button type="button" class="icon" data-hc-year="${year - 1}">‹</button><b>${year}</b><button type="button" class="icon" data-hc-year="${year + 1}">›</button></span>
         <label class="small row" style="gap:4px"><input type="checkbox" id="hc-flex" ${flex ? 'checked' : ''}> Apply flex</label>
@@ -1527,8 +1538,6 @@ async function cpmHeadcount(body) {
     catch (err) { toast(err.message, 'error'); e.target.disabled = false; e.target.textContent = '💾 Save'; }
   };
   // leaving the page (another page or tab, or closing it) with changes not saved asks first
-  leaveGuard = () => !dirty || confirm('Leave without saving? Your changes on Headcount will be lost.');
-  window.onbeforeunload = () => (dirty && document.body.contains($('#hc-savebar')) ? 'Changes not saved' : undefined);
   $('#hc-import').onclick = () => $('#hc-file').click();
   $('#hc-file').onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;

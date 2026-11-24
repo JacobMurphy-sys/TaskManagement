@@ -2972,4 +2972,12 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 
 /* Production › Setup: edits kept until one Save */
 .pl-setup-bar { position: sticky; top: 0; z-index: 5; display: flex; gap: 8px; align-items: center; padding: 6px 10px; margin: -4px -4px 8px; border-radius: 6px; background: var(--card, #fff); border: 1px solid var(--warn, #d97706); box-shadow: 0 2px 6px rgba(0,0,0,.08); }
-.pl-dirty { outline: 2px solid var(--warn, #d97706); outline-offset: 1px; }
+.pl-dirty, .sb-dirty { outline: 2px solid var(--warn, #d97706); outline-offset: 1px; }
+/* 💾 the app's Save bar (savebar.js): floating at the bottom while changes wait; the editors' own Save / Undo hidden */
+.savebar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 900; display: flex; gap: 8px; align-items: center; width: min(760px, calc(100vw - 32px)); padding: 8px 12px; border-radius: 8px; background: var(--card, #fff); border: 1px solid var(--warn, #d97706); box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+.savebar[hidden] { display: none; }
+.savebar-n { font-weight: 600; color: var(--warn, #d97706); white-space: nowrap; }
+.savebar-what { font-size: 12px; color: var(--muted, #6b7280); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.savebar .spacer { flex: 1; }
+[data-sb-save], [data-sb-undo], [data-sb-dirty] { display: none !important; }
+@media (max-width: 700px) { .savebar { bottom: calc(66px + env(safe-area-inset-bottom)); gap: 6px; padding: 6px 8px; } .savebar-what { display: none; } .savebar-n { font-size: 13px; white-space: normal; } .savebar button { padding: 6px 10px; } }

@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'save-bar', date: '2026-11-24', area: 'look', title: 'One Save bar everywhere',
+    text: 'Pages where settings are edited in place now share one floating bar: changes wait until you press Save, or Undo to drop them, and leaving with changes waiting asks first.',
+    points: ['Production setup, capacity planning configuration, scenarios, headcount and automatic plans', 'Says how many changes and where', 'Sits above the page bar on a phone'] },
   { id: 'cpm-summary-sheet', date: '2026-11-24', area: 'capacity', title: 'Capacity summary in the Excel exports',
     text: 'The monthly capacity workbooks, for perso and for matching, now open on a summary: the theoretical capacity per machine and technology, the demand and what capacity is left, by month and for the year.',
     points: ['An OEE switch in the sheet: demand with the OEE, or the raw forecast against capacity', 'Shortfalls in red', 'A summary per scenario too'] },
