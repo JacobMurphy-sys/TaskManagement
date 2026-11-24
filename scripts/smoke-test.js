@@ -2517,11 +2517,14 @@ async function waitForServer() {
             // the customer's OEE measured on the machines ticked for it: items ÷ (run hours × the machine's speed)
             const sqm = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); const dm = new Date(Date.now() - 20 * 864e5).toISOString().slice(0, 10);
             const insM = sqm.prepare("INSERT INTO prod_runs (source, job, machine, start_at, end_at, qty, remake, trigram, read_at) VALUES ('otto', ?, ?, ?, ?, ?, 0, 'KBC', ?)");
-            insM.run('MO1', 'CPM OTTO 01', `${dm}T08:00`, `${dm}T11:00`, 1200, dm); insM.run('MO2', 'Hand table', `${dm}T08:00`, `${dm}T11:00`, 50, dm);
+            // the starts entered a minute before the end (as operators often do): only the finishes count — each job
+            // from the machine's previous finish; two closed together are one; the day's first and a gap over 2 h left out
+            const mRun = (id, end, q, mach = 'CPM OTTO 01') => insM.run(id, mach, `${dm}T${end.slice(0, 3)}${String(Number(end.slice(3, 5)) - 1).padStart(2, '0')}${end.slice(5)}`, `${dm}T${end}`, q, dm);
+            mRun('MO1', '07:30', 100); mRun('MO3', '08:30', 400); mRun('MO4', '10:30', 400); mRun('MO5', '10:31:30', 400); mRun('MO6', '15:30', 999); mRun('MO2', '09:30', 50, 'Hand table');
             assert.equal(md.rows.find((r) => r.trigram === 'KBC').oee_from, 'default', 'no machine ticked: the one Matching OEE');
             await call('PUT', '/cpm/settings', { cpm_match_oee_machines: JSON.stringify(['CPM OTTO']) });
             const cfg2 = await call('GET', '/cpm/match/config'); const ck2 = cfg2.customers.find((c) => c.trigram === 'KBC');
-            assert.ok(Math.abs(ck2.oee_measured - 0.4) < 0.001 && ck2.oee_hours === 3 && cfg2.machines.find((m) => m.name === 'CPM OTTO')?.runs === 1, 'measured on the ticked machine only: 1,200 ÷ (3 h × 1,000/h)');
+            assert.ok(Math.abs(ck2.oee_measured - 0.4) < 0.001 && ck2.oee_hours === 3 && cfg2.machines.find((m) => m.name === 'CPM OTTO')?.runs === 3, 'measured from the finishes on the ticked machine only: 1,200 ÷ (3 h × 1,000/h)');
             const mk2 = (await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1`)).rows.find((r) => r.trigram === 'KBC');
             assert.ok(mk2.oee_from === 'measured' && Math.abs(mk2.need_day - (mk2.items_day / 0.4) * mk2.speed_factor) < 0.01, 'the day ÷ its measured OEE');
             await call('PUT', '/cpm/settings', { cpm_match_cust_oee: JSON.stringify({ KBC: 0.25 }) });
@@ -2542,7 +2545,7 @@ async function waitForServer() {
             assert.ok(mc.tech.Matching.added.some((v) => v > 0) && mc.renewals.Matching.window && mc.renewals.Matching.hours.join() === '10,11', 'drawn as added; renewals in Matching\'s window');
             await call('PUT', '/cpm/settings', { cpm_campaigns: '[]', cpm_rnw_hours: '{}' });
             sqm.prepare("DELETE FROM plan_otto_jobs WHERE key LIKE 'PO%'").run();
-            sqm.prepare("DELETE FROM prod_runs WHERE job IN ('MO1', 'MO2')").run(); sqm.close();
+            sqm.prepare("DELETE FROM prod_runs WHERE job IN ('MO1', 'MO2', 'MO3', 'MO4', 'MO5', 'MO6')").run(); sqm.close();
             await call('PUT', '/cpm/settings', { cpm_match_oee_machines: '[]', cpm_match_cust_oee: '{}' });
             await call('DELETE', `/plan/otto/machines/${mm.id}`); await call('PUT', '/cpm/settings', { cpm_match_oee: '0.6', cpm_match_ratio: '{}' }); }
           // the daily work by priority: typed for a customer, and the smoothing fits the Urgent work first

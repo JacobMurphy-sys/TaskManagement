@@ -51,18 +51,32 @@ function ratios() {
     typed, learned };
 }
 
-// each customer's OEE measured on the machines ticked for it (Configuration › Matching): items made ÷ (its run hours
-// × the machine's rated speed), the last 4 months; '*' all of them. Only machines whose runs reflect the customer's
-// own work are ticked — others (manual stations, mixed lines) would mislead. Run time only, so it's on the high side.
+// each customer's OEE measured on the machines ticked for it (Configuration › Capacity, Matching picked): items
+// made ÷ (the time its jobs took × the machine's rated speed), the last 4 months; '*' all of them. Only machines whose
+// runs reflect the customer's own work are ticked — others (manual stations, mixed lines) would mislead.
 function measuredOee(M = machines()) {
   const elig = M.list.filter((m) => m.measure && m.speed > 0 && m.key); const out = new Map(); const runs = new Map(elig.map((m) => [m.name, 0]));
   if (!elig.length) return { by: out, runs };
-  let rows = []; try { rows = db.all("SELECT upper(trigram) AS tri, machine, start_at, end_at, qty FROM prod_runs WHERE source = 'otto' AND remake = 0 AND end_at IS NOT NULL AND start_at >= ?", [since()]); } catch { /* none */ }
+  // Operators needn't start a work order in the system when they start it on the machine, so a run's start
+  // is often entered moments before its end: only the end is trusted. A machine runs one job at a time, so a
+  // job took (at most) the time since the machine's previous finish. Jobs closed together (within 2 minutes)
+  // count as one finish, their time shared by items; a gap over MAX_GAP hours since the previous finish
+  // (idle, a shift change, the machine's first job of the day) tells nothing and is left out. Breaks inside it
+  // count — losses the OEE carries, capacity being the whole shift.
+  const MAX_GAP = 2; const CLOSE = 2 / 60;
+  let rows = []; try { rows = db.all("SELECT upper(trigram) AS tri, machine, end_at, qty FROM prod_runs WHERE source = 'otto' AND remake = 0 AND end_at IS NOT NULL AND end_at >= ? ORDER BY end_at", [since()]); } catch { /* none */ }
   const acc = new Map(); const add = (k, items, std, hrs) => { const a = acc.get(k) || acc.set(k, { items: 0, std: 0, hours: 0 }).get(k); a.items += items; a.std += std; a.hours += hrs; };
+  const byM = new Map(); // machine → its finishes in time order: [{ at (hours), jobs: [{ tri, q }] }]
   for (const r of rows) {
     const mach = String(r.machine || '').toLowerCase(); const m = elig.find((x) => mach.includes(x.key)); if (!m) continue;
-    const hrs = (new Date(r.end_at) - new Date(r.start_at)) / 3600000; if (!(hrs > 0) || hrs > 24) continue; const q = Number(r.qty) || 0; if (!q) continue;
-    runs.set(m.name, runs.get(m.name) + 1); if (r.tri) add(r.tri, q, hrs * m.speed, hrs); add('*', q, hrs * m.speed, hrs);
+    const at = new Date(r.end_at).getTime() / 3600000; const q = Number(r.qty) || 0; if (!Number.isFinite(at) || !q) continue;
+    const list = byM.get(m) || byM.set(m, []).get(m); const last = list[list.length - 1];
+    if (last && at - last.at <= CLOSE) last.jobs.push({ tri: r.tri, q }); else list.push({ at, jobs: [{ tri: r.tri, q }] });
+  }
+  for (const [m, list] of byM) for (let k = 1; k < list.length; k++) {
+    const hrs = list[k].at - list[k - 1].at; if (!(hrs > 0) || hrs > MAX_GAP) continue;
+    const tot = list[k].jobs.reduce((a, j) => a + j.q, 0);
+    for (const j of list[k].jobs) { const h = (hrs * j.q) / tot; runs.set(m.name, runs.get(m.name) + 1); if (j.tri) add(j.tri, j.q, h * m.speed, h); add('*', j.q, h * m.speed, h); }
   }
   for (const [k, a] of acc) if (a.std > 0 && a.hours >= 2) out.set(k, { oee: Math.min(1, a.items / a.std), raw: a.items / a.std, hours: a.hours, items: a.items });
   return { by: out, runs };
