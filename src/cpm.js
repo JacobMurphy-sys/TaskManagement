@@ -225,16 +225,24 @@ function forecastOf(year, asOf = null) {
   const rows = at ? db.all('SELECT f.* FROM cpm_forecast f WHERE f.year = ? AND f.as_of = (SELECT MAX(g.as_of) FROM cpm_forecast g WHERE g.as_of <= ? AND g.source = f.source)', [year, at]) : [];
   // linked as the customers stand now (a name linked after the read counts straight away); a name not
   // linked to any customer still counts, under '~name'
-  const names = nameMap(); const by = new Map(); const unmapped = new Map();
+  // a name not linked to a customer can be left out (Configuration › Customers): a stray or wrong line in a source
+  const ign = new Set(json(setting('cpm_fc_ignore', '[]'), []).map((x) => String(x).trim().toLowerCase()));
+  const names = nameMap(); const by = new Map(); const unmapped = new Map(); const ignored = new Map(); const srcOf = new Map();
   // each source's total per month, as SITHUB's Database adds them up (Amex: its TOTAL BAU row)
   const sources = {}; for (const r of rows) if (!r.tech) { const x = sources[r.source] || (sources[r.source] = Array(12).fill(0)); x[r.month - 1] += r.qty; }
   for (const r of rows) {
     const tri = r.trigram || names.get(String(r.name || '').trim().toLowerCase()) || null;
-    if (!tri) unmapped.set(r.name, (unmapped.get(r.name) || 0) + r.qty);
+    if (!tri) {
+      const s = srcOf.get(r.name) || srcOf.set(r.name, new Map()).get(r.name); s.set(r.source, r.as_of); // where it comes from: the source and its read
+      if (ign.has(String(r.name || '').trim().toLowerCase())) { ignored.set(r.name, (ignored.get(r.name) || 0) + r.qty); continue; }
+      unmapped.set(r.name, (unmapped.get(r.name) || 0) + r.qty);
+    }
     const k = `${tri || `~${r.name}`}|${r.month}`; const x = by.get(k) || by.set(k, { total: 0, tech: {} }).get(k);
     if (r.tech) x.tech[r.tech] = (x.tech[r.tech] || 0) + r.qty; else x.total += r.qty;
   }
-  return { as_of: at || null, by, sources, unmapped: [...unmapped].map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty) };
+  const from = (name) => [...(srcOf.get(name) || [])].map(([source, asOf]) => ({ source, as_of: asOf }));
+  return { as_of: at || null, by, sources, unmapped: [...unmapped].map(([name, qty]) => ({ name, qty, from: from(name) })).sort((a, b) => b.qty - a.qty),
+    ignored: [...new Set([...ign])].map((n) => { const hit = [...ignored].find(([k]) => String(k).trim().toLowerCase() === n); return { name: hit ? hit[0] : n, qty: hit ? hit[1] : 0, from: hit ? from(hit[0]) : [] }; }) };
 }
 
 // the forecast lines feeding each customer in a month: 'TRI' (or '~name' when not linked) → [{ name, source, qty }]
@@ -594,7 +602,7 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
       machines: Object.entries(P.machines).map(([name, x]) => ({ name, hours: x.hours, avail: x.avail, techs: x.techs, speed: x.speed, alloc: alloc[name] || {},
         only: (x.only || []).map((r) => ({ customers: r.customers ? [...r.customers] : null, field: r.field, values: r.values ? [...r.values] : null })) })) };
   });
-  return { year, period, techs: TECHS, speeds: sp, speed_from: Object.fromEntries(Object.entries(speeds(true)).map(([t, x]) => [t, x.from])), oee_fallback: oeeDefault, oee_fallback_from: Number(setting('plan_oee_default', '')) > 0 ? 'production' : 'cpm', shifts: shifts0, hours: hours0, forecast_as_of: fc.as_of, unmapped: fc.unmapped.slice(0, 30), unmapped_count: fc.unmapped.length, unmapped_qty: unlinkedQty,
+  return { year, period, techs: TECHS, speeds: sp, speed_from: Object.fromEntries(Object.entries(speeds(true)).map(([t, x]) => [t, x.from])), oee_fallback: oeeDefault, oee_fallback_from: Number(setting('plan_oee_default', '')) > 0 ? 'production' : 'cpm', shifts: shifts0, hours: hours0, forecast_as_of: fc.as_of, unmapped: fc.unmapped.slice(0, 30), unmapped_count: fc.unmapped.length, unmapped_ignored: fc.ignored, unmapped_qty: unlinkedQty,
     forecast_sources: fc.sources, forecast_counted: Object.fromEntries(Object.entries(monthDemand).map(([k, md]) => [k, TECHS.reduce((t, x) => t + md[x].fc, 0)])),
     forecast_total: [...fc.by.values()].reduce((t, f) => t + (f.total || Object.values(f.tech).reduce((a, b) => a + b, 0)), 0),
     machines: machines.map((m) => ({ name: m.name, techs: m.techs, added: !!m.added, ...(opts[m.name] || {}) })), detail: [...detail.values()], periods: out, warnings: [...new Set(warnings)], flex: fx ? { overall: fx.overall.year, pairs: fx.pairs } : null };

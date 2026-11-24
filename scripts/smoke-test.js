@@ -2394,6 +2394,13 @@ async function waitForServer() {
           assert.deepEqual([jan.DOD.need, jan.Emboss.need, jan.Laser.need].map(Math.round), [1000 + 1400, 1000, 600], 'needed = forecast × split ÷ OEE');
           assert.deepEqual(ov.unmapped.map((u) => [u.name, u.qty]), [['Unknown Bank', 300]], 'a forecast name not linked to a customer is listed');
           if (!ov.warnings.some((w) => /Unknown Bank/.test(w))) assert.equal(Math.round(fcOf(ov.periods[2])), 300, '… and counted');
+          // a stray forecast name left out: not counted at all, listed as left out (with its source); counted again
+          { const before = ov.periods.reduce((x, p) => x + fcOf(p), 0); const un = ov.unmapped.find((u) => u.name === 'Unknown Bank');
+            assert.ok(un && un.from.length && un.from[0].source, 'where an unlinked name comes from: its source');
+            await call('PUT', '/cpm/settings', { cpm_fc_ignore: JSON.stringify(['Unknown Bank']) });
+            const ovI = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&regen=1`); const cu = { ignored: ovI.unmapped_ignored };
+            assert.ok(!ovI.unmapped.length && !ovI.warnings.some((w) => /Unknown Bank/.test(w)) && Math.round(before - ovI.periods.reduce((x, p) => x + fcOf(p), 0)) === (ov.warnings.some((w) => /Unknown Bank/.test(w)) ? 0 : 300) && cu.ignored[0]?.name === 'Unknown Bank' && cu.ignored[0].qty === 300, 'left out: not counted, listed apart');
+            await call('PUT', '/cpm/settings', { cpm_fc_ignore: '[]' }); ov = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&regen=1`); }
           // flex from an earlier year: KBC did 20% more than forecast in January
           const hx = (rows) => bx([{ name: 'CPM', columns: ['Trigram', 'Customer', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'].map((header, i) => ({ header, type: i > 1 ? 'number' : undefined })), rows }]);
           const up = (kind, body) => fetch(`${BASE}/cpm/history?kind=${kind}&year=${Y - 1}`, { method: 'POST', body, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': `${kind}.xlsx` } }).then((r) => r.json());
