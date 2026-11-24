@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'cpm-summary-sheet', date: '2026-11-24', area: 'capacity', title: 'Capacity summary in the Excel exports',
+    text: 'The monthly capacity workbooks, for perso and for matching, now open on a summary: the theoretical capacity per machine and technology, the demand and what capacity is left, by month and for the year.',
+    points: ['An OEE switch in the sheet: demand with the OEE, or the raw forecast against capacity', 'Shortfalls in red', 'A summary per scenario too'] },
   { id: 'otto-hand', date: '2026-11-24', area: 'capacity', title: 'OTTO and hand match apart',
     text: 'Capacity planning now splits Matching between the OTTOs and hand matching: each customer\'s hand share is learned from the Matching report\'s machines (or typed), and each part is planned against its own machines.',
     points: ['Hand-match stations ticked in Production setup', 'Report machines classed as OTTO or hand match', 'Two lines on CPM Daily; each one\'s load on CPM Monthly and Site Capacity'] },

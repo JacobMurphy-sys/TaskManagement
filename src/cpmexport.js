@@ -4,7 +4,7 @@
 // needs (÷ OEE), the machines' hours and capacity, and a summary per technology — the figures as the
 // app worked them out, but as formulas over the inputs (split, OEE, availability, speed, shifts,
 // hours), so they can be changed in Excel. Then charts, the forecast check and the scenarios.
-const { sheet, buildBook } = require('./xlsxbook');
+const { sheet, buildBook, qs } = require('./xlsxbook');
 const { colName } = require('./xlsx');
 
 // the CPM workbook's technology colours (DOD teal, Laser purple, Emboss black — a dark grey for bars)
@@ -204,7 +204,50 @@ function planSheet(name, res, ctx) {
   for (const [a, b] of techRows) sh.cf.push({ ref: `A${a}:${colName(tot - 1)}${b}`, rules: T.map((t) => ({ expr: `$C${a}="${t}"`, dxf: t })) });
   for (const t of T) { const R = rows[t]; const rs = Object.values(R); sh.cf.push({ ref: `A${Math.min(...rs)}:B${Math.max(...rs)}`, rules: [{ expr: `$A${Math.min(...rs)}="${t}"`, dxf: t }] }); }
   sh.freeze = { row: 1, col: FIRST };
-  return { sh, rows, headRow: 6, n, col };
+  return { sh, rows, headRow: 6, n, col, mk, rMc0 };
+}
+
+// ---- 📋 a capacity summary, as the CPM sheet's: the theoretical capacity per machine and per technology (line), the
+// demand — with the OEE counted (capacity needed) or not (the forecast's cards / items), by the OEE modifier cell —
+// and the capacity remaining, by period and for the year; then the forecast's demand alone. Each row a formula over
+// the plan sheet (or the figures given): change the modifier and the rest follows.
+// spec: { name, title, note, labels: [period], unit, machines: [{ label, group, f(i), v(i) }], groups: [{ key, label, cap: { f(i), v(i) }, need: {...}, raw: {...} }] }
+function summarySheet(spec) {
+  const sh = sheet(spec.name.slice(0, 31)); const n = spec.labels.length; const C0 = 3; const col = (i) => C0 + i; const tot = C0 + n; const L = (c) => colName(c - 1);
+  sh.width(1, 4).width(2, 38); for (let i = 0; i <= n; i++) sh.width(col(i), 12);
+  sh.set(1, 2, spec.title, 'title'); if (spec.note) sh.set(2, 2, spec.note, 'note');
+  sh.set(4, 2, 'OEE modifier (1 = on, 0 = off)', 'bold'); sh.set(4, 3, 1, 'input');
+  sh.set(4, 4, 'On: demand ÷ OEE — the capacity it needs. Off: the forecast\'s ' + (spec.unit || 'cards') + ' alone, raw against the capacity.', 'note');
+  const OEE = '$C$4';
+  const head = (row, text) => { sh.set(row, 2, text, 'header'); spec.labels.forEach((l, i) => sh.set(row, col(i), l, 'headerNum')); sh.set(row, tot, 'Year', 'headerNum'); };
+  const put = (row, label, cell, style = 'int', bold = false) => { sh.set(row, 2, label, bold ? 'bold' : undefined);
+    for (let i = 0; i < n; i++) { const x = cell(i); if (x.f) sh.f(row, col(i), x.f, bold ? 'intBold' : style, x.v); else sh.set(row, col(i), Math.round(x.v || 0), bold ? 'intBold' : style); }
+    sh.f(row, tot, `SUM(${L(col(0))}${row}:${L(col(n - 1))}${row})`, 'intBold'); return row; };
+  const G = spec.groups; let r = 6; const at = {};
+  // capacity: each machine, then each technology / line, then the total
+  head(r, `Theoretical capacity (${spec.unit || 'cards'})`); r++;
+  for (const m of spec.machines || []) put(r++, `  ${m.label}`, (i) => ({ f: m.f?.(i), v: m.v(i) }), 'int');
+  for (const g of G) at[`cap_${g.key}`] = put(r++, `Cap. ${g.label}`, (i) => ({ f: g.cap.f?.(i), v: g.cap.v(i) }), 'int', false);
+  const capT = put(r++, 'Total theoretical capacity', (i) => ({ f: G.map((g) => `${L(col(i))}${at[`cap_${g.key}`]}`).join('+'), v: G.reduce((a, g) => a + g.cap.v(i), 0) }), 'int', true); r++;
+  // demand: with the OEE (capacity needed) or the forecast alone, by the modifier
+  head(r, 'Demand — forecast ÷ OEE (modifier on) or forecast alone (off)'); r++;
+  for (const g of G) at[`dem_${g.key}`] = put(r++, `Dem. ${g.label}`, (i) => ({ f: `IF(${OEE}=1,${g.need.f ? g.need.f(i) : g.need.v(i)},${g.raw.f ? g.raw.f(i) : g.raw.v(i)})`, v: g.need.v(i) }), 'int');
+  const demT = put(r++, 'Total demand', (i) => ({ f: G.map((g) => `${L(col(i))}${at[`dem_${g.key}`]}`).join('+'), v: G.reduce((a, g) => a + g.need.v(i), 0) }), 'int', true);
+  const pctRow = r++; sh.set(pctRow, 2, 'Demand ÷ capacity', 'note');
+  for (let i = 0; i <= n; i++) { const c = i < n ? col(i) : tot; sh.f(pctRow, c, `IF(${L(c)}${capT}>0,${L(c)}${demT}/${L(c)}${capT},"")`, i < n ? 'pct' : 'pctBold'); }
+  sh.cf.push({ ref: `${L(col(0))}${pctRow}:${L(tot)}${pctRow}`, rules: [{ op: 'greaterThan', v: '1', dxf: 'bad' }, { op: 'between', v: '0.85', v2: '1', dxf: 'warn' }, { op: 'between', v: '0', v2: '0.85', dxf: 'good' }] }); r++;
+  // remaining: capacity − demand
+  head(r, 'Remaining capacity (capacity − demand)'); r++; const rem0 = r;
+  for (const g of G) put(r++, `Rem. ${g.label}`, (i) => ({ f: `${L(col(i))}${at[`cap_${g.key}`]}-${L(col(i))}${at[`dem_${g.key}`]}`, v: g.cap.v(i) - g.need.v(i) }), 'int');
+  const remT = put(r++, 'Total open capacity', (i) => ({ f: `${L(col(i))}${capT}-${L(col(i))}${demT}`, v: G.reduce((a, g) => a + g.cap.v(i) - g.need.v(i), 0) }), 'int', true);
+  sh.cf.push({ ref: `${L(col(0))}${rem0}:${L(tot)}${remT}`, rules: [{ op: 'lessThan', v: '0', dxf: 'bad' }] }); r++;
+  // the forecast alone (no OEE): what was asked for
+  head(r, `Forecast demand alone (no OEE) — the ${spec.unit || 'cards'} asked for`); r++; const raw0 = r;
+  for (const g of G) put(r++, `Forecast ${g.label}`, (i) => ({ f: g.raw.f?.(i), v: g.raw.v(i) }), 'int'); const raw1 = r - 1;
+  const rawT = put(r++, 'Total forecast demand', (i) => ({ f: `SUM(${L(col(i))}${raw0}:${L(col(i))}${raw1})`, v: G.reduce((a, g) => a + g.raw.v(i), 0) }), 'int', true);
+  sh.set(rawT + 1, 2, 'Forecast ÷ capacity', 'note'); for (let i = 0; i <= n; i++) { const c = i < n ? col(i) : tot; sh.f(rawT + 1, c, `IF(${L(c)}${capT}>0,${L(c)}${rawT}/${L(c)}${capT},"")`, i < n ? 'pct' : 'pctBold'); }
+  sh.freeze = { row: 6, col: 2 };
+  return sh;
 }
 
 function buildCpmWorkbook({ base, scenarios = [], period, flex, sources, CARD_FIELDS }) {
@@ -267,7 +310,15 @@ function buildCpmWorkbook({ base, scenarios = [], period, flex, sources, CARD_FI
     r++;
   }
   if (!scenarios.length) { ab.set(r, 1, 'No scenario compared — the base plan only.', 'note'); r++; }
-  const sheets = [...built.map((b) => b.sh), ch, fcs, ab];
+  // 📋 a capacity summary per plan (the base, each scenario): capacity per machine and technology, demand with or
+  // without the OEE (the modifier cell), what's left — formulas over the plan sheet
+  const sums = built.map((b, j) => { const P = b.res.periods; const ref = (row, i) => `${qs(b.sh.name)}!${b.sh.ref(row, b.col(i))}`;
+    return summarySheet({ name: j ? `Summary ${b.name}` : 'Capacity summary', title: `Capacity summary — ${b.name}${j ? '' : ' (base plan)'}`, unit: 'cards', labels: P.map((p) => p.label),
+      note: `Theoretical capacity: run speed × the hours (no OEE — the losses are in the OEE). From the ${b.name} sheet: change an input there and this follows.`,
+      machines: b.mk.map((x, k) => ({ label: `${x.name} — ${x.tech}`, f: (i) => ref(b.rMc0 + k, i), v: () => 0 })),
+      groups: b.res.techs.map((t) => ({ key: t, label: t, cap: { f: (i) => ref(b.rows[t].cap, i), v: (i) => P[i].techs[t].capacity || 0 },
+        need: { f: (i) => ref(b.rows[t].need, i), v: (i) => P[i].techs[t].need || 0 }, raw: { f: (i) => ref(b.rows[t].fc, i), v: (i) => P[i].techs[t].demand || 0 } })) }); });
+  const sheets = [sums[0], ...built.map((b) => b.sh), ...sums.slice(1), ch, fcs, ab];
   return buildBook(sheets, { active: 0 });
 }
 
@@ -421,7 +472,16 @@ function buildMatchMonthWorkbook(d, { scenario = null } = {}) {
   ch.charts.push({ title: 'Matching — needed (bars) against capacity (line), by month', cats, fmt: '#,##0', from: [1, 4], to: [16, 26],
     series: [{ name: 'Needed (÷ OEE)', ref: sh.full(R0, 7, R1, 7), kind: 'bar', color: TECH_COL.Matching }, { name: 'Capacity', ref: sh.full(R0, 8, R1, 8), kind: 'line', color: '111827' }] });
   ch.charts.push({ title: 'Matching — load by month', cats, pct: true, from: [1, 28], to: [16, 46], series: [{ name: 'Load', ref: sh.full(R0, 9, R1, 9), kind: 'line', color: TECH_COL.Matching, markers: true }] });
-  return buildBook([sh, ch]);
+  // 📋 the capacity summary: each machine (its speed × the month's hours), OTTO and hand match, demand with or
+  // without the OEE, what's left
+  const LN = [['otto', 'OTTO'], ['hand', 'Hand match']].filter(([k]) => k === 'otto' || d.months.some((m) => m.lines?.hand?.items > 0.5 || m.lines?.hand?.capacity > 0));
+  const hrs = (i) => `${qs(sh.name)}!C${R0 + i}`;
+  const sum = summarySheet({ name: 'Capacity summary', title: `Capacity summary — Matching ${d.year}${scenario ? ` — ${scenario}` : ''}`, unit: 'items', labels: d.months.map((m) => m.label),
+    note: 'Theoretical capacity: each Matching machine\'s speed × the hours worked (no OEE). Demand with the OEE counts each customer\'s own speed and metal at the metal speed. The hours come from the month sheet.',
+    machines: (d.machines || []).filter((m) => m.speed > 0).map((m) => ({ label: `${m.name}${m.hand ? ' (hand match)' : ''} — ${m.speed}/h`, f: (i) => `${m.speed}*${hrs(i)}`, v: (i) => m.speed * (d.months[i].hours || 0) })),
+    groups: LN.map(([k, l]) => ({ key: k, label: l, cap: { v: (i) => d.months[i].lines?.[k]?.capacity ?? (k === 'otto' ? d.months[i].capacity : 0) },
+      need: { v: (i) => d.months[i].lines?.[k]?.need ?? (k === 'otto' ? d.months[i].need : 0) }, raw: { v: (i) => d.months[i].lines?.[k]?.items ?? (k === 'otto' ? d.months[i].items : 0) } })) });
+  return buildBook([sum, sh, ch], { active: 0 });
 }
 
 // ---- 👷 Headcount: the year by month, as formulas over its inputs (rates, working days, hours a day, efficiency,
