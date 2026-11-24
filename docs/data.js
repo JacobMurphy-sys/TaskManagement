@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'cpm-match-scenarios', date: '2026-11-24', area: 'capacity', title: 'Scenarios for Matching',
+    text: 'Scenarios can now change Matching too: add or remove a Matching machine, change its speed, a customer\'s Matching OEE or its share through Matching, and Matching\'s renewal window. Matching\'s month view has a scenario picker.' },
   { id: 'cpm-config-line', date: '2026-11-24', area: 'capacity', title: 'Configuration for Perso and Matching',
     text: 'Configuration has the same Perso / Matching switch as the views, so Matching\'s settings sit on the same Customers, Capacity and CPM Daily pages as perso\'s. Priorities on CPM Daily are now a tick, with daily work and renewals by default.' },
   { id: 'cpm-match-daily', date: '2026-11-24', area: 'capacity', title: 'Matching on CPM Daily, as perso',
