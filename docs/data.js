@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'cpm-worst-real', date: '2026-11-24', area: 'capacity', title: 'A more realistic worst case',
+    text: 'CPM Daily\'s worst case now uses a busy day rather than a customer\'s single biggest one, counts working days only, and keeps the multiplier to a cap (three times to start), so small or irregular customers no longer jump to twenty times their usual day.' },
   { id: 'cpm-pushed', date: '2026-11-24', area: 'capacity', title: 'Pushed to the next day',
     text: 'CPM Daily\'s smoothed view now says how much is pushed to the next day — the daily work that only fits after the day\'s end and the renewals put off — and whose daily work it is, for perso and Matching.' },
   { id: 'cpm-match-scenarios', date: '2026-11-24', area: 'capacity', title: 'Scenarios for Matching',
