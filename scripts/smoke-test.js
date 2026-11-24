@@ -2599,9 +2599,16 @@ async function waitForServer() {
             const insO = sqm.prepare("INSERT INTO plan_otto_jobs (key, wo, customer, qty, prio, first_seen, last_seen) VALUES (?, ?, 'KBC', ?, ?, ?, ?)");
             for (let k = 1; k <= 3; k++) { const dd = new Date(Date.now() - k * 864e5).toISOString().slice(0, 10); insO.run(`PO${k}U`, `PO${k}U`, 100, 'Urgent', dd, dd); insO.run(`PO${k}N`, `PO${k}N`, 200, 'Normal', dd, dd); insO.run(`PO${k}L`, `PO${k}L`, 100, 'Low', dd, dd); }
             const mp = await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1`); const mpk = mp.rows.find((r) => r.trigram === 'KBC');
-            assert.ok(mpk.prio_from === 'learned' && Math.abs(['urgent', 'high', 'normal', 'low'].reduce((x, k) => x + mpk.prio[k], 0) - 1) < 1e-9 && mpk.prio.urgent > 0 && mpk.prio.low > 0, 'Matching priorities: an average day of its work orders');
+            assert.ok(mpk.prio_from === 'learned' && Math.abs(['urgent', 'high', 'normal'].reduce((x, k) => x + mpk.prio[k], 0) - 1) < 1e-9 && mpk.prio.urgent > 0 && mpk.rnw_pct > 0 && mpk.need_rnw > 0, 'Matching priorities: an average day of its work orders');
             assert.ok(mp.hours.every((_, i) => Math.abs(['urgent', 'high', 'normal', 'low'].reduce((x, k) => x + mp.prio[k][i], 0) - mp.need[i]) < 0.01), 'the priorities add up to each hour');
             assert.ok(Math.abs(['urgent', 'high', 'normal', 'low'].reduce((x, k) => x + mp.total.end_prio[k], 0) - mp.total.end_backlog) < 0.5 && (mp.total.end_prio.low >= mp.total.end_prio.urgent), 'what\'s left at the day\'s end, Low before Urgent');
+            // laid out as perso's day: smoothed, as work orders; campaigns ticked for Matching; its renewal window
+            assert.ok(mp.techs[0] === 'Matching' && mp.tech.Matching.smooth && mp.blocks && mp.blocks.per.Matching && mp.tech.Matching.prio, 'Matching\'s day as perso\'s: smoothed, work orders, priorities');
+            await call('PUT', '/cpm/settings', { cpm_campaigns: JSON.stringify([{ name: 'MCamp', customer: 'KBC', qty: 21000, from: `${Y}-01-01`, to: `${Y}-01-31` }, { name: 'NoMatch', customer: 'KBC', qty: 5000, from: `${Y}-01-01`, to: `${Y}-01-31`, match: false }]), cpm_rnw_hours: JSON.stringify({ Matching: [10, 11] }) });
+            const mc = await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1`); const cr = mc.rows.filter((r) => r.added === 'campaign');
+            assert.ok(cr.length === 1 && cr[0].campaign === 'MCamp' && Math.abs(cr[0].daily - (21000 / mc.workdays) * 0.5) < 0.01 && cr[0].renew === 0, 'a campaign ticked for Matching: its own line; one unticked left out');
+            assert.ok(mc.tech.Matching.added.some((v) => v > 0) && mc.renewals.Matching.window && mc.renewals.Matching.hours.join() === '10,11', 'drawn as added; renewals in Matching\'s window');
+            await call('PUT', '/cpm/settings', { cpm_campaigns: '[]', cpm_rnw_hours: '{}' });
             sqm.prepare("DELETE FROM plan_otto_jobs WHERE key LIKE 'PO%'").run();
             sqm.prepare("DELETE FROM prod_runs WHERE job IN ('MO1', 'MO2')").run(); sqm.close();
             await call('PUT', '/cpm/settings', { cpm_match_oee_machines: '[]', cpm_match_cust_oee: '{}' });
