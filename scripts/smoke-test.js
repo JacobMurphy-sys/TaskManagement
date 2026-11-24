@@ -2619,17 +2619,17 @@ async function waitForServer() {
             // ✋ OTTO and hand match: a hand-match station (200/h); KBC 25% hand (typed); the report's machines classified
             { const hm = await call('POST', '/plan/otto/machines', { name: 'CPM HAND', speed: '200', hand: true });
               const sqh = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); const dh = new Date(Date.now() - 10 * 864e5).toISOString().slice(0, 10);
-              const insH = sqh.prepare("INSERT INTO prod_runs (source, job, machine, start_at, end_at, qty, remake, trigram, read_at) VALUES ('otto', ?, ?, ?, ?, ?, 0, 'KBC', ?)");
-              insH.run('HM1', 'CPM HAND 2', `${dh}T08:00`, `${dh}T09:00`, 300, dh); insH.run('HM2', 'Mystery bench', `${dh}T09:00`, `${dh}T10:00`, 100, dh);
+              const insH = sqh.prepare("INSERT INTO plan_otto_jobs (key, wo, customer, qty, machine, first_seen, last_seen) VALUES (?, ?, 'KBC', ?, ?, ?, ?)");
+              insH.run('HM1', 'HM1', 300, 'CPM HAND', `${dh}T08:00`, `${dh}T09:00`); insH.run('HM2', 'HM2', 100, 'Mystery bench', `${dh}T09:00`, `${dh}T10:00`);
               await call('PUT', '/cpm/settings', { cpm_match_hand: JSON.stringify({ KBC: 0.25 }), cpm_match_line_of: JSON.stringify({ 'Mystery bench': 'hand' }) });
               const ch = await call('GET', '/cpm/match/config'); const rm = (n) => ch.report_machines.find((r) => r.name === n);
-              assert.ok(rm('CPM HAND 2').line === 'hand' && rm('CPM HAND 2').from === 'setup' && rm('Mystery bench').line === 'hand' && rm('Mystery bench').from === 'typed' && ch.customers.find((c) => c.trigram === 'KBC').hand_typed === 0.25, 'the report\'s machines: by Setup, else as picked');
+              assert.ok(ch.report_from === 'export' && rm('CPM HAND').line === 'hand' && rm('CPM HAND').from === 'setup' && rm('Mystery bench').line === 'hand' && rm('Mystery bench').from === 'typed' && ch.customers.find((c) => c.trigram === 'KBC').hand_typed === 0.25, 'the report\'s machines: by Setup, else as picked');
               const dd = await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1`); const ko = dd.rows.find((r) => r.trigram === 'KBC' && !r.added && r.tech === 'OTTO'); const kh = dd.rows.find((r) => r.trigram === 'KBC' && !r.added && r.tech === 'Hand match');
               assert.ok(dd.techs.join() === 'OTTO,Hand match' && kh && Math.abs(kh.month_volume / (ko.month_volume + kh.month_volume) - 0.25) < 1e-9, 'a customer split: 25% hand match, the rest OTTO');
               assert.ok(Math.abs(kh.need_daily - kh.daily / kh.oee_match) < 1e-6 && dd.tech['Hand match'].capacity.every((v, i) => (dd.worked[i] ? Math.abs(v - 200 * dd.hour_share) < 1e-6 : v === 0)), 'hand match: items ÷ OEE against the hand stations\' speed');
               const mh = await call('GET', `/cpm/match/monthly?year=${Y}&flex=0&live=1`); assert.ok(Math.abs(mh.months[0].lines.hand.capacity - 200 * mh.months[0].hours) < 0.5 && mh.months[0].lines.hand.items > 0, 'by month: hand match against its stations');
               const sth = await call('GET', `/cpm/site?year=${Y}&regen=1`); assert.ok(sth.match.hand && Math.abs(sth.match.hand.year - 200 * sth.hours_day * sth.workdays) < 0.5, 'Site Capacity: hand match apart');
-              sqh.prepare("DELETE FROM prod_runs WHERE job IN ('HM1', 'HM2')").run(); sqh.close();
+              sqh.prepare("DELETE FROM plan_otto_jobs WHERE key IN ('HM1', 'HM2')").run(); sqh.close();
               await call('DELETE', `/plan/otto/machines/${hm.id}`); await call('PUT', '/cpm/settings', { cpm_match_hand: '{}', cpm_match_line_of: '{}' }); }
             // 🏭 Site Capacity with Matching: its machines flat out, the same hours; the workbook's Matching sheet
             { const st = await call('GET', `/cpm/site?year=${Y}&regen=1`); const om = st.match.machines.find((m) => m.name === 'CPM OTTO');

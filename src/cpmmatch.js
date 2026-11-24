@@ -118,8 +118,9 @@ function scenarioAt(changes, ymKey, M, R, OE) {
     OE: { ...OE, of: (tri) => { const e = OE.of(tri); const p = pts(tri); return p ? { oee: Math.max(0.05, Math.min(1, e.oee + p)), from: 'scenario' } : e; } } };
 }
 
-// ✋ OTTO or hand match: where each customer's Matching items were matched, from the Matching timing report's
-// Machine column, the last 4 months. A report machine is the Setup machine it names (its "named as" text, else its
+// ✋ OTTO or hand match: where each customer's Matching items were matched, from the Matching export's Machine
+// column (Production › Setup's Matching export: every job SITHUB has kept from it, first seen in the last 4 months;
+// jobs with no machine left out) — the Matching timing report's only while the export's history has no machines. A report machine is the Setup machine it names (its "named as" text, else its
 // name) — hand match when that's ticked as one; one that names none is as set on Configuration › Capacity
 // (Matching picked): OTTO, hand match or left out; not set: hand match when its name says "hand", else OTTO.
 const LINES = { otto: 'OTTO', hand: 'Hand match' };
@@ -132,7 +133,9 @@ function lineOfRun(M, name) {
 }
 function handShares(M = machines()) {
   const typed = json(setting('cpm_match_hand', '{}'), {}); const learned = new Map(); const report = new Map();
-  let rows = []; try { rows = db.all("SELECT upper(trigram) AS tri, machine, SUM(qty) AS q, COUNT(*) AS n FROM prod_runs WHERE source = 'otto' AND remake = 0 AND start_at >= ? GROUP BY upper(trigram), machine", [since()]); } catch { /* none */ }
+  let rows = []; let from = 'export';
+  try { rows = db.all("SELECT upper(customer) AS tri, trim(machine) AS machine, SUM(qty) AS q, COUNT(*) AS n FROM plan_otto_jobs WHERE first_seen >= ? AND qty > 0 AND trim(coalesce(machine, '')) <> '' GROUP BY upper(customer), trim(machine)", [since()]); } catch { /* none */ }
+  if (!rows.length) { from = 'timing'; try { rows = db.all("SELECT upper(trigram) AS tri, machine, SUM(qty) AS q, COUNT(*) AS n FROM prod_runs WHERE source = 'otto' AND remake = 0 AND start_at >= ? GROUP BY upper(trigram), machine", [since()]); } catch { /* none */ } }
   const acc = new Map(); const add = (k, line, q) => { const a = acc.get(k) || acc.set(k, { otto: 0, hand: 0 }).get(k); a[line] += q; };
   for (const r of rows) {
     const q = Number(r.q) || 0; const name = String(r.machine || '').trim(); const L = lineOfRun(M, name);
@@ -140,7 +143,7 @@ function handShares(M = machines()) {
     if (L.line === 'skip' || !q) continue; if (r.tri) add(r.tri, L.line, q); add('*', L.line, q);
   }
   for (const [k, a] of acc) { const t = a.otto + a.hand; if (t > 0) learned.set(k, { share: a.hand / t, items: t, hand: a.hand }); }
-  return { typed, learned, report: [...report.values()].sort((a, b) => b.items - a.items),
+  return { typed, learned, from, report: [...report.values()].sort((a, b) => b.items - a.items),
     of: (tri) => { const t = typed[tri]; if (t !== undefined && t !== null && t !== '') return { share: Math.min(1, Math.max(0, Number(t) || 0)), from: 'typed' };
       const l = learned.get(tri); if (l && l.items >= 200) return { share: l.share, from: 'learned' }; const all = learned.get('*'); return all ? { share: all.share, from: 'everyone' } : { share: 0, from: 'none' }; } };
 }
@@ -337,7 +340,7 @@ function config(cards = null) {
     customers: tris.map((t) => { const l = R.learned.get(t) || null; const ms = OE.measured.by.get(t) || null;
       return { trigram: t, name: names.get(t) || '', learned: l ? l.ratio : null, perso: l ? l.perso : 0, match: l ? l.match : 0, typed: R.typed[t] ?? null, own_speed: M.cust.get(t) || null,
         oee_measured: ms ? ms.oee : null, oee_raw: ms ? ms.raw : null, oee_hours: ms ? ms.hours : 0, oee_typed: OE.typed[t] ?? null, prio: PR.of(t), metal_learned: MS.learned.get(t)?.share ?? null, metal_typed: MS.typed[t] ?? null, hand_learned: HS.learned.get(t)?.share ?? null, hand_items: HS.learned.get(t)?.items || 0, hand_typed: HS.typed[t] ?? null }; }), prio_all: PR.all,
-    hand_all: HS.learned.get('*') || null, report_machines: HS.report, line_of: json(setting('cpm_match_line_of', '{}'), {}), hand_machines: M.list.filter((m) => m.hand).map((m) => m.name), metal_machines: M.metal_machines, metal_ref: M.metal_ref,
+    hand_all: HS.learned.get('*') || null, report_machines: HS.report, report_from: HS.from, line_of: json(setting('cpm_match_line_of', '{}'), {}), hand_machines: M.list.filter((m) => m.hand).map((m) => m.name), metal_machines: M.metal_machines, metal_ref: M.metal_ref,
     rnw_hours: json(setting('cpm_rnw_hours', '{}'), {}), window: (json(setting('cpm_rnw_hours', '{}'), {}).Matching || []).map(Number), hours: Array.from({ length: 24 }, (_, i) => (Math.floor(hm(setting('plan_day_start', '06:00'), 360) / 60) + i) % 24) };
 }
 
