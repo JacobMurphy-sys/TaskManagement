@@ -2542,6 +2542,11 @@ async function waitForServer() {
             assert.ok(Math.abs(mk.hours.reduce((x, y) => x + y, 0) - mk.need_day) < 0.01, 'the hours add up to the day');
             assert.ok(md.capacity.every((v, i) => (md.worked[i] ? Math.abs(v - md.machines.reduce((x, m) => x + m.speed, 0)) < 0.01 : v === 0)), 'capacity in the hours worked only');
             const cfg = await call('GET', '/cpm/match/config'); assert.ok(cfg.customers.find((c) => c.trigram === 'KBC')?.typed === 0.5, 'config: the share typed');
+            // 🏭 Site Capacity with Matching: its machines flat out, the same hours; the workbook's Matching sheet
+            { const st = await call('GET', `/cpm/site?year=${Y}&regen=1`); const om = st.match.machines.find((m) => m.name === 'CPM OTTO');
+              assert.ok(om && Math.abs(om.year - 1000 * st.hours_day * st.workdays) < 0.5 && Math.abs(st.match.total.year - st.match.machines.reduce((a, m) => a + m.year, 0)) < 0.5, 'Site Capacity: Matching flat out, the same hours');
+              const xr = await fetch(`${BASE}/cpm/site/export?year=${Y}`, { headers: { 'X-Requested-With': 'TaskManager' } }); const bk = require('../src/xlsxread').readBook(Buffer.from(await xr.arrayBuffer()));
+              assert.deepEqual(bk.sheets.map((x) => x.name), [`Site Capacity ${Y}`, `Matching ${Y}`], 'the workbook: a Matching sheet'); }
             // 🔗 Matching to Excel: its month, its day (perso's workbook laid out for Matching) and its customers hour by hour
             for (const [u, names, nCharts] of [[`/cpm/match/monthly.xlsx?year=${Y}&flex=0`, [`Matching ${Y}`, 'Chart'], 2], [`/cpm/day/export?year=${Y}&month=1&flex=0&line=match`, [`Matching ${md.label}`.slice(0, 31), 'Hour profile', 'Charts'], 2], [`/cpm/day/customers.xlsx?year=${Y}&month=1&flex=0&line=match&view=cards`, ['Cards by hour'], 0]]) {
               const xr = await fetch(`${BASE}${u}`, { headers: { 'X-Requested-With': 'TaskManager' } }); assert.equal(xr.status, 200, u);
@@ -2636,7 +2641,7 @@ async function waitForServer() {
           for (const [u, names, nCharts] of [[`/cpm/headcount/export?year=${Y}&flex=0`, [`Headcount ${Y}`, 'By customer'], 2], [`/cpm/site/export?year=${Y}`, [`Site Capacity ${Y}`], 1]]) {
             const xr = await fetch(`${BASE}${u}`, { headers: { 'X-Requested-With': 'TaskManager' } }); assert.equal(xr.status, 200, u);
             const buf = Buffer.from(await xr.arrayBuffer()); const bk = require('../src/xlsxread').readBook(buf);
-            assert.deepEqual(bk.sheets.map((x) => x.name), names, `${u}: its sheets`);
+            assert.deepEqual(bk.sheets.map((x) => x.name).filter((x) => !/^Matching \d{4}$/.test(x)), names, `${u}: its sheets (and Matching's, when there are Matching machines)`);
             const z = require('../src/xlsxread').openZip(buf); const charts = Object.keys(z.files || {}).filter((f) => /^xl\/charts\/chart\d+\.xml$/.test(f));
             assert.ok(charts.length >= nCharts || [...Array(9).keys()].filter((k) => z.text(`xl/charts/chart${k + 1}.xml`)).length >= nCharts, `${u}: its charts`);
             assert.ok([...bk.sheet(names[0]).cells.values()].some((c) => c.f), `${u}: formulas, not just values`);

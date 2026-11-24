@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'site-matching', date: '2026-11-24', area: 'capacity', title: 'Site Capacity includes Matching',
+    text: 'Site Capacity now shows what the Matching machines could match flat out, beside perso\'s machines, including the metal machines on metal cards, and its Excel workbook has a Matching sheet.' },
   { id: 'cpm-total-volume', date: '2026-11-24', area: 'capacity', title: 'Scenarios: total volume and flat speeds',
     text: 'A scenario can now raise or lower the total volume — by a percentage or a flat number of cards shared across customers — and change a machine\'s speed by a flat amount as well as a percentage, for perso and Matching.' },
   { id: 'otto-metal', date: '2026-11-24', area: 'production', title: 'Metal cards on Matching',
