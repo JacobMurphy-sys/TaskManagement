@@ -116,12 +116,9 @@ async function plNoSpeed() {
   };
 }
 
-// ⚙ Setup's changes not saved yet (see plPend): drawing the page again would lose them — asked first
-let plSetupPending = null;
-window.addEventListener('beforeunload', (e) => { if (plSetupPending?.size) { e.preventDefault(); e.returnValue = ''; } });
+// ⚙ Setup's changes not saved yet (on the Save bar): drawing the page again would lose them — asked first
 async function renderPlanning() {
-  if (plSetupPending?.size && !confirm(`${plSetupPending.size} change${plSetupPending.size === 1 ? '' : 's'} in Setup not saved yet — drop ${plSetupPending.size === 1 ? 'it' : 'them'}?`)) return;
-  plSetupPending = null;
+  { const k = saveBar.count('Setup'); if (k && !confirm(`${k} change${k === 1 ? '' : 's'} in Setup not saved yet — drop ${k === 1 ? 'it' : 'them'}?`)) return; saveBar.drop('Setup'); }
   if (['insights', 'dplus'].includes(store.get('planHalf', 'perso'))) return renderPlanInsights(); // Insights (dplus.js)
   const mode = ['bau', 'score', 'mitigation'].includes(store.get('planMode', 'fifo')) ? store.get('planMode') : 'fifo';
   const half = ['otto', 'disp'].includes(store.get('planHalf', 'perso')) ? store.get('planHalf') : 'perso';
@@ -658,7 +655,6 @@ async function renderPlanning() {
     ${half === 'perso' ? modsHtml() : ''}
     ${src.status === 'ok' ? '' : '<div class="card only-not-admin"><p>Planning isn\'t set up yet: an admin links the open work orders export in Setup.</p></div>'}
     <div class="card pl-setup admin-only" id="pl-setup" ${src.status === 'ok' && !store.get('planSetupOpen', false) ? 'hidden' : ''}>
-      <div class="pl-setup-bar" id="pl-setup-bar" hidden><span class="pl-warn" id="pl-setup-n"></span><div class="spacer"></div><button class="small" id="pl-setup-undo">Undo changes</button><button class="small primary" id="pl-setup-save">💾 Save</button></div>
       <div class="row"><h2 style="margin:0">Setup</h2><div class="spacer"></div>${ddMenu('⋯', `<a href="/api/plan/setup" download title="Machines, speeds, OEE, modifiers, card tags, pins and these settings — to move them to the shared planner (or back)">⬇ Export setup</a><a href="/api/plan/setup?history=1" download title="The setup plus the history built up from the exports (the pace, catch-up and on-time figures) and the Production runs — so a new install starts where this one is">⬇ Export setup + history</a><label title="Replace this setup with one exported before">⬆ Import setup…<input type="file" accept=".json" hidden id="pl-setup-file"></label>`, { title: 'Export or import the setup' })}</div>
       ${p.shared_setup ? `<p class="small muted" style="margin:6px 0 0">From the network: <span title="${esc(p.shared_setup.file)}">${esc(p.shared_setup.file.split(/[\\/]/).pop())}</span>, ${esc(fmtDateTime(p.shared_setup.at))} —
         ${p.shared_setup.setup ? 'setup applied' : 'this install\'s own setup kept'}${p.shared_setup.history ? `; history added: ${n(p.shared_setup.history.reads)} exports, ${n(p.shared_setup.history.jobs + p.shared_setup.history.jobs_updated)} jobs, ${n(p.shared_setup.history.prod_runs)} production runs` : ''}.
@@ -853,18 +849,11 @@ ${half === 'otto' ? ottoSetup() : `
   if (state.mode === 'planner') startPlanPresence();
   // ⚙ Setup: edits are kept until one Save (with Undo), as Capacity planning's settings — each change queued
   // (the latest for a field wins), saved together, then the page drawn once
-  const plPend = new Map(); plSetupPending = plPend; // a field's key → () => Promise (its save)
-  const plBar = () => { const n = plPend.size; const bar = $('#pl-setup-bar'); if (!bar) return; bar.hidden = !n; $('#pl-setup-n').textContent = `${n} change${n === 1 ? '' : 's'} not saved yet`; };
-  const queue = (key, run, el) => { plPend.set(key, run); el?.classList.add('pl-dirty'); plBar(); };
-  // save what's queued; quiet: no toast (before an add / remove, which then draws the page)
-  const plFlush = async (quiet = false) => {
-    if (!plPend.size) return true; const runs = [...plPend.values()]; plPend.clear(); const errs = [];
-    for (const run of runs) { try { await run(); } catch (err) { errs.push(err.message); } }
-    if (errs.length) toast(`${runs.length - errs.length} saved — ${errs.length} not: ${errs.join(' · ')}`, 'error'); else if (!quiet) toast(`${runs.length} change${runs.length === 1 ? '' : 's'} saved`);
-    store.set('planSetupOpen', true); return !errs.length;
-  };
-  $('#pl-setup-save')?.addEventListener('click', async () => { const b = $('#pl-setup-save'); b.disabled = true; b.textContent = 'Saving…'; await plFlush(); renderPlanning(); });
-  $('#pl-setup-undo')?.addEventListener('click', () => { plPend.clear(); store.set('planSetupOpen', true); renderPlanning(); });
+  // (on the app's Save bar: savebar.js)
+  saveBar.on('Setup', { after: () => { store.set('planSetupOpen', true); return renderPlanning(); }, undo: () => { store.set('planSetupOpen', true); renderPlanning(); } });
+  const queue = (key, run, el) => saveBar.queue(`setup:${key}`, run, { label: 'Setup', el });
+  // save what's queued, quietly (before an add / remove, which then draws the page)
+  const plFlush = async () => { store.set('planSetupOpen', true); return saveBar.save({ quiet: true, queuedOnly: true }); };
   $$('#pl-setup input[name]').filter((el) => !el.closest('[data-plo-machine], [data-pl-machine]') && !el.matches('.pl-speed, .pl-oee, .plo-speed, [data-pl-day], [data-pl-learned], [data-pdata-set]')).forEach((el) => el.addEventListener('change', () => { // (the settings; machines, speeds and the rest have their own below)
     // the production reports: read when saved
     const report = { kpi_perso_data: 'pdata', kpi_time_perso: 'perso' }[el.name];

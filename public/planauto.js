@@ -51,7 +51,7 @@ function planAutoDraw() {
   const n0 = (v) => Number(v || 0).toLocaleString('en-GB');
   box.innerHTML = `${paState.plans.map(item).join('') || '<p class="small muted">None yet. An automatic plan makes the Generate plan PDF at set times and saves it over the same file, so whoever opens that file sees the latest plan, like a report subscription.</p>'}
     <div class="row" style="gap:8px;margin-top:8px"><button type="button" data-pa-act="add">＋ Add an automatic plan</button><div class="spacer"></div>
-      <span class="small muted" id="pa-dirty" ${paState.dirty ? '' : 'hidden'}>Not saved yet</span><button type="button" class="primary" data-pa-act="save" ${paState.dirty ? '' : 'disabled'}>💾 Save</button></div>`;
+      <span class="small muted" id="pa-dirty" data-sb-dirty ${paState.dirty ? '' : 'hidden'}>Not saved yet</span><button type="button" class="primary" data-pa-act="save" data-sb-save="Automatic plans" ${paState.dirty ? '' : 'disabled'}>💾 Save</button></div>`;
 }
 // what's on the page → the list (kept until saved)
 function planAutoRead() {

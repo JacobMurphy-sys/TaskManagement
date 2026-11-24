@@ -421,6 +421,11 @@ function renderSidebar() {
 let leaveGuard = null; let lastHash = location.hash;
 async function route() {
   if (leaveGuard && location.hash !== lastHash && !leaveGuard()) { history.replaceState(null, '', lastHash || '#/'); return; }
+  // 💾 changes waiting on the Save bar: asked before they're dropped
+  if (location.hash !== lastHash && saveBar.any()) {
+    const n = saveBar.count(); if (!confirm(`${n} change${n === 1 ? '' : 's'} not saved yet — leave and drop ${n === 1 ? 'it' : 'them'}?`)) { history.replaceState(null, '', lastHash || '#/'); return; }
+  }
+  if (location.hash !== lastHash) saveBar.reset();
   leaveGuard = null; lastHash = location.hash;
   document.body.classList.remove('sidebar-open');
   main().classList.remove('cockpit-main', 'kpi-dash'); // Home (and Reporting's Quality and EHS) fit the screen; every other page scrolls
