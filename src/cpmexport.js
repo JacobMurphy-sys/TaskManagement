@@ -8,7 +8,7 @@ const { sheet, buildBook } = require('./xlsxbook');
 const { colName } = require('./xlsx');
 
 // the CPM workbook's technology colours (DOD teal, Laser purple, Emboss black — a dark grey for bars)
-const TECH_COL = { DOD: '008080', Emboss: '404040', Laser: '7030A0' };
+const TECH_COL = { DOD: '008080', Emboss: '404040', Laser: '7030A0', Matching: '2563EB' };
 const SC_COL = ['7A5CFF', 'E0861A'];
 const FIRST = 7; // the first period column (G)
 
@@ -276,14 +276,15 @@ function buildCpmWorkbook({ base, scenarios = [], period, flex, sources, CARD_FI
 // cards a day ÷ OEE) with its day over the hours (× the hour profile on its own sheet); the renewal
 // windows; the hours worked and each machine's share of each hour per technology; and per technology the
 // day's demand, capacity, load and what's carried over — formulas over the blue-on-yellow inputs.
-const TECH_LIGHT = { DOD: '7FC0C0', Emboss: 'A6A6A6', Laser: 'B597D0' };
+const TECH_LIGHT = { DOD: '7FC0C0', Emboss: 'A6A6A6', Laser: 'B597D0', Matching: '93B4F5' };
 function buildDayWorkbook(d, { scenario = null } = {}) {
   const T = d.techs; const H = d.hours; const HC = 16; const n = 24; const hc = (i) => HC + i; const L = (c) => colName(c - 1);
   const hl = (h) => `${String(h).padStart(2, '0')}:00`;
-  const name = `Day ${d.label}`.slice(0, 31);
+  const MX = d.unit === 'items'; // Matching's day: items for cards, the OEE its customer's (and its speed's) — as on the page
+  const name = `${MX ? 'Matching ' : 'Day '}${d.label}`.slice(0, 31);
   const sh = sheet(name); const pr = sheet('Hour profile');
   for (const s of [sh, pr]) { s.width(1, 9).width(2, 10).width(3, 9).width(4, 28).width(5, 9); for (let c = 6; c <= 14; c++) s.width(c, 10); s.width(15, 10); for (let i = 0; i < n; i++) s.width(hc(i), 8); s.width(hc(n), 11); }
-  sh.set(1, 1, `CPM daily — a working day in ${d.label}${scenario ? ` — ${scenario}` : ''}`, 'title');
+  sh.set(1, 1, `CPM daily${MX ? ' — Matching' : ''} — a working day in ${d.label}${scenario ? ` — ${scenario}` : ''}`, 'title');
   sh.set(2, 1, `Forecast as read in ${d.forecast_as_of || '—'} · ${d.flex ? 'flex applied' : 'no flex'} · each customer's day spread as its cards were produced (Hour profile sheet) · renewals = Low priority work orders, in each technology's window`, 'note');
   sh.set(3, 1, 'Cells in blue on yellow are inputs — renewal %, volume, OEE, the hour profile, the renewal windows, hours worked, speeds, availability and how each machine splits its hours — change them and the day works itself out.', 'note');
   sh.set(4, 1, 'Working days', 'bold'); sh.set(4, 3, d.workdays, 'input');
@@ -301,7 +302,8 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
     sh.set(row, 3, r.trigram || '—'); sh.set(row, 4, r.name); sh.set(row, 5, r.tech); if (r.added) sh.set(row, 15, r.added === 'campaign' ? 'campaign' : 'scenario', 'bold');
     sh.set(row, 6, r.month_volume, 'input'); sh.f(row, 7, `F${row}*A${row}`, 'int', r.month_volume * r.daily_pct); sh.f(row, 8, r.peak && r.peak.factor !== 1 ? `G${row}/$C$4*${r.peak.factor}` : `G${row}/$C$4`, 'int', r.daily); // worst case: × its busiest day ÷ its average
     sh.set(row, 9, r.oee, 'inputPct'); sh.f(row, 10, `H${row}/I${row}`, 'int', r.need_daily);
-    sh.f(row, 11, `F${row}*B${row}`, 'int', r.month_volume * r.rnw_pct); sh.f(row, 12, `K${row}/$C$4`, 'int', r.renew); sh.f(row, 13, `MIN(1,I${row}+$F$4)`, 'pct', r.oee_rnw); sh.f(row, 14, `L${row}/M${row}`, 'int', r.need_rnw);
+    sh.f(row, 11, `F${row}*B${row}`, 'int', r.month_volume * r.rnw_pct); sh.f(row, 12, `K${row}/$C$4`, 'int', r.renew);
+    if (MX) sh.set(row, 13, r.oee_rnw, 'inputPct'); else sh.f(row, 13, `MIN(1,I${row}+$F$4)`, 'pct', r.oee_rnw); sh.f(row, 14, `L${row}/M${row}`, 'int', r.need_rnw);
     r.hours.forEach((v, i) => sh.f(row, hc(i), `$J${row}*'Hour profile'!${L(hc(i))}${row}`, 'int', v));
     sh.f(row, hc(n), `SUM(${L(hc(0))}${row}:${L(hc(n - 1))}${row})`, 'intBold', r.need_daily);
     pr.set(row, 3, r.trigram || '—'); pr.set(row, 4, r.name); pr.set(row, 5, r.tech); pr.set(row, 6, r.profile, 'note');
@@ -373,11 +375,11 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   if (rows.length) sh.cf.push({ ref: `${L(hc(0))}${R0}:${L(hc(n - 1))}${R1}`, rules: [{ scale: ['FFFFFF', '7382E6'] }] }); // where each customer's day lands
   sh.freeze = { row: 7, col: 6 }; pr.freeze = { row: 7, col: 6 };
   // charts
-  const ch = sheet('Charts'); ch.set(1, 1, `A working day in ${d.label} — charts`, 'title'); ch.set(2, 1, 'They read the day sheet: change an input there and they follow.', 'note');
+  const ch = sheet('Charts'); ch.set(1, 1, `${MX ? 'Matching — a' : 'A'} working day in ${d.label} — charts`, 'title'); ch.set(2, 1, 'They read the day sheet: change an input there and they follow.', 'note');
   const cats = sh.full(headRow, hc(0), headRow, hc(n - 1)); const rng = (row) => sh.full(row, hc(0), row, hc(n - 1)); const W = 13; const HH = 20;
-  ch.charts.push({ title: 'All technologies — needed (bars) against each one\'s capacity (lines)', cats, fmt: '#,##0', from: [1, 4], to: [2 * W, 4 + HH - 1],
+  ch.charts.push({ title: MX ? 'Matching — needed (bars) against capacity (line)' : 'All technologies — needed (bars) against each one\'s capacity (lines)', cats, fmt: '#,##0', from: [1, 4], to: [2 * W, 4 + HH - 1],
     series: [...T.map((t) => ({ name: `${t} needed`, ref: rng(S[t].need), kind: 'bar', color: TECH_COL[t] || '1F77B4' })), ...T.map((t) => ({ name: `${t} capacity`, ref: rng(S[t].cap), kind: 'line', color: TECH_COL[t] || '1F77B4', dash: true }))] });
-  const AT0 = 4 + HH; ch.charts.push({ title: 'All technologies — load hour by hour', cats, pct: true, from: [1, AT0], to: [2 * W, AT0 + HH - 1],
+  const AT0 = 4 + HH; ch.charts.push({ title: MX ? 'Matching — load hour by hour' : 'All technologies — load hour by hour', cats, pct: true, from: [1, AT0], to: [2 * W, AT0 + HH - 1],
     series: T.map((t) => ({ name: t, ref: rng(S[t].load), kind: 'line', color: TECH_COL[t] || '1F77B4', markers: true })) });
   const anyAdded = T.some((t) => (d.tech[t].added || []).some((v) => v > 0.5) || (d.tech[t].added_rnw || []).some((v) => v > 0.5));
   T.forEach((t, i) => { const at = [1 + (i % 2) * W, 4 + 2 * HH + Math.floor(i / 2) * HH];
@@ -385,7 +387,41 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
       series: [{ name: 'Daily', ref: rng(anyAdded ? S[t].own : S[t].daily), kind: 'bar', color: TECH_COL[t] || '1F77B4' }, ...(anyAdded ? [{ name: 'Added (campaigns, scenario)', ref: rng(S[t].added), kind: 'bar', color: 'FF7A1A' }] : []),
         { name: 'Renewals', ref: rng(anyAdded ? S[t].rnwOwn : S[t].rnw), kind: 'bar', color: TECH_LIGHT[t] || '9AA7BD' }, ...(anyAdded ? [{ name: 'Renewals added', ref: rng(S[t].addedRnw), kind: 'bar', color: 'FFBE8C' }] : []),
         { name: 'Capacity', ref: rng(S[t].cap), kind: 'line', color: '111827' }, { name: 'Carried over', ref: rng(S[t].carry), kind: 'line', color: 'C0392B', dash: true }] }); });
+  if (MX) { // what's different on Matching, said once at the top
+    sh.set(2, 1, `Forecast as read in ${d.forecast_as_of || '—'} · ${d.flex ? 'flex applied' : 'no flex'} · Matching: each customer's forecast cards × its share through Matching = items (Month); OEE = its Matching OEE ÷ its speed factor (its own Matching speed, metal cards at the metal machines' speed), so items ÷ OEE is machine time at the machines' usual speed; renewals = its Low priority Matching work orders, at the renewal OEE; each day spread as its Matching runs ended (Hour profile)`, 'note');
+  }
   return buildBook([sh, pr, ch]);
+}
+
+// ---- 🔗 Matching by month: the year's items, the machine time they need and the capacity, as formulas over the
+// inputs (working hours, capacity an hour), with the chart reading them
+function buildMatchMonthWorkbook(d, { scenario = null } = {}) {
+  const sh = sheet(`Matching ${d.year}`); const ch = sheet('Chart');
+  [12, 10, 10, 12, 12, 12, 14, 14, 9, 12, 48].forEach((w, i) => sh.width(i + 1, w));
+  sh.set(1, 1, `CPM monthly — Matching — ${d.year}${scenario ? ` — ${scenario}` : ''}`, 'title');
+  sh.set(2, 1, `Forecast as read in ${d.forecast_as_of || '—'} · ${d.flex ? 'flex applied' : 'no flex'} · items = each customer's forecast cards × its share through Matching; needed = items ÷ its Matching OEE (× its speed factor, metal at the metal speed), in machine time at the usual speed; capacity = the Matching machines' speed × the hours worked.`, 'note');
+  sh.set(3, 1, 'Cells in blue on yellow are inputs — the hours worked and the capacity an hour — change them and the rest follows.', 'note');
+  const H = ['Month', 'Working days', 'Hours worked', 'Capacity /h', 'Cards (forecast)', 'Items matched', 'Needed (÷ OEE)', 'Capacity', 'Load', 'Metal items', 'Biggest customers (needed)'];
+  H.forEach((h, i) => sh.set(5, i + 1, h, i >= 1 && i <= 9 ? 'headerNum' : 'header'));
+  const R0 = 6;
+  d.months.forEach((m, k) => {
+    const r = R0 + k; const capH = m.hours ? m.capacity / m.hours : d.capacity_hour;
+    sh.set(r, 1, m.label, 'bold'); sh.set(r, 2, m.workdays, 'int'); sh.set(r, 3, m.hours, 'input'); sh.set(r, 4, capH, 'input');
+    sh.set(r, 5, m.cards, 'int'); sh.set(r, 6, m.items, 'int'); sh.set(r, 7, m.need, 'intBold');
+    sh.f(r, 8, `C${r}*D${r}`, 'int', m.capacity); sh.f(r, 9, `IF(H${r}>0,G${r}/H${r},"")`, 'pct', m.load);
+    sh.set(r, 10, m.metal?.items || 0, 'int'); sh.set(r, 11, (m.top || []).slice(0, 5).map((c) => `${c.trigram || c.name} ${Math.round(c.need).toLocaleString('en-GB')}`).join(' · '));
+  });
+  const R1 = R0 + d.months.length - 1; const T = R1 + 1;
+  sh.set(T, 1, 'Year', 'bold'); for (const c of [2, 3, 5, 6, 7, 8, 10]) sh.f(T, c, `SUM(${colName(c - 1)}${R0}:${colName(c - 1)}${R1})`, 'intBold');
+  sh.f(T, 9, `IF(H${T}>0,G${T}/H${T},"")`, 'pctBold');
+  sh.cf.push({ ref: `I${R0}:I${T}`, rules: [{ op: 'greaterThan', v: '1', dxf: 'bad' }, { op: 'between', v: '0.85', v2: '1', dxf: 'warn' }, { op: 'between', v: '0', v2: '0.85', dxf: 'good' }] });
+  sh.freeze = { row: 6, col: 2 };
+  ch.set(1, 1, `Matching ${d.year} — needed against capacity`, 'title'); ch.set(2, 1, 'It reads the month sheet: change an input there and it follows.', 'note');
+  const cats = sh.full(R0, 1, R1, 1);
+  ch.charts.push({ title: 'Matching — needed (bars) against capacity (line), by month', cats, fmt: '#,##0', from: [1, 4], to: [16, 26],
+    series: [{ name: 'Needed (÷ OEE)', ref: sh.full(R0, 7, R1, 7), kind: 'bar', color: TECH_COL.Matching }, { name: 'Capacity', ref: sh.full(R0, 8, R1, 8), kind: 'line', color: '111827' }] });
+  ch.charts.push({ title: 'Matching — load by month', cats, pct: true, from: [1, 28], to: [16, 46], series: [{ name: 'Load', ref: sh.full(R0, 9, R1, 9), kind: 'line', color: TECH_COL.Matching, markers: true }] });
+  return buildBook([sh, ch]);
 }
 
 // ---- 👷 Headcount: the year by month, as formulas over its inputs (rates, working days, hours a day, efficiency,
@@ -499,4 +535,4 @@ function buildSiteWorkbook(d) {
   return buildBook([sh]);
 }
 
-module.exports = { buildCpmWorkbook, buildDayWorkbook, buildHeadcountWorkbook, buildSiteWorkbook, describe };
+module.exports = { buildMatchMonthWorkbook, buildCpmWorkbook, buildDayWorkbook, buildHeadcountWorkbook, buildSiteWorkbook, describe };

@@ -38,11 +38,11 @@ const STYLES_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
   + `<cellXfs count="${Object.keys(STYLES).length}">${Object.values(STYLES).map(([n, f, fi, b, al]) => `<xf numFmtId="${n}" fontId="${f}" fillId="${fi}" borderId="${b}" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"${al ? ` applyAlignment="1"><alignment ${al === 'wrap' ? 'wrapText="1" vertical="top"' : 'horizontal="right"'}/></xf>` : '/>'}`).join('')}</cellXfs>`
   + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
   // conditional formats: 0 good, 1 warning, 2 bad
-  + '<dxfs count="6"><dxf><font><color rgb="FF166534"/></font><fill><patternFill><bgColor rgb="FFDCFCE7"/></patternFill></fill></dxf>'
+  + '<dxfs count="7"><dxf><font><color rgb="FF166534"/></font><fill><patternFill><bgColor rgb="FFDCFCE7"/></patternFill></fill></dxf>'
   + '<dxf><font><b/><color rgb="FF92400E"/></font><fill><patternFill><bgColor rgb="FFFEF3C7"/></patternFill></fill></dxf>'
   + '<dxf><font><b/><color rgb="FF991B1B"/></font><fill><patternFill><bgColor rgb="FFFEE2E2"/></patternFill></fill></dxf>'
   // the technologies' text colours, as the CPM workbook has them: DOD teal, Emboss black, Laser purple
-  + '<dxf><font><color rgb="FF008080"/></font></dxf><dxf><font><color rgb="FF000000"/></font></dxf><dxf><font><color rgb="FF7030A0"/></font></dxf></dxfs>'
+  + '<dxf><font><color rgb="FF008080"/></font></dxf><dxf><font><color rgb="FF000000"/></font></dxf><dxf><font><color rgb="FF7030A0"/></font></dxf><dxf><font><color rgb="FF2563EB"/></font></dxf></dxfs>'
   + '</styleSheet>';
 
 function sheet(name) {
@@ -77,7 +77,7 @@ function sheetXml(sh, drawingRel) {
   const widths = Object.entries(sh.widths).sort((a, b) => a[0] - b[0]);
   const fr = sh.freeze; const pane = fr ? `<pane ${fr.col > 1 ? `xSplit="${fr.col - 1}" ` : ''}${fr.row > 1 ? `ySplit="${fr.row - 1}" ` : ''}topLeftCell="${ref(fr.row, fr.col)}" activePane="${fr.row > 1 && fr.col > 1 ? 'bottomRight' : fr.row > 1 ? 'bottomLeft' : 'topRight'}" state="frozen"/>` : '';
   let prio = 1;
-  const DXF = { good: 0, warn: 1, bad: 2, DOD: 3, Emboss: 4, Laser: 5 };
+  const DXF = { good: 0, warn: 1, bad: 2, DOD: 3, Emboss: 4, Laser: 5, Matching: 6 };
   const cf = sh.cf.map((x) => `<conditionalFormatting sqref="${x.ref}">${x.rules.map((rule) => (rule.scale // a colour scale: lowest → highest
     ? `<cfRule type="colorScale" priority="${prio++}"><colorScale><cfvo type="min"/><cfvo type="max"/>${rule.scale.map((c) => `<color rgb="FF${c}"/>`).join('')}</colorScale></cfRule>`
     : rule.expr

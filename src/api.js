@@ -3959,6 +3959,14 @@ router.get('/cpm/match/monthly', h((req, res) => {
   const sc = req.query.scenario ? cpmScenario(req, Number(req.query.scenario)) : null;
   res.json(cpmCached(req, 'match-monthly', () => { cpmRefresh(); return require('./cpmmatch').monthly({ year: Number(req.query.year) || new Date().getFullYear(), useFlex: req.query.flex !== '0', cards: cpmCards(), changes: sc?.changes || [] }); }));
 }));
+const cpmMatchDayOf = (req) => { const sc = req.query.scenario ? cpmScenario(req, Number(req.query.scenario)) : null;
+  return { ...cpmCached(req, 'match-day', () => { cpmRefresh(); return require('./cpmmatch').day({ year: Number(req.query.year) || new Date().getFullYear(), month: Math.min(12, Math.max(1, Number(req.query.month) || new Date().getMonth() + 1)), useFlex: req.query.flex !== '0', cards: cpmCards(), changes: sc?.changes || [] }); }), scenario: sc ? { id: sc.id, name: sc.name } : null }; };
+// 🔗 Matching by month as a workbook (formulas over the hours and the capacity an hour, with its charts)
+router.get('/cpm/match/monthly.xlsx', h((req, res) => {
+  const sc = req.query.scenario ? cpmScenario(req, Number(req.query.scenario)) : null;
+  const d = cpmCached(req, 'match-monthly', () => { cpmRefresh(); return require('./cpmmatch').monthly({ year: Number(req.query.year) || new Date().getFullYear(), useFlex: req.query.flex !== '0', cards: cpmCards(), changes: sc?.changes || [] }); });
+  sendXlsx(res, `CPM monthly Matching ${d.year}${sc ? ` - ${sc.name}` : ''}`, require('./cpmexport').buildMatchMonthWorkbook(d, { scenario: sc?.name || null }));
+}));
 router.get('/cpm/match/day', h((req, res) => {
   const sc = req.query.scenario ? cpmScenario(req, Number(req.query.scenario)) : null;
   res.json(cpmCached(req, 'match-day', () => { cpmRefresh(); return require('./cpmmatch').day({ year: Number(req.query.year) || new Date().getFullYear(), month: Math.min(12, Math.max(1, Number(req.query.month) || new Date().getMonth() + 1)), useFlex: req.query.flex !== '0', cards: cpmCards(), changes: sc?.changes || [] }); }));
@@ -4133,9 +4141,9 @@ router.get('/cpm/site/export', h((req, res) => {
   sendXlsx(res, `Site Capacity ${d.year}`, require('./cpmexport').buildSiteWorkbook(d));
 }));
 router.get('/cpm/day/export', h((req, res) => {
-  const d = cpmDayOf(req);
+  const d = req.query.line === 'match' ? cpmMatchDayOf(req) : cpmDayOf(req); // (?line=match: Matching's day)
   const buf = require('./cpmexport').buildDayWorkbook(d, { scenario: d.scenario?.name || null });
-  const name = `CPM daily ${d.label}${d.scenario ? ` - ${d.scenario.name}` : ''}`.replace(/[\\/:*?"<>|]/g, ' ').slice(0, 120);
+  const name = `CPM daily ${d.unit === 'items' ? 'Matching ' : ''}${d.label}${d.scenario ? ` - ${d.scenario.name}` : ''}`.replace(/[\\/:*?"<>|]/g, ' ').slice(0, 120);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '')}.xlsx"; filename*=UTF-8''${encodeURIComponent(name)}.xlsx`);
   res.send(buf);
@@ -4143,7 +4151,7 @@ router.get('/cpm/day/export', h((req, res) => {
 // 🕐 Day by hour's customer table (👥 Customers hour by hour) as a plain workbook: a row per customer and technology,
 // its hours as shown (?view=cards: cards; else capacity needed, ÷ OEE), then a total per technology and for all of them
 router.get('/cpm/day/customers.xlsx', h((req, res) => {
-  const d = cpmDayOf(req); const cards = req.query.view === 'cards'; const H = d.hours;
+  const d = req.query.line === 'match' ? cpmMatchDayOf(req) : cpmDayOf(req); const cards = req.query.view === 'cards'; const H = d.hours; const MXU = d.unit === 'items';
   const hhmm = (v) => (v === null || v === undefined ? '' : `${String(Math.floor(v)).padStart(2, '0')}:${String(Math.floor((v % 1) * 60)).padStart(2, '0')}`);
   const r0 = (v) => Math.round((Number(v) || 0) * 10) / 10; const pc = (v) => (v === null || v === undefined ? '' : Math.round(v * 1000) / 10);
   const hrs = (r) => (cards ? r.cards_hours : r.hours) || [];
@@ -4157,7 +4165,8 @@ router.get('/cpm/day/customers.xlsx', h((req, res) => {
   const n = (header, width = 10) => ({ header, width, type: 'number' });
   const columns = [{ header: 'Customer', width: 10 }, { header: 'Name', width: 26 }, { header: 'Technology', width: 11 }, n('Month (cards)', 13), n('Renewals %'), n('OEE %', 8), n('Cards a day', 12), n('Daily needed /day (÷ OEE)', 14), n('Renewals needed /day', 14), n('Usual order', 11),
     { header: 'Arrives', width: 9 }, { header: 'Cut-off', width: 9 }, n('Late cards', 10), ...H.map((h) => n(`${String(h).padStart(2, '0')}:00`, 8))];
-  const name = `Customers hour by hour ${d.label}${d.scenario ? ` - ${d.scenario.name}` : ''}${cards ? ' (cards)' : ' (capacity needed)'}`.replace(/[\\/:*?"<>|]/g, ' ').slice(0, 120);
+  if (MXU) { columns[3].header = 'Month (items)'; columns[6].header = 'Items a day'; columns[12].header = 'Late items'; }
+  const name = `Customers hour by hour ${MXU ? 'Matching ' : ''}${d.label}${d.scenario ? ` - ${d.scenario.name}` : ''}${cards ? (MXU ? ' (items)' : ' (cards)') : ' (capacity needed)'}`.replace(/[\\/:*?"<>|]/g, ' ').slice(0, 120);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '')}.xlsx"; filename*=UTF-8''${encodeURIComponent(name)}.xlsx`);
   res.send(require('./xlsx').buildXlsx([{ name: cards ? 'Cards by hour' : 'Needed by hour', columns, rows }]));
