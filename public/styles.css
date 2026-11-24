@@ -2907,3 +2907,6 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .cpm-chg-group { border-left: 3px solid var(--border); padding-left: 10px; margin: 10px 0; }
 .cpm-chg-group.cpm-chg-perso { border-left-color: #430099; } .cpm-chg-group.cpm-chg-match { border-left-color: #2563EB; } .cpm-chg-group.cpm-chg-both { border-left-color: #475569; }
 .cpm-chg-h { margin: 4px 0 6px; font-size: 13px; }
+
+.cpm-push { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--warn, #d97706); background: color-mix(in srgb, var(--warn, #d97706) 8%, transparent); border-radius: 4px; }
+.cpm-push.cpm-push-ok { border-left-color: var(--ok, #16a34a); background: color-mix(in srgb, var(--ok, #16a34a) 7%, transparent); }
