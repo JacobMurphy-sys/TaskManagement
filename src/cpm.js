@@ -470,7 +470,7 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
     if (c.type === 'add_machine' && !(c.techs || []).map(normTech).filter(Boolean).length) warnings.push(`${c.name || 'The machine added'} runs no technology — tick what it runs, or it adds nothing`);
     if (c.type === 'capabilities' && c.machine && !(c.techs || []).map(normTech).filter(Boolean).length) warnings.push(`${c.machine} is set to run nothing${when(c)} — the same as removing it`);
     if (c.type === 'new_customer') { const sp = Object.values(c.split || {}).reduce((a, b) => a + (Number(b) || 0), 0); if (c.split && Object.keys(c.split).length && Math.abs(sp - 1) > 0.005) warnings.push(`${c.name || 'The new customer'}'s split adds up to ${Math.round(sp * 100)}% — it's taken as shares of 100%`); if (!(Number(c.qty) > 0)) warnings.push(`${c.name || 'The new customer'} has no cards a month — it adds nothing`); }
-    if ((c.type === 'oee' && !Number(c.points)) || ((c.type === 'volume' || c.type === 'speed') && !Number(c.pct) && !Number(c.flat))) warnings.push(`A ${c.type} change of 0 — it does nothing`);
+    if ((c.type === 'oee' && !Number(c.points)) || (['volume', 'total_volume'].includes(c.type) && !Number(c.pct) && !Number(c.flat)) || (c.type === 'speed' && !Number(c.pct) && !Number(c.speed_flat))) warnings.push(`A ${c.type.replace('_', ' ')} change of 0 — it does nothing`);
     if (/^m_/.test(c.type || '')) { warnings.push(`${c.type === 'm_rnw_window' ? 'Matching\'s renewal window' : 'A Matching change'} shows on the Matching view (the Perso / Matching switch), not on perso's figures`); continue; }
     if (c.type === 'rnw_window') warnings.push(`The ${c.tech || ''} renewal window only changes CPM Daily — not the month or week figures`.replace('The  ', 'The '));
   }
@@ -482,7 +482,7 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
     let techs = m.techs;
     for (const c of changes) if (c.type === 'capabilities' && c.machine === m.name && inRange(month, c)) techs = (c.techs || []).map(normTech).filter(Boolean);
     const o = opts[m.name] || {};
-    const speed = {}; for (const t of techs) { let s = Number(o.speed?.[t]) || sp[t] || 0; for (const c of changes) if (c.type === 'speed' && (!c.machine || c.machine === m.name) && (!c.tech || normTech(c.tech) === t) && inRange(month, c)) s *= 1 + (Number(c.pct) || 0) / 100; speed[t] = s; }
+    const speed = {}; for (const t of techs) { let s = Number(o.speed?.[t]) || sp[t] || 0; for (const c of changes) if (c.type === 'speed' && (!c.machine || c.machine === m.name) && (!c.tech || normTech(c.tech) === t) && inRange(month, c)) s = s * (1 + (Number(c.pct) || 0) / 100) + (Number(c.speed_flat) || 0); speed[t] = Math.max(0, s); }
     const only = changes.filter((c) => c.type === 'restrict' && c.machine === m.name && inRange(month, c))
       .map((c) => ({ customers: (c.customers || []).length ? new Set(c.customers) : null, field: CARD_FIELDS[c.field] && (c.values || []).length ? c.field : null, values: CARD_FIELDS[c.field] && (c.values || []).length ? new Set(c.values) : null }))
       .filter((r) => r.customers || r.values);
@@ -506,7 +506,7 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
   const extra = changes.filter((c) => c.type === 'new_customer');
   // a customer volume change with a flat number of cards: spread over the working days of its months (from … until;
   // no until: its from month only; no from: the year)
-  const flats = changes.filter((c) => c.type === 'volume' && Number(c.flat));
+  const flats = changes.filter((c) => c.type === 'volume' && Number(c.flat)); const totals = changes.filter((c) => c.type === 'total_volume' && Number(c.flat));
   for (const c of flats) if (!c.customer) warnings.push('A flat volume needs a customer — it does nothing');
   const flatSpan = (c) => { const a = c.from || ym(year, 1); const b = c.to || (c.from ? c.from : ym(year, 12)); return a <= b ? [a, b] : [b, a]; };
   const calCache = new Map(); const workdaysIn = (mon) => { const y = Number(mon.slice(0, 4)); if (!calCache.has(y)) { const w = {}; for (const d of calendarOf(y)) if (d.work) w[d.month] = (w[d.month] || 0) + 1; calCache.set(y, w); } return calCache.get(y)[mon] || 0; };
@@ -534,6 +534,7 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
           for (const [sig, f] of mix) { const k = `${tri}\u0001${sig}`; md[t].buckets.set(k, (md[t].buckets.get(k) || 0) + ((qty * share) / oee) * f); }
         } }
     };
+    const seenM = []; // this month's customers as counted, for a total flat volume
     for (const c of custs) {
       const f = fc.by.get(`${c.trigram}|${m}`); if (!f) continue;
       if (c.unlinked) unlinkedQty += f.total || Object.values(f.tech).reduce((a, b) => a + b, 0);
@@ -544,8 +545,18 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
       if (fx) qty *= fx.factor(c.trigram, m);
       const before = qty;
       for (const ch of changes) if (ch.type === 'volume' && (!ch.customer || ch.customer === c.trigram) && inRange(month, ch)) qty *= 1 + (Number(ch.pct) || 0) / 100;
+      for (const ch of changes) if (ch.type === 'total_volume' && inRange(month, ch)) qty *= 1 + (Number(ch.pct) || 0) / 100; // every customer
       const oeeOf = (t) => Number(c.oee?.[t]) || Number(prodOee.get(c.trigram)) || oeeDefault;
       add(c.trigram, qty, split, oeeOf, c.name || c.trigram, f.total || Object.values(f.tech).reduce((a, b) => a + b, 0), Math.max(0, qty - before));
+      seenM.push({ c, qty, split, oeeOf });
+    }
+    // 🧪 total volume, flat: the cards (+ or −) over the working days between its months, this month's part shared
+    // among the customers by their forecast (as changed) — a decrease never takes more than there is
+    for (const ch of totals) {
+      const [a, b] = flatSpan(ch); if (month < a || month > b) continue;
+      const part = (Number(ch.flat) * workdaysIn(month)) / (flatDays(ch) || 1); const tot = seenM.reduce((x, y) => x + y.qty, 0); if (!part || !tot) continue;
+      const k = Math.max(-1, part / tot);
+      for (const y of seenM) { const v = y.qty * k; if (Math.abs(v) < 1e-9) continue; add(y.c.trigram, v, y.split, y.oeeOf, y.c.name || y.c.trigram, 0, Math.max(0, v)); }
     }
     for (const ch of flats) {
       const [a, b] = flatSpan(ch); if (month < a || month > b) continue;

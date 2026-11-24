@@ -4193,7 +4193,7 @@ router.get('/cpm/scenarios', h((req, res) => {
   res.json(db.all('SELECT * FROM cpm_scenarios WHERE owner = ? OR shared = 1 ORDER BY owner = ? DESC, updated_at DESC', [cpmOwner(req), cpmOwner(req)])
     .map((sc) => ({ ...sc, changes: JSON.parse(sc.changes || '[]'), shared: !!sc.shared, mine: sc.owner === cpmOwner(req) })));
 }));
-const cpmChanges = (c) => (Array.isArray(c) ? c : []).filter((x) => x && typeof x === 'object' && /^(speed|add_machine|remove_machine|capabilities|restrict|rnw_window|shifts|oee|volume|new_customer|m_add|m_remove|m_speed|m_oee|m_share|m_rnw_window)$/.test(x.type)).slice(0, 60);
+const cpmChanges = (c) => (Array.isArray(c) ? c : []).filter((x) => x && typeof x === 'object' && /^(speed|add_machine|remove_machine|capabilities|restrict|rnw_window|shifts|oee|volume|total_volume|new_customer|m_add|m_remove|m_speed|m_oee|m_share|m_rnw_window)$/.test(x.type)).slice(0, 60);
 router.post('/cpm/scenarios', h((req, res) => {
   const b = req.body || {}; const name = String(b.name || '').trim(); if (!name) throw new HttpError(400, 'Give the scenario a name');
   const row = insertRow('cpm_scenarios', { owner: cpmOwner(req), owner_name: req.account?.person || null, name, notes: b.notes || null, changes: JSON.stringify(cpmChanges(b.changes)), shared: b.shared ? 1 : 0 });
