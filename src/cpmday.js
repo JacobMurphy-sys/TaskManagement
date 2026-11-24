@@ -108,10 +108,23 @@ function peakVolumes(rs = []) {
       if (!ok.has(j.first_seen)) continue; const dk = dayKey(new Date(j.first_seen)); const q = Number(j.qty) || 0; add(String(j.customer).toUpperCase(), dk, q); add('*', dk, q); }
   } catch { /* no history */ }
   if (!by.size) { src = 'produced'; for (const r of rs) { if (!r.qty) continue; const dk = dayKey(r.start); daysAll.add(dk); if (r.trigram) add(r.trigram, dk, r.qty); add('*', dk, r.qty); } }
+  // working days only: what came in on a day off counts on the next working day; a busy day is the 90th
+  // percentile of its working days (days with nothing count as 0) — 1 in 10 of its days are bigger — not its
+  // single biggest; ÷ its average working day; kept to at most the cap (⚙ View, ×3 to start)
+  const work = new Set(); const yrs = new Set([...daysAll, ...[...by.values()].flatMap((m) => [...m.keys()])].map((d) => Number(String(d).slice(0, 4))).filter(Boolean));
+  for (const y of [...yrs, ...[...yrs].map((y) => y + 1)]) for (const d of cpm.calendarOf(y)) if (d.work) work.add(d.day);
+  const nextWork = (dk) => { let d = new Date(`${dk}T12:00`); for (let i = 0; i < 14 && !work.has(ymd(d)); i++) d.setDate(d.getDate() + 1); return ymd(d); };
+  const wdays = [...new Set([...daysAll].map(nextWork))].filter((d) => work.has(d));
+  const cap = Math.max(1, Number(setting('cpm_peak_cap', '3')) || 3);
   const out = new Map();
-  for (const [k, m] of by) { if (k !== '*' && m.size < 5) continue; const n = Math.max(daysAll.size, m.size); const tot = [...m.values()].reduce((a, b) => a + b, 0); if (!tot || !n) continue;
-    const [day, peak] = [...m.entries()].reduce((w, e) => (e[1] > w[1] ? e : w)); const avg = tot / n; out.set(k, { factor: Math.max(1, peak / avg), peak, avg, day, days: m.size }); }
-  return { by: out, source: src };
+  for (const [k, m0] of by) {
+    const m = new Map(); for (const [dk, q] of m0) { const w = nextWork(dk); m.set(w, (m.get(w) || 0) + q); }
+    if (k !== '*' && m.size < 5) continue; const days = [...new Set([...wdays, ...m.keys()])]; const n = days.length; const tot = [...m.values()].reduce((a, b) => a + b, 0); if (!tot || !n) continue;
+    const vals = days.map((d) => [d, m.get(d) || 0]).sort((a, b) => a[1] - b[1]); const [day, peak] = vals[Math.min(n - 1, Math.floor(0.9 * n))];
+    const [maxDay, max] = vals[n - 1]; const avg = tot / n; const raw = Math.max(1, peak / avg);
+    out.set(k, { factor: Math.min(cap, raw), raw, capped: raw > cap, cap, peak, avg, day, max, max_day: maxDay, days: m.size, working_days: n });
+  }
+  return { by: out, source: src, cap };
 }
 // a day's shares → its typical hour (a circular mean, so 23:00 and 01:00 average to midnight): 9.5 for 09:30
 function meanHour(p) {
@@ -493,7 +506,7 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
     const mk = (v, added) => { if (!(v > 0)) return; const daily = ((v * (1 - rShare)) / days) * (pk ? pk.factor : 1); const renew = (v * rShare) / days;
     rows.push({ trigram: tri, name: added ? `${D.name} — scenario +` : D.name, added: added || null, tech: D.tech, month_volume: v, daily_pct: 1 - rShare, rnw_pct: rShare, rnw_learned: learned ? learned.share : null, rnw_learned_days: learned ? learned.days : null, rnw_learned_whole: learned ? learned.whole : null, rnw_typed: typed ?? null,
       prio: pr.mix, prio_from: pr.from, prio_learned: prL && prL.daily_days ? prL.daily : null, prio_days: prL ? prL.daily_days : 0,
-      oee, oee_rnw: oeeR, workdays: days, daily, renew, need_daily: daily / oee, need_rnw: renew / oeeR, profile: from, peak: pk ? { factor: pk.factor, day: pk.day, peak: pk.peak, avg: pk.avg, days: pk.days, own: !!pv.by.get(tri) } : null, learned_shares: learnedShares, learned_from: learnedFrom, produced_shares: producedShares, arrive_avg: p ? meanHour(p) : null, arrive_seen: seen, shares,
+      oee, oee_rnw: oeeR, workdays: days, daily, renew, need_daily: daily / oee, need_rnw: renew / oeeR, profile: from, peak: pk ? { factor: pk.factor, raw: pk.raw, capped: pk.capped, cap: pk.cap, day: pk.day, peak: pk.peak, avg: pk.avg, max: pk.max, max_day: pk.max_day, days: pk.days, working_days: pk.working_days, own: !!pv.by.get(tri) } : null, learned_shares: learnedShares, learned_from: learnedFrom, produced_shares: producedShares, arrive_avg: p ? meanHour(p) : null, arrive_seen: seen, shares,
       hours: shares.map((s) => (daily / oee) * s), cards_hours: shares.map((s) => daily * s) }); };
     mk(vol - extraVol, null); if (extraVol > 0.5) mk(extraVol, 'scenario');
   }
@@ -590,7 +603,7 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
       rnwHours: Object.fromEntries(T.map((t) => [t, rnwByTech[t].window ? rnwByTech[t].hours : []])), sizes: orderSizes(cards), allowed: (m, r) => (m.only?.length ? allowed(m, r) : 1), cutoffOf });
   } catch (err) { warnings.push(`The work-order run couldn't be worked out: ${err.message}`); }
   return { hour_share: factor, blocks, year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), shifts, hph, full,
-    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, day_shape: shape, peak_source: pv ? pv.source : null, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, capacity_by_machine: Object.fromEntries(T.map((t) => [t, [...byM[t]].map(([name, per]) => ({ name, per }))])), tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, cutoff_default: defCut, rnw_share_typed: over, prio_typed: prioTyped, prio_all: pm.get('*') || null, campaigns: Array.isArray(camps) ? camps : [], manual: json(setting('cpm_day_manual', '{}'), {}), warnings: [...new Set(warnings)],
+    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, day_shape: shape, peak_source: pv ? pv.source : null, peak_cap: Math.max(1, Number(setting('cpm_peak_cap', '3')) || 3), arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, capacity_by_machine: Object.fromEntries(T.map((t) => [t, [...byM[t]].map(([name, per]) => ({ name, per }))])), tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, cutoff_default: defCut, rnw_share_typed: over, prio_typed: prioTyped, prio_all: pm.get('*') || null, campaigns: Array.isArray(camps) ? camps : [], manual: json(setting('cpm_day_manual', '{}'), {}), warnings: [...new Set(warnings)],
     learned: { runs: rs.length, renewals: [...rnw.values()].reduce((a, x) => a + x.qty, 0) }, forecast_as_of: plan.forecast_as_of, flex: useFlex };
 }
 

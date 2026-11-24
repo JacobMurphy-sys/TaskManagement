@@ -2717,6 +2717,7 @@ async function waitForServer() {
             assert.ok(krs.smoothed.slice(0, da.hours.indexOf(9)).every((v) => v < 1e-9), 'nothing done before it comes in');
             // a second day, its files in at 13:30: a typical day keeps the clump (at the usual time, between
             // the two); all days averaged spreads it over both
+            await call('PATCH', '/settings', { plan_days: '0,1,2,3,4,5,6' }); // (every day a working day here: the days below are relative to today, whatever weekday that is)
             const d1 = new Date(); d1.setDate(d1.getDate() - 1); const day1 = `${d1.getFullYear()}-${String(d1.getMonth() + 1).padStart(2, '0')}-${String(d1.getDate()).padStart(2, '0')}`;
             const sq4 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
             for (const t of ['13:00', '14:00']) { const r = `${day1}T${t}:00`; reads.push(r); sq4.prepare('INSERT OR IGNORE INTO plan_history_reads (file_modified, read_at) VALUES (?, ?)').run(r, r); }
@@ -2741,13 +2742,16 @@ async function waitForServer() {
             const cmp = await call('GET', `/cpm/day/compare?year=${Y}&month=1&flex=0&regen=1`);
             const sumN = (k) => cmp.shapes[k].DOD.need.reduce((a, b) => a + b, 0);
             assert.ok(['typical', 'worst', 'average'].every((k) => cmp.shapes[k].DOD) && sumN('worst') > sumN('average') + 1 && Math.abs(sumN('typical') - sumN('average')) < 0.01 && cmp.shapes.worst.DOD.peak >= cmp.shapes.average.DOD.peak - 1e-9, 'the three side by side: the worst case bigger and peaking highest');
-            // worst-case volume: the busiest day submitted (800 cards) ÷ the average over the 3 days read (2,000 / 3) = × 1.2;
+            // worst-case volume: a busy day (the 90th percentile of the 3 working days: 800 cards) ÷ the average working day (2,000 / 3) = × 1.2;
             // KBC seen on under 5 days, so everyone's
             const dT = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`); await call('PUT', '/cpm/settings', { cpm_day_shape: 'worst' });
             const dW = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`); await call('PUT', '/cpm/settings', { cpm_day_shape: 'typical' });
             const kT = dT.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD'); const kW = dW.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD');
             assert.ok(Math.abs(kW.peak.factor - 1.2) < 1e-9 && kW.peak.peak === 800 && kW.peak.own === false && Math.abs(kW.daily - kT.daily * 1.2) < 1e-6 && Math.abs(kW.renew - kT.renew) < 1e-9 && kT.peak === null, `worst case: daily × 1.2, renewals as they are (${JSON.stringify(kW.peak)})`);
             const sq3 = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db'));
+            await call('PUT', '/cpm/settings', { cpm_day_shape: 'worst', cpm_peak_cap: '1.1' }); const dC = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`); await call('PUT', '/cpm/settings', { cpm_day_shape: 'typical', cpm_peak_cap: '3' });
+            const kC = dC.rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD'); assert.ok(kC.peak.factor === 1.1 && kC.peak.capped && Math.abs(kC.peak.raw - 1.2) < 1e-9 && Math.abs(kC.daily - kT.daily * 1.1) < 1e-6, 'the worst case kept to the cap');
+            await call('PATCH', '/settings', { plan_days: '1,2,3,4,5' });
             sq3.prepare("DELETE FROM plan_history_jobs WHERE key LIKE 'ARR%'").run(); for (const r of reads) sq3.prepare('DELETE FROM plan_history_reads WHERE file_modified = ?').run(r); sq3.close();
           }
           // run periods set by hand: KBC's own beats what's learned; everyone else's for the rest
