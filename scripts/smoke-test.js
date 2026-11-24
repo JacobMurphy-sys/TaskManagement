@@ -2571,6 +2571,18 @@ async function waitForServer() {
             const dk = (await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`)).rows.find((r) => r.trigram === 'KBC' && r.tech === 'DOD' && !r.added);
             assert.ok(Math.abs(kc.need_day - (dk.need_daily + dk.need_rnw)) < 0.01, 'check: the capacity a day is Day by hour\'s');
             assert.ok(ck.rows.every((r) => Array.isArray(r.flags) && Array.isArray(r.names)), 'check: flags and forecast lines for every row'); }
+          // 📐 Matching: the forecast cards × the share through Matching (typed here) ÷ the Matching OEE, against the
+          // Matching machines' speed over the hours worked
+          { const mm = await call('POST', '/plan/otto/machines', { name: 'CPM OTTO', speed: '1000' });
+            await call('PUT', '/cpm/settings', { cpm_match_oee: '0.5', cpm_match_ratio: JSON.stringify({ KBC: 0.5 }) });
+            const mo = await call('GET', `/cpm/match/monthly?year=${Y}&flex=0&live=1`);
+            assert.ok(mo.oee === 0.5 && mo.capacity_hour >= 1000 && mo.months.every((m) => Math.abs(m.capacity - mo.capacity_hour * m.hours) < 0.5), 'Matching capacity: the machines\' speed × the hours worked');
+            const md = await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1`); const mk = md.rows.find((r) => r.trigram === 'KBC');
+            assert.ok(mk && mk.ratio_from === 'typed' && Math.abs(mk.items_day - mk.cards_day * 0.5) < 0.01 && Math.abs(mk.need_day - (mk.items_day / 0.5) * mk.speed_factor) < 0.01, 'Matching: cards × the share typed, ÷ the Matching OEE');
+            assert.ok(Math.abs(mk.hours.reduce((x, y) => x + y, 0) - mk.need_day) < 0.01, 'the hours add up to the day');
+            assert.ok(md.capacity.every((v, i) => (md.worked[i] ? Math.abs(v - md.machines.reduce((x, m) => x + m.speed, 0)) < 0.01 : v === 0)), 'capacity in the hours worked only');
+            const cfg = await call('GET', '/cpm/match/config'); assert.ok(cfg.customers.find((c) => c.trigram === 'KBC')?.typed === 0.5, 'config: the share typed');
+            await call('DELETE', `/plan/otto/machines/${mm.id}`); await call('PUT', '/cpm/settings', { cpm_match_oee: '0.6', cpm_match_ratio: '{}' }); }
           // 📣 a campaign: a customer's cards over some days, on its split, a line of its own; off: not counted
           { await call('PUT', '/cpm/settings', { cpm_campaigns: JSON.stringify([{ name: 'Reissue', customer: 'KBC', qty: 21000, from: `${Y}-01-01`, to: `${Y}-01-31` }, { name: 'Paused', customer: 'KBC', qty: 99999, from: `${Y}-01-01`, to: `${Y}-01-31`, off: true }]) });
             const dC = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&regen=1`);
