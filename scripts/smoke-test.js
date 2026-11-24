@@ -2521,6 +2521,17 @@ async function waitForServer() {
             assert.ok(Math.abs(mk.hours.reduce((x, y) => x + y, 0) - mk.need_day) < 0.01, 'the hours add up to the day');
             assert.ok(md.capacity.every((v, i) => (md.worked[i] ? Math.abs(v - md.machines.reduce((x, m) => x + m.speed, 0)) < 0.01 : v === 0)), 'capacity in the hours worked only');
             const cfg = await call('GET', '/cpm/match/config'); assert.ok(cfg.customers.find((c) => c.trigram === 'KBC')?.typed === 0.5, 'config: the share typed');
+            // a scenario's Matching changes: a machine added, one removed from March, KBC's share and OEE, the renewal window
+            { const ms = await call('POST', '/cpm/scenarios', { name: 'Matching test', changes: [{ type: 'm_add', name: 'OTTO X', speed: 500 }, { type: 'm_remove', machine: 'CPM OTTO', from: `${Y}-03` },
+                { type: 'm_share', customer: 'KBC', share: 20 }, { type: 'm_oee', customer: 'KBC', points: 10 }, { type: 'm_rnw_window', hours: [12] }] });
+              const mm2 = await call('GET', `/cpm/match/monthly?year=${Y}&flex=0&live=1&scenario=${ms.id}`);
+              const base = mm2.capacity_hour; const [jan, mar] = [mm2.months[0], mm2.months[2]];
+              assert.ok(Math.abs(jan.capacity - (base + 500) * jan.hours) < 0.5 && Math.abs(mar.capacity - (base + 500 - 1000) * mar.hours) < 0.5, 'Matching scenario: a machine added, one removed from March');
+              const sd = await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1&scenario=${ms.id}`); const sk = sd.rows.find((r) => r.trigram === 'KBC' && !r.added);
+              assert.ok(sk.ratio === 0.2 && sk.ratio_from === 'scenario' && Math.abs(sk.oee_match - 0.6) < 1e-9 && sd.renewals.Matching.hours.join() === '12', 'Matching scenario: share, OEE points and renewal window');
+              const pv = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${ms.id}&live=1`);
+              assert.ok(pv.scenarios[0].warnings.some((w) => /Matching view/.test(w)), 'perso says a Matching change shows on the Matching view');
+              await call('DELETE', `/cpm/scenarios/${ms.id}`); }
             // the customer's OEE measured on the machines ticked for it: items ÷ (run hours × the machine's speed)
             const sqm = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); const dm = new Date(Date.now() - 20 * 864e5).toISOString().slice(0, 10);
             const insM = sqm.prepare("INSERT INTO prod_runs (source, job, machine, start_at, end_at, qty, remake, trigram, read_at) VALUES ('otto', ?, ?, ?, ?, ?, 0, 'KBC', ?)");

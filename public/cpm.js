@@ -936,14 +936,16 @@ const cpmMatchLegend = (extra = '', added = false) => `<div class="cpm-legend"><
 
 async function cpmMatchMonthly(body) {
   const year = Number(store.get('cpmYear', new Date().getFullYear())); const flex = store.get('cpmFlex', true);
-  const d = await cpmGet(`/cpm/match/monthly?year=${year}&flex=${flex ? 1 : 0}`);
+  const scId = Number(store.get('cpmDayScenario', 0)) || 0; // (the same pick as CPM Daily's)
+  const [d, scs] = await Promise.all([cpmGet(`/cpm/match/monthly?year=${year}&flex=${flex ? 1 : 0}${scId ? `&scenario=${scId}` : ''}`).catch((err) => { if (scId) store.set('cpmDayScenario', 0); throw err; }), api.get('/cpm/scenarios')]);
   const Y = (f) => d.months.reduce((a, m) => a + (f(m) || 0), 0); const capY = Y((m) => m.capacity); const needY = Y((m) => m.need);
   const peak = d.months.reduce((w, m) => ((m.load || 0) > (w?.load || 0) ? m : w), null);
   const years = [year - 1, year, year + 1];
   const tile = (l, v, s = '') => `<div class="kdb-tile"><div class="kdb-tile-l">${l}</div><div class="kdb-tile-v">${v}</div>${s ? `<div class="kdb-tile-s">${s}</div>` : ''}</div>`;
   body.innerHTML = `<div class="row pl-filters" style="gap:10px;flex-wrap:wrap">${cpmLineSeg()}
       <select id="cpm-m-year">${years.map((y) => `<option ${y === year ? 'selected' : ''}>${y}</option>`).join('')}</select>
-      <label class="row small"><input type="checkbox" id="cpm-m-flex" ${flex ? 'checked' : ''}> apply flex</label></div>
+      <label class="row small"><input type="checkbox" id="cpm-m-flex" ${flex ? 'checked' : ''}> apply flex</label>
+      <select id="cpm-m-sc" title="A scenario's changes: volumes and new customers, shifts, and its Matching changes (machines, speed, OEE, share)"><option value="0">Base plan</option>${scs.map((x) => `<option value="${x.id}" ${x.id === scId ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
     ${cpmMatchAbout(d)}${cpmMatchWarn(d.warnings)}
     <div class="kdb-tiles pl-tiles">${tile(`${year} items matched`, cpmK(Y((m) => m.items)), `from ${cpmK(Y((m) => m.cards))} cards`)}${tile('Machine time needed', cpmK(needY), `÷ OEE ${cpmPct(d.oee)}`)}
       ${tile('Capacity', cpmK(capY), `${d.machines.length} machine${d.machines.length === 1 ? '' : 's'} · ${cpmK(d.capacity_hour)} an hour`)}${tile('Load over the year', capY ? `<span class="cpm-u ${cpmUtilCls(needY / capY)}">${cpmPct(needY / capY)}</span>` : '—')}
@@ -954,6 +956,7 @@ async function cpmMatchMonthly(body) {
         <td class="num cpm-u ${cpmUtilCls(m.load || 0)}">${m.load === null ? '—' : cpmPct(m.load)}</td><td class="small">${m.top.slice(0, 4).map((c) => `${esc(c.trigram || c.name)} <span class="muted">${cpmK(c.need)}</span>`).join(' · ')}</td></tr>`).join('')}</tbody></table></div></div>`;
   $('#cpm-m-year').onchange = (e) => { store.set('cpmYear', Number(e.target.value)); renderCpm('overview'); };
   $('#cpm-m-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('overview'); };
+  $('#cpm-m-sc').onchange = (e) => { store.set('cpmDayScenario', Number(e.target.value)); renderCpm('overview'); };
 }
 
 
@@ -1186,9 +1189,16 @@ const CPM_CHANGES = {
   oee: { label: 'OEE change', fields: ['customer', 'tech', 'points'] },
   volume: { label: 'Customer volume', fields: ['customer', 'pct', 'flat'] },
   new_customer: { label: 'New customer', fields: ['name', 'qty', 'split', 'oee'] },
+  m_add: { label: 'Matching: add a machine', fields: ['name', 'speed'] },
+  m_remove: { label: 'Matching: remove a machine / downtime', fields: ['mmachine'] },
+  m_speed: { label: 'Matching: speed change', fields: ['mmachine_all', 'pct'] },
+  m_oee: { label: 'Matching: OEE change', fields: ['customer', 'points'] },
+  m_share: { label: 'Matching: share through Matching', fields: ['customer', 'share'] },
+  m_rnw_window: { label: 'Matching: renewal window (CPM Daily only)', fields: ['hours'] },
 };
 async function cpmScenarios(body) {
-  const [list, ov, cs] = await Promise.all([api.get('/cpm/scenarios'), api.get(`/cpm/overview?year=${new Date().getFullYear()}&period=month&flex=0&live=1`), api.get('/cpm/customers')]);
+  const [list, ov, cs, mc] = await Promise.all([api.get('/cpm/scenarios'), api.get(`/cpm/overview?year=${new Date().getFullYear()}&period=month&flex=0&live=1`), api.get('/cpm/customers'), api.get('/cpm/match/config').catch(() => ({ machines: [] }))]);
+  const mMachines = () => [...(mc.machines || []).map((m) => m.name), ...(sc?.changes || []).filter((c) => c.type === 'm_add' && c.name).map((c) => c.name)];
   const openId = Number(store.get('cpmScenario', 0)) || null; const sc = list.find((s) => s.id === openId) || null;
   // what in it would do nothing, or only show elsewhere (as saved)
   const scWarn = sc ? await api.get(`/cpm/overview?year=${new Date().getFullYear()}&period=month&flex=0&scenarios=${sc.id}&live=1`).then((o) => o.scenarios[0].warnings.filter((w) => !o.warnings.includes(w))).catch(() => []) : [];
@@ -1213,6 +1223,10 @@ async function cpmScenarios(body) {
   });
   const sel = (name, val, opts, all = 'all') => `<select name="${name}"><option value="">${all}</option>${opts.map((o) => `<option ${o === val ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
   const field = (c, f) => {
+    if (f === 'mmachine') return `<label class="f">Matching machine${sel('machine', c.machine, mMachines(), '— choose —')}</label>`;
+    if (f === 'mmachine_all') return `<label class="f">Matching machine${sel('machine', c.machine, mMachines(), 'all Matching machines')}</label>`;
+    if (f === 'speed') return `<label class="f">Speed (items an hour)<input type="number" name="speed" min="0" value="${esc(c.speed ?? '')}" placeholder="3000"></label>`;
+    if (f === 'share') return `<label class="f">Share through Matching %<input type="number" name="share" min="0" max="100" value="${esc(c.share ?? '')}" placeholder="80"></label>`;
     if (f === 'machine') return `<label class="f">Machine${sel('machine', c.machine, machines, c.type === 'speed' ? 'all machines' : '— choose —')}</label>`;
     if (f === 'tech') return `<label class="f">Technology${sel('tech', c.tech, T, 'all')}</label>`;
     if (f === 'customer') return `<label class="f">Customer${sel('customer', c.customer, custs, 'all customers')}</label>`;

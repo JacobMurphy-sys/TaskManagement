@@ -471,6 +471,7 @@ function compute({ year, period = 'month', changes = [], useFlex = true, cards =
     if (c.type === 'capabilities' && c.machine && !(c.techs || []).map(normTech).filter(Boolean).length) warnings.push(`${c.machine} is set to run nothing${when(c)} — the same as removing it`);
     if (c.type === 'new_customer') { const sp = Object.values(c.split || {}).reduce((a, b) => a + (Number(b) || 0), 0); if (c.split && Object.keys(c.split).length && Math.abs(sp - 1) > 0.005) warnings.push(`${c.name || 'The new customer'}'s split adds up to ${Math.round(sp * 100)}% — it's taken as shares of 100%`); if (!(Number(c.qty) > 0)) warnings.push(`${c.name || 'The new customer'} has no cards a month — it adds nothing`); }
     if ((c.type === 'oee' && !Number(c.points)) || ((c.type === 'volume' || c.type === 'speed') && !Number(c.pct) && !Number(c.flat))) warnings.push(`A ${c.type} change of 0 — it does nothing`);
+    if (/^m_/.test(c.type || '')) { warnings.push(`${c.type === 'm_rnw_window' ? 'Matching\'s renewal window' : 'A Matching change'} shows on the Matching view (the Perso / Matching switch), not on perso's figures`); continue; }
     if (c.type === 'rnw_window') warnings.push(`The ${c.tech || ''} renewal window only changes CPM Daily — not the month or week figures`.replace('The  ', 'The '));
   }
   // CPM's own per-machine settings: availability (share of its hours for perso) and speed per technology

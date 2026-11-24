@@ -96,6 +96,25 @@ function profiles() {
   return { by: out, runs: rows.length };
 }
 
+// 🧪 a scenario's Matching changes, for a month ('YYYY-MM'): Matching machines added, removed (downtime) or
+// sped up / slowed, a customer's (or everyone's) Matching OEE in points, its share through Matching set, and
+// Matching's renewal window. The rest of a scenario (volumes, new customers, shifts) comes through the plan.
+const inRange = (ymKey, c) => (!c.from || ymKey >= c.from) && (!c.to || ymKey <= c.to);
+const MCH = ['m_add', 'm_remove', 'm_speed', 'm_oee', 'm_share', 'm_rnw_window'];
+function scenarioAt(changes, ymKey, M, R, OE) {
+  const cs = (changes || []).filter((c) => MCH.includes(c.type) && inRange(ymKey, c));
+  if (!cs.length) return { M, R, OE, window: null, any: false };
+  const list = [...M.list.filter((m) => !cs.some((c) => c.type === 'm_remove' && c.machine === m.name)),
+    ...cs.filter((c) => c.type === 'm_add').map((c) => ({ name: c.name || 'New Matching machine', speed: Number(c.speed) || 0, match: '', key: '', measure: false, added: true }))]
+    .map((m) => { let s = m.speed; for (const c of cs) if (c.type === 'm_speed' && (!c.machine || c.machine === m.name)) s *= 1 + (Number(c.pct) || 0) / 100; return { ...m, speed: s }; });
+  const share = (tri) => { let v = null; for (const c of cs) if (c.type === 'm_share' && (!c.customer || c.customer === tri) && c.share !== undefined && c.share !== '') v = Math.min(1, Math.max(0, Number(c.share) / 100)); return v; };
+  const pts = (tri) => cs.filter((c) => c.type === 'm_oee' && (!c.customer || c.customer === tri)).reduce((a, c) => a + (Number(c.points) || 0) / 100, 0);
+  const win = cs.filter((c) => c.type === 'm_rnw_window').pop();
+  return { any: true, M: { ...M, list }, window: win ? (win.hours || []).map(Number) : null,
+    R: { ...R, of: (tri) => { const v = share(tri); return v === null ? R.of(tri) : { ratio: v, from: 'scenario' }; } },
+    OE: { ...OE, of: (tri) => { const e = OE.of(tri); const p = pts(tri); return p ? { oee: Math.max(0.05, Math.min(1, e.oee + p)), from: 'scenario' } : e; } } };
+}
+
 // the customers' Matching items for a month of a plan (cpm.compute), with how they're worked out
 // each customer's Matching work by priority, learned from Matching's work orders (an average day): its own with
 // 3 days or more, else everyone's, else all Normal
@@ -123,8 +142,9 @@ function monthly({ year, useFlex = true, cards = null, changes = [] }) {
   else if (!capH) warnings.push('The Matching machines have no speed (Production › Setup) — their capacity can\'t be worked out');
   if (!R.learned.get('*')?.match) warnings.push('No Matching timing runs in the last 4 months — each customer\'s share through Matching can\'t be learned; type them on Configuration › Matching');
   const months = plan.periods.map((P, i) => {
-    const custs = customersOf(plan, i + 1, R, M, OE, PR); const items = custs.reduce((a, c) => a + c.items, 0); const need = custs.reduce((a, c) => a + c.need, 0);
-    const capacity = capH * (P.hours || 0); // speed × (working days × shifts × hours a shift counted)
+    const X = scenarioAt(changes, `${year}-${pad(i + 1)}`, M, R, OE); const capHm = X.M.list.reduce((a, m) => a + m.speed, 0);
+    const custs = customersOf(plan, i + 1, X.R, M, X.OE, PR); const items = custs.reduce((a, c) => a + c.items, 0); const need = custs.reduce((a, c) => a + c.need, 0);
+    const capacity = capHm * (P.hours || 0); // speed × (working days × shifts × hours a shift counted)
     return { key: P.key, label: P.label, workdays: P.workdays, hours: P.hours || 0, cards: custs.reduce((a, c) => a + c.cards, 0), items, need, capacity, load: capacity ? need / capacity : null,
       prio: Object.fromEntries(PRIOS.map((k) => [k, custs.reduce((a, c) => a + c.need * c.prio[k], 0)])),
       added: custs.reduce((a, c) => a + (c.added_items / c.oee) * c.speed_factor, 0), top: custs.slice(0, 8).map((c) => ({ trigram: c.trigram, name: c.name, items: c.items, need: c.need })) };
@@ -150,7 +170,8 @@ function orderSizes() {
 function day({ year, month, useFlex = true, cards = null, changes = [] }) {
   const CD = require('./cpmday');
   const plan = cpm.compute({ year, period: 'month', useFlex, cards, changes }); const P = plan.periods[month - 1] || {};
-  const R = ratios(); const M = machines(); const o = oee(); const OE = oees(M); const PR = prios(); const prof = profiles(); const warnings = [];
+  const R0 = ratios(); const M0 = machines(); const o = oee(); const OE0 = oees(M0); const PR = prios(); const prof = profiles(); const warnings = [];
+  const X = scenarioAt(changes, `${year}-${pad(month)}`, M0, R0, OE0); const R = X.R; const OE = X.OE; const M = X.M;
   const start = Math.floor(hm(setting('plan_day_start', '06:00'), 360) / 60) % 24; const H = Array.from({ length: 24 }, (_, i) => (start + i) % 24);
   const shifts = P.shifts ?? 3; const first = Math.floor(hm(setting('plan_shift_morning', '05:45'), 345) / 60 + 0.5) % 24;
   const worked = new Set(Array.from({ length: Math.min(24, Math.round(shifts * 8)) }, (_, i) => (first + i) % 24));
@@ -180,7 +201,7 @@ function day({ year, month, useFlex = true, cards = null, changes = [] }) {
     r.cutoff_default = !r.cutoff_typed && r.cutoff_learned === null; r.cards_day = days ? (v / (c.ratio || 1)) / days : 0; r.items_day = daily + renew; r.need_day = r.need_daily + r.need_rnw;
     rows.push(r); return r;
   };
-  const custs = customersOf(plan, month, R, M, OE, PR);
+  const custs = customersOf(plan, month, R, M0, OE, PR); // (the speed factor against the machines as they are)
   const byTri = new Map();
   for (const c of custs) {
     const pr = PR.of(c.trigram); const cc = { ...c, prio_days: pr.days }; byTri.set(c.trigram, cc);
@@ -203,7 +224,7 @@ function day({ year, month, useFlex = true, cards = null, changes = [] }) {
   for (const r of rows) delete r.kind;
   rows.sort((a, b) => (a.added ? 1 : 0) - (b.added ? 1 : 0) || b.need_day - a.need_day);
   // the renewals: over Matching's window (none set: every hour worked)
-  const win = (json(setting('cpm_rnw_hours', '{}'), {})[MT] || []).map(Number).filter((h) => h >= 0 && h < 24);
+  const win = (X.window || json(setting('cpm_rnw_hours', '{}'), {})[MT] || []).map(Number).filter((h) => h >= 0 && h < 24);
   const rHours = win.length ? win : [...worked]; const rNeed = rows.reduce((a, r) => a + r.need_rnw, 0);
   const rnwT = { need: rNeed, hours: rHours, window: !!win.length, per: H.map((h) => (rHours.includes(h) ? rNeed / rHours.length : 0)) };
   const cap = H.map((h) => (worked.has(h) ? M.list.reduce((a, m) => a + m.speed, 0) * factor : 0));
