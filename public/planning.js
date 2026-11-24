@@ -638,13 +638,13 @@ async function renderPlanning() {
       ${state.mode === 'planner' ? '<span id="pl-presence" class="pl-presence" title="Others with the planner open">👤 just you</span>' : ''}
       <span class="small muted">${(half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).status === 'ok' ? `${esc((half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).name)} · saved ${esc(fmtDateTime((half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).modified))}${(half === 'otto' ? ot.source : half === 'disp' ? dp.source : src).uploaded ? ' (uploaded copy)' : ''}` : ''}</span>
       <button data-pl="refresh" title="Read the export again if it has changed">🔄</button>
+      <button class="admin-only ${src.status !== 'ok' || store.get('planSetupOpen', false) ? 'on' : ''}" data-pl="setup" id="pl-setup-btn" title="Setup — the export, machines and capacity (opens and closes it)">⚙ Setup</button>
       ${half === 'perso' && src.status === 'ok' ? '<button class="primary" data-pl="print" title="A plan per cell (DOD, Emboss, Laser) of the work orders still open, as a PDF to print and hand out">📄 Generate plan</button>' : ''}
       ${half === 'perso' && p.volume?.pending?.length ? `<button class="pl-vx-btn" data-vx="open" title="${esc(`Volume extensions to confirm: ${p.volume.pending.map((x) => `${x.customer} sent ${n(x.cards)} cards for ${dayLabel(x.due)}`).join(' · ')}`)}"><b>${p.volume.pending.length}</b> to confirm</button>`
         : half === 'perso' && (p.volume?.recent?.length || p.volume?.rules?.length) ? '<button class="small" data-vx="open" title="Volume extensions: what was applied or dismissed, and undo">📦</button>' : ''}
       ${ddMenu('⋯', `
         <label title="Try it with a copy of the ${half === 'otto' ? 'Matching' : 'open work orders'} export">Load a file…<input type="file" accept=".xlsx" hidden id="pl-file"></label>
-        ${half === 'perso' ? '<button class="admin-only" data-pl="mods">⚖ Priority modifiers</button>' : ''}
-        <button class="admin-only" data-pl="setup">⚙ Setup — the export, machines and capacity</button>`, { title: 'Load a file, priority modifiers, setup' })}
+        ${half === 'perso' ? '<button class="admin-only" data-pl="mods">⚖ Priority modifiers</button>' : ''}`, { title: half === 'perso' ? 'Load a file, priority modifiers' : 'Load a file' })}
     </div>
     <div id="pl-changed" class="pl-changed" hidden></div>
     ${half === 'perso' ? modsHtml() : ''}
@@ -1015,7 +1015,7 @@ ${half === 'otto' ? ottoSetup() : `
     const b = e.target.closest('[data-pl]');
     if (b?.dataset.pl === 'nospeed') { plNoSpeed(); return; }
     if (b?.dataset.pl === 'setup-pdata') { const st = $('#pl-setup'); st.hidden = false; store.set('planSetupOpen', true); const inp = st.querySelector('[name="kpi_perso_data"]'); inp?.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(() => inp?.focus(), 300); return; }
-    if (b?.dataset.pl === 'setup') { const s = $('#pl-setup'); s.hidden = !s.hidden; store.set('planSetupOpen', !s.hidden); if (!s.hidden) s.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    if (b?.dataset.pl === 'setup') { const s = $('#pl-setup'); s.hidden = !s.hidden; store.set('planSetupOpen', !s.hidden); $('#pl-setup-btn')?.classList.toggle('on', !s.hidden); if (!s.hidden) s.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (b?.dataset.pl === 'refresh') { renderPlanning(); return; }
     if (b?.dataset.pl === 'clear') { store.set('planFilter', {}); renderPlanning(); return; }
     const pin = e.target.closest('[data-pl-pin]');
