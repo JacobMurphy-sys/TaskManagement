@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'cpm-priorities', date: '2026-11-24', area: 'capacity', title: 'Capacity planning by priority',
+    text: 'CPM Daily splits the daily work into Urgent, High and Normal, with Low as the renewals, and fits the most urgent work first when the hours are full. Matching does the same with its own priorities.',
+    points: ['Each customer\'s mix learned from its work orders on an average day, or typed', 'Urgent and High hatched on the bars; Normal is what waits', 'Matching: what\'s left at the end of the day, by priority'] },
   { id: 'cpm-matching', date: '2026-11-24', area: 'capacity', title: 'Capacity planning for Matching',
     text: 'CPM Monthly and CPM Daily switch between Perso and Matching: a best guess of the Matching machines\' load from the forecast, each customer\'s share through Matching learned from history, and one Matching OEE.',
     points: ['Each customer\'s share through Matching learned from the timing reports, or typed', 'One Matching OEE, and the customers\' own Matching speeds', 'Each customer\'s Matching OEE measured from the runs on machines ticked as fit to measure, or typed per customer', 'By month, and a day hour by hour'] },

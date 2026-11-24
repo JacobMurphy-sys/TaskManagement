@@ -170,6 +170,39 @@ function renewalShares(cards) {
   }
   return out;
 }
+// each customer's work by priority (Urgent / High / Normal / Low) on an average day, the same way as the renewal
+// share: each day's cards of each priority ÷ its cards, averaged over the days it had work, so a bulk run doesn't
+// swamp the ordinary days. daily: the same within the daily work (Urgent / High / Normal, Low left out).
+// table: perso's work orders (plan_history_jobs) or Matching's (plan_otto_jobs). → Map TRI / '*' →
+// { urgent, high, normal, low, days, qty, daily: { urgent, high, normal }, daily_days }
+const PRIOS = ['urgent', 'high', 'normal', 'low'];
+const prioOf = (p) => { const s = String(p || '').trim(); return /^urgent/i.test(s) ? 'urgent' : /^high/i.test(s) ? 'high' : /^low/i.test(s) ? 'low' : 'normal'; };
+function prioMix(table = 'plan_history_jobs') {
+  const tbl = table === 'plan_otto_jobs' ? 'plan_otto_jobs' : 'plan_history_jobs';
+  const from = new Date(); from.setDate(from.getDate() - LOOKBACK);
+  let jobs = []; try { jobs = db.all(`SELECT customer, qty, prio, first_seen FROM ${tbl} WHERE first_seen >= ? AND customer IS NOT NULL AND qty > 0`, [ymd(from)]); } catch { return new Map(); }
+  const byDay = new Map(); // key → day → { urgent, high, normal, low, qty }
+  const add = (k, day, p, q) => { const m = byDay.get(k) || byDay.set(k, new Map()).get(k); const x = m.get(day) || m.set(day, { urgent: 0, high: 0, normal: 0, low: 0, qty: 0 }).get(day); x[p] += q; x.qty += q; };
+  for (const j of jobs) { const q = Number(j.qty) || 0; const day = String(j.first_seen || '').slice(0, 10); const p = prioOf(j.prio); add(String(j.customer).toUpperCase(), day, p, q); add('*', day, p, q); }
+  const out = new Map();
+  for (const [k, m] of byDay) {
+    const ds = [...m.values()]; const avg = (f, list) => (list.length ? list.reduce((a, x) => a + f(x), 0) / list.length : 0);
+    const dd = ds.filter((x) => x.qty - x.low > 0); const dq = (x) => x.qty - x.low;
+    out.set(k, { urgent: avg((x) => x.urgent / x.qty, ds), high: avg((x) => x.high / x.qty, ds), normal: avg((x) => x.normal / x.qty, ds), low: avg((x) => x.low / x.qty, ds), days: ds.length, qty: ds.reduce((a, x) => a + x.qty, 0),
+      daily: { urgent: avg((x) => x.urgent / dq(x), dd), high: avg((x) => x.high / dq(x), dd), normal: avg((x) => x.normal / dq(x), dd) }, daily_days: dd.length });
+  }
+  return out;
+}
+// a customer's daily work by priority (shares of it): typed (Configuration › CPM Daily, % of its daily work) wins,
+// then its own learned (3 days or more), then everyone's, else all Normal
+function dailyPrio(pm, typed, tri) {
+  const t = typed?.[tri];
+  if (t && (Number(t.urgent) > 0 || Number(t.high) > 0 || t.urgent === 0 || t.high === 0)) { const u = Math.min(1, Math.max(0, Number(t.urgent) || 0)); const h = Math.min(1 - u, Math.max(0, Number(t.high) || 0)); return { mix: { urgent: u, high: h, normal: 1 - u - h }, from: 'typed' }; }
+  const own = tri ? pm.get(tri) : null; if (own && own.daily_days >= 3) return { mix: own.daily, from: 'learned' };
+  const all = pm.get('*'); if (all && all.daily_days) return { mix: all.daily, from: 'everyone' };
+  return { mix: { urgent: 0, high: 0, normal: 1 }, from: 'none' };
+}
+
 // the shipping cut-offs work orders had lately: ['08:00', '12:00', …], the commonest first (at most 6)
 // a deadline at 23:59 or 00:00 is a date with no time given (the end of the day), not a shipment time
 const noTime = (t) => t === '23:59' || t === '00:00';
@@ -212,29 +245,33 @@ function customerCutoffs() {
 // daily work comes first: carried over into the next hour with spare capacity ahead of the renewals (Low
 // priority, which can be rescheduled); the renewals then take what's left, from their window on — what
 // doesn't fit in the day is put off to another day (deferred, not late)
+// Within the daily work, the more urgent goes first: all the Urgent work is placed, then the High, then the Normal —
+// each first come first served — so Normal work is what waits when the hours are full.
 function smoothDay(H, rows, base, cap, cutoffOf) {
   const load = Array(24).fill(0); const cards = Array(24).fill(0); const perRow = rows.map(() => Array(24).fill(0)); const packets = [];
+  const DP = ['urgent', 'high', 'normal']; const byPrio = Object.fromEntries(DP.map((c) => [c, Array(24).fill(0)])); const cardsPrio = Object.fromEntries(DP.map((c) => [c, Array(24).fill(0)])); const latePrio = { urgent: 0, high: 0, normal: 0 };
   rows.forEach((r, k) => r.hours.forEach((amt, i) => {
     if (amt <= 1e-9) return;
     const cut = cutoffOf(r.trigram); let delta = cut === null ? 24 : (cut - H[i] + 24) % 24; if (delta <= 0) delta = 24;
-    packets.push({ k, i, amt, delta, ratio: r.oee });
+    const mix = r.prio || { urgent: 0, high: 0, normal: 1 };
+    DP.forEach((c, rank) => { const v = amt * (mix[c] || 0); if (v > 1e-9) packets.push({ k, i, amt: v, delta, ratio: r.oee, rank, c }); });
   }));
-  packets.sort((a, b) => a.i - b.i || a.delta - b.delta); // first come first served; the earlier cut-off first
+  packets.sort((a, b) => a.rank - b.rank || a.i - b.i || a.delta - b.delta); // the more urgent first; then first come first served, the earlier cut-off first
   let late = 0; let unplaced = 0; const lateAt = Array(24).fill(0); const lateRow = rows.map(() => Array(24).fill(0)); // done after its cut-off: when, and whose
   for (const p of packets) {
-    const put = (s, v) => { load[s] += v; cards[s] += v * p.ratio; perRow[p.k][s] += v; };
+    const put = (s, v) => { load[s] += v; cards[s] += v * p.ratio; perRow[p.k][s] += v; byPrio[p.c][s] += v; cardsPrio[p.c][s] += v * p.ratio; };
     let left = p.amt;
     for (let o = 0; o < 24 && left > 1e-9; o++) {
       const s = (p.i + o) % 24; const free = Math.max(0, cap[s] - load[s]); if (free <= 1e-9) continue;
-      const v = Math.min(free, left); put(s, v); left -= v; if (o >= p.delta) { late += v; lateAt[s] += v; lateRow[p.k][s] += v; }
+      const v = Math.min(free, left); put(s, v); left -= v; if (o >= p.delta) { late += v; lateAt[s] += v; lateRow[p.k][s] += v; latePrio[p.c] += v * p.ratio; }
     }
-    if (left > 1e-9) { put(p.i, left); unplaced += left; late += left; lateAt[p.i] += left; lateRow[p.k][p.i] += left; } // not done within the day: late too
+    if (left > 1e-9) { put(p.i, left); unplaced += left; late += left; lateAt[p.i] += left; lateRow[p.k][p.i] += left; latePrio[p.c] += left * p.ratio; } // not done within the day: late too
   }
   const rnw = Array(24).fill(0); let deferred = 0; // the renewals, around the daily work
   base.forEach((amt, i) => { let left = amt;
     for (let s = i; s < 24 && left > 1e-9; s++) { const free = Math.max(0, cap[s] - load[s]); if (free <= 1e-9) continue; const v = Math.min(free, left); load[s] += v; rnw[s] += v; left -= v; }
     if (left > 1e-9) deferred += left; });
-  return { load, cards, perRow, late, unplaced, lateAt, lateRow, rnw, deferred };
+  return { load, cards, perRow, late, unplaced, lateAt, lateRow, rnw, deferred, byPrio, cardsPrio, latePrio };
 }
 
 // each customer's typical work order: the median size (cards) of its work orders lately, per technology
@@ -359,6 +396,7 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
   const plan = cpm.compute({ year, period: 'month', changes, useFlex, cards });
   const P = plan.periods[month - 1]; const T = plan.techs; const H = hoursOfDay(); const warnings = [...plan.warnings];
   const rs = runs(cards); const mh = machineHours(cards, rs); const rnw = renewalShares(cards);
+  const pm = prioMix('plan_history_jobs'); const prioTyped = json(setting('cpm_prio_mix', '{}'), {}); const prioOfTri = (tri) => dailyPrio(pm, prioTyped, tri);
   // the daily part's day: when its work orders arrive (default) or when its cards were produced
   const source = setting('cpm_day_profile', 'arrival') === 'produced' ? 'produced' : 'arrival';
   const arr = source === 'arrival' ? arrivals(cards) : null; const prof = arr ? arr.profiles : profiles(cards, rs);
@@ -407,8 +445,10 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
     const shares = H.map((h) => (p ? p[h] : worked.has(h) ? 1 / worked.size : 0));
     // what a scenario adds to the customer (its volume change: a % or flat cards) is a line of its own, drawn apart
     const extraVol = Math.min(vol, (x.extra || 0) * x.split);
+    const pr = prioOfTri(tri); const prL = pm.get(tri);
     const mk = (v, added) => { if (!(v > 0)) return; const daily = ((v * (1 - rShare)) / days) * (pk ? pk.factor : 1); const renew = (v * rShare) / days;
     rows.push({ trigram: tri, name: added ? `${D.name} — scenario +` : D.name, added: added || null, tech: D.tech, month_volume: v, daily_pct: 1 - rShare, rnw_pct: rShare, rnw_learned: learned ? learned.share : null, rnw_learned_days: learned ? learned.days : null, rnw_learned_whole: learned ? learned.whole : null, rnw_typed: typed ?? null,
+      prio: pr.mix, prio_from: pr.from, prio_learned: prL && prL.daily_days ? prL.daily : null, prio_days: prL ? prL.daily_days : 0,
       oee, oee_rnw: oeeR, workdays: days, daily, renew, need_daily: daily / oee, need_rnw: renew / oeeR, profile: from, peak: pk ? { factor: pk.factor, day: pk.day, peak: pk.peak, avg: pk.avg, days: pk.days, own: !!pv.by.get(tri) } : null, learned_shares: learnedShares, learned_from: learnedFrom, produced_shares: producedShares, arrive_avg: p ? meanHour(p) : null, arrive_seen: seen, shares,
       hours: shares.map((s) => (daily / oee) * s), cards_hours: shares.map((s) => daily * s) }); };
     mk(vol - extraVol, null); if (extraVol > 0.5) mk(extraVol, 'scenario');
@@ -433,7 +473,8 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
       const cardsDay = perDay * share; if (!(cardsDay > 0)) continue; const daily = asRnw ? 0 : cardsDay; const renew = asRnw ? cardsDay : 0; const oeeR = Math.min(1, oee + bonus);
       const base = rows.find((r) => r.trigram === tri && r.tech === D.tech && !r.added);
       const shares = base ? base.shares : H.map((h) => (worked.has(h) ? 1 / worked.size : 0));
-      rows.push({ trigram: tri, name: `${c.name || 'Campaign'}${asRnw ? ' (renewals)' : ''}`, added: 'campaign', campaign: c.name || 'Campaign', campaign_kind: asRnw ? 'renewal' : 'daily', tech: D.tech, month_volume: cardsDay * days, daily_pct: asRnw ? 0 : 1, rnw_pct: asRnw ? 1 : 0, rnw_learned: null, rnw_typed: null,
+      const pr = prioOfTri(tri);
+      rows.push({ prio: pr.mix, prio_from: pr.from, prio_learned: null, prio_days: 0, trigram: tri, name: `${c.name || 'Campaign'}${asRnw ? ' (renewals)' : ''}`, added: 'campaign', campaign: c.name || 'Campaign', campaign_kind: asRnw ? 'renewal' : 'daily', tech: D.tech, month_volume: cardsDay * days, daily_pct: asRnw ? 0 : 1, rnw_pct: asRnw ? 1 : 0, rnw_learned: null, rnw_typed: null,
         oee, oee_rnw: oeeR, workdays: days, daily, renew, need_daily: daily / oee, need_rnw: renew / oeeR, profile: base ? base.profile : 'even', peak: null, learned_shares: shares, learned_from: base ? base.learned_from : 'even', produced_shares: shares, arrive_avg: base ? base.arrive_avg : null, arrive_seen: null, shares,
         hours: shares.map((x) => (daily / oee) * x), cards_hours: shares.map((x) => daily * x) });
     }
@@ -517,13 +558,17 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
       renewals: sm.rnw, rnw_deferred: sm.deferred, rnw_deferred_cards: sm.deferred * rRatio,
       cards: { daily: sm.cards, renewals: sRnwCards, total: sCards, capacity: cap[t].map((c, i) => c * (sNeed[i] > 0.5 ? sCards[i] / sNeed[i] : dayRatio)) },
       peak: Math.max(...sNeed.map((v, i) => (cap[t][i] ? v / cap[t][i] : 0))), hours_over: sNeed.filter((v, i) => v > cap[t][i] + 0.5).length, over: sNeed.reduce((a, v, i) => a + Math.max(0, v - cap[t][i]), 0), late: sm.late, late_at: sm.lateAt, late_cards: tr.reduce((a, r) => a + r.late_cards, 0), late_customers: [...new Set(tr.filter((r) => r.late_cards > 0.5).map((r) => r.trigram || r.name))], unplaced: sm.unplaced, end_backlog: sc };
+    const DP = ['urgent', 'high', 'normal']; const pmx = (r, c) => r.prio?.[c] ?? (c === 'normal' ? 1 : 0);
+    const prio = Object.fromEntries(DP.map((c) => [c, H.map((_, i) => tr.reduce((a, r) => a + r.hours[i] * pmx(r, c), 0))]));
+    const cPrio = Object.fromEntries(DP.map((c) => [c, H.map((_, i) => tr.reduce((a, r) => a + r.cards_hours[i] * pmx(r, c), 0))]));
+    smooth.prio = sm.byPrio; smooth.cards.prio = sm.cardsPrio; smooth.late_prio = sm.latePrio;
     const addRows = rows.filter((r) => r.tech === t && r.added);
     const added = H.map((_, i) => addRows.reduce((a, r) => a + r.hours[i], 0)); const cAdded = H.map((_, i) => addRows.reduce((a, r) => a + r.cards_hours[i], 0));
     // what's added to the renewals: over the renewal window, as all renewals are
     const wn = rnwByTech[t].hours; const inW = (h) => wn.includes(h) && wn.length;
     const addedRnw = H.map((h) => (inW(h) ? addRows.reduce((a, r) => a + r.need_rnw, 0) / wn.length : 0)); const cAddedRnw = H.map((h) => (inW(h) ? addRows.reduce((a, r) => a + r.renew, 0) / wn.length : 0));
-    out[t] = { daily, renewals, need, capacity: cap[t], idle: idle[t], backlog, smooth, added, cards_added: cAdded, added_rnw: addedRnw, cards_added_rnw: cAddedRnw,
-      cards: { daily: cDaily, renewals: cRnw, total: cards_, capacity: effCap, actual: act.per[t] ? H.map((h) => act.per[t][h]) : null, oee: dayRatio }, load: need.map((v, i) => (cap[t][i] ? v / cap[t][i] : v ? null : 0)),
+    out[t] = { daily, renewals, need, capacity: cap[t], idle: idle[t], backlog, smooth, prio, added, cards_added: cAdded, added_rnw: addedRnw, cards_added_rnw: cAddedRnw,
+      cards: { daily: cDaily, prio: cPrio, renewals: cRnw, total: cards_, capacity: effCap, actual: act.per[t] ? H.map((h) => act.per[t][h]) : null, oee: dayRatio }, load: need.map((v, i) => (cap[t][i] ? v / cap[t][i] : v ? null : 0)),
       total: { need: tot, daily: daily.reduce((a, b) => a + b, 0), renewals: rnwByTech[t].need, capacity: capTot, idle: idle[t].reduce((a, b) => a + b, 0), load: capTot ? tot / capTot : null, end_backlog: carry, hours_over: need.filter((v, i) => v > cap[t][i] + 0.5).length } };
   }
   // the day as work orders, run in blocks
@@ -533,8 +578,8 @@ function dayOf({ year, month, changes = [], useFlex = true, cards = null, full =
       rnwHours: Object.fromEntries(T.map((t) => [t, rnwByTech[t].window ? rnwByTech[t].hours : []])), sizes: orderSizes(cards), allowed: (m, r) => (m.only?.length ? allowed(m, r) : 1), cutoffOf });
   } catch (err) { warnings.push(`The work-order run couldn't be worked out: ${err.message}`); }
   return { hour_share: factor, blocks, year, month, label: new Date(year, month - 1, 15).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), workdays: days, hours: H, worked: H.map((h) => worked.has(h)), shifts, hph, full,
-    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, day_shape: shape, peak_source: pv ? pv.source : null, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, capacity_by_machine: Object.fromEntries(T.map((t) => [t, [...byM[t]].map(([name, per]) => ({ name, per }))])), tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, cutoff_default: defCut, rnw_share_typed: over, campaigns: Array.isArray(camps) ? camps : [], manual: json(setting('cpm_day_manual', '{}'), {}), warnings: [...new Set(warnings)],
+    techs: T, rows, renewals: rnwByTech, windows, bonus, profile_source: source, day_shape: shape, peak_source: pv ? pv.source : null, arrivals_seen: arr ? arr.orders : null, actual: { days: act.days, from: act.from, to: act.to, which: act.which }, capacity_machines: machines, capacity_by_machine: Object.fromEntries(T.map((t) => [t, [...byM[t]].map(([name, per]) => ({ name, per }))])), tech: out, cutoffs: ship.times.map((x) => x.time), cutoff_labels: ship.times.map((x) => x.label), ship_times: ship, cutoff_typed: typedCut, cutoff_default: defCut, rnw_share_typed: over, prio_typed: prioTyped, prio_all: pm.get('*') || null, campaigns: Array.isArray(camps) ? camps : [], manual: json(setting('cpm_day_manual', '{}'), {}), warnings: [...new Set(warnings)],
     learned: { runs: rs.length, renewals: [...rnw.values()].reduce((a, x) => a + x.qty, 0) }, forecast_as_of: plan.forecast_as_of, flex: useFlex };
 }
 
-module.exports = { day, compareShapes, peakVolumes, manualShares, hoursOfDay, profiles, arrivals, actualDay, smoothDay, customerCutoffs, orderSizes, runBlocks, renewalShares, machineHours, cutoffs };
+module.exports = { prioMix, prioOf, dailyPrio, PRIOS, day, compareShapes, peakVolumes, manualShares, hoursOfDay, profiles, arrivals, actualDay, smoothDay, customerCutoffs, orderSizes, runBlocks, renewalShares, machineHours, cutoffs };
