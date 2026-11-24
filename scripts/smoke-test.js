@@ -2427,6 +2427,17 @@ async function waitForServer() {
           ov = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${sc.id}&regen=1`);
           const s0 = ov.scenarios[0];
           assert.deepEqual([s0.periods[0].techs.DOD.capacity - ov.periods[0].techs.DOD.capacity, s0.periods[1].techs.DOD.capacity - ov.periods[1].techs.DOD.capacity], [0, 1000 * ov.periods[1].workdays * 3 * 8], 'from its month on');
+          // the total volume: +10% on everyone, and 2,100 cards more in January shared by the forecast; a flat speed change
+          { const tv = await call('POST', '/cpm/scenarios', { name: 'Total', changes: [{ type: 'total_volume', pct: 10 }, { type: 'total_volume', flat: 2100, from: `${Y}-01`, to: `${Y}-01` }, { type: 'speed', speed_flat: 100 }, { type: 'add_machine', name: 'CPM X', techs: ['DOD'] }] });
+            assert.equal(tv.changes.length, 4, 'total volume and a flat speed kept');
+            const o2 = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${tv.id}&regen=1`); const dem = (x) => ['DOD', 'Emboss', 'Laser'].reduce((q, k) => q + x[k].demand, 0);
+            const [b0, b1] = [o2.periods[0].techs, o2.periods[1].techs]; const [t0, t1] = [o2.scenarios[0].periods[0].techs, o2.scenarios[0].periods[1].techs];
+            assert.ok(Math.abs(dem(t0) - (dem(b0) * 1.1 + 2100)) < 1 && Math.abs(dem(t1) - dem(b1) * 1.1) < 1, `total volume: ×1.1 everywhere, +2,100 in January only (${dem(b0)} → ${dem(t0)})`);
+            assert.equal(Math.round(t0.DOD.capacity - b0.DOD.capacity), (1000 + 100) * o2.periods[0].workdays * 3 * 8, 'a flat speed change: the machine at 1,000 + 100 an hour');
+            const neg = await call('POST', '/cpm/scenarios', { name: 'Less', changes: [{ type: 'total_volume', flat: -1e9, from: `${Y}-01`, to: `${Y}-01` }] });
+            const o3 = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${neg.id}&regen=1`);
+            assert.ok(Math.abs(dem(o3.scenarios[0].periods[0].techs)) < 1e-6, 'a decrease never takes more than there is');
+            await call('DELETE', `/cpm/scenarios/${tv.id}`); await call('DELETE', `/cpm/scenarios/${neg.id}`); }
           const wk = await call('GET', `/cpm/overview?year=${Y}&period=week&flex=0&regen=1`);
           assert.ok(wk.periods.length >= 52 && Math.abs(wk.periods.reduce((t, p) => t + p.techs.DOD.need, 0) - ov.periods.reduce((t, p) => t + p.techs.DOD.need, 0)) < 1, 'by week: the same year, spread over its working days');
           const base0Techs = (o) => o.techs.length;
@@ -2546,11 +2557,11 @@ async function waitForServer() {
               const cf3 = await call('GET', '/cpm/match/config'); assert.ok(cf3.customers.find((c) => c.trigram === 'KBC').metal_typed === 0.4 && cf3.machines.find((m) => m.name === 'CPM OTTO').metal, 'config: metal typed, the metal machine');
               await call('PATCH', `/plan/otto/machines/${mm.id}`, { metal: false, metal_speed: '' }); await call('PUT', '/cpm/settings', { cpm_match_metal: '{}' }); }
             // a scenario's Matching changes: a machine added, one removed from March, KBC's share and OEE, the renewal window
-            { const ms = await call('POST', '/cpm/scenarios', { name: 'Matching test', changes: [{ type: 'm_add', name: 'OTTO X', speed: 500 }, { type: 'm_remove', machine: 'CPM OTTO', from: `${Y}-03` },
+            { const ms = await call('POST', '/cpm/scenarios', { name: 'Matching test', changes: [{ type: 'm_add', name: 'OTTO X', speed: 500 }, { type: 'm_speed', machine: 'OTTO X', speed_flat: 100 }, { type: 'm_remove', machine: 'CPM OTTO', from: `${Y}-03` },
                 { type: 'm_share', customer: 'KBC', share: 20 }, { type: 'm_oee', customer: 'KBC', points: 10 }, { type: 'm_rnw_window', hours: [12] }] });
               const mm2 = await call('GET', `/cpm/match/monthly?year=${Y}&flex=0&live=1&scenario=${ms.id}`);
               const base = mm2.capacity_hour; const [jan, mar] = [mm2.months[0], mm2.months[2]];
-              assert.ok(Math.abs(jan.capacity - (base + 500) * jan.hours) < 0.5 && Math.abs(mar.capacity - (base + 500 - 1000) * mar.hours) < 0.5, 'Matching scenario: a machine added, one removed from March');
+              assert.ok(Math.abs(jan.capacity - (base + 600) * jan.hours) < 0.5 && Math.abs(mar.capacity - (base + 600 - 1000) * mar.hours) < 0.5, 'Matching scenario: a machine added (500/h, +100 flat), one removed from March');
               const sd = await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1&scenario=${ms.id}`); const sk = sd.rows.find((r) => r.trigram === 'KBC' && !r.added);
               assert.ok(sk.ratio === 0.2 && sk.ratio_from === 'scenario' && Math.abs(sk.oee_match - 0.6) < 1e-9 && sd.renewals.Matching.hours.join() === '12', 'Matching scenario: share, OEE points and renewal window');
               const pv = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${ms.id}&live=1`);

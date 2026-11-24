@@ -108,7 +108,7 @@ function scenarioAt(changes, ymKey, M, R, OE) {
   if (!cs.length) return { M, R, OE, window: null, any: false };
   const list = [...M.list.filter((m) => !cs.some((c) => c.type === 'm_remove' && c.machine === m.name)),
     ...cs.filter((c) => c.type === 'm_add').map((c) => ({ name: c.name || 'New Matching machine', speed: Number(c.speed) || 0, match: '', key: '', measure: false, added: true }))]
-    .map((m) => { let s = m.speed; for (const c of cs) if (c.type === 'm_speed' && (!c.machine || c.machine === m.name)) s *= 1 + (Number(c.pct) || 0) / 100; return { ...m, speed: s }; });
+    .map((m) => { let s = m.speed; for (const c of cs) if (c.type === 'm_speed' && (!c.machine || c.machine === m.name)) s = s * (1 + (Number(c.pct) || 0) / 100) + (Number(c.speed_flat) || 0); return { ...m, speed: Math.max(0, s) }; });
   const share = (tri) => { let v = null; for (const c of cs) if (c.type === 'm_share' && (!c.customer || c.customer === tri) && c.share !== undefined && c.share !== '') v = Math.min(1, Math.max(0, Number(c.share) / 100)); return v; };
   const pts = (tri) => cs.filter((c) => c.type === 'm_oee' && (!c.customer || c.customer === tri)).reduce((a, c) => a + (Number(c.points) || 0) / 100, 0);
   const win = cs.filter((c) => c.type === 'm_rnw_window').pop();

@@ -1198,10 +1198,11 @@ async function cpmSite(body) {
 // ---- Scenarios: changes over the base, each person's own -----------------------------------------
 // a scenario's changes, by what they change: both lines (the forecast and the plan), perso's machines, Matching's
 const CPM_CHANGES = {
+  total_volume: { line: 'both', label: 'Total volume (all customers)', fields: ['pct', 'flat'] },
   volume: { line: 'both', label: 'Customer volume', fields: ['customer', 'pct', 'flat'] },
   new_customer: { line: 'both', label: 'New customer', fields: ['name', 'qty', 'split', 'oee'] },
   shifts: { line: 'both', label: 'Shifts', fields: ['shifts'] },
-  speed: { line: 'perso', label: 'Speed change', fields: ['machine', 'tech', 'pct'] },
+  speed: { line: 'perso', label: 'Speed change', fields: ['machine', 'tech', 'pct', 'speed_flat'] },
   add_machine: { line: 'perso', label: 'Add a machine', fields: ['name', 'techs'] },
   remove_machine: { line: 'perso', label: 'Remove a machine / downtime', fields: ['machine'] },
   capabilities: { line: 'perso', label: 'Change what a machine runs', fields: ['machine', 'techs'] },
@@ -1210,7 +1211,7 @@ const CPM_CHANGES = {
   rnw_window: { line: 'perso', label: 'Renewal window (CPM Daily only)', fields: ['tech', 'hours'] },
   m_add: { line: 'match', label: 'Add a Matching machine', fields: ['name', 'speed'] },
   m_remove: { line: 'match', label: 'Remove a Matching machine / downtime', fields: ['mmachine'] },
-  m_speed: { line: 'match', label: 'Speed change', fields: ['mmachine_all', 'pct'] },
+  m_speed: { line: 'match', label: 'Speed change', fields: ['mmachine_all', 'pct', 'speed_flat'] },
   m_oee: { line: 'match', label: 'OEE change', fields: ['customer', 'points'] },
   m_share: { line: 'match', label: 'Share through Matching', fields: ['customer', 'share'] },
   m_rnw_window: { line: 'match', label: 'Renewal window (CPM Daily only)', fields: ['hours'] },
@@ -1246,6 +1247,8 @@ async function cpmScenarios(body) {
   const field = (c, f) => {
     if (f === 'mmachine') return `<label class="f">Matching machine${sel('machine', c.machine, mMachines(), '— choose —')}</label>`;
     if (f === 'mmachine_all') return `<label class="f">Matching machine${sel('machine', c.machine, mMachines(), 'all Matching machines')}</label>`;
+    if (f === 'speed_flat') return `<label class="f">and / or a flat change (${c.type === 'm_speed' ? 'items' : 'cards'} an hour, e.g. +200 or −150)<input type="number" name="speed_flat" value="${esc(c.speed_flat ?? '')}" placeholder="+200"></label>`;
+    if (f === 'flat' && c.type === 'total_volume') return `<label class="f">and / or flat cards (+ or −) — over From … Until, shared by the customers' forecast<input type="number" name="flat" value="${esc(c.flat ?? '')}" placeholder="+50000 or −20000"></label>`;
     if (f === 'speed') return `<label class="f">Speed (items an hour)<input type="number" name="speed" min="0" value="${esc(c.speed ?? '')}" placeholder="3000"></label>`;
     if (f === 'share') return `<label class="f">Share through Matching %<input type="number" name="share" min="0" max="100" value="${esc(c.share ?? '')}" placeholder="80"></label>`;
     if (f === 'machine') return `<label class="f">Machine${sel('machine', c.machine, machines, c.type === 'speed' ? 'all machines' : '— choose —')}</label>`;
