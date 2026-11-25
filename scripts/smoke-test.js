@@ -2649,6 +2649,7 @@ async function waitForServer() {
             assert.deepEqual([sd.byPrio.urgent.slice(0, 3), sd.byPrio.normal.slice(0, 3)], [[5, 10, 0], [5, 0, 10]], 'Urgent first: the Normal work waits for the next spare hour');
             const pd = require('../src/cpmday').smoothDay(Array.from({ length: 24 }, (_, i) => i), [{ trigram: 'X', oee: 0.5, hours: [...Array(22).fill(0), 30, 0] }], [...Array(23).fill(0), 15], Array(24).fill(10), () => null);
             assert.deepEqual([pd.pushed, pd.pushedCards, pd.pushedAt[0], pd.pushedRow[0], pd.deferred], [10, 5, 10, 10, 15], 'smoothed: daily work only fitting after the day\'s end is pushed to the next day (its first hour); the renewals left over too');
+            assert.deepEqual(pd.pushedBy.map((x) => [x.k, x.prio, x.in, x.need, x.cards, x.from, x.to, x.nowhere]), [[0, 'normal', 22, 10, 5, 0, 0, 0]], 'smoothed: exactly what\'s pushed — whose, its priority, the hour it came in, where in the next day it\'s done');
             await call('PUT', '/cpm/settings', { cpm_prio_mix: '{}' }); }
           // 📣 a campaign: a customer's cards over some days, on its split, a line of its own; off: not counted
           { await call('PUT', '/cpm/settings', { cpm_campaigns: JSON.stringify([{ name: 'Reissue', customer: 'KBC', qty: 21000, from: `${Y}-01-01`, to: `${Y}-01-31` }, { name: 'Paused', customer: 'KBC', qty: 99999, from: `${Y}-01-01`, to: `${Y}-01-31`, off: true }]) });
