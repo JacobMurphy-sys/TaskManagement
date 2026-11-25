@@ -344,6 +344,7 @@ window.TIMELINE = {
 
   // 🎬 The blooper reel: the hidden easter egg (click the logo five times, type "oops", or find the 🐞)
   BLOOPERS: [
+  { date: '2026-11-25', title: 'The timeline missed its own update', text: 'A release went out, but the page that records every release was told by GitHub to "try again later", and it didn\'t. Nobody noticed until someone went looking for the new pins.', lesson: 'If at first you don\'t succeed, wait a minute and try once more, automatically.' },
   { date: '2026-11-25', title: 'The metal was in the wrong drawer', text: 'Adding two new columns to the matching customers table showed that the metal figures had always sat under the hand-match heading, and the hand figures under metal.', lesson: 'Put the cells in the same order as the headings.' },
   { date: '2026-11-23', title: 'Names, again', text: 'Overview became CPM Monthly, Day by hour became CPM Daily and Forecast vs actual became Flex — the names the team had been using for them all along.', lesson: 'Ask what people call a thing before naming it.' },
   { date: '2026-11-23', title: 'Nothing to sort. in the top bar', text: 'Taking the emoji out of the names also took one out of the middle of a sentence: the hint that pointed at the note icon in the top bar suddenly read "Nothing to sort. in the top bar". The sweep was taught that names start with a capital letter; icons used as words in a sentence were put back.', lesson: 'A find-and-replace across a whole app needs a read-through, not just a test run.' },
