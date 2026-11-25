@@ -181,4 +181,10 @@ function readZip(buf) {
   return files;
 }
 
-module.exports = { buildXlsx, zip, readZip, xmlEsc, colName, excelSerial };
+// 📘 a "How it works" sheet for a list export: a line per point
+function howList(title, lines) {
+  return { name: 'How it works', columns: [{ header: `How it works — ${title}`, width: 120, type: 'wrap' }],
+    rows: [...lines, 'The list is as SITHUB had it when exported — export again for the latest. The header row has filters (the arrows) to narrow or sort it.'].map((l) => [l]) };
+}
+
+module.exports = { buildXlsx, zip, readZip, xmlEsc, colName, excelSerial, howList };

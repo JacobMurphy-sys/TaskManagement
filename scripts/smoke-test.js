@@ -597,7 +597,7 @@ async function waitForServer() {
       const list = await call('GET', '/capex'); assert.ok(list.items.length === 2 && list.required.title && list.categories.includes('Replacement'));
       const xl = Buffer.from(await (await fetch(`${BASE}/capex/export.xlsx`, { headers: { 'X-Requested-With': 'TaskManager' } })).arrayBuffer());
       const { readBook } = require('../src/xlsxread'); const bk = readBook(xl);
-      assert.deepEqual(bk.sheets.map((x) => x.name), ['Summary', 'Register']);
+      assert.deepEqual(bk.sheets.map((x) => x.name), ['Summary', 'Register', 'How it works']);
       const reg = bk.sheet('Register'); const sumS = bk.sheet('Summary');
       assert.ok(reg.cells.get('B5')?.v === 'Chiller' && reg.cells.get('B6')?.v === 'New printer' && /YEAR/.test(reg.cells.get('L5').f) && /SUMIFS\('Register'!/.test([...sumS.cells.values()].find((c) => c.f && /SUMIFS/.test(c.f)).f), 'the register (by planned date) and a summary of formulas over it');
       for (const u of [`/capex/${c1.id}/onepager.pdf`, '/capex/overview.pdf?status=open']) { const r = await fetch(BASE + u, { headers: { 'X-Requested-With': 'TaskManager' } }); const b = Buffer.from(await r.arrayBuffer());
@@ -2523,7 +2523,7 @@ async function waitForServer() {
           const xr = await fetch(`${BASE}/cpm/export?year=${Y}&period=month&flex=0&scenarios=${rs.id}`, { headers: { 'X-Requested-With': 'TaskManager' } });
           assert.equal(xr.status, 200);
           const xb = require('../src/xlsxread').readBook(Buffer.from(await xr.arrayBuffer()));
-          assert.deepEqual(xb.sheets.map((x) => x.name), ['Capacity summary', `CPM ${Y}`, 'S1 KBC only', 'Summary S1 KBC only', 'Charts', 'Forecast check', 'Scenarios & notes']);
+          assert.deepEqual(xb.sheets.map((x) => x.name), ['Capacity summary', `CPM ${Y}`, 'S1 KBC only', 'Summary S1 KBC only', 'Charts', 'Forecast check', 'Scenarios & notes', 'How it works']);
           // 📋 the capacity summary: the OEE modifier (an input, 1), demand = IF(modifier, needed, forecast) over the plan sheet, remaining = capacity − demand
           { const sm = xb.sheet('Capacity summary'); const sc = [...sm.cells.values()]; const lab = (t) => sc.find((c) => c.v === t);
             assert.equal(sm.cells.get('C4').v, 1, 'the OEE modifier starts on');
@@ -2646,9 +2646,9 @@ async function waitForServer() {
             { const st = await call('GET', `/cpm/site?year=${Y}&regen=1`); const om = st.match.machines.find((m) => m.name === 'CPM OTTO');
               assert.ok(om && Math.abs(om.year - 1000 * st.hours_day * st.workdays) < 0.5 && Math.abs(st.match.total.year - st.match.machines.reduce((a, m) => a + m.year, 0)) < 0.5, 'Site Capacity: Matching flat out, the same hours');
               const xr = await fetch(`${BASE}/cpm/site/export?year=${Y}`, { headers: { 'X-Requested-With': 'TaskManager' } }); const bk = require('../src/xlsxread').readBook(Buffer.from(await xr.arrayBuffer()));
-              assert.deepEqual(bk.sheets.map((x) => x.name), [`Site Capacity ${Y}`, `Matching ${Y}`], 'the workbook: a Matching sheet'); }
+              assert.deepEqual(bk.sheets.map((x) => x.name), [`Site Capacity ${Y}`, `Matching ${Y}`, 'How it works'], 'the workbook: a Matching sheet'); }
             // 🔗 Matching to Excel: its month, its day (perso's workbook laid out for Matching) and its customers hour by hour
-            for (const [u, names, nCharts] of [[`/cpm/match/monthly.xlsx?year=${Y}&flex=0`, ['Capacity summary', `Matching ${Y}`, 'Chart'], 2], [`/cpm/day/export?year=${Y}&month=1&flex=0&line=match`, [`Matching ${md.label}`.slice(0, 31), 'Hour profile', 'Smoothed', 'Charts'], 2], [`/cpm/day/customers.xlsx?year=${Y}&month=1&flex=0&line=match&view=cards`, ['Cards by hour'], 0]]) {
+            for (const [u, names, nCharts] of [[`/cpm/match/monthly.xlsx?year=${Y}&flex=0`, ['Capacity summary', `Matching ${Y}`, 'Chart', 'How it works'], 2], [`/cpm/day/export?year=${Y}&month=1&flex=0&line=match`, [`Matching ${md.label}`.slice(0, 31), 'Hour profile', 'Smoothed', 'Charts', 'How it works'], 2], [`/cpm/day/customers.xlsx?year=${Y}&month=1&flex=0&line=match&view=cards`, ['Cards by hour', 'How it works'], 0]]) {
               const xr = await fetch(`${BASE}${u}`, { headers: { 'X-Requested-With': 'TaskManager' } }); assert.equal(xr.status, 200, u);
               const buf = Buffer.from(await xr.arrayBuffer()); const bk = require('../src/xlsxread').readBook(buf);
               assert.deepEqual(bk.sheets.map((x) => x.name), names, `${u}: its sheets`);
@@ -2738,13 +2738,13 @@ async function waitForServer() {
           const dx = await fetch(`${BASE}/cpm/day/export?year=${Y}&month=1&flex=0`, { headers: { 'X-Requested-With': 'TaskManager' } });
           assert.equal(dx.status, 200);
           { const dbk = require('../src/xlsxread').readBook(Buffer.from(await dx.arrayBuffer()));
-            assert.deepEqual(dbk.sheets.map((x) => x.name), [`Day January ${Y}`, 'Hour profile', 'Smoothed', 'Charts']);
+            assert.deepEqual(dbk.sheets.map((x) => x.name), [`Day January ${Y}`, 'Hour profile', 'Smoothed', 'Charts', 'How it works']);
             const titles = dbk.drawing(dbk.sheet('Charts')).anchors.map((a) => a.title || '').join(' | ');
             assert.ok(dbk.drawing(dbk.sheet('Charts')).anchors.length >= 3 + 2 * 3, `the charts: all technologies as they come in and smoothed, and each technology as it comes in and smoothed (${titles})`);
             { const ds = dbk.sheet(`Day January ${Y}`); assert.ok(ds.cells.get('F5')?.v === 1 && [...ds.cells.values()].some((c) => c.f && c.f.endsWith('*$F$5')) && [...dbk.sheet('Smoothed').cells.values()].some((c) => c.f && /\*'Day January \d+'!\$F\$5$/.test(c.f)), 'each technology\'s 1 / 0 for the charts, feeding the day and the smoothed day'); }
             assert.ok([...dbk.sheet('Smoothed').cells.values()].some((c) => c.v === 'Daily, smoothed') && [...dbk.sheet('Smoothed').cells.values()].some((c) => c.v === 'Needed as it comes in'), 'the smoothed day, as figures'); }
           // 👷 Headcount and 🏭 Site capacity as workbooks: formulas over inputs, with charts
-          for (const [u, names, nCharts] of [[`/cpm/headcount/export?year=${Y}&flex=0`, [`Headcount ${Y}`, 'By customer'], 2], [`/cpm/site/export?year=${Y}`, [`Site Capacity ${Y}`], 1]]) {
+          for (const [u, names, nCharts] of [[`/cpm/headcount/export?year=${Y}&flex=0`, [`Headcount ${Y}`, 'By customer', 'How it works'], 2], [`/cpm/site/export?year=${Y}`, [`Site Capacity ${Y}`, 'How it works'], 1]]) {
             const xr = await fetch(`${BASE}${u}`, { headers: { 'X-Requested-With': 'TaskManager' } }); assert.equal(xr.status, 200, u);
             const buf = Buffer.from(await xr.arrayBuffer()); const bk = require('../src/xlsxread').readBook(buf);
             assert.deepEqual(bk.sheets.map((x) => x.name).filter((x) => !/^Matching \d{4}$/.test(x)), names, `${u}: its sheets (and Matching's, when there are Matching machines)`);
@@ -2757,7 +2757,7 @@ async function waitForServer() {
             const cx = await fetch(`${BASE}/cpm/day/customers.xlsx?year=${Y}&month=1&flex=0&view=${view}`, { headers: { 'X-Requested-With': 'TaskManager' } });
             assert.equal(cx.status, 200);
             const bk = require('../src/xlsxread').readBook(Buffer.from(await cx.arrayBuffer())); const nm = view === 'cards' ? 'Cards by hour' : 'Needed by hour';
-            assert.deepEqual(bk.sheets.map((x) => x.name), [nm]);
+            assert.deepEqual(bk.sheets.map((x) => x.name), [nm, 'How it works']);
             const rowsX = []; for (const c of bk.sheet(nm).cells.values()) { (rowsX[c.row - 1] ||= [])[c.col - 1] = c.v; } const hcol = rowsX[0].indexOf(`${String(dy.hours[0]).padStart(2, '0')}:00`); assert.ok(hcol > 0, 'hour columns');
             const kx = rowsX.find((r) => r[0] === kd2.trigram && r[2] === kd2.tech); assert.ok(kx, 'a row per customer and technology');
             const want = (view === 'cards' ? kd2.cards_hours : kd2.hours)[0]; assert.ok(Math.abs(Number(kx[hcol] || 0) - want) <= 0.06, 'its hours as shown');

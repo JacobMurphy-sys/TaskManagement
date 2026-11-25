@@ -4,7 +4,7 @@
 // with every field, and a summary by status, category and quarter as formulas over it), and PDF
 // one-pagers to present — one investment, or the whole plan on a page.
 const PDFDocument = require('pdfkit');
-const { sheet, buildBook } = require('./xlsxbook');
+const { sheet, buildBook, howSheet } = require('./xlsxbook');
 
 const CATEGORIES = ['Replacement', 'Capacity / growth', 'Safety & compliance', 'Quality', 'Cost saving', 'IT / digital', 'Building & facilities', 'Other'];
 const STATUS = { draft: 'Draft', submitted: 'Submitted', approved: 'Approved', ordered: 'Ordered', installed: 'Installed', closed: 'Closed', rejected: 'Rejected', on_hold: 'On hold' };
@@ -81,7 +81,11 @@ function workbook(items, { currency = '£', stamp = '' } = {}) {
     const qs = [...bq.keys()].filter(Boolean).sort();
     if (qs.length) tot('By planned quarter', rng('Quarter'), qs.map((l) => ({ label: l, cur, ...bq.get(l) })), true);
   }
-  return buildBook([sum, reg], { active: 1 });
+  const how = howSheet('CAPEX plan', 'The CAPEX planner\'s investments as listed when exported: every field, to edit and examine, with a summary worked out over them.', [
+    ['Summary', 'Totals by status, category and planned quarter — formulas over the register, so they follow when it\'s changed.'],
+    ['Register', 'One row per investment with every field: what, why, cost, dates, status and owner.'],
+  ], { inputs: false });
+  return buildBook([sum, reg, how], { active: 1 });
 }
 
 // ---- PDF one-pagers

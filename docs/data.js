@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'excel-how', date: '2026-11-25', area: 'reporting', title: 'A "How it works" sheet in every export',
+    text: 'Each Excel export now ends with a short sheet explaining what it is, what each sheet shows and how to read it.' },
   { id: 'excel-brand', date: '2026-11-25', area: 'look', title: 'Excel exports in the company colours',
     text: 'Workbooks exported from SITHUB now use the company blue: blue headers with white text, lighter blue section bands, tinted totals and blue sheet tabs.' },
   { id: 'day-export-smoothed', date: '2026-11-25', area: 'capacity', title: 'Smoothed day in the daily Excel',
