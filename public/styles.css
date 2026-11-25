@@ -2966,6 +2966,7 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .cpm-chg-h { margin: 4px 0 6px; font-size: 13px; }
 
 .cpm-push { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--warn, #d97706); background: color-mix(in srgb, var(--warn, #d97706) 8%, transparent); border-radius: 4px; }
+.cpm-spd-now { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; } .cpm-spd-m { white-space: nowrap; }
 .cpm-push-list { margin-top: 6px; } .cpm-push-list summary { cursor: pointer; font-weight: 600; } .cpm-push-list table { margin-top: 4px; background: var(--card, #fff); }
 .cpm-push.cpm-push-ok { border-left-color: var(--ok, #16a34a); background: color-mix(in srgb, var(--ok, #16a34a) 7%, transparent); }
 
