@@ -433,15 +433,61 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   const AT0 = 4 + HH; ch.charts.push({ title: MX ? 'Matching — load hour by hour' : 'All technologies — load hour by hour', cats, pct: true, from: [1, AT0], to: [2 * W, AT0 + HH - 1],
     series: T.map((t) => ({ name: t, ref: rng(S[t].load), kind: 'line', color: TECH_COL[t] || '1F77B4', markers: true })) });
   const anyAdded = T.some((t) => (d.tech[t].added || []).some((v) => v > 0.5) || (d.tech[t].added_rnw || []).some((v) => v > 0.5));
-  T.forEach((t, i) => { const at = [1 + (i % 2) * W, 4 + 2 * HH + Math.floor(i / 2) * HH];
-    ch.charts.push({ title: `${t} — the day against capacity`, cats, stacked: true, fmt: '#,##0', from: at, to: [at[0] + W - 1, at[1] + HH - 1],
+  // ⏩ the smoothed day (as on CPM Daily's Smoothed capacity): worked out by SITHUB — each piece of daily work moved to the
+  // next hour with spare capacity, Urgent first, renewals in what's left — so its own sheet, as figures
+  const sm = sheet('Smoothed'); sm.width(1, 30).width(2, 12); for (let i = 0; i <= n; i++) sm.width(3 + i, 8); sm.width(3 + n, 10);
+  const sc = (i) => 3 + i; const SL = (c) => colName(c - 1);
+  sm.set(1, 1, `${MX ? 'Matching — s' : 'S'}moothed capacity — a working day in ${d.label}${scenario ? ` — ${scenario}` : ''}`, 'title');
+  sm.set(2, 1, `The day as the floor catches up (CPM Daily › Smoothed capacity): the daily work done Urgent first, then High, then Normal, each in the order it comes in, each piece in the next hour with spare capacity; the renewals take what's left from their window on, what doesn't fit is put off to another day. Worked out by SITHUB, so these are figures, not formulas: change an input on the day sheet and export again. In ${MX ? 'items' : 'cards'} needed (÷ OEE).`, 'note');
+  let sr = 4; const SM = {};
+  const smHead = (row, label) => { sm.set(row, 1, label, 'header'); sm.set(row, 2, '', 'header'); H.forEach((h, i) => sm.set(row, sc(i), hl(h), 'headerNum')); sm.set(row, sc(n), 'Day', 'headerNum'); };
+  const smRow = (label, vals, style = 'int', tot = true) => { sm.set(sr, 1, label); vals.forEach((v, i) => sm.set(sr, sc(i), style === 'pct' ? (v === null || v === undefined ? '' : v) : Math.round(v || 0), style)); if (tot) sm.f(sr, sc(n), `SUM(${SL(sc(0))}${sr}:${SL(sc(n - 1))}${sr})`, 'intBold'); return sr++; };
+  const smCats = sm.full(4, sc(0), 4, sc(n - 1));
+  for (const t of T) {
+    const X = d.tech[t].smooth; if (!X) continue; const R = SM[t] = {};
+    smHead(sr, t); sm.set(sr, 2, '', 'header'); sr++;
+    R.daily = smRow('Daily, smoothed', X.daily); R.rnw = smRow('Renewals, smoothed', X.renewals); R.need = smRow('Needed, smoothed', X.need);
+    R.cap = smRow('Capacity', d.tech[t].capacity); R.load = smRow('Load, smoothed', X.load, 'pct', false); R.carry = smRow('Carried over', X.backlog);
+    R.arrive = smRow('Needed as it comes in', d.tech[t].need);
+    if (X.late_at) R.late = smRow('Done after its cut-off (late)', X.late_at);
+    if (X.pushed?.at) R.pushed = smRow('Pushed from the day before (done in these hours)', X.pushed.at);
+    for (const k of ['urgent', 'high', 'normal']) if (X.prio?.[k]) R[k] = smRow(`  of the daily: ${k[0].toUpperCase()}${k.slice(1)}`, X.prio[k]);
+    sm.cf.push({ ref: `${SL(sc(0))}${R.load}:${SL(sc(n - 1))}${R.load}`, rules: [{ op: 'greaterThan', v: '1', dxf: 'bad' }, { op: 'between', v: '0.85', v2: '1', dxf: 'warn' }, { op: 'between', v: '0', v2: '0.85', dxf: 'good' }] });
+    // what's pushed to the next day, line by line (as CPM Daily's "Show exactly what's pushed")
+    const P = X.pushed; sr++;
+    sm.set(sr, 1, `${t} — pushed to the next day: ${Math.round(P?.total || 0).toLocaleString('en-GB')} needed (daily ${Math.round(P?.daily || 0).toLocaleString('en-GB')}, renewals put off ${Math.round(P?.renewals || 0).toLocaleString('en-GB')})`, 'bold'); sr++;
+    if (P?.items?.length) {
+      const hh = (v) => { const m = Math.round((((v % 24) + 24) % 24) * 60); return `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
+      ['Customer', 'What', 'Came in', 'Its cut-off', 'Where it goes', MX ? 'Items' : 'Cards', 'Needed (÷ OEE)'].forEach((x, k) => sm.set(sr, [1, 2, 3, 5, 7, 15, 17][k], x, 'header')); sr++;
+      for (const x of P.items) {
+        sm.set(sr, 1, `${x.key}${x.name && x.name !== x.key ? ` ${x.name}` : ''}${x.added ? ` (${x.added})` : ''}`); sm.set(sr, 2, x.kind === 'renewal' ? 'Renewals' : `Daily · ${x.prio[0].toUpperCase()}${x.prio.slice(1)}`);
+        sm.set(sr, 3, x.in === null ? 'its window' : hh(x.in)); sm.set(sr, 5, x.cutoff === null || x.cutoff === undefined ? '—' : hh(x.cutoff));
+        sm.set(sr, 7, x.kind === 'renewal' ? 'put off to another day' : `${x.next_from === null ? '' : `done ${hh(x.next_from)}–${hh(x.next_to + 1)} the next day`}${x.nowhere > 0.05 ? `${x.next_from === null ? '' : '; '}${Math.round(x.nowhere).toLocaleString('en-GB')} fits nowhere in 24 hours` : ''}`);
+        sm.set(sr, 15, Math.round(x.cards), 'int'); sm.set(sr, 17, Math.round(x.need), 'int'); sr++;
+      }
+    }
+    sr += 2;
+  }
+  sm.freeze = { row: 4, col: 3 };
+  if (Object.keys(SM).length) {
+    const sRng = (row) => sm.full(row, sc(0), row, sc(n - 1));
+    ch.charts.push({ title: MX ? 'Matching — smoothed: needed (bars) against capacity (line)' : 'All technologies, smoothed — needed (bars) against each one\'s capacity (lines)', cats: smCats, fmt: '#,##0', from: [2 * W + 1, 4], to: [3 * W, 4 + HH - 1],
+      series: [...T.filter((t) => SM[t]).map((t) => ({ name: `${t} needed`, ref: sRng(SM[t].need), kind: 'bar', color: TECH_COL[t] || '1F77B4' })), ...T.filter((t) => SM[t]).map((t) => ({ name: `${t} capacity`, ref: sRng(SM[t].cap), kind: 'line', color: TECH_COL[t] || '1F77B4', dash: true }))] });
+    T.forEach((t, i) => { if (!SM[t]) return; const at = [1 + W, 4 + 2 * HH + i * HH];
+      ch.charts.push({ title: `${t} — smoothed`, cats: smCats, stacked: true, fmt: '#,##0', from: at, to: [at[0] + W - 1, at[1] + HH - 1],
+        series: [{ name: 'Daily, smoothed', ref: sRng(SM[t].daily), kind: 'bar', color: TECH_COL[t] || '1F77B4' }, { name: 'Renewals, smoothed', ref: sRng(SM[t].rnw), kind: 'bar', color: TECH_LIGHT[t] || '9AA7BD' },
+          { name: 'Capacity', ref: sRng(SM[t].cap), kind: 'line', color: '111827' }, { name: 'As it comes in', ref: sRng(SM[t].arrive), kind: 'line', color: '6B7280', dash: true },
+          ...(SM[t].late ? [{ name: 'Late (after its cut-off)', ref: sRng(SM[t].late), kind: 'line', color: 'C0392B' }] : [])] }); });
+  }
+  T.forEach((t, i) => { const at = [1, 4 + 2 * HH + i * HH];
+    ch.charts.push({ title: `${t} — as it comes in, against capacity`, cats, stacked: true, fmt: '#,##0', from: at, to: [at[0] + W - 1, at[1] + HH - 1],
       series: [{ name: 'Daily', ref: rng(anyAdded ? S[t].own : S[t].daily), kind: 'bar', color: TECH_COL[t] || '1F77B4' }, ...(anyAdded ? [{ name: 'Added (campaigns, scenario)', ref: rng(S[t].added), kind: 'bar', color: 'FF7A1A' }] : []),
         { name: 'Renewals', ref: rng(anyAdded ? S[t].rnwOwn : S[t].rnw), kind: 'bar', color: TECH_LIGHT[t] || '9AA7BD' }, ...(anyAdded ? [{ name: 'Renewals added', ref: rng(S[t].addedRnw), kind: 'bar', color: 'FFBE8C' }] : []),
         { name: 'Capacity', ref: rng(S[t].cap), kind: 'line', color: '111827' }, { name: 'Carried over', ref: rng(S[t].carry), kind: 'line', color: 'C0392B', dash: true }] }); });
   if (MX) { // what's different on Matching, said once at the top
     sh.set(2, 1, `Forecast as read in ${d.forecast_as_of || '—'} · ${d.flex ? 'flex applied' : 'no flex'} · Matching: each customer's forecast cards × its share through Matching = items (Month); OEE = its Matching OEE ÷ its speed factor (its own Matching speed, metal cards at the metal machines' speed), so items ÷ OEE is machine time at the machines' usual speed; renewals = its Low priority Matching work orders, at the renewal OEE; each day spread as its Matching runs ended (Hour profile)`, 'note');
   }
-  return buildBook([sh, pr, ch]);
+  return buildBook([sh, pr, sm, ch]);
 }
 
 // ---- 🔗 Matching by month: the year's items, the machine time they need and the capacity, as formulas over the
