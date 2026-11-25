@@ -390,7 +390,16 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   // machines: hours worked, speed, availability, how each splits its hours
   r++; section(r, 'Capacity — each machine\'s speed × availability × its share of the hour for the technology, in the hours worked (1)'); r++;
   head(sh, r, ['', '', 'Machine', '', 'Tech', 'Speed /h', 'Available', '', '', '', '', '', '', '']); r++;
-  const worked = r; sh.set(worked, 4, 'hours worked (1)', 'bold'); H.forEach((_, i) => sh.set(worked, hc(i), d.worked[i] ? 1 : 0, 'input')); r++;
+  // the hours worked: worked out from the shifts a day, hours a shift and when the first shift starts (inputs) —
+  // type a 1 or 0 over any hour to set it by hand
+  const nW = d.worked.filter(Boolean).length; const sh0 = Number(d.shifts) || Math.max(1, Math.round(nW / 8));
+  const iStart = d.worked.findIndex((w, i) => w && !d.worked[(i + 23) % 24]); const startH = iStart >= 0 ? H[iStart] : H[0];
+  const perShift = nW && Math.round(sh0 * 8) !== nW && nW < 24 ? Math.round((nW / sh0) * 4) / 4 : 8;
+  const rShifts = r; sh.set(r, 4, 'Shifts a day', 'bold'); sh.set(r, 6, sh0, 'input'); sh.set(r, 8, 'Hours a shift', 'bold'); sh.set(r, 10, perShift, 'inputDec');
+  sh.set(r, 11, 'First shift starts (hour 0–23)', 'bold'); sh.set(r, 14, startH, 'input'); r++;
+  sh.set(r, 4, 'clock hour'); H.forEach((h, i) => sh.set(r, hc(i), h, 'int')); const clock = r; r++;
+  const worked = r; sh.set(worked, 4, 'hours worked (1) — from the shifts', 'bold');
+  H.forEach((_, i) => sh.f(worked, hc(i), `IF(MOD(${L(hc(i))}${clock}-$N$${rShifts},24)<MIN(24,$F$${rShifts}*$J$${rShifts}),1,0)`, 'input', d.worked[i] ? 1 : 0)); r++;
   const shareRows = [];
   for (const m of d.capacity_machines) for (const t of m.techs) {
     sh.set(r, 3, m.name, 'bold'); sh.set(r, 4, m.techs.length > 1 ? 'share of the hour' : ''); sh.set(r, 5, t); sh.set(r, 6, m.speed[t], 'input'); sh.set(r, 7, m.avail ?? 1, 'inputPct');
@@ -467,9 +476,16 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   const sc = (i) => 3 + i; const SL = (c) => colName(c - 1);
   sm.set(1, 1, `${MX ? 'Matching — s' : 'S'}moothed capacity — a working day in ${d.label}${scenario ? ` — ${scenario}` : ''}`, 'title');
   sm.set(3, 1, 'Each technology\'s rows follow its 1 / 0 on the day sheet (row 5): 0 zeroes them, to look at the others on their own.', 'note');
-  sm.set(2, 1, `The day as the floor catches up (CPM Daily › Smoothed capacity): the daily work done Urgent first, then High, then Normal, each in the order it comes in, each piece in the next hour with spare capacity; the renewals take what's left from their window on, what doesn't fit is put off to another day. Worked out by SITHUB, so these are figures, not formulas: change an input on the day sheet and export again. In ${MX ? 'items' : 'cards'} needed (÷ OEE).`, 'note');
+  sm.set(2, 1, `The day as the floor catches up (CPM Daily › Smoothed capacity), as formulas over the day sheet: the daily work fills each hour's capacity, what doesn't fit waits for the next hour; what's left at the day's end is done in the next day's first hours (their spare capacity); the renewals take what the daily work leaves, from their window on, what doesn't fit by the day's end is put off. Change an input on the day sheet (a speed, the shifts, a volume) and this follows. The late and priority rows are SITHUB's own figures (they follow each customer). In ${MX ? 'items' : 'cards'} needed (÷ OEE).`, 'note');
   let sr = 4; const SM = {};
   const smHead = (row, label) => { sm.set(row, 1, label, 'header'); sm.set(row, 2, '', 'header'); H.forEach((h, i) => sm.set(row, sc(i), hl(h), 'headerNum')); sm.set(row, sc(n), 'Day', 'headerNum'); };
+  // the smoothing as formulas, hour by hour over the day sheet: daily work fills each hour's capacity, the rest carried
+  // on; what's left at the day's end goes into the next day's first hours (its spare capacity); renewals take what
+  // daily work leaves, carried on to the day's end, the rest put off. xs: the same in figures, for the cached values
+  const xs = (din, rin, cap) => { const D1 = []; const B1 = []; let b = 0; din.forEach((v, i) => { const dn = Math.min(cap[i], v + b); D1.push(dn); b = b + v - dn; B1.push(b); });
+    const left = b; const W = []; let w = 0; cap.forEach((c, i) => { const x = Math.max(0, Math.min(c - D1[i], left - w)); W.push(x); w += x; });
+    const DS = D1.map((v, i) => v + W[i]); const R1 = []; const RB = []; let rb = 0; rin.forEach((v, i) => { const x = Math.max(0, Math.min(cap[i] - DS[i], v + rb)); R1.push(x); rb = rb + v - x; RB.push(rb); });
+    const need = DS.map((v, i) => v + R1[i]); return { D1, B1, left, W, DS, R1, RB, need, nowhere: left - w, deferred: rb }; };
   let swNow = null; // the technology's 1 / 0 on the day sheet
   const smRow = (label, vals, style = 'int', tot = true) => { sm.set(sr, 1, label);
     vals.forEach((v, i) => { const x = style === 'pct' ? (v === null || v === undefined ? null : v) : Math.round(v || 0);
@@ -479,12 +495,30 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   for (const t of T) {
     const X = d.tech[t].smooth; if (!X) continue; const R = SM[t] = {}; swNow = `${qs(sh.name)}!${SW[t]}`;
     smHead(sr, t); sm.set(sr, 2, '', 'header'); sr++;
-    R.daily = smRow('Daily, smoothed', X.daily); R.rnw = smRow('Renewals, smoothed', X.renewals); R.need = smRow('Needed, smoothed', X.need);
-    R.cap = smRow('Capacity', d.tech[t].capacity); R.load = smRow('Load, smoothed', X.load, 'pct', false); R.carry = smRow('Carried over', X.backlog);
-    R.arrive = smRow('Needed as it comes in', d.tech[t].need);
-    if (X.late_at) R.late = smRow('Done after its cut-off (late)', X.late_at);
-    if (X.pushed?.at) R.pushed = smRow('Pushed from the day before (done in these hours)', X.pushed.at);
-    for (const k of ['urgent', 'high', 'normal']) if (X.prio?.[k]) R[k] = smRow(`  of the daily: ${k[0].toUpperCase()}${k.slice(1)}`, X.prio[k]);
+    const Dy = S[t]; const dref = (row, i) => `${qs(sh.name)}!${L(hc(i))}${row}`; const on = (row) => (row ? 1 : 0);
+    const din = d.tech[t].daily; const rin = d.tech[t].renewals; const cap = d.tech[t].capacity; const v = xs(din, rin, cap);
+    const C = (row, i) => `${SL(sc(i))}${row}`; const fRow = (label, f, vals, style = 'int', tot = 'sum') => { sm.set(sr, 1, label);
+      H.forEach((_, i) => sm.f(sr, sc(i), f(i, sr), style, vals[i]));
+      if (tot === 'sum') sm.f(sr, sc(n), `SUM(${C(sr, 0)}:${C(sr, n - 1)})`, 'intBold'); else if (tot === 'last') sm.f(sr, sc(n), C(sr, n - 1), 'intBold', vals[n - 1]); return sr++; };
+    R.in = fRow('Daily as it comes in', (i) => dref(Dy.daily, i), din); R.rin = fRow('Renewals as they come in (their window)', (i) => dref(Dy.rnw, i), rin);
+    R.cap = fRow('Capacity', (i) => dref(Dy.cap, i), cap);
+    const rD1 = sr + 0; const rB1 = sr + 1; const rW = sr + 2;
+    R.d1 = fRow('Daily done in the day', (i) => `MIN(${C(R.cap, i)},${C(R.in, i)}${i ? `+${C(rB1, i - 1)}` : ''})`, v.D1);
+    R.b1 = fRow('  daily waiting at the hour\'s end', (i) => (i ? `${C(rB1, i - 1)}+${C(R.in, i)}-${C(rD1, i)}` : `${C(R.in, i)}-${C(rD1, i)}`), v.B1, 'int', 'last');
+    R.w = fRow('Pushed from the day before (done in these hours)', (i) => `MAX(0,MIN(${C(R.cap, i)}-${C(rD1, i)},$${SL(sc(n))}$${rB1}${i ? `-SUM(${C(rW, 0)}:${C(rW, i - 1)})` : ''}))`, v.W);
+    R.daily = fRow('Daily, smoothed', (i) => `${C(rD1, i)}+${C(rW, i)}`, v.DS);
+    const rR = sr; const rRB = sr + 1;
+    R.rnw = fRow('Renewals, smoothed', (i) => `MAX(0,MIN(${C(R.cap, i)}-${C(R.daily, i)},${C(R.rin, i)}${i ? `+${C(rRB, i - 1)}` : ''}))`, v.R1);
+    R.rb = fRow('  renewals waiting at the hour\'s end', (i) => (i ? `${C(rRB, i - 1)}+${C(R.rin, i)}-${C(rR, i)}` : `${C(R.rin, i)}-${C(rR, i)}`), v.RB, 'int', 'last');
+    R.need = fRow('Needed, smoothed', (i) => `${C(R.daily, i)}+${C(R.rnw, i)}`, v.need);
+    R.load = fRow('Load, smoothed', (i) => `IF(${C(R.cap, i)}>0,${C(R.need, i)}/${C(R.cap, i)},"")`, v.need.map((x, i) => (cap[i] ? x / cap[i] : '')), 'pct', 'none');
+    R.arrive = fRow('Needed as it comes in', (i) => dref(Dy.need, i), d.tech[t].need);
+    sm.set(sr, 1, 'Daily that fits nowhere in 24 hours', 'bold'); sm.f(sr, sc(n), `MAX(0,${SL(sc(n))}${rB1}-SUM(${C(rW, 0)}:${C(rW, n - 1)}))`, 'intBold', v.nowhere); sr++;
+    sm.set(sr, 1, 'Renewals put off to another day', 'bold'); sm.f(sr, sc(n), `${SL(sc(n))}${R.rb}`, 'intBold', v.deferred); sr++;
+    // by customer cut-off and priority: SITHUB's own figures (they follow each customer's work, not the totals)
+    if (X.late_at) R.late = smRow('Done after its cut-off (late) — SITHUB\'s figures', X.late_at);
+    for (const k of ['urgent', 'high', 'normal']) if (X.prio?.[k]) R[k] = smRow(`  of the daily: ${k[0].toUpperCase()}${k.slice(1)} — SITHUB's figures`, X.prio[k]);
+    void on;
     sm.cf.push({ ref: `${SL(sc(0))}${R.load}:${SL(sc(n - 1))}${R.load}`, rules: [{ op: 'greaterThan', v: '1', dxf: 'bad' }, { op: 'between', v: '0.85', v2: '1', dxf: 'warn' }, { op: 'between', v: '0', v2: '0.85', dxf: 'good' }] });
     // what's pushed to the next day, line by line (as CPM Daily's "Show exactly what's pushed")
     const P = X.pushed; sr++;
@@ -547,7 +581,8 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   const how = howSheet(MX ? 'CPM Daily, Matching' : 'CPM Daily', `A working day in ${d.label} hour by hour, as on SITHUB's CPM Daily: each customer's ${MX ? 'Matching items' : 'cards'} a day — daily work and renewals — spread over the hours, against the capacity of ${MX ? 'the OTTOs and the hand-match stations' : 'the machines'}.`, [
     [sh.name, `A row per customer and ${MX ? 'line (OTTO, hand match)' : 'technology'}: its month's volume, renewal %, OEE, the daily work and renewals a day, and what it needs each hour. Below: the renewals over their windows, each machine's capacity hour by hour, and the day per ${MX ? 'line' : 'technology'} (needed, capacity, load, carried over). Row 5: a 1 / 0 per ${MX ? 'line' : 'technology'} — 0 takes it off the charts.`],
     ['Hour profile', 'The share of each customer\'s daily work in each hour (when its work is typically done) — an input.'],
-    ['Smoothed', 'The day as the floor catches up (CPM Daily › Smoothed capacity): the daily work moved into the next hours with spare capacity, Urgent first, the renewals in what\'s left; what\'s late and what\'s pushed to the next day, line by line. Worked out by SITHUB, so figures rather than formulas.'],
+    ['Smoothed', 'The day as the floor catches up (CPM Daily › Smoothed capacity), as formulas over the day sheet: daily work fills each hour\'s capacity and the rest waits for the next; what\'s left at the end goes into the next day\'s first hours; renewals take what\'s left. Then what\'s late and what\'s pushed, line by line (SITHUB\'s figures).'],
+    ['Shifts', 'On the day sheet, above the capacity: shifts a day, hours a shift and when the first shift starts (inputs) set the hours worked; type a 1 or 0 over any hour to set it by hand. Capacity, the day and the smoothed day follow.'],
     ['Charts', 'All together (daily work and renewals stacked, against the total capacity) and each one on its own: the day as it comes in, and smoothed beside it, against its capacity — with a line per machine, each the ones before it plus its own; the load hour by hour.'],
     ['Capacity by machine', 'Each machine on each technology: its speed, availability, hours a day, capacity a day and its share of the technology\'s capacity, with a chart per technology of the machines\' capacity hour by hour, stacked.'],
   ]);

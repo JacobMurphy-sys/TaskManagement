@@ -2749,6 +2749,9 @@ async function waitForServer() {
             const titles = dbk.drawing(dbk.sheet('Charts')).anchors.map((a) => a.title || '').join(' | ');
             assert.ok(dbk.drawing(dbk.sheet('Charts')).anchors.length >= 3 + 2 * 3, `the charts: all technologies as they come in and smoothed, and each technology as it comes in and smoothed (${titles})`);
             { const ds = dbk.sheet(`Day January ${Y}`); assert.ok(ds.cells.get('F5')?.v === 1 && [...ds.cells.values()].some((c) => c.f && c.f.endsWith('*$F$5')) && [...dbk.sheet('Smoothed').cells.values()].some((c) => c.f && /\*'Day January \d+'!\$F\$5$/.test(c.f)), 'each technology\'s 1 / 0 for the charts, feeding the day and the smoothed day'); }
+            { const smc = [...dbk.sheet('Smoothed').cells.values()]; const dsc = [...dbk.sheet(`Day January ${Y}`).cells.values()];
+              assert.ok(smc.some((c) => c.f && /^MIN\(/.test(c.f)) && smc.some((c) => c.f && /^MAX\(0,MIN\(/.test(c.f)), 'the smoothed day as formulas');
+              assert.ok(dsc.some((c) => c.v === 'Shifts a day') && dsc.some((c) => c.f && /^IF\(MOD\(/.test(c.f)), 'the hours worked from the shifts (inputs)'); }
             assert.ok([...dbk.sheet('Smoothed').cells.values()].some((c) => c.v === 'Daily, smoothed') && [...dbk.sheet('Smoothed').cells.values()].some((c) => c.v === 'Needed as it comes in'), 'the smoothed day, as figures'); }
           // 👷 Headcount and 🏭 Site capacity as workbooks: formulas over inputs, with charts
           for (const [u, names, nCharts] of [[`/cpm/headcount/export?year=${Y}&flex=0`, [`Headcount ${Y}`, 'By customer', 'How it works'], 2], [`/cpm/site/export?year=${Y}`, [`Site Capacity ${Y}`, 'How it works'], 1]]) {

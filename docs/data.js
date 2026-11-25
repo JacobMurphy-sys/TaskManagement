@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'day-export-formulas', date: '2026-11-25', area: 'capacity', title: 'Daily Excel: smoothing and shifts as formulas',
+    text: 'The daily capacity workbook now works the smoothed day out as formulas, and the hours worked come from shifts, hours a shift and the start time, so changing the shifts in Excel moves everything.' },
   { id: 'day-machine-bands', date: '2026-11-25', area: 'capacity', title: 'Capacity per machine on the daily charts again',
     text: 'Each technology\'s daily chart shows its machines\' capacity again, stacked one on another up to the total; the export gains a capacity-by-machine sheet and stacked daily and renewal bars.',
     points: ['Bands per machine on each technology and line', 'The All view keeps a single capacity line', 'Capacity by machine sheet and stacked charts in the Excel'] },
