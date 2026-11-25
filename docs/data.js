@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'scenario-speed-now', date: '2026-11-25', area: 'capacity', title: 'Speed changes show the speed now',
+    text: 'A scenario\'s speed change shows the current speed of the machines picked, and what it becomes with the change.' },
   { id: 'pushed-detail', date: '2026-11-25', area: 'capacity', title: 'Exactly what\'s pushed to the next day',
     text: 'The pushed-to-the-next-day banner on the smoothed daily view now opens a list of exactly what moves: whose work, which priority, when it came in and where it ends up.',
     points: ['Daily work by customer, priority and the hour it came in', 'When it runs the next day, or that it fits nowhere', 'Renewals put off, by customer'] },

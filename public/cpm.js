@@ -1305,9 +1305,21 @@ async function cpmScenarios(body) {
     const L = { pct: ['Change %', '+10 or −15'], points: ['OEE change (points) — lowers the capacity needed; capacity stays', '+5'], shifts: ['Shifts a day', ''], hours: ['Productive hours a shift', ''], name: ['Name', ''], qty: ['Cards a month', ''], oee: ['OEE %', '35'], flat: ['and / or flat cards added — over From … Until, spread over their working days (no Until: the From month)', 'e.g. 50000'] }[f];
     return `<label class="f">${L[0]}<input type="${f === 'name' ? 'text' : 'number'}" name="${f}" value="${esc(c[f] ?? (f === 'oee' && c.oee ? Math.round(c.oee * 100) : ''))}" placeholder="${L[1]}"></label>`;
   };
+  // ⚡ a speed change: the speed of the machine(s) picked now, and what the change makes it
+  const spdNote = (el) => { const box = el.querySelector('.cpm-spd-now'); if (!box) return;
+    const v = (n) => el.querySelector(`[name="${n}"]`)?.value || ''; const pct = Number(v('pct')) || 0; const flat = Number(v('speed_flat')) || 0; const M = el.dataset.type === 'm_speed'; const u = M ? 'items' : 'cards';
+    const after = (s) => Math.max(0, s * (1 + pct / 100) + flat); const fmt = (s) => `${cpmN(Math.round(s))}/h`;
+    const one = (label, s, extra = '') => `<span class="cpm-spd-m"><b>${esc(label)}</b> ${fmt(s)}${pct || flat ? ` → <b>${fmt(after(s))}</b>` : ''}${extra}</span>`;
+    let list = [];
+    if (M) { const pick = v('machine'); list = (mc.machines || []).filter((m) => !pick || m.name === pick).map((m) => one(`${m.name}${m.hand ? ' (hand match)' : ''}`, m.speed || 0, m.metal && m.metal_speed ? ` <span class="muted">· metal ${fmt(m.metal_speed)}${pct || flat ? ' (a speed change leaves the metal speed as it is)' : ''}</span>` : ''));
+      if (pick && !list.length) list = ['<span class="muted">added in this scenario — its speed is the one given there</span>']; }
+    else { const pick = v('machine'); const t = v('tech'); list = ov.machines.filter((m) => !m.added && (!pick || m.name === pick)).flatMap((m) => m.techs.filter((x) => (!t || x === t) && m.speed?.[x] > 0).map((x) => one(`${m.name} · ${x}`, m.speed[x])));
+      if (pick && !list.length) list = [baseMachines.includes(pick) ? `<span class="muted">${esc(pick)} doesn't run ${esc(t)}</span>` : '<span class="muted">added in this scenario — its speed is the one given there</span>']; }
+    box.innerHTML = list.length ? `<span class="muted">Now (${u} an hour, as in Capacity${M ? ' / Production › Setup' : ''})${pct || flat ? ' → with this change' : ''}:</span> ${list.slice(0, 12).join(' ')}${list.length > 12 ? ` <span class="muted">and ${list.length - 12} more</span>` : ''}` : '<span class="muted">No machine runs that.</span>'; };
+  const wireSpd = () => $$('.cpm-change[data-type="speed"], .cpm-change[data-type="m_speed"]').forEach((el) => { el.addEventListener('input', () => spdNote(el)); el.addEventListener('change', () => spdNote(el)); spdNote(el); });
   const refreshMachines = () => { machines = [...baseMachines, ...(sc?.changes || []).filter((c) => c.type === 'add_machine' && c.name && !baseMachines.includes(c.name)).map((c) => c.name)]; };
   const changeHtml = (c, i) => `<div class="card cpm-change" data-i="${i}" data-type="${esc(c.type)}"><div class="row" style="justify-content:space-between"><b>${cpmLineTag(CPM_CHANGES[c.type].line)} ${CPM_CHANGES[c.type].label}</b><button class="link small" data-cpm-rm="${i}">✕ remove</button></div>
-      <div class="form-grid">${CPM_CHANGES[c.type].fields.map((f) => field(c, f)).join('')}
+      <div class="form-grid">${CPM_CHANGES[c.type].fields.map((f) => field(c, f)).join('')}${c.type === 'speed' || c.type === 'm_speed' ? '<div class="f full small cpm-spd-now"></div>' : ''}
         <label class="f">From month<input type="month" name="from" value="${esc(c.from || '')}"></label><label class="f" title="Leave blank to keep the change from then on">Until (blank: from then on)<input type="month" name="to" value="${esc(c.to || '')}"></label></div>${c.type === 'volume' ? '<div class="cpm-vprev"><p class="small muted">Preview: pick a customer and a change.</p></div>' : ''}</div>`;
   // the changes in three groups (each keeps its place in the list, so editing and removing work as before)
   const changesHtml = (list) => { const idx = list.map((c, i) => [c, i]);
@@ -1370,7 +1382,7 @@ async function cpmScenarios(body) {
   if (!sc.mine) return;
   $('#cpm-sc-del').onclick = async () => { if (!confirm(`Delete “${sc.name}”?`)) return; await api.del(`/cpm/scenarios/${sc.id}`); store.set('cpmScenario', 0); renderCpm('scenarios'); };
   $('#cpm-add-change').onclick = () => { sc.changes = [...read(), { type: $('#cpm-add-type').value }]; refreshMachines(); $('#cpm-changes').innerHTML = changesHtml(sc.changes); wireRm(); loadCards(); };
-  const wireRm = () => { wirePrev(); return $$('[data-cpm-rm]').forEach((b) => { b.onclick = () => { const l = read(); l.splice(Number(b.dataset.cpmRm), 1); sc.changes = l; refreshMachines(); $('#cpm-changes').innerHTML = changesHtml(l) || '<p class="muted">No changes yet — add one below.</p>'; wireRm(); loadCards(); }; }); };
+  const wireRm = () => { wirePrev(); wireSpd(); return $$('[data-cpm-rm]').forEach((b) => { b.onclick = () => { const l = read(); l.splice(Number(b.dataset.cpmRm), 1); sc.changes = l; refreshMachines(); $('#cpm-changes').innerHTML = changesHtml(l) || '<p class="muted">No changes yet — add one below.</p>'; wireRm(); loadCards(); }; }); };
   wireRm();
   // changed since opened: on the Save bar
   const scState = () => JSON.stringify([$('#cpm-sc-title').value, $('#cpm-sc-notes').value, $('#cpm-sc-share').checked, read()]); const sc0 = scState();
