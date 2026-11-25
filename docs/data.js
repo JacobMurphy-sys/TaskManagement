@@ -44,7 +44,8 @@ window.TIMELINE = {
 
   PINS: [
   { id: 'day-export-smoothed', date: '2026-11-25', area: 'capacity', title: 'Smoothed day in the daily Excel',
-    text: 'The daily capacity workbook, for perso and matching, now has the smoothed day beside the day as it comes in: its own sheet and charts, with what\'s pushed to the next day.' },
+    text: 'The daily capacity workbook, for perso and matching, now has the smoothed day beside the day as it comes in: its own sheet and charts, with what\'s pushed to the next day.',
+    points: ['A 1 / 0 switch per technology to take it off the charts, e.g. OTTO or hand matching on its own'] },
   { id: 'scenario-speed-now', date: '2026-11-25', area: 'capacity', title: 'Speed changes show the speed now',
     text: 'A scenario\'s speed change shows the current speed of the machines picked, and what it becomes with the change.' },
   { id: 'pushed-detail', date: '2026-11-25', area: 'capacity', title: 'Exactly what\'s pushed to the next day',

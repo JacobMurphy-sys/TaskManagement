@@ -2673,6 +2673,7 @@ async function waitForServer() {
             assert.deepEqual(dbk.sheets.map((x) => x.name), [`Day January ${Y}`, 'Hour profile', 'Smoothed', 'Charts']);
             const titles = dbk.drawing(dbk.sheet('Charts')).anchors.map((a) => a.title || '').join(' | ');
             assert.ok(dbk.drawing(dbk.sheet('Charts')).anchors.length >= 3 + 2 * 3, `the charts: all technologies as they come in and smoothed, and each technology as it comes in and smoothed (${titles})`);
+            { const ds = dbk.sheet(`Day January ${Y}`); assert.ok(ds.cells.get('F5')?.v === 1 && [...ds.cells.values()].some((c) => c.f && c.f.endsWith('*$F$5')) && [...dbk.sheet('Smoothed').cells.values()].some((c) => c.f && /\*'Day January \d+'!\$F\$5$/.test(c.f)), 'each technology\'s 1 / 0 for the charts, feeding the day and the smoothed day'); }
             assert.ok([...dbk.sheet('Smoothed').cells.values()].some((c) => c.v === 'Daily, smoothed') && [...dbk.sheet('Smoothed').cells.values()].some((c) => c.v === 'Needed as it comes in'), 'the smoothed day, as figures'); }
           // 👷 Headcount and 🏭 Site capacity as workbooks: formulas over inputs, with charts
           for (const [u, names, nCharts] of [[`/cpm/headcount/export?year=${Y}&flex=0`, [`Headcount ${Y}`, 'By customer'], 2], [`/cpm/site/export?year=${Y}`, [`Site Capacity ${Y}`], 1]]) {

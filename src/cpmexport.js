@@ -340,6 +340,10 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   sh.set(3, 1, 'Cells in blue on yellow are inputs — renewal %, volume, OEE, the hour profile, the renewal windows, hours worked, speeds, availability and how each machine splits its hours — change them and the day works itself out.', 'note');
   sh.set(4, 1, 'Working days', 'bold'); sh.set(4, 3, d.workdays, 'input');
   sh.set(4, 5, 'Renewal OEE +', 'bold'); sh.set(4, 6, d.bonus, 'inputPct');
+  // 1 / 0 per technology (line): 0 zeroes what feeds its charts (the day per technology, the smoothed day), to look
+  // at one on its own — e.g. OTTO without hand match; the customers' rows stay as they are
+  sh.set(5, 1, 'On the charts (1 = on, 0 = off)', 'bold'); const SW = {};
+  T.forEach((t, k) => { sh.set(5, 5 + 2 * k, t, 'bold'); sh.set(5, 6 + 2 * k, 1, 'input'); SW[t] = `$${L(6 + 2 * k)}$5`; });
   sh.set(4, 8, 'Capacity × ', 'bold'); sh.set(4, 10, d.hour_share ?? 1, 'inputDec'); sh.set(4, 11, (d.hour_share ?? 1) < 1 ? `${Math.round((d.hour_share ?? 1) * 8 * 100) / 100} hours of each 8 counted (Capacity settings) — the losses are in each customer's OEE` : 'full speed, the whole hour — the losses are in each customer\'s OEE', 'note');
   const head = (s, row, labels) => { labels.forEach((l, i) => s.set(row, i + 1, l, i >= 5 ? 'headerNum' : 'header')); s.set(row, 15, s === sh && row === 6 ? 'Added' : '', 'header'); H.forEach((h, i) => s.set(row, hc(i), hl(h), 'headerNum')); s.set(row, hc(n), 'Day', 'headerNum'); };
   const R0 = 7; const rows = d.rows; const R1 = R0 + rows.length - 1;
@@ -404,15 +408,15 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
     R.daily = lab('Daily (÷ OEE)'); R.rnw = lab('Renewals'); R.need = lab('Needed'); R.cap = lab('Capacity'); R.load = lab('Load'); R.carry = lab('Carried over');
     R.added = lab('of the daily: added (campaigns, scenario)'); R.addedRnw = lab('of the renewals: added'); R.own = lab('Daily, the forecast\'s own'); R.rnwOwn = lab('Renewals, the forecast\'s own');
     H.forEach((_, i) => { const c = hc(i); const at = (row) => `${L(c)}${row}`;
-      sh.f(R.daily, c, `SUMIF($E$${R0}:$E$${R1},"${t}",${L(c)}$${R0}:${L(c)}$${R1})`, 'int', X.daily[i]);
-      sh.f(R.rnw, c, `${L(c)}${rnw[t]}`, 'int', X.renewals[i]); sh.f(R.need, c, `${at(R.daily)}+${at(R.rnw)}`, 'intBold', X.need[i]);
-      sh.f(R.cap, c, C1 >= C0 ? `SUMIF($E$${C0}:$E$${C1},"${t}",${L(c)}$${C0}:${L(c)}$${C1})` : '0', 'int', X.capacity[i]);
+      sh.f(R.daily, c, `SUMIF($E$${R0}:$E$${R1},"${t}",${L(c)}$${R0}:${L(c)}$${R1})*${SW[t]}`, 'int', X.daily[i]);
+      sh.f(R.rnw, c, `${L(c)}${rnw[t]}*${SW[t]}`, 'int', X.renewals[i]); sh.f(R.need, c, `${at(R.daily)}+${at(R.rnw)}`, 'intBold', X.need[i]);
+      sh.f(R.cap, c, C1 >= C0 ? `SUMIF($E$${C0}:$E$${C1},"${t}",${L(c)}$${C0}:${L(c)}$${C1})*${SW[t]}` : '0', 'int', X.capacity[i]);
       sh.f(R.load, c, `IF(${at(R.cap)}>0,${at(R.need)}/${at(R.cap)},"")`, 'pct', X.load[i]);
       sh.f(R.carry, c, i ? `MAX(0,${L(c - 1)}${R.carry}+${at(R.need)}-${at(R.cap)})` : `MAX(0,${at(R.need)}-${at(R.cap)})`, 'int', X.backlog[i]);
       // what's added (column O marked): its daily hours, and its renewals over the technology's window
       const fl = rnw[t] - 1; const winSum = `SUM($${L(hc(0))}$${fl}:$${L(hc(n - 1))}$${fl})`;
-      sh.f(R.added, c, `SUMIFS(${L(c)}$${R0}:${L(c)}$${R1},$E$${R0}:$E$${R1},"${t}",$O$${R0}:$O$${R1},"<>")`, 'int', X.added?.[i] || 0);
-      sh.f(R.addedRnw, c, `IF(${winSum}>0,${L(c)}$${fl}*SUMIFS($N$${R0}:$N$${R1},$E$${R0}:$E$${R1},"${t}",$O$${R0}:$O$${R1},"<>")/${winSum},0)`, 'int', X.added_rnw?.[i] || 0);
+      sh.f(R.added, c, `SUMIFS(${L(c)}$${R0}:${L(c)}$${R1},$E$${R0}:$E$${R1},"${t}",$O$${R0}:$O$${R1},"<>")*${SW[t]}`, 'int', X.added?.[i] || 0);
+      sh.f(R.addedRnw, c, `IF(${winSum}>0,${L(c)}$${fl}*SUMIFS($N$${R0}:$N$${R1},$E$${R0}:$E$${R1},"${t}",$O$${R0}:$O$${R1},"<>")/${winSum},0)*${SW[t]}`, 'int', X.added_rnw?.[i] || 0);
       sh.f(R.own, c, `${at(R.daily)}-${at(R.added)}`, 'int', X.daily[i] - (X.added?.[i] || 0)); sh.f(R.rnwOwn, c, `${at(R.rnw)}-${at(R.addedRnw)}`, 'int', X.renewals[i] - (X.added_rnw?.[i] || 0)); });
     for (const row of [R.daily, R.rnw, R.need, R.cap, R.added, R.addedRnw, R.own, R.rnwOwn]) sh.f(row, hc(n), `SUM(${L(hc(0))}${row}:${L(hc(n - 1))}${row})`, 'intBold');
     sh.f(R.load, hc(n), `IF(${L(hc(n))}${R.cap}>0,${L(hc(n))}${R.need}/${L(hc(n))}${R.cap},"")`, 'pctBold', X.total.load);
@@ -438,13 +442,18 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   const sm = sheet('Smoothed'); sm.width(1, 30).width(2, 12); for (let i = 0; i <= n; i++) sm.width(3 + i, 8); sm.width(3 + n, 10);
   const sc = (i) => 3 + i; const SL = (c) => colName(c - 1);
   sm.set(1, 1, `${MX ? 'Matching — s' : 'S'}moothed capacity — a working day in ${d.label}${scenario ? ` — ${scenario}` : ''}`, 'title');
+  sm.set(3, 1, 'Each technology\'s rows follow its 1 / 0 on the day sheet (row 5): 0 zeroes them, to look at the others on their own.', 'note');
   sm.set(2, 1, `The day as the floor catches up (CPM Daily › Smoothed capacity): the daily work done Urgent first, then High, then Normal, each in the order it comes in, each piece in the next hour with spare capacity; the renewals take what's left from their window on, what doesn't fit is put off to another day. Worked out by SITHUB, so these are figures, not formulas: change an input on the day sheet and export again. In ${MX ? 'items' : 'cards'} needed (÷ OEE).`, 'note');
   let sr = 4; const SM = {};
   const smHead = (row, label) => { sm.set(row, 1, label, 'header'); sm.set(row, 2, '', 'header'); H.forEach((h, i) => sm.set(row, sc(i), hl(h), 'headerNum')); sm.set(row, sc(n), 'Day', 'headerNum'); };
-  const smRow = (label, vals, style = 'int', tot = true) => { sm.set(sr, 1, label); vals.forEach((v, i) => sm.set(sr, sc(i), style === 'pct' ? (v === null || v === undefined ? '' : v) : Math.round(v || 0), style)); if (tot) sm.f(sr, sc(n), `SUM(${SL(sc(0))}${sr}:${SL(sc(n - 1))}${sr})`, 'intBold'); return sr++; };
+  let swNow = null; // the technology's 1 / 0 on the day sheet
+  const smRow = (label, vals, style = 'int', tot = true) => { sm.set(sr, 1, label);
+    vals.forEach((v, i) => { const x = style === 'pct' ? (v === null || v === undefined ? null : v) : Math.round(v || 0);
+      if (x === null) sm.set(sr, sc(i), '', style); else sm.f(sr, sc(i), style === 'pct' ? `IF(${swNow}=1,${x},"")` : `${x}*${swNow}`, style, x); });
+    if (tot) sm.f(sr, sc(n), `SUM(${SL(sc(0))}${sr}:${SL(sc(n - 1))}${sr})`, 'intBold'); return sr++; };
   const smCats = sm.full(4, sc(0), 4, sc(n - 1));
   for (const t of T) {
-    const X = d.tech[t].smooth; if (!X) continue; const R = SM[t] = {};
+    const X = d.tech[t].smooth; if (!X) continue; const R = SM[t] = {}; swNow = `${qs(sh.name)}!${SW[t]}`;
     smHead(sr, t); sm.set(sr, 2, '', 'header'); sr++;
     R.daily = smRow('Daily, smoothed', X.daily); R.rnw = smRow('Renewals, smoothed', X.renewals); R.need = smRow('Needed, smoothed', X.need);
     R.cap = smRow('Capacity', d.tech[t].capacity); R.load = smRow('Load, smoothed', X.load, 'pct', false); R.carry = smRow('Carried over', X.backlog);
