@@ -407,6 +407,10 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
     sh.f(r, hc(n), `SUM(${L(hc(0))}${r}:${L(hc(n - 1))}${r})`, 'intBold'); r++;
   }
   const C1 = r - 1;
+  const capRows = shareRows.map((x, k) => ({ row: C0 + k, name: x.m.name, t: x.t, m: x.m, shareRow: x.row }));
+  const MCOL = ['2563EB', 'F59E0B', '10B981', 'EF4444', '8B5CF6', '06B6D4', '84CC16', 'EC4899', '64748B', 'D946EF'];
+  const mPer = (t, name) => (d.capacity_by_machine?.[t] || []).find((m) => m.name === name)?.per || [];
+  const mNames = [...new Set(capRows.map((x) => x.name))]; const mCol = (name) => MCOL[mNames.indexOf(name) % MCOL.length];
   // per technology: the day against the capacity
   r++; section(r, 'The day per technology'); r++;
   head(sh, r, ['', '', '', '', 'Tech', '', '', '', '', '', '', '', '', '']); const headRow = r; r++;
@@ -414,6 +418,9 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   for (const t of T) {
     const X = d.tech[t]; const R = S[t] = {}; const lab = (txt) => { sh.set(r, 4, txt); sh.set(r, 5, t, 'bold'); return r++; };
     R.daily = lab('Daily (÷ OEE)'); R.rnw = lab('Renewals'); R.need = lab('Needed'); R.cap = lab('Capacity'); R.load = lab('Load'); R.carry = lab('Carried over');
+    // the capacity machine by machine, each line the ones before it plus its own (as the page draws it)
+    R.cum = []; { const ms = capRows.filter((x) => x.t === t); if (ms.length > 1) ms.forEach((x, k) => { const row = lab(`capacity: ${ms.slice(0, k + 1).map((y) => y.name).join(' + ')}`);
+      H.forEach((_, i) => sh.f(row, hc(i), `(${ms.slice(0, k + 1).map((y) => `${L(hc(i))}${y.row}`).join('+')})*${SW[t]}`, 'int', ms.slice(0, k + 1).reduce((a, y) => a + (mPer(t, y.name)[i] || 0), 0))); R.cum.push({ row, name: x.name }); }); }
     R.added = lab('of the daily: added (campaigns, scenario)'); R.addedRnw = lab('of the renewals: added'); R.own = lab('Daily, the forecast\'s own'); R.rnwOwn = lab('Renewals, the forecast\'s own');
     H.forEach((_, i) => { const c = hc(i); const at = (row) => `${L(c)}${row}`;
       sh.f(R.daily, c, `SUMIF($E$${R0}:$E$${R1},"${t}",${L(c)}$${R0}:${L(c)}$${R1})*${SW[t]}`, 'int', X.daily[i]);
@@ -432,6 +439,10 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
     sh.cf.push({ ref: `${L(hc(0))}${R.carry}:${L(hc(n - 1))}${R.carry}`, rules: [{ op: 'greaterThan', v: '0.5', dxf: 'bad' }] });
     r++;
   }
+  // all together: the capacity of every technology (or line), for the stacked chart
+  const capAll = r; sh.set(capAll, 4, 'Capacity, all together', 'bold');
+  H.forEach((_, i) => sh.f(capAll, hc(i), T.map((t) => `${L(hc(i))}${S[t].cap}`).join('+') || '0', 'intBold', T.reduce((a, t) => a + (d.tech[t].capacity[i] || 0), 0)));
+  sh.f(capAll, hc(n), `SUM(${L(hc(0))}${capAll}:${L(hc(n - 1))}${capAll})`, 'intBold'); r += 2;
   // each row in its technology's colour, as the CPM workbook does
   for (const [a, b] of [[R0, R1], [C0 - shareRows.length - 1, C1]]) if (b >= a) sh.cf.push({ ref: `A${a}:${L(hc(n))}${b}`, rules: T.map((t) => ({ expr: `$E${a}="${t}"`, dxf: t })) });
   if (rows.length) pr.cf.push({ ref: `A${R0}:${L(hc(n))}${R1}`, rules: T.map((t) => ({ expr: `$E${R0}="${t}"`, dxf: t })) });
@@ -440,8 +451,10 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   // charts
   const ch = sheet('Charts'); ch.set(1, 1, `${MX ? 'Matching — a' : 'A'} working day in ${d.label} — charts`, 'title'); ch.set(2, 1, 'They read the day sheet: change an input there and they follow.', 'note');
   const cats = sh.full(headRow, hc(0), headRow, hc(n - 1)); const rng = (row) => sh.full(row, hc(0), row, hc(n - 1)); const W = 13; const HH = 20;
-  ch.charts.push({ title: MX ? 'Matching — needed (bars) against capacity (line)' : 'All technologies — needed (bars) against each one\'s capacity (lines)', cats, fmt: '#,##0', from: [1, 4], to: [2 * W, 4 + HH - 1],
-    series: [...T.map((t) => ({ name: `${t} needed`, ref: rng(S[t].need), kind: 'bar', color: TECH_COL[t] || '1F77B4' })), ...T.map((t) => ({ name: `${t} capacity`, ref: rng(S[t].cap), kind: 'line', color: TECH_COL[t] || '1F77B4', dash: true }))] });
+  // all together, stacked: each one's daily work (its colour) and renewals (lighter) against the capacity of all
+  ch.charts.push({ title: MX ? 'Matching — daily work and renewals (stacked) against capacity, as it comes in' : 'All technologies — daily work and renewals (stacked) against capacity, as it comes in', cats, stacked: true, fmt: '#,##0', from: [1, 4], to: [2 * W, 4 + HH - 1],
+    series: [...T.flatMap((t) => [{ name: `${t} daily`, ref: rng(S[t].daily), kind: 'bar', color: TECH_COL[t] || '1F77B4' }, { name: `${t} renewals`, ref: rng(S[t].rnw), kind: 'bar', color: TECH_LIGHT[t] || '9AA7BD' }]),
+      { name: 'Capacity, all together', ref: rng(capAll), kind: 'line', color: '111827' }] });
   const AT0 = 4 + HH; ch.charts.push({ title: MX ? 'Matching — load hour by hour' : 'All technologies — load hour by hour', cats, pct: true, from: [1, AT0], to: [2 * W, AT0 + HH - 1],
     series: T.map((t) => ({ name: t, ref: rng(S[t].load), kind: 'line', color: TECH_COL[t] || '1F77B4', markers: true })) });
   const anyAdded = T.some((t) => (d.tech[t].added || []).some((v) => v > 0.5) || (d.tech[t].added_rnw || []).some((v) => v > 0.5));
@@ -485,14 +498,20 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
     }
     sr += 2;
   }
+  let smCapAll = null;
+  if (Object.keys(SM).length) { smCapAll = sr; sm.set(sr, 1, 'Capacity, all together', 'bold');
+    H.forEach((_, i) => sm.f(sr, sc(i), Object.values(SM).map((R) => `${SL(sc(i))}${R.cap}`).join('+'), 'intBold', T.filter((t) => SM[t]).reduce((a, t) => a + (d.tech[t].capacity[i] || 0) * 1, 0)));
+    sm.f(sr, sc(n), `SUM(${SL(sc(0))}${sr}:${SL(sc(n - 1))}${sr})`, 'intBold'); sr++; }
   sm.freeze = { row: 4, col: 3 };
   if (Object.keys(SM).length) {
     const sRng = (row) => sm.full(row, sc(0), row, sc(n - 1));
-    ch.charts.push({ title: MX ? 'Matching — smoothed: needed (bars) against capacity (line)' : 'All technologies, smoothed — needed (bars) against each one\'s capacity (lines)', cats: smCats, fmt: '#,##0', from: [2 * W + 1, 4], to: [3 * W, 4 + HH - 1],
-      series: [...T.filter((t) => SM[t]).map((t) => ({ name: `${t} needed`, ref: sRng(SM[t].need), kind: 'bar', color: TECH_COL[t] || '1F77B4' })), ...T.filter((t) => SM[t]).map((t) => ({ name: `${t} capacity`, ref: sRng(SM[t].cap), kind: 'line', color: TECH_COL[t] || '1F77B4', dash: true }))] });
+    ch.charts.push({ title: MX ? 'Matching — daily work and renewals (stacked) against capacity, smoothed' : 'All technologies — daily work and renewals (stacked) against capacity, smoothed', cats: smCats, stacked: true, fmt: '#,##0', from: [2 * W + 1, 4], to: [4 * W, 4 + HH - 1],
+      series: [...T.filter((t) => SM[t]).flatMap((t) => [{ name: `${t} daily`, ref: sRng(SM[t].daily), kind: 'bar', color: TECH_COL[t] || '1F77B4' }, { name: `${t} renewals`, ref: sRng(SM[t].rnw), kind: 'bar', color: TECH_LIGHT[t] || '9AA7BD' }]),
+        { name: 'Capacity, all together', ref: sRng(smCapAll), kind: 'line', color: '111827' }] });
     T.forEach((t, i) => { if (!SM[t]) return; const at = [1 + W, 4 + 2 * HH + i * HH];
       ch.charts.push({ title: `${t} — smoothed`, cats: smCats, stacked: true, fmt: '#,##0', from: at, to: [at[0] + W - 1, at[1] + HH - 1],
         series: [{ name: 'Daily, smoothed', ref: sRng(SM[t].daily), kind: 'bar', color: TECH_COL[t] || '1F77B4' }, { name: 'Renewals, smoothed', ref: sRng(SM[t].rnw), kind: 'bar', color: TECH_LIGHT[t] || '9AA7BD' },
+          ...(S[t]?.cum || []).slice(0, -1).map((c) => ({ name: `up to ${c.name}`, ref: rng(c.row), kind: 'line', color: mCol(c.name) })),
           { name: 'Capacity', ref: sRng(SM[t].cap), kind: 'line', color: '111827' }, { name: 'As it comes in', ref: sRng(SM[t].arrive), kind: 'line', color: '6B7280', dash: true },
           ...(SM[t].late ? [{ name: 'Late (after its cut-off)', ref: sRng(SM[t].late), kind: 'line', color: 'C0392B' }] : [])] }); });
   }
@@ -500,17 +519,36 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
     ch.charts.push({ title: `${t} — as it comes in, against capacity`, cats, stacked: true, fmt: '#,##0', from: at, to: [at[0] + W - 1, at[1] + HH - 1],
       series: [{ name: 'Daily', ref: rng(anyAdded ? S[t].own : S[t].daily), kind: 'bar', color: TECH_COL[t] || '1F77B4' }, ...(anyAdded ? [{ name: 'Added (campaigns, scenario)', ref: rng(S[t].added), kind: 'bar', color: 'FF7A1A' }] : []),
         { name: 'Renewals', ref: rng(anyAdded ? S[t].rnwOwn : S[t].rnw), kind: 'bar', color: TECH_LIGHT[t] || '9AA7BD' }, ...(anyAdded ? [{ name: 'Renewals added', ref: rng(S[t].addedRnw), kind: 'bar', color: 'FFBE8C' }] : []),
+        ...S[t].cum.slice(0, -1).map((c) => ({ name: `up to ${c.name}`, ref: rng(c.row), kind: 'line', color: mCol(c.name) })),
         { name: 'Capacity', ref: rng(S[t].cap), kind: 'line', color: '111827' }, { name: 'Carried over', ref: rng(S[t].carry), kind: 'line', color: 'C0392B', dash: true }] }); });
   if (MX) { // what's different on Matching, said once at the top
     sh.set(2, 1, `Forecast as read in ${d.forecast_as_of || '—'} · ${d.flex ? 'flex applied' : 'no flex'} · Matching: each customer's forecast cards × its share through Matching = items (Month); OEE = its Matching OEE ÷ its speed factor (its own Matching speed, metal cards at the metal machines' speed), so items ÷ OEE is machine time at the machines' usual speed; renewals = its Low priority Matching work orders, at the renewal OEE; each day spread as its Matching runs ended (Hour profile)`, 'note');
   }
+  // 🏭 capacity by machine: each machine on each technology — its speed, availability, hours, capacity a day and share —
+  // with a chart per technology of the machines' capacity hour by hour, stacked
+  const mc = sheet('Capacity by machine'); [26, 12, 11, 11, 12, 13, 12].forEach((w, i) => mc.width(i + 1, w));
+  mc.set(1, 1, `${MX ? 'Matching — c' : 'C'}apacity by machine — a working day in ${d.label}`, 'title');
+  mc.set(2, 1, `Each machine's ${MX ? 'items' : 'cards'} an hour × availability × its share of the hour for the technology, over the hours worked — read from the day sheet: change a speed, availability or share there and this follows.`, 'note');
+  ['Machine', 'Technology', 'Speed /h', 'Available', 'Hours a day', 'Capacity a day', 'Share of it'].forEach((x, k) => mc.set(4, k + 1, x, k >= 2 ? 'headerNum' : 'header'));
+  let mr = 5; const capT = {}; const dayRef = (row, col) => `${qs(sh.name)}!${sh.ref(row, col)}`;
+  for (const t of T) { const ms = capRows.filter((x) => x.t === t); if (!ms.length) continue; const m0 = mr;
+    for (const x of ms) { mc.set(mr, 1, x.name, 'bold'); mc.set(mr, 2, t); mc.f(mr, 3, dayRef(x.shareRow, 6), 'int', x.m.speed[t]); mc.f(mr, 4, dayRef(x.shareRow, 7), 'pct', x.m.avail ?? 1);
+      mc.f(mr, 5, `SUMPRODUCT(${qs(sh.name)}!${sh.ref(x.shareRow, hc(0))}:${sh.ref(x.shareRow, hc(n - 1))},${qs(sh.name)}!$${L(hc(0))}$${worked}:$${L(hc(n - 1))}$${worked})*${qs(sh.name)}!$J$4`, 'dec', H.reduce((a, _, i) => a + (d.worked[i] ? (x.m.share[i]?.[t] ?? 0) : 0), 0) * (d.hour_share ?? 1));
+      mc.f(mr, 6, dayRef(x.row, hc(n)), 'int', mPer(t, x.name).reduce((a, v) => a + (v || 0), 0)); mr++; }
+    mc.set(mr, 1, `${t} in all`, 'bold'); mc.f(mr, 6, `SUM(F${m0}:F${mr - 1})`, 'intBold'); capT[t] = mr;
+    for (let k = m0; k < mr; k++) mc.f(k, 7, `IF($F$${mr}>0,F${k}/$F$${mr},"")`, 'pct');
+    mc.f(mr, 7, `IF(F${mr}>0,1,"")`, 'pctBold'); mr += 2; }
+  T.forEach((t, k) => { const ms = capRows.filter((x) => x.t === t); if (!ms.length) return; const at = [9, 4 + k * HH];
+    mc.charts.push({ title: `${t} — capacity by machine, hour by hour (stacked)`, cats, stacked: true, fmt: '#,##0', from: at, to: [at[0] + W - 1, at[1] + HH - 1],
+      series: ms.map((x) => ({ name: x.name, ref: rng(x.row), kind: 'bar', color: mCol(x.name) })) }); });
   const how = howSheet(MX ? 'CPM Daily, Matching' : 'CPM Daily', `A working day in ${d.label} hour by hour, as on SITHUB's CPM Daily: each customer's ${MX ? 'Matching items' : 'cards'} a day — daily work and renewals — spread over the hours, against the capacity of ${MX ? 'the OTTOs and the hand-match stations' : 'the machines'}.`, [
     [sh.name, `A row per customer and ${MX ? 'line (OTTO, hand match)' : 'technology'}: its month's volume, renewal %, OEE, the daily work and renewals a day, and what it needs each hour. Below: the renewals over their windows, each machine's capacity hour by hour, and the day per ${MX ? 'line' : 'technology'} (needed, capacity, load, carried over). Row 5: a 1 / 0 per ${MX ? 'line' : 'technology'} — 0 takes it off the charts.`],
     ['Hour profile', 'The share of each customer\'s daily work in each hour (when its work is typically done) — an input.'],
     ['Smoothed', 'The day as the floor catches up (CPM Daily › Smoothed capacity): the daily work moved into the next hours with spare capacity, Urgent first, the renewals in what\'s left; what\'s late and what\'s pushed to the next day, line by line. Worked out by SITHUB, so figures rather than formulas.'],
-    ['Charts', 'All together and each one on its own: the day as it comes in, and smoothed beside it, against capacity; the load hour by hour.'],
+    ['Charts', 'All together (daily work and renewals stacked, against the total capacity) and each one on its own: the day as it comes in, and smoothed beside it, against its capacity — with a line per machine, each the ones before it plus its own; the load hour by hour.'],
+    ['Capacity by machine', 'Each machine on each technology: its speed, availability, hours a day, capacity a day and its share of the technology\'s capacity, with a chart per technology of the machines\' capacity hour by hour, stacked.'],
   ]);
-  return buildBook([sh, pr, sm, ch, how]);
+  return buildBook([sh, pr, sm, ch, mc, how]);
 }
 
 // ---- 🔗 Matching by month: the year's items, the machine time they need and the capacity, as formulas over the
