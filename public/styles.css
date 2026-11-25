@@ -1877,6 +1877,15 @@ button.tl-fold { cursor: pointer; } button.tl-fold:hover { background: var(--bor
 .tl-meta { display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
 .tl-proj { width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 .tl-due { width: 168px; text-align: right; }
+/* due date and owner: click to set or change (as status and priority) */
+.tl-cell { background: none; border: 1px solid transparent; border-radius: 6px; padding: 2px 4px; font: inherit; color: inherit; cursor: pointer; min-height: 26px; }
+.tl-cell:hover, .tl-cell:focus-visible { border-color: var(--border); background: var(--panel-2); }
+.tl-due.tl-cell { display: inline-flex; justify-content: flex-end; align-items: center; } .tl-owner.tl-cell { align-items: center; text-align: left; }
+.tl-add { color: var(--muted); font-size: 12px; opacity: 0; transition: opacity .12s; } .task-line:hover .tl-add, .tl-cell:focus-visible .tl-add { opacity: 1; }
+.tl-due-menu { display: grid; gap: 6px; min-width: 220px; } .tl-due-quick { display: grid; gap: 2px; }
+.tl-due-quick button, .tl-due-clear { display: flex; justify-content: space-between; gap: 10px; text-align: left; background: none; border: 0; padding: 5px 8px; border-radius: 5px; color: inherit; cursor: pointer; }
+.tl-due-quick button:hover, .tl-due-quick button.on, .tl-due-clear:hover { background: var(--panel-2); } .tl-due-clear { color: var(--danger); }
+.tl-owner-menu { min-width: 300px; }
 .tl-owner { width: 140px; overflow: hidden; white-space: nowrap; display: flex; gap: 4px; }
 .tl-owner .pchip span { overflow: hidden; text-overflow: ellipsis; }
 .tl-status { flex: none; width: 116px; text-align: left; border: 1px solid transparent; border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }

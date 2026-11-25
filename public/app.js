@@ -815,8 +815,8 @@ function taskRow(t, p, hideDone, o = {}) {
       </div>
       <div class="tl-meta">
         ${o.project ? `<span class="tl-proj">${depth ? '' : t.project_id ? `<a href="#/project/${t.project_id}" title="${esc(t.project_name)}">${esc(t.project_name)}</a>` : '<span class="muted">Standalone</span>'}</span>` : ''}
-        <span class="tl-due">${dueChip(t)}</span>
-        <span class="tl-owner">${ownerChip(t)}</span>
+        <button type="button" class="tl-due tl-cell" data-task-due="${t.id}" data-due="${t.due_at ? toDateInput(t.due_at) : ''}" title="Due date — click to set or change">${dueChip(t) || '<span class="tl-add">+ due date</span>'}</button>
+        <button type="button" class="tl-owner tl-cell" data-task-owner="${t.id}" data-owner="${esc(t.owner || '')}" data-proj="${t.project_id || ''}" title="Owner — click to set or change">${ownerChip(t) || '<span class="tl-add">+ owner</span>'}</button>
         ${statusBtn(t, open)}
         ${prioBtn(t)}
       </div>
@@ -889,6 +889,8 @@ document.addEventListener('click', (e) => {
     fold.title = `${set.has(id) ? 'Show' : 'Fold away'} its subtasks`;
     return;
   }
+  const db = e.target.closest('[data-task-due]'); if (db) { taskDueMenu(db); return; }
+  const ob = e.target.closest('[data-task-owner]'); if (ob) { taskOwnerMenu(ob); return; }
   const sb = e.target.closest('[data-task-status]'); if (sb) { taskPickMenu(sb, 'status'); return; }
   const pb = e.target.closest('[data-task-prio]'); if (pb) { taskPickMenu(pb, 'priority'); }
 });
@@ -909,6 +911,35 @@ function taskPickMenu(btn, kind) {
     } catch (err) { toast(err.message, 'error'); }
   });
 }
+// 📅 the due date from a task list: a date, or a quick pick (today, tomorrow, Friday, next Monday, in a week), or none
+async function afterInline() { if (modal().open && $('#task-form')) { state.modalDirty = true; await taskModal($('#task-form').dataset.id); } else await refresh(); }
+function taskDueMenu(btn) {
+  const id = Number(btn.dataset.taskDue); const cur = btn.dataset.due || '';
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const at = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return ymd(d); };
+  const next = (wd) => { const d = new Date(); let k = (wd - d.getDay() + 7) % 7; if (!k) k = 7; d.setDate(d.getDate() + k); return ymd(d); };
+  const quick = [['Today', at(0)], ['Tomorrow', at(1)], ['Friday', next(5)], ['Next Monday', next(1)], ['In a week', at(7)]];
+  pickMenu(btn, `<div class="tl-due-menu"><input type="date" class="tl-due-in" value="${cur}" aria-label="Due date">
+    <div class="tl-due-quick">${quick.map(([l, v]) => `<button type="button" data-pick="${v}" class="${v === cur ? 'on' : ''}">${l} <span class="muted">${fmtDate(v)}</span></button>`).join('')}</div>
+    ${cur ? '<button type="button" data-pick="" class="tl-due-clear">✕ No due date</button>' : ''}<button type="button" data-pick="${cur}" class="tl-due-set" hidden></button></div>`, 'due', async (v) => {
+    if (v === cur) return;
+    try { await api.patch(`/tasks/${id}`, { due_at: v || null }); toast(v ? `Due ${fmtDate(v)}` : 'No due date'); await afterInline(); } catch (err) { toast(err.message, 'error'); }
+  });
+  const m = $('#tl-menu'); const inp = m?.querySelector('.tl-due-in');
+  if (inp) { inp.focus(); inp.addEventListener('change', () => { const s = m.querySelector('.tl-due-set'); s.dataset.pick = inp.value; s.click(); }); }
+}
+// 👤 the owners from a task list: the same picker as the task window (contacts, the team), saved with Save
+async function taskOwnerMenu(btn) {
+  const id = Number(btn.dataset.taskOwner); const cur = btn.dataset.owner || ''; let val = cur || null;
+  let groups = []; try { groups = await ownerOptions(btn.dataset.proj ? Number(btn.dataset.proj) : null); } catch { /* none */ }
+  pickMenu(btn, `<div class="tl-owner-menu"><div class="tl-owner-pick"></div><div class="row" style="gap:6px;margin-top:6px"><span class="spacer"></span><button type="button" data-pick="__cancel">Cancel</button><button type="button" class="primary" data-pick="__save">Save</button></div></div>`, 'owner', async (v) => {
+    if (v !== '__save' || (val || '') === cur) return;
+    try { await api.patch(`/tasks/${id}`, { owner: val }); toast(val ? `Owner: ${val}` : 'No owner'); await afterInline(); } catch (err) { toast(err.message, 'error'); }
+  });
+  const box = $('#tl-menu .tl-owner-pick'); if (!box) return;
+  ownerPicker(box, { value: cur, groups, placeholder: "Who's responsible?", onChange: (o) => { val = o; } });
+  box.querySelector('.op-input')?.focus();
+}
 // A small menu under (or above) a button: items are buttons with data-pick; onPick(value) when one is chosen.
 function pickMenu(btn, itemsHtml, kind, onPick) {
   $('#tl-menu')?.remove();
@@ -922,7 +953,7 @@ function pickMenu(btn, itemsHtml, kind, onPick) {
   const away = (e) => { if (!m.contains(e.target)) close(); };
   const keys = (e) => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); btn.focus(); }
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.target.closest?.('input, .op-menu')) {
       e.preventDefault(); const all = [...m.querySelectorAll('[data-pick]')]; const at = all.indexOf(document.activeElement);
       all[(at + (e.key === 'ArrowDown' ? 1 : all.length - 1)) % all.length]?.focus();
     }

@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'task-inline-due-owner', date: '2026-11-25', area: 'projects', title: 'Due date and owner from the task list',
+    text: 'In a task list, a click on a task\'s due date or owner now changes it right there: a calendar with quick picks for the date, and the usual owner picker.' },
   { id: 'match-export-compare', date: '2026-11-25', area: 'capacity', title: 'Matching scenarios compared in Excel',
     text: 'The monthly matching workbook for a scenario now has the base plan\'s sheets beside the scenario\'s, a comparison sheet month by month and charts with both, as perso\'s does.' },
   { id: 'day-export-formulas', date: '2026-11-25', area: 'capacity', title: 'Daily Excel: smoothing and shifts as formulas',
