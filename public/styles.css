@@ -2910,7 +2910,16 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 
 .cpm-push { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--warn, #d97706); background: color-mix(in srgb, var(--warn, #d97706) 8%, transparent); border-radius: 4px; }
 .cpm-spd-now { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; } .cpm-spd-m { white-space: nowrap; }
-.cpm-push-list { margin-top: 6px; } .cpm-push-list summary { cursor: pointer; font-weight: 600; } .cpm-push-list table { margin-top: 4px; background: var(--card, #fff); }
+.cpm-push-list { margin-top: 6px; } .cpm-push-list summary { cursor: pointer; font-weight: 600; }
+.cpm-pl-sec { margin-top: 8px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
+.cpm-pl-h { margin-bottom: 6px; } .cpm-pl-t { margin: 0; }
+.cpm-pl-prio { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--panel-2); }
+.cpm-pl-urgent { background: var(--danger-soft); color: var(--danger); } .cpm-pl-high { background: var(--warn-soft); color: var(--warn); } .cpm-pl-normal { background: var(--accent-soft); color: var(--accent-2); }
+.cpm-pl-next { font-weight: 600; }
+.cpm-pl-rnw { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px 18px; }
+.cpm-pl-r { display: grid; grid-template-columns: minmax(0, 1.3fr) 1fr auto; gap: 8px; align-items: center; font-size: 12px; }
+.cpm-pl-rn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpm-pl-bar { height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; } .cpm-pl-bar i { display: block; height: 100%; border-radius: 3px; }
 .cpm-push.cpm-push-ok { border-left-color: var(--ok, #16a34a); background: color-mix(in srgb, var(--ok, #16a34a) 7%, transparent); }
 
 .pl-metal { display: inline-block; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 8px; background: linear-gradient(135deg, #9ca3af, #e5e7eb, #9ca3af); color: #1f2937; vertical-align: 1px; }

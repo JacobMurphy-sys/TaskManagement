@@ -473,21 +473,31 @@ async function cpmDay(body, settings = false) {
     return `<div class="small cpm-push"><b>Pushed to the next day: ${cpmK(tot)}</b> ${c ? U : 'needed (÷ OEE)'} — <b>daily ${cpmK(c ? P.daily_cards : P.daily)}</b> <span class="muted">(only fits after the day's end${(c ? 0 : d.tech[t].smooth.unplaced) > 0.5 ? `, ${cpmK(d.tech[t].smooth.unplaced)} of it nowhere in 24 hours` : ''})</span> · <b>renewals ${cpmK(c ? P.renewals_cards : P.renewals)}</b> <span class="muted">(put off: the daily work took their hours)</span>${P.customers.length ? `<br><span class="muted">Daily work pushed:</span> ${P.customers.slice(0, 8).map((x) => `<span title="${esc(x.name)}">${esc(x.key)} ${cpmK(c ? x.cards : x.need)}</span>`).join(' · ')}${P.customers.length > 8 ? ` · and ${P.customers.length - 8} more` : ''}` : ''}${pushedList(t, P, c)}</div>`; };
   // 📋 exactly what's pushed: each customer's daily work by priority and the hour it came in, where in the next day it's
   // done (or that it fits nowhere in 24 hours), and each customer's renewals put off
-  const pushedList = (t, P, c) => { const L = P.items || []; if (!L.length) return '';
+  const pushedList = (t, P, c) => { const L0 = P.items || []; if (!L0.length) return '';
     const hhmm = (v) => { const m = Math.round((((v % 24) + 24) % 24) * 60); return `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
-    const PR = { urgent: 'Urgent', high: 'High', normal: 'Normal', low: 'Renewals' };
-    const amt = (x) => cpmK(c ? x.cards : x.need); const sum = (f) => L.reduce((a, x) => a + f(x), 0);
-    const nextOf = (x) => { if (x.kind === 'renewal') return '<span class="muted">put off to another day (the daily work took their hours)</span>';
-      const part = x.nowhere > 0.05 && x.nowhere < x.need - 0.05; const fits = x.next_from === null ? '' : `done ${hhmm(x.next_from)}–${hhmm(x.next_to + 1)} the next day`;
-      return x.nowhere > 0.05 ? `${fits}${part ? '; ' : ''}<span class="pl-late">${part ? `${cpmK(c ? x.cards * (x.nowhere / x.need) : x.nowhere)} ` : ''}fits nowhere in 24 hours</span>` : fits; };
-    return `<details class="cpm-push-list"><summary>Show exactly what's pushed (${L.length} line${L.length === 1 ? '' : 's'})</summary>
-      <div class="kdb-scroll"><table class="log small"><thead><tr><th>Customer</th><th>What</th><th class="num">Came in</th><th class="num">Its cut-off</th><th>Where it goes</th><th class="num">${c ? Ucap : 'Needed (÷ OEE)'}</th></tr></thead><tbody>
-      ${L.map((x) => `<tr><td><b>${esc(x.key)}</b> <span class="muted">${esc(x.name && x.name !== x.key ? x.name : '')}</span>${x.added ? ` <span class="cpm-added-t">${esc(x.added)}</span>` : ''}</td>
-        <td>${x.kind === 'renewal' ? 'Renewals' : `Daily · <b class="cpm-prio-${x.prio}">${PR[x.prio]}</b>`}</td>
-        <td class="num">${x.in === null ? '<span class="muted">its window</span>' : hhmm(x.in)}</td><td class="num">${x.cutoff === null || x.cutoff === undefined ? '<span class="muted">—</span>' : hhmm(x.cutoff)}</td>
-        <td>${nextOf(x)}</td><td class="num"><b>${amt(x)}</b></td></tr>`).join('')}
-      <tr><th colspan="5">Pushed in all <span class="muted small">— daily ${cpmK(sum((x) => (x.kind === 'daily' ? (c ? x.cards : x.need) : 0)))} · renewals ${cpmK(sum((x) => (x.kind === 'renewal' ? (c ? x.cards : x.need) : 0)))}</span></th><th class="num">${cpmK(sum((x) => (c ? x.cards : x.need)))}</th></tr></tbody></table></div>
-      <p class="small muted" style="margin:4px 0 0">Daily work is placed Urgent first, then High, then Normal, each in the order it comes in; what's left after the day's last hour runs from the start of the next day (done after its cut-off, so late too). Renewals take what's left from their window on; those put off are shared over the customers by their renewals.</p></details>`; };
+    const PR = { urgent: 'Urgent', high: 'High', normal: 'Normal' };
+    const val = (x) => (c ? x.cards : x.need); const unit = c ? U : 'needed';
+    const who = (x) => `<b>${esc(x.key)}</b> <span class="muted">${esc(x.name && x.name !== x.key ? x.name : '')}</span>${x.added ? ` <span class="cpm-added-t">${esc(x.added)}</span>` : ''}`;
+    // daily work: one row per customer, priority and where it goes, the hours it came in listed together
+    const D = [...L0.filter((x) => x.kind === 'daily').reduce((m, x) => { const nw = x.nowhere > 0.05 && x.nowhere >= x.need - 0.05; const k = `${x.key}|${x.added || ''}|${x.prio}|${nw ? 'nowhere' : 'next'}`;
+      const g = m.get(k) || m.set(k, { ...x, ins: [], need: 0, cards: 0, nowhere: 0, next_from: null, next_to: null }).get(k); g.ins.push(x.in); g.need += x.need; g.cards += x.cards; g.nowhere += x.nowhere;
+      if (x.next_from !== null) { g.next_from = g.next_from === null ? x.next_from : Math.min(g.next_from, x.next_from); g.next_to = g.next_to === null ? x.next_to : Math.max(g.next_to, x.next_to); } return m; }, new Map()).values()];
+    const Rn = L0.filter((x) => x.kind === 'renewal').sort((a, b) => val(b) - val(a));
+    const dTot = D.reduce((a, x) => a + val(x), 0); const rTot = Rn.reduce((a, x) => a + val(x), 0);
+    const where = (x) => { const part = x.nowhere > 0.05 && x.nowhere < x.need - 0.05; const fits = x.next_from === null ? '' : `<span class="cpm-pl-next">${hhmm(x.next_from)}–${hhmm(x.next_to + 1)}</span> next day`;
+      return x.nowhere > 0.05 ? `${fits}${part ? ' · ' : ''}<span class="pl-late">${part ? `${cpmK(c ? x.cards * (x.nowhere / x.need) : x.nowhere)} ` : ''}fits nowhere in 24 h</span>` : fits; };
+    // daily work: whose, its priority, when it came in and its cut-off, where it goes
+    const daily = D.length ? `<div class="cpm-pl-sec"><div class="cpm-pl-h"><b>Daily work</b> <span class="muted">${cpmK(dTot)} ${unit} · done after its cut-off, so late too</span></div>
+      <div class="kdb-scroll"><table class="log small cpm-pl-t"><thead><tr><th>Customer</th><th>Priority</th><th class="num">Came in</th><th class="num">Cut-off</th><th>Where it goes</th><th class="num">${c ? Ucap : 'Needed'}</th></tr></thead><tbody>
+      ${D.map((x) => `<tr><td>${who(x)}</td><td><span class="cpm-pl-prio cpm-pl-${x.prio}">${PR[x.prio] || x.prio}</span></td><td class="num">${[...new Set(x.ins)].sort((p2, q2) => ((p2 - H[0] + 24) % 24) - ((q2 - H[0] + 24) % 24)).map(hhmm).join(', ')}</td><td class="num">${x.cutoff === null || x.cutoff === undefined ? '<span class="muted">—</span>' : hhmm(x.cutoff)}</td><td>${where(x)}</td><td class="num"><b>${cpmK(val(x))}</b></td></tr>`).join('')}
+      </tbody></table></div></div>` : '<div class="cpm-pl-sec small muted">No daily work pushed — all of it fits in the day.</div>';
+    // renewals put off: one compact line per customer with its share; the tiny ones together
+    const big = Rn.filter((x) => val(x) >= 0.5); const tiny = Rn.filter((x) => val(x) < 0.5); const top = big.length ? val(big[0]) : 1;
+    const rnw = Rn.length ? `<div class="cpm-pl-sec"><div class="cpm-pl-h"><b>Renewals put off</b> <span class="muted">${cpmK(rTot)} ${unit} · the daily work took their hours, so they move to another day (Low priority, not late)</span></div>
+      <div class="cpm-pl-rnw">${big.map((x) => `<div class="cpm-pl-r"><span class="cpm-pl-rn">${who(x)}</span><span class="cpm-pl-bar"><i style="width:${Math.max(2, (val(x) / top) * 100)}%;background:${cpmTc(t)}"></i></span><b class="num">${cpmK(val(x))}</b></div>`).join('')}</div>
+      ${tiny.length ? `<div class="small muted" style="margin-top:4px">and ${tiny.length} more under 1: ${tiny.map((x) => esc(x.key)).join(', ')}</div>` : ''}</div>` : '';
+    return `<details class="cpm-push-list"><summary>Show exactly what's pushed — daily ${cpmK(dTot)} · renewals ${cpmK(rTot)}</summary>${daily}${rnw}
+      <p class="small muted" style="margin:6px 0 0">Daily work is placed Urgent first, then High, then Normal, each in the order it comes in; what's left after the day's last hour runs from the start of the next day. Renewals take what's left from their window on; those put off are shared over the customers by their renewals.</p></details>`; };
   const techCard = (t) => { const S = d.tech[t].smooth; const X0 = d.tech[t]; const sm = smoothed(t);
     const peak0 = Math.max(...X0.load.map((v) => v || 0));
     return `<div class="cpm-tech" data-tech-card="${t}"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h4 class="cpm-tech-h" style="margin:0;border-left-color:${cpmTc(t)}"><span style="color:${cpmTc(t)}">${esc(t)}</span></h4>
