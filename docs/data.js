@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'offline-bundle', date: '2026-11-25', area: 'platform', title: 'Runs on a server with no internet',
+    text: 'SITHUB can now run on an office server with no internet and nothing installed: a ready-to-run bundle brings its own Node.js and dependencies, is built automatically for each release, and the server updates itself from it each night.',
+    points: ['Built and published by the sync machine for each release', 'No Node.js, Git or downloads needed on the server', 'Nightly updates swap the bundle in, keeping settings and data'] },
   { id: 'gitea-hosting', date: '2026-11-25', area: 'platform', title: 'Ready for hosting from the office Gitea',
     text: 'SITHUB can now be installed and updated from the office Gitea, kept in step with the main repository by a small sync job, and serves this timeline itself.',
     points: ['A sync job copies the live and development branches to Gitea on a schedule', 'The setup installs from whichever repository it is pointed at', 'The timeline at /timeline/ in SITHUB'] },
@@ -349,6 +352,7 @@ window.TIMELINE = {
 
   // 🎬 The blooper reel: the hidden easter egg (click the logo five times, type "oops", or find the 🐞)
   BLOOPERS: [
+  { date: '2026-11-25', title: 'Nearly deleted the PDF fonts', text: 'The first draft of the offline updater kept "data" folders by name, which would also have skipped every data folder inside the libraries, including the one the PDF maker keeps its fonts in.', lesson: 'Name the folders to keep by their full path.' },
   { date: '2026-11-25', title: 'The timeline missed its own update', text: 'A release went out, but the page that records every release was told by GitHub to "try again later", and it didn\'t. Nobody noticed until someone went looking for the new pins.', lesson: 'If at first you don\'t succeed, wait a minute and try once more, automatically.' },
   { date: '2026-11-25', title: 'The metal was in the wrong drawer', text: 'Adding two new columns to the matching customers table showed that the metal figures had always sat under the hand-match heading, and the hand figures under metal.', lesson: 'Put the cells in the same order as the headings.' },
   { date: '2026-11-23', title: 'Names, again', text: 'Overview became CPM Monthly, Day by hour became CPM Daily and Forecast vs actual became Flex — the names the team had been using for them all along.', lesson: 'Ask what people call a thing before naming it.' },
