@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'day-machine-bands', date: '2026-11-25', area: 'capacity', title: 'Capacity per machine on the daily charts again',
+    text: 'Each technology\'s daily chart shows its machines\' capacity again, stacked one on another up to the total; the export gains a capacity-by-machine sheet and stacked daily and renewal bars.',
+    points: ['Bands per machine on each technology and line', 'The All view keeps a single capacity line', 'Capacity by machine sheet and stacked charts in the Excel'] },
   { id: 'match-line-force', date: '2026-11-25', area: 'capacity', title: 'Keep a customer\'s work to OTTO or hand matching',
     text: 'Each customer\'s daily work and renewals can each be kept to the OTTOs or to hand matching, instead of split by its learned hand share.',
     points: ['Set separately for daily work and renewals', 'Used by the daily and monthly plans alike'] },
