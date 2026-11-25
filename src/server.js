@@ -158,6 +158,28 @@ app.post('/api/shutdown', (req, res, next) => {
 const PLANNER_API = /^\/(plan|settings|presence|audit|backups|info|health)(\/|$|\?)/;
 if (config.mode === 'planner') app.use('/api', (req, res, next) => (PLANNER_API.test(req.path) ? next() : res.status(404).json({ error: 'Not part of the planner' })));
 app.use('/api', api);
+// 🗺 the project timeline (docs/), served by SITHUB itself — no GitHub Pages needed (e.g. on the office server, updated
+// from Gitea): the page as in the repository, with its commits per day worked out from this copy's git history (every
+// 10 minutes at most; not a git copy: as the file has them). Open to everyone on the network, as the page was public.
+{ const DOCS = path.join(config.ROOT, 'docs'); let act = { at: 0, v: null };
+  const activity = () => {
+    if (Date.now() - act.at < 600000) return act.v;
+    let v = null;
+    try {
+      const out = require('child_process').execFileSync('git', ['-C', config.ROOT, 'log', '--format=%ad', '--date=short'], { encoding: 'utf8', timeout: 15000, windowsHide: true });
+      const counts = {}; for (const d of out.split('\n').filter(Boolean)) counts[d] = (counts[d] || 0) + 1;
+      v = JSON.stringify(Object.fromEntries(Object.keys(counts).sort().map((d) => [d, counts[d]])));
+    } catch { /* not a git copy, or no git: the file's own */ }
+    act = { at: Date.now(), v }; return v;
+  };
+  app.get('/timeline', (req, res, next) => (req.originalUrl.split('?')[0] === '/timeline' ? res.redirect('/timeline/') : next())); // (the page's own links are relative)
+  app.get('/timeline/data.js', (req, res, next) => {
+    let src; try { src = require('fs').readFileSync(path.join(DOCS, 'data.js'), 'utf8'); } catch { return next(); }
+    const v = activity(); res.type('application/javascript').set('Cache-Control', 'no-cache');
+    res.send(v ? src.replace(/\/\*activity\*\/[\s\S]*?\/\*end\*\//, `/*activity*/${v}/*end*/`) : src);
+  });
+  app.use('/timeline', express.static(DOCS));
+}
 app.use(express.static(path.join(config.ROOT, 'public')));
 // 📄 pdf.js, for turning a quote's PDF into a picture in the browser (💶 CAPEX's IR pack): served from the app, never a CDN
 app.use('/vendor/pdfjs', express.static(path.join(config.ROOT, 'node_modules', 'pdfjs-dist', 'build')));

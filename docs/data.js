@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'gitea-hosting', date: '2026-11-25', area: 'platform', title: 'Ready for hosting from the office Gitea',
+    text: 'SITHUB can now be installed and updated from the office Gitea, kept in step with the main repository by a small sync job, and serves this timeline itself.',
+    points: ['A sync job copies the live and development branches to Gitea on a schedule', 'The setup installs from whichever repository it is pointed at', 'The timeline at /timeline/ in SITHUB'] },
   { id: 'task-inline-due-owner', date: '2026-11-25', area: 'projects', title: 'Due date and owner from the task list',
     text: 'In a task list, a click on a task\'s due date or owner now changes it right there: a calendar with quick picks for the date, and the usual owner picker.' },
   { id: 'match-export-compare', date: '2026-11-25', area: 'capacity', title: 'Matching scenarios compared in Excel',
