@@ -2572,6 +2572,13 @@ async function waitForServer() {
               assert.ok(Math.abs(kh.need_daily - kh.daily / kh.oee_match) < 1e-6 && dd.tech['Hand match'].capacity.every((v, i) => (dd.worked[i] ? Math.abs(v - 200 * dd.hour_share) < 1e-6 : v === 0)), 'hand match: items ÷ OEE against the hand stations\' speed');
               const mh = await call('GET', `/cpm/match/monthly?year=${Y}&flex=0&live=1`); assert.ok(Math.abs(mh.months[0].lines.hand.capacity - 200 * mh.months[0].hours) < 0.5 && mh.months[0].lines.hand.items > 0, 'by month: hand match against its stations');
               const sth = await call('GET', `/cpm/site?year=${Y}&regen=1`); assert.ok(sth.match.hand && Math.abs(sth.match.hand.year - 200 * sth.hours_day * sth.workdays) < 0.5, 'Site Capacity: hand match apart');
+              // 📌 KBC's daily work kept to the OTTOs, its renewals (40%, typed) to hand match
+              await call('PUT', '/cpm/settings', { cpm_match_force: JSON.stringify({ KBC: { daily: 'otto', rnw: 'hand' } }), cpm_match_rnw_share: JSON.stringify({ 'KBC|OTTO': 0.4 }) });
+              { const df = await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1`); const fo = df.rows.find((r) => r.trigram === 'KBC' && !r.added && r.tech === 'OTTO'); const fh = df.rows.find((r) => r.trigram === 'KBC' && !r.added && r.tech === 'Hand match');
+                assert.ok(fo && fh && fo.rnw_pct === 0 && fh.rnw_pct === 1 && Math.abs(fh.month_volume / (fo.month_volume + fh.month_volume) - 0.4) < 1e-9, 'kept to a line: the daily work all on the OTTOs, the renewals all on hand match');
+                const cf = await call('GET', '/cpm/match/config'); assert.equal(cf.line_force.KBC.rnw, 'hand', 'the setting shown on Configuration');
+                const mf = await call('GET', `/cpm/match/monthly?year=${Y}&flex=0&live=1`); assert.ok(mf.months[0].lines.hand.items > mh.months[0].lines.hand.items + 0.5, 'by month: KBC\'s hand-match part follows (40% now, 25% before)'); }
+              await call('PUT', '/cpm/settings', { cpm_match_force: '{}', cpm_match_rnw_share: '{}' });
               sqh.prepare("DELETE FROM plan_otto_jobs WHERE key IN ('HM1', 'HM2')").run(); sqh.close();
               await call('DELETE', `/plan/otto/machines/${hm.id}`); await call('PUT', '/cpm/settings', { cpm_match_hand: '{}', cpm_match_line_of: '{}' }); }
             // 🏭 Site Capacity with Matching: its machines flat out, the same hours; the workbook's Matching sheet

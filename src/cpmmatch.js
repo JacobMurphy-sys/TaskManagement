@@ -124,6 +124,16 @@ function scenarioAt(changes, ymKey, M, R, OE) {
 // name) — hand match when that's ticked as one; one that names none is as set on Configuration › Capacity
 // (Matching picked): OTTO, hand match or left out; not set: hand match when its name says "hand", else OTTO.
 const LINES = { otto: 'OTTO', hand: 'Hand match' };
+// 📌 a customer's daily work and / or renewals kept to one line (Configuration › Customers, Matching picked):
+// 'TRI' → { daily: 'otto' | 'hand', rnw: 'otto' | 'hand' } (missing: its hand share as learned or typed).
+// split(tri, low, hand) → the hand share of its daily work and of its renewals, and of all of it (low: its renewal share)
+function lineForce() {
+  const f = json(setting('cpm_match_force', '{}'), {}); const ok = (v) => (v === 'otto' || v === 'hand' ? v : null);
+  const of = (tri) => { const x = f[tri]; return x && (ok(x.daily) || ok(x.rnw)) ? { daily: ok(x.daily), rnw: ok(x.rnw) } : null; };
+  const split = (tri, low, hand) => { const x = of(tri); const d = x?.daily ? (x.daily === 'hand' ? 1 : 0) : hand; const r = x?.rnw ? (x.rnw === 'hand' ? 1 : 0) : hand;
+    return { daily: d, rnw: r, all: (1 - low) * d + low * r, forced: !!x }; };
+  return { all: f, of, split };
+}
 function lineOfRun(M, name) {
   const n = String(name || '').trim(); const low = n.toLowerCase(); if (!n) return { line: 'otto', from: 'none' };
   // the Setup machine it names: its own name exactly, else the longest one inside it (so "OTTO 1" doesn't take "OTTO 12" or "OTTO 1 hand")
@@ -175,6 +185,9 @@ function prios() {
     return { mix: p ? { urgent: p.urgent, high: p.high, normal: p.normal, low: p.low } : { urgent: 0, high: 0, normal: 1, low: 0 }, from: p === o && o ? 'learned' : p ? 'everyone' : 'none', days: o ? o.days : 0 }; }, all: all || null, map: pm };
 }
 function customersOf(plan, m, R, M, OE = oees(M), PR = prios(), MS = metalShares(null), HS = handShares(M)) {
+  // the renewal share it's planned with (typed on Configuration › CPM Daily for its OTTO line, else hand match's, else learned)
+  const FL = lineForce(); const rt = json(setting('cpm_match_rnw_share', '{}'), {});
+  const rnwLow = (tri, learned) => { for (const k of [`${tri}|OTTO`, `${tri}|Hand match`]) { const v = rt[k]; if (v !== undefined && v !== null && v !== '') return Math.min(1, Math.max(0, Number(v) || 0)); } return learned || 0; };
   const by = new Map();
   for (const D of plan.detail) { const x = D.months[m]; if (!x) continue; const k = D.trigram || `~${D.name}`; const c = by.get(k) || by.set(k, { trigram: D.trigram || '', name: D.name, cards: 0, added: 0 }).get(k); c.cards += x.fc * x.split; c.added += (x.extra || 0) * x.split; }
   return [...by.values()].map((c) => {
@@ -182,11 +195,12 @@ function customersOf(plan, m, R, M, OE = oees(M), PR = prios(), MS = metalShares
     const pr = PR.of(c.trigram);
     // ✋ its hand-matched share apart: items ÷ OEE against the hand-match stations' speed; the rest on the OTTOs —
     // metal items there at the metal machines' speed (none ticked or no metal speed: as the rest, with a warning)
-    const hs = HS.of(c.trigram); const itemsHand = items * hs.share; const itemsOtto = items - itemsHand;
+    const hs0 = HS.of(c.trigram); const fs = FL.split(c.trigram, rnwLow(c.trigram, pr.mix.low), hs0.share); const hs = fs.forced ? { share: fs.all, from: 'set' } : hs0;
+    const itemsHand = items * hs.share; const itemsOtto = items - itemsHand;
     const ms = MS.of(c.trigram); const metalItems = itemsOtto * ms.share; const mf = M.metal_ref > 0 && M.ref > 0 ? M.ref / M.metal_ref : 1;
     const needOtto = ((itemsOtto - metalItems) / e.oee) * slow + (metalItems / e.oee) * mf; const needHand = itemsHand / e.oee; const need = needOtto + needHand;
     return { ...c, prio: pr.mix, prio_from: pr.from, ratio: r.ratio, ratio_from: r.from, items, own_speed: cs || null, own_factor: slow, speed_factor: items > 0 ? (need * e.oee) / items : slow, oee: e.oee, oee_from: e.from, need, added_items: c.added * r.ratio,
-      hand_share: hs.share, hand_from: hs.from, items_otto: itemsOtto, items_hand: itemsHand, need_otto: needOtto, need_hand: needHand, otto_factor: itemsOtto > 0 ? (needOtto * e.oee) / itemsOtto : slow,
+      hand_share: hs.share, hand_from: hs.from, hand_raw: hs0.share, hand_raw_from: hs0.from, line_force: FL.of(c.trigram), items_otto: itemsOtto, items_hand: itemsHand, need_otto: needOtto, need_hand: needHand, otto_factor: itemsOtto > 0 ? (needOtto * e.oee) / itemsOtto : slow,
       metal_share: ms.share, metal_from: ms.from, metal_items: metalItems, metal_load: M.metal_ref > 0 ? metalItems / e.oee : 0 };
   }).filter((c) => c.items > 0.5).sort((a, b) => b.need - a.need);
 }
@@ -259,7 +273,7 @@ function day({ year, month, useFlex = true, cards = null, changes = [] }) {
   const line = (c, v, added, extra = {}, tech = TO, sf = c.speed_factor) => {
     if (!(v > 0)) return null;
     const pr = c.prio; const rt = rnwTyped[`${c.trigram}|${tech}`]; const rnwT = rt === undefined || rt === null || rt === '' ? null : Math.min(1, Math.max(0, Number(rt) || 0));
-    const low = extra.kind === 'renewal' ? 1 : extra.kind === 'daily' ? 0 : rnwT ?? pr.low;
+    const low = extra.low !== undefined ? extra.low : extra.kind === 'renewal' ? 1 : extra.kind === 'daily' ? 0 : rnwT ?? pr.low;
     const dLearned = 1 - pr.low > 1e-9 ? { urgent: pr.urgent / (1 - pr.low), high: pr.high / (1 - pr.low), normal: pr.normal / (1 - pr.low) } : { urgent: 0, high: 0, normal: 1 };
     const pt = prioTyped[c.trigram]; const dTyped = pt && (pt.urgent !== undefined || pt.high !== undefined) ? (() => { const u = Math.min(1, Math.max(0, Number(pt.urgent) || 0)); const hh = Math.min(1 - u, Math.max(0, Number(pt.high) || 0)); return { urgent: u, high: hh, normal: 1 - u - hh }; })() : null;
     const dmix = dTyped || dLearned;
@@ -281,7 +295,19 @@ function day({ year, month, useFlex = true, cards = null, changes = [] }) {
   };
   const MS = metalShares(cards); const HS = handShares(M0); const custs = customersOf(plan, month, R, M0, OE, PR, MS, HS); // (the speed factor against the machines as they are)
   // a customer's items on its two lines: OTTO (its speed, metal) and hand match (its OEE only)
-  const both = (cc, v, added, extra = {}) => { const hsh = cc.hand_share || 0; line(cc, v * (1 - hsh), added, extra, TO, cc.otto_factor ?? cc.speed_factor); line(cc, v * hsh, added, extra, TH, 1); };
+  // a customer's items on its two lines; daily work and renewals each kept to one line when set (Configuration ›
+  // Customers): then each line gets its own share of each, its renewal share worked out from them
+  const FL = lineForce();
+  const both = (cc, v, added, extra = {}) => {
+    const f = cc.trigram ? FL.of(cc.trigram) : null;
+    if (!f) { const hsh = cc.hand_share || 0; line(cc, v * (1 - hsh), added, extra, TO, cc.otto_factor ?? cc.speed_factor); line(cc, v * hsh, added, extra, TH, 1); return; }
+    const rk = (t) => { const x = rnwTyped[`${cc.trigram}|${t}`]; return x === undefined || x === null || x === '' ? null : Math.min(1, Math.max(0, Number(x) || 0)); };
+    const low = extra.kind === 'renewal' ? 1 : extra.kind === 'daily' ? 0 : rk(TO) ?? rk(TH) ?? cc.prio.low;
+    const sp = FL.split(cc.trigram, low, cc.hand_raw ?? cc.hand_share ?? 0);
+    const oD = v * (1 - low) * (1 - sp.daily); const oR = v * low * (1 - sp.rnw); const hD = v * (1 - low) * sp.daily; const hR = v * low * sp.rnw;
+    line(cc, oD + oR, added, { ...extra, low: oD + oR > 0 ? oR / (oD + oR) : 0, line_force: f }, TO, cc.otto_factor ?? cc.speed_factor);
+    line(cc, hD + hR, added, { ...extra, low: hD + hR > 0 ? hR / (hD + hR) : 0, line_force: f }, TH, 1);
+  };
   const metalIt = custs.reduce((a, c) => a + c.metal_items, 0); const metalLd = custs.reduce((a, c) => a + c.metal_items / c.oee, 0); const metalCapDay = M0.metal_cap * (worked.size * factor) * (days || 0);
   if (metalIt > 0.5 && !M0.metal_machines.length) warnings.push('Some customers have metal cards, but no Matching machine is ticked for metal (Production › Setup) — they\'re counted at the usual speed');
   else if (metalIt > 0.5 && !(M0.metal_ref > 0)) warnings.push('The Matching machines ticked for metal have no metal speed (Production › Setup) — metal cards are counted at the usual speed');
@@ -305,7 +331,7 @@ function day({ year, month, useFlex = true, cards = null, changes = [] }) {
     const asRnw = c.kind === 'renewal'; const items = (Number(c.qty) / all) * days * base.ratio; // this month's working days' worth
     both({ ...base, name: `${c.name || 'Campaign'}${asRnw ? ' (renewals)' : ''}` }, items, 'campaign', { kind: asRnw ? 'renewal' : 'daily', campaign: c.name || 'Campaign', campaign_kind: asRnw ? 'renewal' : 'daily' });
   }
-  for (const r of rows) delete r.kind;
+  for (const r of rows) { delete r.kind; delete r.low; }
   rows.sort((a, b) => (a.added ? 1 : 0) - (b.added ? 1 : 0) || b.need_day - a.need_day);
   // the renewals: over each line's window — OTTO's and hand match's, else Matching's as set before; a scenario's for
   // both (none set: every hour worked)
@@ -353,7 +379,7 @@ function config(cards = null) {
     customers: tris.map((t) => { const l = R.learned.get(t) || null; const ms = OE.measured.by.get(t) || null;
       return { trigram: t, name: names.get(t) || '', learned: l ? l.ratio : null, perso: l ? l.perso : 0, match: l ? l.match : 0, typed: R.typed[t] ?? null, own_speed: M.cust.get(t) || null,
         oee_measured: ms ? ms.oee : null, oee_raw: ms ? ms.raw : null, oee_hours: ms ? ms.hours : 0, oee_typed: OE.typed[t] ?? null, prio: PR.of(t), metal_learned: MS.learned.get(t)?.share ?? null, metal_typed: MS.typed[t] ?? null, hand_learned: HS.learned.get(t)?.share ?? null, hand_items: HS.learned.get(t)?.items || 0, hand_typed: HS.typed[t] ?? null }; }), prio_all: PR.all,
-    hand_all: HS.learned.get('*') || null, report_machines: HS.report, report_from: HS.from, line_of: json(setting('cpm_match_line_of', '{}'), {}), hand_machines: M.list.filter((m) => m.hand).map((m) => m.name), metal_machines: M.metal_machines, metal_ref: M.metal_ref,
+    hand_all: HS.learned.get('*') || null, report_machines: HS.report, report_from: HS.from, line_force: json(setting('cpm_match_force', '{}'), {}), line_of: json(setting('cpm_match_line_of', '{}'), {}), hand_machines: M.list.filter((m) => m.hand).map((m) => m.name), metal_machines: M.metal_machines, metal_ref: M.metal_ref,
     rnw_hours: json(setting('cpm_rnw_hours', '{}'), {}), window: (json(setting('cpm_rnw_hours', '{}'), {}).Matching || []).map(Number), hours: Array.from({ length: 24 }, (_, i) => (Math.floor(hm(setting('plan_day_start', '06:00'), 360) / 60) + i) % 24) };
 }
 
