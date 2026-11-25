@@ -272,7 +272,17 @@ function techDay({ t, H, rows, rnw: R, cap, idle = Array(24).fill(0), cutoffOf, 
       renewals: sm.rnw, rnw_deferred: sm.deferred, rnw_deferred_cards: sm.deferred * rRatio,
       // pushed to the next day: the daily work that only fits after the day's end (or nowhere), and the renewals put off
       pushed: { daily: sm.pushed, daily_cards: sm.pushedCards, renewals: sm.deferred, renewals_cards: sm.deferred * rRatio, total: sm.pushed + sm.deferred, total_cards: sm.pushedCards + sm.deferred * rRatio, at: sm.pushedAt,
-        customers: tr.filter((r) => r.pushed > 0.5).map((r) => ({ key: r.trigram || r.name, name: r.name, need: r.pushed, cards: r.pushed_cards })).sort((a, b) => b.need - a.need).slice(0, 12) },
+        customers: tr.filter((r) => r.pushed > 0.5).map((r) => ({ key: r.trigram || r.name, name: r.name, need: r.pushed, cards: r.pushed_cards })).sort((a, b) => b.need - a.need).slice(0, 12),
+        // 📋 exactly what: each customer's daily work by priority and the hour it came in — where in the next day it's
+        // done (from–to, by the clock), or that it fits nowhere in 24 hours — and each customer's renewals put off
+        // (the renewals put off shared by its renewals' part of the day's)
+        items: [
+          ...sm.pushedBy.filter((x) => x.need > 0.05).map((x) => { const r = tr[x.k]; const cut = cutoffOf(r.trigram);
+            return { key: r.trigram || r.name, name: r.name, added: r.added || null, kind: 'daily', prio: x.prio, in: H[x.in], cutoff: cut, next_from: x.from === null ? null : H[x.from], next_to: x.to === null ? null : H[x.to], nowhere: x.nowhere, need: x.need, cards: x.cards }; }),
+          ...(sm.deferred > 0.05 ? (() => { const rn = tr.reduce((a, r) => a + r.need_rnw, 0); return tr.filter((r) => r.need_rnw > 1e-9).map((r) => { const v = sm.deferred * (r.need_rnw / rn);
+            return { key: r.trigram || r.name, name: r.name, added: r.added || null, kind: 'renewal', prio: 'low', in: null, cutoff: null, next_from: null, next_to: null, nowhere: 0, need: v, cards: v * (r.oee_rnw || r.oee) }; }).filter((x) => x.need > 0.05); })() : []),
+        ].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'daily' ? -1 : 1) || ['urgent', 'high', 'normal', 'low'].indexOf(a.prio) - ['urgent', 'high', 'normal', 'low'].indexOf(b.prio) || b.need - a.need),
+        renewals_at: sm.deferredAt.map((v) => v) },
       cards: { daily: sm.cards, renewals: sRnwCards, total: sCards, capacity: cap.map((c, i) => c * (sNeed[i] > 0.5 ? sCards[i] / sNeed[i] : dayRatio)) },
       peak: Math.max(...sNeed.map((v, i) => (cap[i] ? v / cap[i] : 0))), hours_over: sNeed.filter((v, i) => v > cap[i] + 0.5).length, over: sNeed.reduce((a, v, i) => a + Math.max(0, v - cap[i]), 0), late: sm.late, late_at: sm.lateAt, late_cards: tr.reduce((a, r) => a + r.late_cards, 0), late_customers: [...new Set(tr.filter((r) => r.late_cards > 0.5).map((r) => r.trigram || r.name))], unplaced: sm.unplaced, end_backlog: sc };
     const DP = ['urgent', 'high', 'normal']; const pmx = (r, c) => r.prio?.[c] ?? (c === 'normal' ? 1 : 0);
@@ -314,21 +324,23 @@ function smoothDay(H, rows, base, cap, cutoffOf) {
   // pushed to the next day: daily work that only fits after the day's end (in the next day's first hours — the day
   // wraps round, as yesterday's overflow fills this morning), or nowhere in 24 hours; by row, and where it lands
   let pushed = 0; let pushedCards = 0; const pushedAt = Array(24).fill(0); const pushedRow = rows.map(() => 0);
+  const pushedBy = new Map(); // 'row|priority|hour in' → what of it is pushed: how much, from which hour of the next day, nowhere
+  const pushOf = (p) => { const key = `${p.k}|${p.c}|${p.i}`; return pushedBy.get(key) || pushedBy.set(key, { k: p.k, prio: p.c, in: p.i, need: 0, cards: 0, from: null, to: null, nowhere: 0, cut: p.delta }).get(key); };
   for (const p of packets) {
     const put = (s, v) => { load[s] += v; cards[s] += v * p.ratio; perRow[p.k][s] += v; byPrio[p.c][s] += v; cardsPrio[p.c][s] += v * p.ratio; };
     let left = p.amt;
     for (let o = 0; o < 24 && left > 1e-9; o++) {
       const s = (p.i + o) % 24; const free = Math.max(0, cap[s] - load[s]); if (free <= 1e-9) continue;
       const v = Math.min(free, left); put(s, v); left -= v; if (o >= p.delta) { late += v; lateAt[s] += v; lateRow[p.k][s] += v; latePrio[p.c] += v * p.ratio; }
-      if (p.i + o >= 24) { pushed += v; pushedCards += v * p.ratio; pushedAt[s] += v; pushedRow[p.k] += v; }
+      if (p.i + o >= 24) { pushed += v; pushedCards += v * p.ratio; pushedAt[s] += v; pushedRow[p.k] += v; const x = pushOf(p); x.need += v; x.cards += v * p.ratio; if (x.from === null) x.from = s; x.to = s; }
     }
-    if (left > 1e-9) { put(p.i, left); unplaced += left; late += left; lateAt[p.i] += left; lateRow[p.k][p.i] += left; latePrio[p.c] += left * p.ratio; pushed += left; pushedCards += left * p.ratio; pushedRow[p.k] += left; } // not done within the day: late too, and pushed
+    if (left > 1e-9) { put(p.i, left); unplaced += left; late += left; lateAt[p.i] += left; lateRow[p.k][p.i] += left; latePrio[p.c] += left * p.ratio; pushed += left; pushedCards += left * p.ratio; pushedRow[p.k] += left; const x = pushOf(p); x.need += left; x.cards += left * p.ratio; x.nowhere += left; } // not done within the day: late too, and pushed
   }
-  const rnw = Array(24).fill(0); let deferred = 0; // the renewals, around the daily work
+  const rnw = Array(24).fill(0); let deferred = 0; const deferredAt = Array(24).fill(0); // the renewals, around the daily work
   base.forEach((amt, i) => { let left = amt;
     for (let s = i; s < 24 && left > 1e-9; s++) { const free = Math.max(0, cap[s] - load[s]); if (free <= 1e-9) continue; const v = Math.min(free, left); load[s] += v; rnw[s] += v; left -= v; }
-    if (left > 1e-9) deferred += left; });
-  return { load, cards, perRow, late, unplaced, lateAt, lateRow, rnw, deferred, byPrio, cardsPrio, latePrio, pushed, pushedCards, pushedAt, pushedRow };
+    if (left > 1e-9) { deferred += left; deferredAt[i] += left; } });
+  return { load, cards, perRow, late, unplaced, lateAt, lateRow, rnw, deferred, deferredAt, byPrio, cardsPrio, latePrio, pushed, pushedCards, pushedAt, pushedRow, pushedBy: [...pushedBy.values()] };
 }
 
 // each customer's typical work order: the median size (cards) of its work orders lately, per technology

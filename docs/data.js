@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'pushed-detail', date: '2026-11-25', area: 'capacity', title: 'Exactly what\'s pushed to the next day',
+    text: 'The pushed-to-the-next-day banner on the smoothed daily view now opens a list of exactly what moves: whose work, which priority, when it came in and where it ends up.',
+    points: ['Daily work by customer, priority and the hour it came in', 'When it runs the next day, or that it fits nowhere', 'Renewals put off, by customer'] },
   { id: 'match-day-settings', date: '2026-11-25', area: 'capacity', title: 'Matching\'s own daily settings',
     text: 'The daily capacity settings for matching now have the same editors as perso, each with matching\'s own values instead of borrowing perso\'s or only learning them.',
     points: ['Run periods per customer', 'Renewal and priority splits', 'Renewal windows for OTTO and hand matching, with their own OEE uplift'] },
