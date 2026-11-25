@@ -591,47 +591,80 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
 
 // ---- 🔗 Matching by month: the year's items, the machine time they need and the capacity, as formulas over the
 // inputs (working hours, capacity an hour), with the chart reading them
-function buildMatchMonthWorkbook(d, { scenario = null } = {}) {
-  const sh = sheet(`Matching ${d.year}`); const ch = sheet('Chart');
-  [12, 10, 10, 12, 12, 12, 14, 14, 9, 12, 48].forEach((w, i) => sh.width(i + 1, w));
-  sh.set(1, 1, `CPM monthly — Matching — ${d.year}${scenario ? ` — ${scenario}` : ''}`, 'title');
-  sh.set(2, 1, `Forecast as read in ${d.forecast_as_of || '—'} · ${d.flex ? 'flex applied' : 'no flex'} · items = each customer's forecast cards × its share through Matching; needed = items ÷ its Matching OEE (× its speed factor, metal at the metal speed), in machine time at the usual speed; capacity = the Matching machines' speed × the hours worked.`, 'note');
-  sh.set(3, 1, 'Cells in blue on yellow are inputs — the hours worked and the capacity an hour — change them and the rest follows.', 'note');
-  const H = ['Month', 'Working days', 'Hours worked', 'Capacity /h', 'Cards (forecast)', 'Items matched', 'Needed (÷ OEE)', 'Capacity', 'Load', 'Metal items', 'Biggest customers (needed)'];
-  H.forEach((h, i) => sh.set(5, i + 1, h, i >= 1 && i <= 9 ? 'headerNum' : 'header'));
-  const R0 = 6;
-  d.months.forEach((m, k) => {
-    const r = R0 + k; const capH = m.hours ? m.capacity / m.hours : d.capacity_hour;
-    sh.set(r, 1, m.label, 'bold'); sh.set(r, 2, m.workdays, 'int'); sh.set(r, 3, m.hours, 'input'); sh.set(r, 4, capH, 'input');
-    sh.set(r, 5, m.cards, 'int'); sh.set(r, 6, m.items, 'int'); sh.set(r, 7, m.need, 'intBold');
-    sh.f(r, 8, `C${r}*D${r}`, 'int', m.capacity); sh.f(r, 9, `IF(H${r}>0,G${r}/H${r},"")`, 'pct', m.load);
-    sh.set(r, 10, m.metal?.items || 0, 'int'); sh.set(r, 11, (m.top || []).slice(0, 5).map((c) => `${c.trigram || c.name} ${Math.round(c.need).toLocaleString('en-GB')}`).join(' · '));
-  });
-  const R1 = R0 + d.months.length - 1; const T = R1 + 1;
-  sh.set(T, 1, 'Year', 'bold'); for (const c of [2, 3, 5, 6, 7, 8, 10]) sh.f(T, c, `SUM(${colName(c - 1)}${R0}:${colName(c - 1)}${R1})`, 'intBold');
-  sh.f(T, 9, `IF(H${T}>0,G${T}/H${T},"")`, 'pctBold');
-  sh.cf.push({ ref: `I${R0}:I${T}`, rules: [{ op: 'greaterThan', v: '1', dxf: 'bad' }, { op: 'between', v: '0.85', v2: '1', dxf: 'warn' }, { op: 'between', v: '0', v2: '0.85', dxf: 'good' }] });
-  sh.freeze = { row: 6, col: 2 };
-  ch.set(1, 1, `Matching ${d.year} — needed against capacity`, 'title'); ch.set(2, 1, 'It reads the month sheet: change an input there and it follows.', 'note');
-  const cats = sh.full(R0, 1, R1, 1);
-  ch.charts.push({ title: 'Matching — needed (bars) against capacity (line), by month', cats, fmt: '#,##0', from: [1, 4], to: [16, 26],
-    series: [{ name: 'Needed (÷ OEE)', ref: sh.full(R0, 7, R1, 7), kind: 'bar', color: TECH_COL.Matching }, { name: 'Capacity', ref: sh.full(R0, 8, R1, 8), kind: 'line', color: '111827' }] });
-  ch.charts.push({ title: 'Matching — load by month', cats, pct: true, from: [1, 28], to: [16, 46], series: [{ name: 'Load', ref: sh.full(R0, 9, R1, 9), kind: 'line', color: TECH_COL.Matching, markers: true }] });
-  // 📋 the capacity summary: each machine (its speed × the month's hours), OTTO and hand match, demand with or
-  // without the OEE, what's left
-  const LN = [['otto', 'OTTO'], ['hand', 'Hand match']].filter(([k]) => k === 'otto' || d.months.some((m) => m.lines?.hand?.items > 0.5 || m.lines?.hand?.capacity > 0));
-  const hrs = (i) => `${qs(sh.name)}!C${R0 + i}`;
-  const sum = summarySheet({ name: 'Capacity summary', title: `Capacity summary — Matching ${d.year}${scenario ? ` — ${scenario}` : ''}`, unit: 'items', labels: d.months.map((m) => m.label),
-    note: 'Theoretical capacity: each Matching machine\'s speed × the hours worked (no OEE). Demand with the OEE counts each customer\'s own speed and metal at the metal speed. The hours come from the month sheet.',
-    machines: (d.machines || []).filter((m) => m.speed > 0).map((m) => ({ label: `${m.name}${m.hand ? ' (hand match)' : ''} — ${m.speed}/h`, f: (i) => `${m.speed}*${hrs(i)}`, v: (i) => m.speed * (d.months[i].hours || 0) })),
-    groups: LN.map(([k, l]) => ({ key: k, label: l, cap: { v: (i) => d.months[i].lines?.[k]?.capacity ?? (k === 'otto' ? d.months[i].capacity : 0) },
-      need: { v: (i) => d.months[i].lines?.[k]?.need ?? (k === 'otto' ? d.months[i].need : 0) }, raw: { v: (i) => d.months[i].lines?.[k]?.items ?? (k === 'otto' ? d.months[i].items : 0) } })) });
-  const how = howSheet('CPM Monthly, Matching', `Capacity planning for Matching by month, as on SITHUB's CPM Monthly with Matching picked: each customer's forecast cards × its share through Matching = items, ÷ its Matching OEE = the machine time needed, against the Matching machines.`, [
-    ['Capacity summary', 'The theoretical capacity of each Matching machine and of OTTO and hand match, the demand, what remains, and the forecast alone. Its OEE modifier (C4): 1 = demand ÷ OEE, 0 = the raw items against the capacity.'],
-    [sh.name, 'Month by month: working days, hours worked and capacity an hour (inputs), cards, items, items needed (÷ OEE), capacity, load, metal items and the biggest customers.'],
-    ['Chart', 'Needed against capacity, and the load, by month.'],
+function buildMatchMonthWorkbook(d, { scenario = null, base = null } = {}) {
+  // base given (a scenario's export): the base plan's sheets, the scenario's own beside them and a comparison
+  const B = base || d; const S = base ? d : null; const scName = scenario || null;
+  // the month sheet of a plan: hours worked and capacity an hour (inputs), items, needed, capacity, load
+  const monthSheet = (P, name, label) => {
+    const sh = sheet(name);
+    [12, 10, 10, 12, 12, 12, 14, 14, 9, 12, 48].forEach((w, i) => sh.width(i + 1, w));
+    sh.set(1, 1, `CPM monthly — Matching — ${P.year}${label ? ` — ${label}` : ''}`, 'title');
+    sh.set(2, 1, `Forecast as read in ${P.forecast_as_of || '—'} · ${P.flex ? 'flex applied' : 'no flex'} · items = each customer's forecast cards × its share through Matching; needed = items ÷ its Matching OEE (× its speed factor, metal at the metal speed), in machine time at the usual speed; capacity = the Matching machines' speed × the hours worked.`, 'note');
+    sh.set(3, 1, 'Cells in blue on yellow are inputs — the hours worked and the capacity an hour — change them and the rest follows.', 'note');
+    const H = ['Month', 'Working days', 'Hours worked', 'Capacity /h', 'Cards (forecast)', 'Items matched', 'Needed (÷ OEE)', 'Capacity', 'Load', 'Metal items', 'Biggest customers (needed)'];
+    H.forEach((h, i) => sh.set(5, i + 1, h, i >= 1 && i <= 9 ? 'headerNum' : 'header'));
+    const R0 = 6;
+    P.months.forEach((m, k) => {
+      const r = R0 + k; const capH = m.hours ? m.capacity / m.hours : P.capacity_hour;
+      sh.set(r, 1, m.label, 'bold'); sh.set(r, 2, m.workdays, 'int'); sh.set(r, 3, m.hours, 'input'); sh.set(r, 4, capH, 'input');
+      sh.set(r, 5, m.cards, 'int'); sh.set(r, 6, m.items, 'int'); sh.set(r, 7, m.need, 'intBold');
+      sh.f(r, 8, `C${r}*D${r}`, 'int', m.capacity); sh.f(r, 9, `IF(H${r}>0,G${r}/H${r},"")`, 'pct', m.load);
+      sh.set(r, 10, m.metal?.items || 0, 'int'); sh.set(r, 11, (m.top || []).slice(0, 5).map((c) => `${c.trigram || c.name} ${Math.round(c.need).toLocaleString('en-GB')}`).join(' · '));
+    });
+    const R1 = R0 + P.months.length - 1; const T = R1 + 1;
+    sh.set(T, 1, 'Year', 'bold'); for (const c of [2, 3, 5, 6, 7, 8, 10]) sh.f(T, c, `SUM(${colName(c - 1)}${R0}:${colName(c - 1)}${R1})`, 'intBold');
+    sh.f(T, 9, `IF(H${T}>0,G${T}/H${T},"")`, 'pctBold');
+    sh.cf.push({ ref: `I${R0}:I${T}`, rules: [{ op: 'greaterThan', v: '1', dxf: 'bad' }, { op: 'between', v: '0.85', v2: '1', dxf: 'warn' }, { op: 'between', v: '0', v2: '0.85', dxf: 'good' }] });
+    sh.freeze = { row: 6, col: 2 };
+    return { sh, R0, R1, T, P };
+  };
+  // 📋 the capacity summary of a plan: each machine (its speed × the month's hours), OTTO and hand match, demand with
+  // or without the OEE, what's left
+  const summaryOf = (M, name, label) => { const P = M.P; const hrs = (i) => `${qs(M.sh.name)}!C${M.R0 + i}`;
+    const LN = [['otto', 'OTTO'], ['hand', 'Hand match']].filter(([k]) => k === 'otto' || P.months.some((m) => m.lines?.hand?.items > 0.5 || m.lines?.hand?.capacity > 0));
+    return summarySheet({ name, title: `Capacity summary — Matching ${P.year}${label ? ` — ${label}` : ' (base plan)'}`, unit: 'items', labels: P.months.map((m) => m.label),
+      note: `Theoretical capacity: each Matching machine's speed × the hours worked (no OEE). Demand with the OEE counts each customer's own speed and metal at the metal speed. The hours come from the ${M.sh.name} sheet.`,
+      machines: (P.machines || []).filter((m) => m.speed > 0).map((m) => ({ label: `${m.name}${m.hand ? ' (hand match)' : ''} — ${m.speed}/h`, f: (i) => `${m.speed}*${hrs(i)}`, v: (i) => m.speed * (P.months[i].hours || 0) })),
+      groups: LN.map(([k, l]) => ({ key: k, label: l, cap: { v: (i) => P.months[i].lines?.[k]?.capacity ?? (k === 'otto' ? P.months[i].capacity : 0) },
+        need: { v: (i) => P.months[i].lines?.[k]?.need ?? (k === 'otto' ? P.months[i].need : 0) }, raw: { v: (i) => P.months[i].lines?.[k]?.items ?? (k === 'otto' ? P.months[i].items : 0) } })) }); };
+  const MB = monthSheet(B, `Matching ${B.year}`, S ? 'base plan' : scName); const sumB = summaryOf(MB, 'Capacity summary', S ? null : scName);
+  const MS = S ? monthSheet(S, `S ${scName}`.slice(0, 31), scName) : null; const sumS = S ? summaryOf(MS, `Summary ${scName}`.slice(0, 31), scName) : null;
+  // ⚖ the scenario against the base plan, month by month — formulas over the two month sheets
+  let cmp = null;
+  if (S) {
+    cmp = sheet('Compare'); [10, 16, Math.max(16, scName.length + 12), 12, 16, Math.max(16, scName.length + 13), 12, 12, Math.max(14, scName.length + 9), 15].forEach((w, i) => cmp.width(i + 1, w));
+    cmp.set(1, 1, `Matching ${B.year} — ${scName} against the base plan`, 'title');
+    cmp.set(2, 1, 'Each figure reads the two month sheets: change an input there and this follows. Red: the scenario needs more capacity than it has, or is worse than the base plan.', 'note');
+    ['Month', 'Needed — base', `Needed — ${scName}`.slice(0, 40), 'Change', 'Capacity — base', `Capacity — ${scName}`.slice(0, 40), 'Change', 'Load — base', `Load — ${scName}`.slice(0, 40), 'Change (points)'].forEach((x, k) => cmp.set(4, k + 1, x, k ? 'headerNum' : 'header'));
+    const b = (row, c) => `${qs(MB.sh.name)}!${colName(c - 1)}${row}`; const sc_ = (row, c) => `${qs(MS.sh.name)}!${colName(c - 1)}${row}`;
+    const rows = B.months.map((m, k) => [MB.R0 + k, MS.R0 + k, m, S.months[k]]); rows.push([MB.T, MS.T, null, null]);
+    rows.forEach(([rb, rs, mb, ms], k) => { const r = 5 + k; const tot = !mb; const st = tot ? 'intBold' : 'int';
+      cmp.set(r, 1, tot ? 'Year' : mb.label, 'bold');
+      cmp.f(r, 2, b(rb, 7), st, tot ? null : mb.need); cmp.f(r, 3, sc_(rs, 7), st, tot ? null : ms.need); cmp.f(r, 4, `C${r}-B${r}`, st);
+      cmp.f(r, 5, b(rb, 8), st, tot ? null : mb.capacity); cmp.f(r, 6, sc_(rs, 8), st, tot ? null : ms.capacity); cmp.f(r, 7, `F${r}-E${r}`, st);
+      cmp.f(r, 8, b(rb, 9), tot ? 'pctBold' : 'pct', tot ? null : mb.load); cmp.f(r, 9, sc_(rs, 9), tot ? 'pctBold' : 'pct', tot ? null : ms.load); cmp.f(r, 10, `IF(AND(ISNUMBER(H${r}),ISNUMBER(I${r})),I${r}-H${r},"")`, 'pctSigned'); });
+    const last = 5 + rows.length - 1;
+    cmp.cf.push({ ref: `H5:I${last}`, rules: [{ op: 'greaterThan', v: '1', dxf: 'bad' }, { op: 'between', v: '0.85', v2: '1', dxf: 'warn' }, { op: 'between', v: '0', v2: '0.85', dxf: 'good' }] });
+    cmp.cf.push({ ref: `J5:J${last}`, rules: [{ op: 'greaterThan', v: '0.005', dxf: 'bad' }, { op: 'lessThan', v: '-0.005', dxf: 'good' }] });
+    cmp.freeze = { row: 5, col: 2 };
+  }
+  // the charts: needed against capacity and the load — base and scenario side by side when there's a scenario
+  const ch = sheet('Chart'); const cats = MB.sh.full(MB.R0, 1, MB.R1, 1);
+  ch.set(1, 1, `Matching ${B.year} — needed against capacity${S ? ` — base plan and ${scName}` : ''}`, 'title'); ch.set(2, 1, 'It reads the month sheets: change an input there and it follows.', 'note');
+  const col = (M, c) => M.sh.full(M.R0, c, M.R1, c);
+  ch.charts.push({ title: S ? `Needed (bars) against capacity (lines) — base plan and ${scName}` : 'Matching — needed (bars) against capacity (line), by month', cats, fmt: '#,##0', from: [1, 4], to: [16, 26],
+    series: [{ name: S ? 'Needed — base' : 'Needed (÷ OEE)', ref: col(MB, 7), kind: 'bar', color: TECH_COL.Matching }, ...(S ? [{ name: `Needed — ${scName}`, ref: col(MS, 7), kind: 'bar', color: 'F59E0B' }] : []),
+      { name: S ? 'Capacity — base' : 'Capacity', ref: col(MB, 8), kind: 'line', color: '111827' }, ...(S ? [{ name: `Capacity — ${scName}`, ref: col(MS, 8), kind: 'line', color: 'B45309', dash: true }] : [])] });
+  ch.charts.push({ title: S ? `Load by month — base plan and ${scName}` : 'Matching — load by month', cats, pct: true, from: [1, 28], to: [16, 46],
+    series: [{ name: S ? 'Load — base' : 'Load', ref: col(MB, 9), kind: 'line', color: TECH_COL.Matching, markers: true }, ...(S ? [{ name: `Load — ${scName}`, ref: col(MS, 9), kind: 'line', color: 'F59E0B', markers: true }] : [])] });
+  const how = howSheet('CPM Monthly, Matching', `Capacity planning for Matching by month, as on SITHUB's CPM Monthly with Matching picked: each customer's forecast cards × its share through Matching = items, ÷ its Matching OEE = the machine time needed, against the Matching machines${S ? ` — the base plan and ${scName} side by side` : ''}.`, [
+    ['Capacity summary', `The theoretical capacity of each Matching machine and of OTTO and hand match, the demand, what remains, and the forecast alone${S ? ' — for the base plan' : ''}. Its OEE modifier (C4): 1 = demand ÷ OEE, 0 = the raw items against the capacity.`],
+    [MB.sh.name, `Month by month${S ? ', the base plan' : ''}: working days, hours worked and capacity an hour (inputs), cards, items, items needed (÷ OEE), capacity, load, metal items and the biggest customers.`],
+    ...(S ? [[sumS.name, `The same capacity summary for ${scName}.`], [MS.sh.name, `The same month by month with ${scName}'s changes laid over the base plan — its own inputs.`],
+      ['Compare', `${scName} against the base plan, month by month and for the year: needed, capacity and load, and the change.`]] : []),
+    ['Chart', S ? 'Needed against capacity and the load by month, the base plan and the scenario together.' : 'Needed against capacity, and the load, by month.'],
   ]);
-  return buildBook([sum, sh, ch, how], { active: 0 });
+  return buildBook(S ? [sumB, MB.sh, sumS, MS.sh, cmp, ch, how] : [sumB, MB.sh, ch, how], { active: 0 });
 }
 
 // ---- 👷 Headcount: the year by month, as formulas over its inputs (rates, working days, hours a day, efficiency,

@@ -2678,6 +2678,12 @@ async function waitForServer() {
               assert.ok(sk.ratio === 0.2 && sk.ratio_from === 'scenario' && Math.abs(sk.oee_match - 0.6) < 1e-9 && sd.renewals.OTTO.hours.join() === '12', 'Matching scenario: share, OEE points and renewal window');
               const pv = await call('GET', `/cpm/overview?year=${Y}&period=month&flex=0&scenarios=${ms.id}&live=1`);
               assert.ok(pv.scenarios[0].warnings.some((w) => /Matching view/.test(w)), 'perso says a Matching change shows on the Matching view');
+              // ⚖ its Excel: the base plan's sheets, the scenario's beside them and a comparison
+              { const xr = await fetch(`${BASE}/cpm/match/monthly.xlsx?year=${Y}&flex=0&scenario=${ms.id}`, { headers: { 'X-Requested-With': 'TaskManager' } }); assert.equal(xr.status, 200);
+                const xb = require('../src/xlsxread').readBook(Buffer.from(await xr.arrayBuffer()));
+                assert.deepEqual(xb.sheets.map((x) => x.name), ['Capacity summary', `Matching ${Y}`, 'Summary Matching test', 'S Matching test', 'Compare', 'Chart', 'How it works']);
+                const cm = xb.sheet('Compare'); assert.ok(cm.cells.get('B5').f === `'Matching ${Y}'!G6` && cm.cells.get('C5').f === "'S Matching test'!G6" && cm.cells.get('D5').f === 'C5-B5', 'the comparison: formulas over the two month sheets');
+                assert.ok(Math.abs(xb.sheet('S Matching test').cells.get('H6').v - jan.capacity) < 0.5, 'the scenario sheet: its own capacity'); }
               await call('DELETE', `/cpm/scenarios/${ms.id}`); }
             // the customer's OEE measured on the machines ticked for it: items ÷ (run hours × the machine's speed)
             const sqm = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); const dm = new Date(Date.now() - 20 * 864e5).toISOString().slice(0, 10);

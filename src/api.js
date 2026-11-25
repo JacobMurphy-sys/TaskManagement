@@ -3967,7 +3967,9 @@ const cpmMatchDayOf = (req) => { const sc = req.query.scenario ? cpmScenario(req
 router.get('/cpm/match/monthly.xlsx', h((req, res) => {
   const sc = req.query.scenario ? cpmScenario(req, Number(req.query.scenario)) : null;
   const d = cpmCached(req, 'match-monthly', () => { cpmRefresh(); return require('./cpmmatch').monthly({ year: Number(req.query.year) || new Date().getFullYear(), useFlex: req.query.flex !== '0', cards: cpmCards(), changes: sc?.changes || [] }); });
-  sendXlsx(res, `CPM monthly Matching ${d.year}${sc ? ` - ${sc.name}` : ''}`, require('./cpmexport').buildMatchMonthWorkbook(d, { scenario: sc?.name || null }));
+  // a scenario: the base plan beside it, to compare
+  const base = sc ? require('./cpmmatch').monthly({ year: d.year, useFlex: req.query.flex !== '0', cards: cpmCards(), changes: [] }) : null;
+  sendXlsx(res, `CPM monthly Matching ${d.year}${sc ? ` - ${sc.name}` : ''}`, require('./cpmexport').buildMatchMonthWorkbook(d, { scenario: sc?.name || null, base }));
 }));
 router.get('/cpm/match/day', h((req, res) => {
   const sc = req.query.scenario ? cpmScenario(req, Number(req.query.scenario)) : null;

@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'match-export-compare', date: '2026-11-25', area: 'capacity', title: 'Matching scenarios compared in Excel',
+    text: 'The monthly matching workbook for a scenario now has the base plan\'s sheets beside the scenario\'s, a comparison sheet month by month and charts with both, as perso\'s does.' },
   { id: 'day-export-formulas', date: '2026-11-25', area: 'capacity', title: 'Daily Excel: smoothing and shifts as formulas',
     text: 'The daily capacity workbook now works the smoothed day out as formulas, and the hours worked come from shifts, hours a shift and the start time, so changing the shifts in Excel moves everything.' },
   { id: 'day-machine-bands', date: '2026-11-25', area: 'capacity', title: 'Capacity per machine on the daily charts again',
