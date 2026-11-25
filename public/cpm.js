@@ -96,7 +96,7 @@ async function renderCpm(tab) {
   main().innerHTML = `${head}${sub}<div id="cpm-body"><p class="muted">Loading…</p></div>`;
   const body = $('#cpm-body'); cpmFoldable(body, tab);
   $('.cpm-cfg-line')?.addEventListener('click', (e) => { const b = e.target.closest('[data-cpm-line]'); if (!b || b.dataset.cpmLine === cpmLine()) return; store.set('cpmLine', b.dataset.cpmLine); renderCpm(tab); });
-  const mCfg = top === 'config' && cpmLine() === 'match' && ['customers', 'capacity', 'dayset'].includes(tab);
+  const mCfg = top === 'config' && cpmLine() === 'match' && ['customers', 'capacity'].includes(tab);
   body.addEventListener('click', (e) => { const b = e.target.closest('[data-cpm-line]'); if (!b || b.dataset.cpmLine === cpmLine()) return; store.set('cpmLine', b.dataset.cpmLine); renderCpm(tab); });
   const rg = $('#cpm-regen'); if (rg) rg.onclick = () => { cpmRegenNext = true; rg.disabled = true; rg.textContent = '⏳ Generating…'; renderCpm(tab); };
   try {
@@ -316,14 +316,15 @@ async function cpmOverview(body) {
 // ---- CPM Daily: a working day of a month, hour by hour (the CPM daily sheet) ----------------------
 // (settings: Configuration › CPM Daily — only its renewal windows, run periods and shipment times, worked out live)
 async function cpmDay(body, settings = false) {
-  const MX = !settings && cpmLine() === 'match'; // Matching: the same day, its own figures (a technology 'Matching'; items for cards)
+  const MX = cpmLine() === 'match'; // Matching: the same day, its own figures (OTTO and hand match; items for cards) — and in Configuration, its own settings
+  const KEY = MX ? { rnw: 'cpm_match_rnw_share', prio: 'cpm_match_prio_mix', man: 'cpm_match_day_manual', bonus: 'cpm_match_rnw_bonus' } : { rnw: 'cpm_rnw_share', prio: 'cpm_prio_mix', man: 'cpm_day_manual', bonus: 'cpm_rnw_bonus' };
   const dayRegen = cpmRegenNext; // (its comparison, asked for later, is generated again with it)
   const year = Number(store.get('cpmYear', new Date().getFullYear()));
   const month = Number(store.get('cpmDayMonth', new Date().getMonth() + 1));
   const flex = store.get('cpmFlex', true); const scId = settings ? 0 : Number(store.get('cpmDayScenario', 0)) || 0;
   const full = null; // (capacity is always at full speed: the losses are in the OEE)
   const q = `year=${year}&month=${month}&flex=${flex ? 1 : 0}${scId ? `&scenario=${scId}` : ''}${full === null ? '' : `&full=${full ? 1 : 0}`}`;
-  const [d, scs] = await Promise.all([(settings ? api.get(`/cpm/day?${q}&live=1`) : cpmGet(`/cpm/${MX ? 'match/day' : 'day'}?${q}`)).catch((err) => { if (scId) store.set('cpmDayScenario', 0); throw err; }), api.get('/cpm/scenarios')]);
+  const [d, scs] = await Promise.all([(settings ? api.get(`/cpm/${MX ? 'match/day' : 'day'}?${q}&live=1`) : cpmGet(`/cpm/${MX ? 'match/day' : 'day'}?${q}`)).catch((err) => { if (scId) store.set('cpmDayScenario', 0); throw err; }), api.get('/cpm/scenarios')]);
   const H = d.hours; const T = d.techs; const hl = (h) => `${String(h).padStart(2, '0')}:00`; const U = MX ? 'items' : 'cards'; const Ucap = MX ? 'Items' : 'Cards';
   // run periods: an entry per customer (and technology) — periods, or hourly values pasted
   const manShares = (v) => { const out = Array(24).fill(0); const hmm = (x) => { const m = String(x || '').match(/^(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
@@ -578,7 +579,7 @@ async function cpmDay(body, settings = false) {
     <div class="card"><h3 class="pl-h">Renewal windows <span class="muted small">— the hours each technology runs renewals (click to toggle); ${d.scenario?.changes?.some((c) => c.type === 'rnw_window') ? 'the scenario sets some — change them in Scenarios' : 'a scenario can set its own'}</span></h3>${win}
       <div class="row" style="gap:10px;margin-top:8px;align-items:center;flex-wrap:wrap"><label class="row small">Renewal OEE: the customer's + <input type="number" id="cpm-rnw-bonus" min="0" max="50" step="1" value="${Math.round(d.bonus * 100)}" style="width:60px"> points</label>
         <div class="spacer"></div><span class="small pl-warn" id="cpm-win-dirty" data-sb-dirty hidden>Not saved yet</span><button class="small" id="cpm-win-undo" data-sb-undo disabled>Undo changes</button><button class="small primary" id="cpm-win-save" data-sb-save="Renewal windows" disabled>💾 Save</button></div></div>
-    <div class="card"><h3 class="pl-h">Run periods <span class="muted small">— the % of each customer's daily work typically produced in each hour, as the Daily split sheet. Greyed: <b>when its cards were produced</b> (timing report, last 4 months); click into a row to set it (it starts from those figures), or <b>Set every row from when produced</b>. Paste from Excel into any cell to fill right and down. A customer's own row beats “Everyone else”, which beats what's learned.</span></h3>
+    <div class="card"><h3 class="pl-h">Run periods <span class="muted small">— the % of each customer's daily work typically produced in each hour, as the Daily split sheet. Greyed: <b>${MX ? 'when its Matching jobs finished' : 'when its cards were produced'}</b> (${MX ? 'Matching timing report' : 'timing report'}, last 4 months); click into a row to set it (it starts from those figures), or <b>Set every row from when produced</b>. Paste from Excel into any cell to fill right and down. A customer's own row beats “Everyone else”, which beats what's learned.</span></h3>
       <div class="kdb-scroll"><table class="log small cpm-rp"><thead><tr><th>Customer</th>${H.map((h) => `<th class="num">${String(h).padStart(2, '0')}</th>`).join('')}<th class="num">Total</th><th></th></tr></thead><tbody>${gridCusts.map(gridRow).join('')}</tbody></table></div>
       <div class="row" style="gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center"><button class="small" id="cpm-man-prod" title="Fill every row not set yet with when its cards were produced (the greyed figures) — then Save">⏱ Set every row from when produced</button><span class="small muted">A row that doesn't add up to 100% is scaled to it when used. Rows for one technology only (set before) stay as they are.</span>
         <div class="spacer"></div><span class="small pl-warn" id="cpm-man-dirty" data-sb-dirty hidden>Not saved yet</span><button class="small" id="cpm-man-undo" data-sb-undo disabled>Undo changes</button><button class="small primary" id="cpm-man-save" data-sb-save="Run periods" disabled>💾 Save</button></div></div>
@@ -592,7 +593,7 @@ async function cpmDay(body, settings = false) {
   if (settings) {
     body.innerHTML = `<div class="row pl-filters" style="gap:10px;flex-wrap:wrap;align-items:center">
       <select id="cpm-dayset-month" title="The month whose customers and renewals are shown">${MONTHS.map((m, i) => `<option value="${i + 1}" ${i + 1 === month ? 'selected' : ''}>${m} ${year}</option>`).join('')}</select>
-      <span class="small muted">The hours renewals run, when each customer's day is produced and the shipment cut-offs used by CPM Daily. Saving here marks it out of date — ⟳ Regenerate it there.</span></div>${editCards}`;
+      <span class="small muted">${MX ? 'Matching\'s own: the hours its renewals run (OTTO and hand match), when each customer\'s Matching day is done, its renewal and priority splits — and the shipment times, shared with perso.' : 'The hours renewals run, when each customer\'s day is produced and the shipment cut-offs used by CPM Daily.'} Saving here marks it out of date — ⟳ Regenerate it there.</span></div>${editCards}`;
     $('#cpm-dayset-month').onchange = (e) => { store.set('cpmDayMonth', Number(e.target.value)); renderCpm('dayset'); };
   } else {
   body.innerHTML = `
@@ -617,7 +618,7 @@ async function cpmDay(body, settings = false) {
     ${campCard()}
     ${techsCard()}
     ${MX ? '' : `<div class="card" id="cpm-cmp"><h3 class="pl-h">Typical day · worst case · all days averaged <span class="muted small">— the same day with each way of learning when the work comes in: a typical day (each day's clump, at its usual time), the worst case (each customer's busy day lately — 1 in 10 of its working days bigger — ÷ its average working day, at most ×${d.peak_cap || 3}, applied to the forecast; the most clumped day seen, at its usual time) and all days averaged (wide). Customers whose run periods are set by hand are the same in all three.</span></h3><p class="small muted">Working it out…</p></div>`}
-    <div class="small muted cpm-set-link">${MX ? 'Matching\'s renewal window, OEE and share through Matching are set in <a href="#/cpm/match" title="Configuration, with Matching picked">Configuration › Matching</a>; shipment times in <a href="#/cpm/dayset">Configuration › CPM Daily</a>.' : 'Renewal windows, run periods and shipment times are set in <a href="#/cpm/dayset">Configuration › CPM Daily</a>.'}</div>
+    <div class="small muted cpm-set-link">${MX ? 'Matching\'s renewal windows, run periods, renewal and priority splits are set in <a href="#/cpm/dayset">Configuration › CPM Daily</a> with Matching picked (shipment times shared with perso); its OEE and share through Matching in Configuration › Customers and Capacity.' : 'Renewal windows, run periods and shipment times are set in <a href="#/cpm/dayset">Configuration › CPM Daily</a>.'}</div>
     <div class="card"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h3 class="pl-h" style="margin:0">Customers hour by hour <span class="muted small">— ${view === 'cards' ? 'cards' : 'capacity needed (÷ OEE)'} per hour of daily work; renewals go in their windows (set in Configuration)</span></h3><span class="row" style="gap:6px"><button type="button" class="small primary" data-cpm-drill title="Open the day up: click an hour to see who and what feeds it, a customer for its day">🔎 Drill down</button><a class="button small" href="/api/cpm/day/customers.xlsx?${q}&view=${view}${MX ? '&line=match' : ''}" download title="This table as an Excel workbook: every customer and technology (not only those shown), its hours as shown here, and the totals">⬇ Excel</a></span></div>${gantt}</div>`;
   $('#cpm-day-month').onchange = (e) => { store.set('cpmDayMonth', Number(e.target.value)); renderCpm('day'); };
   $('#cpm-day-flex').onchange = (e) => { store.set('cpmFlex', e.target.checked); renderCpm('day'); };
@@ -693,7 +694,7 @@ async function cpmDay(body, settings = false) {
   $$('.cpm-rnwc').forEach((el) => { el.oninput = rnwDirty; });
   rnwDirty();
   $('#cpm-rnwc-undo').onclick = () => { for (const el of $$('.cpm-rnwc')) { const v = (d.rnw_share_typed || {})[el.dataset.k]; el.value = v === undefined || v === null ? '' : Math.round(v * 1000) / 10; } rnwDirty(); };
-  $('#cpm-rnwc-save').onclick = async () => { try { await api.put('/cpm/settings', { cpm_rnw_share: JSON.stringify(rnwNow()) }); toast('Renewal splits saved'); await redraw(); } catch (err) { toast(err.message, 'error'); } };
+  $('#cpm-rnwc-save').onclick = async () => { try { await api.put('/cpm/settings', { [KEY.rnw]: JSON.stringify(rnwNow()) }); toast('Renewal splits saved'); await redraw(); } catch (err) { toast(err.message, 'error'); } };
   // the priority of the daily work: typed here, saved together; both blank goes back to learned
   const prc0 = JSON.stringify(d.prio_typed || {});
   const prcNow = () => { const o = { ...(d.prio_typed || {}) }; const by = new Map();
@@ -705,7 +706,7 @@ async function cpmDay(body, settings = false) {
     for (const el of $$('.cpm-prc')) el.classList.toggle('cpm-manual', String(el.value).trim() !== ''); };
   $$('.cpm-prc').forEach((el) => { el.oninput = prcDirty; }); prcDirty();
   $('#cpm-prc-undo').onclick = () => { for (const el of $$('.cpm-prc')) { const x = (d.prio_typed || {})[el.dataset.tri]; el.value = x && x[el.dataset.k] !== undefined ? Math.round(x[el.dataset.k] * 1000) / 10 : ''; } prcDirty(); };
-  $('#cpm-prc-save').onclick = async () => { try { await api.put('/cpm/settings', { cpm_prio_mix: JSON.stringify(prcNow()) }); toast('Priorities saved'); await redraw(); } catch (err) { toast(err.message, 'error'); } };
+  $('#cpm-prc-save').onclick = async () => { try { await api.put('/cpm/settings', { [KEY.prio]: JSON.stringify(prcNow()) }); toast('Priorities saved'); await redraw(); } catch (err) { toast(err.message, 'error'); } };
   // renewal windows: ticked here, saved together (no redraw on every click)
   const pend = JSON.parse(JSON.stringify(d.windows || {})); const bonus0 = String(Math.round(d.bonus * 100));
   const dirty = () => { const changed = JSON.stringify(T.map((t) => [...(pend[t] || [])].sort((a, c) => a - c))) !== JSON.stringify(T.map((t) => [...(d.windows[t] || [])].sort((a, c) => a - c))) || $('#cpm-rnw-bonus').value !== bonus0;
@@ -718,7 +719,7 @@ async function cpmDay(body, settings = false) {
   $('#cpm-rnw-bonus').oninput = dirty;
   $('#cpm-win-undo').onclick = () => { for (const t of T) pend[t] = [...(d.windows[t] || [])]; $$('[data-win]').forEach((b) => b.classList.toggle('on', (pend[b.dataset.win] || []).includes(Number(b.dataset.h)))); T.forEach(note); $('#cpm-rnw-bonus').value = bonus0; dirty(); };
   $('#cpm-win-save').onclick = async () => { const btn = $('#cpm-win-save'); btn.disabled = true; btn.textContent = 'Saving…';
-    try { await api.put('/cpm/settings', { cpm_rnw_hours: JSON.stringify(pend), cpm_rnw_bonus: String((Number($('#cpm-rnw-bonus').value) || 0) / 100) }); toast('Renewal windows saved'); await redraw(); } catch (err) { toast(err.message, 'error'); btn.disabled = false; btn.textContent = '💾 Save'; } };
+    try { await api.put('/cpm/settings', { cpm_rnw_hours: JSON.stringify(MX ? { ...(d.rnw_hours_all || {}), ...pend } : pend), [KEY.bonus]: String((Number($('#cpm-rnw-bonus').value) || 0) / 100) }); toast('Renewal windows saved'); await redraw(); } catch (err) { toast(err.message, 'error'); btn.disabled = false; btn.textContent = '💾 Save'; } };
   // run periods grid: edited here, saved together
   const gridNow = () => { const o = {}; for (const [k, v] of Object.entries(d.manual || {})) if (!k.endsWith('|*')) o[k] = v; // a technology's own rows stay
     for (const tr of $$('.cpm-grow.set')) { const byDay = [...tr.querySelectorAll('.cpm-gc')].map((i) => Math.max(0, Number(String(i.value).replace('%', '').replace(',', '.')) || 0));
@@ -741,7 +742,7 @@ async function cpmDay(body, settings = false) {
   wireGrid();
   $('#cpm-man-prod').onclick = () => { $$('.cpm-grow').forEach((tr) => startRow(tr)); };
   $('#cpm-man-undo').onclick = () => { $('.cpm-rp tbody').innerHTML = gridCusts.map(gridRow).join(''); wireGrid(); manDirty(); };
-  $('#cpm-man-save').onclick = async () => { try { await api.put('/cpm/settings', { cpm_day_manual: JSON.stringify(gridNow()) }); toast('Run periods saved'); await redraw(); } catch (err) { toast(err.message, 'error'); } };
+  $('#cpm-man-save').onclick = async () => { try { await api.put('/cpm/settings', { [KEY.man]: JSON.stringify(gridNow()) }); toast('Run periods saved'); await redraw(); } catch (err) { toast(err.message, 'error'); } };
   // shipment times: edited here, saved together
   const ship0 = JSON.stringify((d.ship_times.times || []).map((x) => ({ time: x.time, label: x.label || '' })));
   const shipNow = () => $$('.cpm-ship-row').map((r) => ({ time: r.querySelector('.cpm-ship-t').value, label: r.querySelector('.cpm-ship-l').value.trim() })).filter((x) => /^\d{2}:\d{2}$/.test(x.time));
