@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'match-line-force', date: '2026-11-25', area: 'capacity', title: 'Keep a customer\'s work to OTTO or hand matching',
+    text: 'Each customer\'s daily work and renewals can each be kept to the OTTOs or to hand matching, instead of split by its learned hand share.',
+    points: ['Set separately for daily work and renewals', 'Used by the daily and monthly plans alike'] },
   { id: 'excel-how', date: '2026-11-25', area: 'reporting', title: 'A "How it works" sheet in every export',
     text: 'Each Excel export now ends with a short sheet explaining what it is, what each sheet shows and how to read it.' },
   { id: 'excel-brand', date: '2026-11-25', area: 'look', title: 'Excel exports in the company colours',
@@ -334,6 +337,7 @@ window.TIMELINE = {
 
   // 🎬 The blooper reel: the hidden easter egg (click the logo five times, type "oops", or find the 🐞)
   BLOOPERS: [
+  { date: '2026-11-25', title: 'The metal was in the wrong drawer', text: 'Adding two new columns to the matching customers table showed that the metal figures had always sat under the hand-match heading, and the hand figures under metal.', lesson: 'Put the cells in the same order as the headings.' },
   { date: '2026-11-23', title: 'Names, again', text: 'Overview became CPM Monthly, Day by hour became CPM Daily and Forecast vs actual became Flex — the names the team had been using for them all along.', lesson: 'Ask what people call a thing before naming it.' },
   { date: '2026-11-23', title: 'Nothing to sort. in the top bar', text: 'Taking the emoji out of the names also took one out of the middle of a sentence: the hint that pointed at the note icon in the top bar suddenly read "Nothing to sort. in the top bar". The sweep was taught that names start with a capital letter; icons used as words in a sentence were put back.', lesson: 'A find-and-replace across a whole app needs a read-through, not just a test run.' },
   { date: '2026-11-23', title: 'The losses that were taken off twice', text: 'The day model divided the work by OEE to allow for breaks and stoppages, then took the breaks off the machines\' hours as well, so every hour looked fuller than it was. Putting it next to the old spreadsheet gave it away.', lesson: 'Count a loss in one place, and check new models against the old one before trusting them.' },

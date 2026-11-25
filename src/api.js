@@ -3940,7 +3940,7 @@ const cpmScenario = (req, id) => {
   if (!sc || (sc.owner !== cpmOwner(req) && !sc.shared)) throw new HttpError(404, 'No such scenario');
   return { ...sc, changes: JSON.parse(sc.changes || '[]'), shared: !!sc.shared, mine: sc.owner === cpmOwner(req) };
 };
-const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines', 'cpm_rnw_hours', 'cpm_rnw_bonus', 'cpm_rnw_share', 'cpm_hour_full', 'cpm_day_profile', 'cpm_day_shape', 'cpm_cutoffs', 'cpm_cutoff_default', 'cpm_cutoff_cust', 'cpm_day_manual', 'cpm_campaigns', 'cpm_shift_hours', 'cpm_match_oee', 'cpm_match_ratio', 'cpm_match_oee_machines', 'cpm_match_cust_oee', 'cpm_prio_mix', 'cpm_fc_ignore', 'cpm_peak_cap', 'cpm_match_metal', 'cpm_match_hand', 'cpm_match_line_of', 'cpm_match_rnw_share', 'cpm_match_prio_mix', 'cpm_match_day_manual', 'cpm_match_rnw_bonus'];
+const CPM_SETTINGS = ['cpm_shifts', 'cpm_hours', 'cpm_holidays', 'cpm_oee_default', 'cpm_machines', 'cpm_rnw_hours', 'cpm_rnw_bonus', 'cpm_rnw_share', 'cpm_hour_full', 'cpm_day_profile', 'cpm_day_shape', 'cpm_cutoffs', 'cpm_cutoff_default', 'cpm_cutoff_cust', 'cpm_day_manual', 'cpm_campaigns', 'cpm_shift_hours', 'cpm_match_oee', 'cpm_match_ratio', 'cpm_match_oee_machines', 'cpm_match_cust_oee', 'cpm_prio_mix', 'cpm_fc_ignore', 'cpm_peak_cap', 'cpm_match_metal', 'cpm_match_hand', 'cpm_match_line_of', 'cpm_match_rnw_share', 'cpm_match_prio_mix', 'cpm_match_day_manual', 'cpm_match_rnw_bonus', 'cpm_match_force'];
 router.get('/cpm/overview', h((req, res) => {
   // the scenarios asked for must be ones this person may see, whether worked out now or kept
   String(req.query.scenarios || '').split(',').filter(Boolean).slice(0, 2).forEach((id) => cpmScenario(req, Number(id)));
