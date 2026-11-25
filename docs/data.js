@@ -43,6 +43,8 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'excel-brand', date: '2026-11-25', area: 'look', title: 'Excel exports in the company colours',
+    text: 'Workbooks exported from SITHUB now use the same colours as the app: brand-coloured headers with white text, lighter section bands, tinted totals and coloured sheet tabs.' },
   { id: 'day-export-smoothed', date: '2026-11-25', area: 'capacity', title: 'Smoothed day in the daily Excel',
     text: 'The daily capacity workbook, for perso and matching, now has the smoothed day beside the day as it comes in: its own sheet and charts, with what\'s pushed to the next day.',
     points: ['A 1 / 0 switch per technology to take it off the charts, e.g. OTTO or hand matching on its own'] },

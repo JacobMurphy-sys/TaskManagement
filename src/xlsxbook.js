@@ -10,30 +10,34 @@ const { zip, xmlEsc, colName } = require('./xlsx');
 const ref = (r, c, abs = '') => `${abs}${colName(c - 1)}${abs}${r}`;
 const qs = (name) => `'${String(name).replace(/'/g, "''")}'`;
 
-// fonts: 0 normal, 1 bold, 2 title, 3 note, 4 input (blue), 5 white bold
-// fills: 0 none, 1 gray125, 2 header grey, 3 input yellow, 4 section blue, 5 override grey
-// borders: 0 none, 1 bottom, 2 top
+// 🎨 In the company's colours, as the app: the deep brand colour (#430099) for headers (white text) and titles, the
+// light brand colour (#7382E6) for section bands, a pale tint of it under the totals; inputs stay blue on yellow.
+// fonts: 0 normal, 1 bold, 2 title, 3 note, 4 input (blue), 5 white bold, 6 brand bold
+// fills: 0 none, 1 gray125, 2 header (brand), 3 input yellow, 4 section (light brand), 5 override grey, 6 total tint
+// borders: 0 none, 1 bottom (light brand), 2 top (brand)
 const STYLES = {
-  text: [0, 0, 0, 0], bold: [0, 1, 0, 0], header: [0, 1, 2, 1], int: [3, 0, 0, 0], intBold: [3, 1, 0, 2], pct: [9, 0, 0, 0], pctBold: [9, 1, 0, 2],
+  text: [0, 0, 0, 0], bold: [0, 1, 0, 0], header: [0, 5, 2, 1], int: [3, 0, 0, 0], intBold: [3, 6, 6, 2], pct: [9, 0, 0, 0], pctBold: [9, 6, 6, 2],
   title: [0, 2, 0, 0], note: [0, 3, 0, 0], input: [3, 4, 3, 0], inputPct: [9, 4, 3, 0], section: [0, 5, 4, 0], fixed: [3, 0, 5, 0], dec: [164, 0, 0, 0], inputDec: [164, 4, 3, 0],
-  headerNum: [0, 1, 2, 1, 'right'], wrap: [0, 0, 0, 0, 'wrap'], pctSigned: [165, 0, 0, 0], date: [14, 0, 0, 0],
-  money: [4, 0, 0, 0], moneyBold: [4, 1, 0, 2], inputMoney: [4, 4, 3, 0], inputText: [0, 4, 3, 0], inputDate: [14, 4, 3, 0], inputWrap: [0, 4, 3, 0, 'wrap'],
+  headerNum: [0, 5, 2, 1, 'right'], wrap: [0, 0, 0, 0, 'wrap'], pctSigned: [165, 0, 0, 0], date: [14, 0, 0, 0],
+  money: [4, 0, 0, 0], moneyBold: [4, 6, 6, 2], inputMoney: [4, 4, 3, 0], inputText: [0, 4, 3, 0], inputDate: [14, 4, 3, 0], inputWrap: [0, 4, 3, 0, 'wrap'],
 };
 const STYLE_IDS = Object.fromEntries(Object.keys(STYLES).map((k, i) => [k, i]));
 const STYLES_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
   + '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
   + '<numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0.0"/><numFmt numFmtId="165" formatCode="+0%;-0%;0%"/></numFmts>'
-  + '<fonts count="6"><font><sz val="10"/><name val="Calibri"/></font><font><b/><sz val="10"/><name val="Calibri"/></font>'
-  + '<font><b/><sz val="14"/><color rgb="FF1F3B63"/><name val="Calibri"/></font><font><i/><sz val="9"/><color rgb="FF6B7280"/><name val="Calibri"/></font>'
-  + '<font><sz val="10"/><color rgb="FF1D4ED8"/><name val="Calibri"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts>'
-  + '<fills count="6"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>'
-  + '<fill><patternFill patternType="solid"><fgColor rgb="FFE7EBF0"/><bgColor indexed="64"/></patternFill></fill>'
+  + '<fonts count="7"><font><sz val="10"/><name val="Calibri"/></font><font><b/><sz val="10"/><name val="Calibri"/></font>'
+  + '<font><b/><sz val="15"/><color rgb="FF430099"/><name val="Calibri"/></font><font><i/><sz val="9"/><color rgb="FF6B7280"/><name val="Calibri"/></font>'
+  + '<font><sz val="10"/><color rgb="FF1D4ED8"/><name val="Calibri"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>'
+  + '<font><b/><sz val="10"/><color rgb="FF2E006B"/><name val="Calibri"/></font></fonts>'
+  + '<fills count="7"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>'
+  + '<fill><patternFill patternType="solid"><fgColor rgb="FF430099"/><bgColor indexed="64"/></patternFill></fill>'
   + '<fill><patternFill patternType="solid"><fgColor rgb="FFFFF7D6"/><bgColor indexed="64"/></patternFill></fill>'
-  + '<fill><patternFill patternType="solid"><fgColor rgb="FF1F3B63"/><bgColor indexed="64"/></patternFill></fill>'
-  + '<fill><patternFill patternType="solid"><fgColor rgb="FFF1F1F1"/><bgColor indexed="64"/></patternFill></fill></fills>'
+  + '<fill><patternFill patternType="solid"><fgColor rgb="FF7382E6"/><bgColor indexed="64"/></patternFill></fill>'
+  + '<fill><patternFill patternType="solid"><fgColor rgb="FFF1F1F1"/><bgColor indexed="64"/></patternFill></fill>'
+  + '<fill><patternFill patternType="solid"><fgColor rgb="FFEEF0FC"/><bgColor indexed="64"/></patternFill></fill></fills>'
   + '<borders count="3"><border><left/><right/><top/><bottom/><diagonal/></border>'
-  + '<border><left/><right/><top/><bottom style="thin"><color rgb="FF9CA3AF"/></bottom><diagonal/></border>'
-  + '<border><left/><right/><top style="thin"><color rgb="FF9CA3AF"/></top><bottom/><diagonal/></border></borders>'
+  + '<border><left/><right/><top/><bottom style="medium"><color rgb="FF7382E6"/></bottom><diagonal/></border>'
+  + '<border><left/><right/><top style="thin"><color rgb="FF430099"/></top><bottom/><diagonal/></border></borders>'
   + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
   + `<cellXfs count="${Object.keys(STYLES).length}">${Object.values(STYLES).map(([n, f, fi, b, al]) => `<xf numFmtId="${n}" fontId="${f}" fillId="${fi}" borderId="${b}" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"${al ? ` applyAlignment="1"><alignment ${al === 'wrap' ? 'wrapText="1" vertical="top"' : 'horizontal="right"'}/></xf>` : '/>'}`).join('')}</cellXfs>`
   + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
@@ -85,6 +89,7 @@ function sheetXml(sh, drawingRel) {
     : `<cfRule type="cellIs" dxfId="${DXF[rule.dxf]}" priority="${prio++}" operator="${rule.op}"><formula>${rule.v}</formula>${rule.v2 !== undefined ? `<formula>${rule.v2}</formula>` : ''}</cfRule>`)).join('')}</conditionalFormatting>`).join('');
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    + '<sheetPr><tabColor rgb="FF430099"/></sheetPr>'
     + `<sheetViews><sheetView workbookViewId="0" zoomScale="90">${pane}</sheetView></sheetViews><sheetFormatPr defaultRowHeight="13.5"/>`
     + (widths.length ? `<cols>${widths.map(([c, w]) => `<col min="${c}" max="${c}" width="${w}" customWidth="1"/>`).join('')}</cols>` : '')
     + `<sheetData>${data}</sheetData>`
