@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { parseQuick, nextOccurrence, shiftKey, dateKey } = require('./dates');
-const { buildXlsx } = require('./xlsx');
+const { buildXlsx, howList } = require('./xlsx');
 const { RECURRENCES } = require('./schema');
 const charter = require('./charter');
 const netfile = require('./netfile');
@@ -1570,7 +1570,7 @@ router.get('/tickets/export.xlsx', h((req, res) => {
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${file}"; filename*=UTF-8''${encodeURIComponent(file)}`);
   const W = [11, 9, 40, 11, 9, 18, 16, 22, 60, 40, 16, 40];
-  res.send(buildXlsx([{ name: 'Tickets', columns: head.map((h, i) => ({ header: h, width: W[i] })), rows: data }]));
+  res.send(buildXlsx([{ name: 'Tickets', columns: head.map((h, i) => ({ header: h, width: W[i] })), rows: data }, howList('Tickets', ['The tickets as shown on the Tickets page when exported: one row per ticket, with who raised it, what it\'s about, its status and dates.'])]));
 }));
 // one ticket, for the popout a message about it opens (whoever sent it may not use the Tickets page)
 router.get('/tickets/:id', h((req, res) => {
@@ -3741,6 +3741,7 @@ router.get('/plan/learn.xlsx', h((req, res) => {
   const file = `Planning learned ${new Date().toISOString().slice(0, 10)} (${L.days} days).xlsx`;
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${file}"; filename*=UTF-8''${encodeURIComponent(file)}`);
+  sheets.push(howList('What Planning has learned', ['What Production has learned from the history: a sheet per finding (Findings first) — machine speeds, OEE, cards off their kind, jobs over their time, remakes, what ran late and Matching speeds — with the figures behind each.', 'Use it to check a speed or OEE before setting it in Production › Setup.']));
   res.send(buildXlsx(sheets));
 }));
 router.get('/plan/history', h((req, res) => {
@@ -4119,7 +4120,7 @@ router.get('/cpm/day/customers.xlsx', h((req, res) => {
   const name = `Customers hour by hour ${MXU ? 'Matching ' : ''}${d.label}${d.scenario ? ` - ${d.scenario.name}` : ''}${cards ? (MXU ? ' (items)' : ' (cards)') : ' (capacity needed)'}`.replace(/[\\/:*?"<>|]/g, ' ').slice(0, 120);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '')}.xlsx"; filename*=UTF-8''${encodeURIComponent(name)}.xlsx`);
-  res.send(require('./xlsx').buildXlsx([{ name: cards ? 'Cards by hour' : 'Needed by hour', columns, rows }]));
+  res.send(require('./xlsx').buildXlsx([{ name: cards ? 'Cards by hour' : 'Needed by hour', columns, rows }, howList('Customers hour by hour', [`CPM Daily's "Customers hour by hour" for a working day: a row per customer and technology, its ${cards ? 'cards' : 'capacity needed (÷ OEE)'} of daily work in each hour of the day, and the totals.`, 'Renewals aren\'t in it: they run in their own windows (see the CPM Daily workbook).'])]));
 }));
 // a customer's renewal share typed in (blank: learned again)
 router.put('/cpm/day/renewals', h((req, res) => {
@@ -5061,6 +5062,7 @@ router.get('/export.xlsx', h((req, res) => {
   const file = `SITHUB - ${name} - ${dateKey(new Date())}.xlsx`;
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${file}"; filename*=UTF-8''${encodeURIComponent(file)}`);
+  sheets.push(howList(scope === 'ideas' ? 'Ideas' : scope === 'project' ? 'Project' : 'Everything', ['A sheet per kind of record, as in SITHUB when exported: tasks, phases, team, meetings, ideas, notes and costs (those there are).', 'Each row is one record; dates are real dates, so they sort and filter.']));
   res.send(buildXlsx(sheets));
 }));
 

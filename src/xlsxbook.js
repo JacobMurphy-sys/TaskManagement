@@ -18,7 +18,7 @@ const qs = (name) => `'${String(name).replace(/'/g, "''")}'`;
 const STYLES = {
   text: [0, 0, 0, 0], bold: [0, 1, 0, 0], header: [0, 5, 2, 1], int: [3, 0, 0, 0], intBold: [3, 6, 6, 2], pct: [9, 0, 0, 0], pctBold: [9, 6, 6, 2],
   title: [0, 2, 0, 0], note: [0, 3, 0, 0], input: [3, 4, 3, 0], inputPct: [9, 4, 3, 0], section: [0, 6, 4, 0], fixed: [3, 0, 5, 0], dec: [164, 0, 0, 0], inputDec: [164, 4, 3, 0],
-  headerNum: [0, 5, 2, 1, 'right'], wrap: [0, 0, 0, 0, 'wrap'], pctSigned: [165, 0, 0, 0], date: [14, 0, 0, 0],
+  headerNum: [0, 5, 2, 1, 'right'], wrap: [0, 0, 0, 0, 'wrap'], boldWrap: [0, 1, 0, 0, 'wrap'], pctSigned: [165, 0, 0, 0], date: [14, 0, 0, 0],
   money: [4, 0, 0, 0], moneyBold: [4, 6, 6, 2], inputMoney: [4, 4, 3, 0], inputText: [0, 4, 3, 0], inputDate: [14, 4, 3, 0], inputWrap: [0, 4, 3, 0, 'wrap'],
 };
 const STYLE_IDS = Object.fromEntries(Object.keys(STYLES).map((k, i) => [k, i]));
@@ -130,6 +130,23 @@ function drawingXml(charts, firstId) {
     + '</xdr:wsDr>';
 }
 
+// 📘 a short "How it works" sheet for a workbook: what it is, each sheet in a line, and how to use it.
+// items: [[sheet or topic, what it says]]; the colour key and "export again" are added for every formatted workbook
+function howSheet(title, intro, items, { inputs = true } = {}) {
+  const sh = sheet('How it works'); sh.width(1, 3).width(2, 28).width(3, 110);
+  sh.set(1, 2, `How it works — ${title}`, 'title'); sh.set(2, 2, 'What it is', 'boldWrap'); sh.set(2, 3, intro, 'wrap'); let r = 4;
+  sh.set(r, 2, 'Sheet', 'header'); sh.set(r, 3, 'What it shows', 'header'); r++;
+  for (const [k, v] of items) { sh.set(r, 2, k, 'boldWrap'); sh.set(r, 3, v, 'wrap'); r++; }
+  r++; sh.set(r, 2, 'Reading it', 'section'); sh.set(r, 3, '', 'section'); r++;
+  const notes = [
+    ...(inputs ? [['Inputs', 'Cells in blue on yellow are inputs: change one and every formula, total and chart that reads it follows (Excel works the workbook out again when it opens).']] : []),
+    ['Colours', 'Red: over capacity or short (load over 100%, a negative remainder); amber: 85–100% loaded; green: under 85%. Grey figures are fixed (e.g. set by a scenario for one period).'],
+    ['Up to date?', 'The figures are as SITHUB had them when exported. After changing a setting, a forecast or a scenario in SITHUB, export again.'],
+  ];
+  for (const [k, v] of notes) { sh.set(r, 2, k, 'boldWrap'); sh.set(r, 3, v, 'wrap'); r++; }
+  return sh;
+}
+
 function buildBook(sheets, { active = 0 } = {}) {
   const files = {}; const ct = []; let chartNo = 0; let drawNo = 0;
   sheets.forEach((sh, i) => {
@@ -165,4 +182,4 @@ function buildBook(sheets, { active = 0 } = {}) {
   });
 }
 
-module.exports = { sheet, buildBook, ref, qs };
+module.exports = { sheet, buildBook, ref, qs, howSheet };

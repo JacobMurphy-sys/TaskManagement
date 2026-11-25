@@ -4,7 +4,7 @@
 // needs (÷ OEE), the machines' hours and capacity, and a summary per technology — the figures as the
 // app worked them out, but as formulas over the inputs (split, OEE, availability, speed, shifts,
 // hours), so they can be changed in Excel. Then charts, the forecast check and the scenarios.
-const { sheet, buildBook, qs } = require('./xlsxbook');
+const { sheet, buildBook, qs, howSheet } = require('./xlsxbook');
 const { colName } = require('./xlsx');
 
 // the CPM workbook's technology colours (DOD teal, Laser purple, Emboss black — a dark grey for bars)
@@ -318,7 +318,15 @@ function buildCpmWorkbook({ base, scenarios = [], period, flex, sources, CARD_FI
       machines: b.mk.map((x, k) => ({ label: `${x.name} — ${x.tech}`, f: (i) => ref(b.rMc0 + k, i), v: () => 0 })),
       groups: b.res.techs.map((t) => ({ key: t, label: t, cap: { f: (i) => ref(b.rows[t].cap, i), v: (i) => P[i].techs[t].capacity || 0 },
         need: { f: (i) => ref(b.rows[t].need, i), v: (i) => P[i].techs[t].need || 0 }, raw: { f: (i) => ref(b.rows[t].fc, i), v: (i) => P[i].techs[t].demand || 0 } })) }); });
-  const sheets = [sums[0], ...built.map((b) => b.sh), ...sums.slice(1), ch, fcs, ab];
+  const how = howSheet('CPM Monthly', `Capacity planning for perso by ${period === 'week' ? 'week' : 'month'}, as on SITHUB's CPM Monthly: the forecast turned into the machine time it needs, against the machines' capacity — the base plan${built.length > 1 ? ' and each scenario compared' : ''}.`, [
+    ['Capacity summary', 'The year at a glance: the theoretical capacity of each machine and technology (speed × hours, no OEE), the demand, what capacity remains, and the forecast alone. Its OEE modifier (C4): 1 = demand ÷ OEE (the capacity it needs), 0 = the raw forecast against the capacity.'],
+    [built[0].sh.name, 'The plan itself: working time, each customer\'s forecast split over the technologies (with its OEE), the capacity it needs, each machine\'s hours and capacity, and per technology the capacity, needed, open, load, forecast and actual.'],
+    ...(built.length > 1 ? [['A sheet per scenario', 'The same plan with the scenario\'s changes laid over it (its name on the tab), and its own Summary sheet.']] : []),
+    ['Charts', 'Native Excel charts reading the plan sheets: needed against capacity, load, forecast against actual.'],
+    ['Forecast check', 'The forecast as SITHUB read it, to check against the source files.'],
+    ['Scenarios & notes', 'What each scenario changes, and notes on how the figures are worked out.'],
+  ]);
+  const sheets = [sums[0], ...built.map((b) => b.sh), ...sums.slice(1), ch, fcs, ab, how];
   return buildBook(sheets, { active: 0 });
 }
 
@@ -496,7 +504,13 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   if (MX) { // what's different on Matching, said once at the top
     sh.set(2, 1, `Forecast as read in ${d.forecast_as_of || '—'} · ${d.flex ? 'flex applied' : 'no flex'} · Matching: each customer's forecast cards × its share through Matching = items (Month); OEE = its Matching OEE ÷ its speed factor (its own Matching speed, metal cards at the metal machines' speed), so items ÷ OEE is machine time at the machines' usual speed; renewals = its Low priority Matching work orders, at the renewal OEE; each day spread as its Matching runs ended (Hour profile)`, 'note');
   }
-  return buildBook([sh, pr, sm, ch]);
+  const how = howSheet(MX ? 'CPM Daily, Matching' : 'CPM Daily', `A working day in ${d.label} hour by hour, as on SITHUB's CPM Daily: each customer's ${MX ? 'Matching items' : 'cards'} a day — daily work and renewals — spread over the hours, against the capacity of ${MX ? 'the OTTOs and the hand-match stations' : 'the machines'}.`, [
+    [sh.name, `A row per customer and ${MX ? 'line (OTTO, hand match)' : 'technology'}: its month's volume, renewal %, OEE, the daily work and renewals a day, and what it needs each hour. Below: the renewals over their windows, each machine's capacity hour by hour, and the day per ${MX ? 'line' : 'technology'} (needed, capacity, load, carried over). Row 5: a 1 / 0 per ${MX ? 'line' : 'technology'} — 0 takes it off the charts.`],
+    ['Hour profile', 'The share of each customer\'s daily work in each hour (when its work is typically done) — an input.'],
+    ['Smoothed', 'The day as the floor catches up (CPM Daily › Smoothed capacity): the daily work moved into the next hours with spare capacity, Urgent first, the renewals in what\'s left; what\'s late and what\'s pushed to the next day, line by line. Worked out by SITHUB, so figures rather than formulas.'],
+    ['Charts', 'All together and each one on its own: the day as it comes in, and smoothed beside it, against capacity; the load hour by hour.'],
+  ]);
+  return buildBook([sh, pr, sm, ch, how]);
 }
 
 // ---- 🔗 Matching by month: the year's items, the machine time they need and the capacity, as formulas over the
@@ -536,7 +550,12 @@ function buildMatchMonthWorkbook(d, { scenario = null } = {}) {
     machines: (d.machines || []).filter((m) => m.speed > 0).map((m) => ({ label: `${m.name}${m.hand ? ' (hand match)' : ''} — ${m.speed}/h`, f: (i) => `${m.speed}*${hrs(i)}`, v: (i) => m.speed * (d.months[i].hours || 0) })),
     groups: LN.map(([k, l]) => ({ key: k, label: l, cap: { v: (i) => d.months[i].lines?.[k]?.capacity ?? (k === 'otto' ? d.months[i].capacity : 0) },
       need: { v: (i) => d.months[i].lines?.[k]?.need ?? (k === 'otto' ? d.months[i].need : 0) }, raw: { v: (i) => d.months[i].lines?.[k]?.items ?? (k === 'otto' ? d.months[i].items : 0) } })) });
-  return buildBook([sum, sh, ch], { active: 0 });
+  const how = howSheet('CPM Monthly, Matching', `Capacity planning for Matching by month, as on SITHUB's CPM Monthly with Matching picked: each customer's forecast cards × its share through Matching = items, ÷ its Matching OEE = the machine time needed, against the Matching machines.`, [
+    ['Capacity summary', 'The theoretical capacity of each Matching machine and of OTTO and hand match, the demand, what remains, and the forecast alone. Its OEE modifier (C4): 1 = demand ÷ OEE, 0 = the raw items against the capacity.'],
+    [sh.name, 'Month by month: working days, hours worked and capacity an hour (inputs), cards, items, items needed (÷ OEE), capacity, load, metal items and the biggest customers.'],
+    ['Chart', 'Needed against capacity, and the load, by month.'],
+  ]);
+  return buildBook([sum, sh, ch, how], { active: 0 });
 }
 
 // ---- 👷 Headcount: the year by month, as formulas over its inputs (rates, working days, hours a day, efficiency,
@@ -608,7 +627,11 @@ function buildHeadcountWorkbook(d, { scenario = null, flex = true } = {}) {
   const top8 = custRows.slice(0, 8); const cats2 = cu.full(4, mc(0), 4, mc(11)); const PAL = ['430099', '7382E6', '008080', 'D97706', '7030A0', '4B5563', 'C0392B', '2E8B57'];
   if (top8.length) cu.charts.push({ title: 'Hours per customer — the biggest', cats: cats2, stacked: true, fmt: '#,##0', from: [3, q + 3], to: [14, q + 24],
     series: top8.map((row, j) => ({ name: String(d.customers[j].trigram || d.customers[j].name), ref: cu.full(row, mc(0), row, mc(11)), kind: 'bar', color: PAL[j % PAL.length] })) });
-  return buildBook([sh, cu]);
+  const how = howSheet('Headcount', 'The forecast turned into the working hours it takes and the people to do them, month by month, as on SITHUB\'s Headcount tab.', [
+    [sh.name, 'Month by month: the cards (forecast × split per technology and method), ÷ the rates (cards an hour) = hours; plus the other work; ÷ (hours a day × efficiency × working days) = people needed, against the people there, and the gap.'],
+    [cu.name, 'The hours a month per customer, for perso and matching.'],
+  ]);
+  return buildBook([sh, cu, how]);
 }
 
 // ---- 🏭 Site capacity: each machine flat out — speed × hours a day (shifts × 8 × its share for perso) × working
@@ -647,7 +670,11 @@ function buildSiteWorkbook(d) {
     series: T.map((t) => ({ name: t, ref: sh.full(tr[t], mc(0), tr[t], mc(11)), kind: 'bar', color: COLS[t] || '6B7280' })) });
   if (R1 >= R0) sh.charts.push({ title: 'Each machine — cards a year', cats: sh.full(R0, 1, R1, 1), from: [2 + W, at0], to: [2 + 2 * W, at0 + HH - 1],
     series: [{ name: String(d.year), ref: sh.full(R0, YC, R1, YC), kind: 'bar', color: '7382E6' }] });
-  const mm = d.match?.machines || []; if (!mm.length) return buildBook([sh]);
+  const how = howSheet('Site Capacity', 'What the machines could make flat out over the year, as on SITHUB\'s Site Capacity tab: run speed × hours a day × working days, with no OEE (the losses are in Capacity planning\'s OEE).', [
+    [sh.name, 'Each machine: what it runs, its speed, its share for perso and its hours a day (shifts × hours a shift at the top), then what it could make each month and in the year, per technology and in all.'],
+    ['Matching (when there are Matching machines)', 'The same for the Matching machines in items — OTTO and hand match — and metal cards on the machines ticked for metal, at their metal speed.'],
+  ]);
+  const mm = d.match?.machines || []; if (!mm.length) return buildBook([sh, how]);
   // 🔗 Matching: the same hours (the perso sheet's shifts × hours a shift), its machines' speed; metal at the metal speed
   const ms = sheet(`Matching ${d.year}`); const MC = (i) => 6 + i; const MY = MC(12);
   ms.width(1, 22).width(2, 11).width(3, 11).width(4, 11).width(5, 11); for (let i = 0; i < 12; i++) ms.width(MC(i), 11); ms.width(MY, 13);
@@ -673,7 +700,7 @@ function buildSiteWorkbook(d) {
   const mat0 = (mtl || mt) + 3; const mcats = ms.full(mh, MC(0), mh, MC(11));
   ms.charts.push({ title: 'Items the Matching machines could match each month', cats: mcats, from: [1, mat0], to: [1 + W, mat0 + HH - 1],
     series: [{ name: 'Matching', ref: ms.full(mt, MC(0), mt, MC(11)), kind: 'bar', color: '2563EB' }, ...(mtl ? [{ name: 'Metal only', ref: ms.full(mtl, MC(0), mtl, MC(11)), kind: 'line', color: '6B7280' }] : [])] });
-  return buildBook([sh, ms]);
+  return buildBook([sh, ms, how]);
 }
 
 module.exports = { buildMatchMonthWorkbook, buildCpmWorkbook, buildDayWorkbook, buildHeadcountWorkbook, buildSiteWorkbook, describe };
