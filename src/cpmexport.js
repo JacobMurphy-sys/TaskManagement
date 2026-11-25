@@ -408,9 +408,12 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   }
   const C1 = r - 1;
   const capRows = shareRows.map((x, k) => ({ row: C0 + k, name: x.m.name, t: x.t, m: x.m, shareRow: x.row }));
-  const MCOL = ['2563EB', 'F59E0B', '10B981', 'EF4444', '8B5CF6', '06B6D4', '84CC16', 'EC4899', '64748B', 'D946EF'];
+  // the machines' colours: none the technologies use (OTTO's blue, DOD's teal, …), so a line never hides in the bars
+  const MCOL = ['F59E0B', 'EF4444', '10B981', 'EC4899', '8B5CF6', '84CC16', 'A16207', '06B6D4', 'D946EF', '64748B'].filter((c) => !Object.values(TECH_COL).includes(c) && !Object.values(TECH_LIGHT).includes(c));
   const mPer = (t, name) => (d.capacity_by_machine?.[t] || []).find((m) => m.name === name)?.per || [];
-  const mNames = [...new Set(capRows.map((x) => x.name))]; const mCol = (name) => MCOL[mNames.indexOf(name) % MCOL.length];
+  const mNames = [...new Set(capRows.map((x) => x.name))];
+  // the capacity line: named after its last machine (all of them up to it), or the one machine
+  const capName = (t) => { const ms = capRows.filter((x) => x.t === t); return ms.length > 1 ? `up to ${ms[ms.length - 1].name} (all)` : ms.length ? `${ms[0].name} (capacity)` : 'Capacity'; }; const mCol = (name) => MCOL[mNames.indexOf(name) % MCOL.length];
   // per technology: the day against the capacity
   r++; section(r, 'The day per technology'); r++;
   head(sh, r, ['', '', '', '', 'Tech', '', '', '', '', '', '', '', '', '']); const headRow = r; r++;
@@ -512,7 +515,7 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
       ch.charts.push({ title: `${t} — smoothed`, cats: smCats, stacked: true, fmt: '#,##0', from: at, to: [at[0] + W - 1, at[1] + HH - 1],
         series: [{ name: 'Daily, smoothed', ref: sRng(SM[t].daily), kind: 'bar', color: TECH_COL[t] || '1F77B4' }, { name: 'Renewals, smoothed', ref: sRng(SM[t].rnw), kind: 'bar', color: TECH_LIGHT[t] || '9AA7BD' },
           ...(S[t]?.cum || []).slice(0, -1).map((c) => ({ name: `up to ${c.name}`, ref: rng(c.row), kind: 'line', color: mCol(c.name) })),
-          { name: 'Capacity', ref: sRng(SM[t].cap), kind: 'line', color: '111827' }, { name: 'As it comes in', ref: sRng(SM[t].arrive), kind: 'line', color: '6B7280', dash: true },
+          { name: capName(t), ref: sRng(SM[t].cap), kind: 'line', color: '111827' }, { name: 'As it comes in', ref: sRng(SM[t].arrive), kind: 'line', color: '6B7280', dash: true },
           ...(SM[t].late ? [{ name: 'Late (after its cut-off)', ref: sRng(SM[t].late), kind: 'line', color: 'C0392B' }] : [])] }); });
   }
   T.forEach((t, i) => { const at = [1, 4 + 2 * HH + i * HH];
@@ -520,7 +523,7 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
       series: [{ name: 'Daily', ref: rng(anyAdded ? S[t].own : S[t].daily), kind: 'bar', color: TECH_COL[t] || '1F77B4' }, ...(anyAdded ? [{ name: 'Added (campaigns, scenario)', ref: rng(S[t].added), kind: 'bar', color: 'FF7A1A' }] : []),
         { name: 'Renewals', ref: rng(anyAdded ? S[t].rnwOwn : S[t].rnw), kind: 'bar', color: TECH_LIGHT[t] || '9AA7BD' }, ...(anyAdded ? [{ name: 'Renewals added', ref: rng(S[t].addedRnw), kind: 'bar', color: 'FFBE8C' }] : []),
         ...S[t].cum.slice(0, -1).map((c) => ({ name: `up to ${c.name}`, ref: rng(c.row), kind: 'line', color: mCol(c.name) })),
-        { name: 'Capacity', ref: rng(S[t].cap), kind: 'line', color: '111827' }, { name: 'Carried over', ref: rng(S[t].carry), kind: 'line', color: 'C0392B', dash: true }] }); });
+        { name: capName(t), ref: rng(S[t].cap), kind: 'line', color: '111827' }, { name: 'Carried over', ref: rng(S[t].carry), kind: 'line', color: 'C0392B', dash: true }] }); });
   if (MX) { // what's different on Matching, said once at the top
     sh.set(2, 1, `Forecast as read in ${d.forecast_as_of || '—'} · ${d.flex ? 'flex applied' : 'no flex'} · Matching: each customer's forecast cards × its share through Matching = items (Month); OEE = its Matching OEE ÷ its speed factor (its own Matching speed, metal cards at the metal machines' speed), so items ÷ OEE is machine time at the machines' usual speed; renewals = its Low priority Matching work orders, at the renewal OEE; each day spread as its Matching runs ended (Hour profile)`, 'note');
   }

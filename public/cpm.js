@@ -6,7 +6,7 @@ const CPM_TABS = [['overview', 'CPM Monthly'], ['day', 'CPM Daily'], ['site', 'S
 const CPM_CONFIG = [['customers', 'Customers'], ['capacity', 'Capacity'], ['scenarios', 'Scenarios'], ['dayset', 'CPM Daily'], ['check', 'Forecast check']];
 const cpmN = (v, d = 0) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : Number(v).toLocaleString('en-GB', { maximumFractionDigits: d }));
 // each machine's colour, the same on every chart (by its place among the machines)
-const CPM_MACH_COL = ['#e4572e', '#f3a712', '#3fa34d', '#2e86ab', '#9b5de5', '#f15bb5', '#00a6a6', '#8d6a9f', '#c0843b', '#5c8001'];
+const CPM_MACH_COL = ['#e4572e', '#f3a712', '#3fa34d', '#e11d48', '#9b5de5', '#f15bb5', '#a16207', '#8d6a9f', '#c0843b', '#5c8001'];
 const cpmMachCol = (name, names) => CPM_MACH_COL[Math.max(0, names.indexOf(name)) % CPM_MACH_COL.length];
 // each machine's part of a technology's capacity, stacked: a band per machine between the line of the ones
 // before it and its own; parts: [{ name, per: [period] }] in the machines' order; xs(i) the x of a period,
