@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'gitea-hosting', date: '2026-11-25', area: 'platform', title: 'Ready for hosting from the office Gitea',
+    text: 'SITHUB can now be installed and updated from the office Gitea, kept in step with the main repository by a small sync job, and serves this timeline itself.',
+    points: ['A sync job copies the live and development branches to Gitea on a schedule', 'The setup installs from whichever repository it is pointed at', 'The timeline at /timeline/ in SITHUB'] },
   { id: 'day-machine-bands', date: '2026-11-25', area: 'capacity', title: 'Capacity per machine on the daily charts again',
     text: 'Each technology\'s daily chart shows its machines\' capacity again, stacked one on another up to the total; the export gains a capacity-by-machine sheet and stacked daily and renewal bars.',
     points: ['Bands per machine on each technology and line', 'The All view keeps a single capacity line', 'Capacity by machine sheet and stacked charts in the Excel'] },

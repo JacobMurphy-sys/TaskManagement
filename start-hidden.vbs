@@ -1,6 +1,6 @@
 ' Starts SITHUB in the background (no console window) and opens it
 ' in your browser. If it's already running, it just opens the browser.
-' Before starting, it checks GitHub for a newer version; if there is one, CIManager-Setup.bat
+' Before starting, it checks the repository it came from (GitHub, or the office Gitea) for a newer version; if there is one, CIManager-Setup.bat
 ' updates it (in a window, so you can see it) and starts it. AUTO_UPDATE=0 in .env turns that off.
 ' Put a shortcut to this file in shell:startup to start it when you log in.
 Option Explicit
@@ -41,7 +41,7 @@ If Not IsRunning() Then
     WScript.Quit 1
   End If
 
-  ' A newer version on GitHub: let the setup update and start it. Not when the setup itself
+  ' A newer version there: let the setup update and start it. Not when the setup itself
   ' is starting the app (CIM_NOUPDATE), so a failed update can't go round in circles.
   If sh.ExpandEnvironmentStrings("%CIM_NOUPDATE%") <> "1" Then
     setup = SetupFile()
