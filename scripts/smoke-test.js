@@ -2548,6 +2548,17 @@ async function waitForServer() {
             assert.ok(Math.abs(mk.hours.reduce((x, y) => x + y, 0) - mk.need_day) < 0.01, 'the hours add up to the day');
             assert.ok(md.capacity.every((v, i) => (md.worked[i] ? Math.abs(v - md.machines.reduce((x, m) => x + m.speed, 0)) < 0.01 : v === 0)), 'capacity in the hours worked only');
             const cfg = await call('GET', '/cpm/match/config'); assert.ok(cfg.customers.find((c) => c.trigram === 'KBC')?.typed === 0.5, 'config: the share typed');
+            // 🕐 Matching's own day settings: KBC's renewal share and priorities typed, its run period by hand (all at 10:00),
+            // its own renewal OEE uplift and OTTO's window — none of them perso's
+            { const hrs = Array(24).fill(0); hrs[10] = 100;
+              await call('PUT', '/cpm/settings', { cpm_match_rnw_share: JSON.stringify({ 'KBC|OTTO': 0.5 }), cpm_match_prio_mix: JSON.stringify({ KBC: { urgent: 0.3, high: 0 } }), cpm_match_day_manual: JSON.stringify({ 'KBC|*': { hours: hrs } }), cpm_match_rnw_bonus: '0.1', cpm_rnw_hours: JSON.stringify({ OTTO: [22] }) });
+              const md2 = await call('GET', `/cpm/match/day?year=${Y}&month=1&flex=0&live=1`); const k = md2.rows.find((r) => r.trigram === 'KBC' && !r.added && r.tech === 'OTTO');
+              assert.ok(Math.abs(k.rnw_pct - 0.5) < 1e-9 && k.rnw_typed === 0.5, 'Matching: its own renewal share');
+              assert.ok(Math.abs(k.prio.urgent - 0.3) < 1e-9 && k.prio_from === 'typed', 'Matching: its own priorities');
+              assert.ok(k.profile === 'manual' && Math.abs(k.shares[md2.hours.indexOf(10)] - 1) < 1e-9, 'Matching: its own run period');
+              assert.ok(Math.abs(md2.bonus - 0.1) < 1e-9 && md2.windows.OTTO.join() === '22' && Math.abs(k.oee_rnw - Math.min(1, k.oee_match + 0.1) / k.speed_factor) < 1e-9, 'Matching: its own renewal uplift and window');
+              const pd = await call('GET', `/cpm/day?year=${Y}&month=1&flex=0&live=1`); assert.ok(Math.abs(pd.bonus - 0.05) < 1e-9 && !Object.keys(pd.manual || {}).some((x) => x.startsWith('KBC')), 'perso keeps its own');
+              await call('PUT', '/cpm/settings', { cpm_match_rnw_share: '{}', cpm_match_prio_mix: '{}', cpm_match_day_manual: '{}', cpm_match_rnw_bonus: '', cpm_rnw_hours: '{}' }); }
             // ✋ OTTO and hand match: a hand-match station (200/h); KBC 25% hand (typed); the report's machines classified
             { const hm = await call('POST', '/plan/otto/machines', { name: 'CPM HAND', speed: '200', hand: true });
               const sqh = new (require('node:sqlite').DatabaseSync)(path.join(tmp, 'test.db')); const dh = new Date(Date.now() - 10 * 864e5).toISOString().slice(0, 10);

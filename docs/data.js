@@ -43,6 +43,9 @@ window.TIMELINE = {
   ],
 
   PINS: [
+  { id: 'match-day-settings', date: '2026-11-25', area: 'capacity', title: 'Matching\'s own daily settings',
+    text: 'The daily capacity settings for matching now have the same editors as perso, each with matching\'s own values instead of borrowing perso\'s or only learning them.',
+    points: ['Run periods per customer', 'Renewal and priority splits', 'Renewal windows for OTTO and hand matching, with their own OEE uplift'] },
   { id: 'save-bar', date: '2026-11-24', area: 'look', title: 'One Save bar everywhere',
     text: 'Pages where settings are edited in place now share one floating bar: changes wait until you press Save, or Undo to drop them, and leaving with changes waiting asks first.',
     points: ['Production setup, capacity planning configuration, scenarios, headcount and automatic plans', 'Says how many changes and where', 'Sits above the page bar on a phone'] },
