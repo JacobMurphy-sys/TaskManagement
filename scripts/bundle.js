@@ -7,7 +7,7 @@
 // build   (on the sync machine, which has internet, Git and Node.js — Windows, the server's kind of machine):
 //         node scripts/bundle.js build --mirror <bare mirror> --work <this checkout> --out <folder>
 //              [--gitea <https://gitea.office/OWNER/REPO>] [--token-file <file>] [--copy-to <folder>] [--keep 5]
-//         The checkout (main, made by sync-gitea.bat) gets its dependencies (npm ci, the production ones,
+//         [--branch server]  The checkout (of the server branch, made by sync-gitea.bat) gets its dependencies (npm ci, the production ones,
 //         built for this machine), the commits per day for the timeline, runtime\node.exe (this Node.js)
 //         and BUILD.json; then it's zipped as SITHUB-<commit>.zip in --out, published as a release on
 //         Gitea (when --gitea is given) and/or copied, with latest.json, to a folder (--copy-to).
@@ -71,19 +71,20 @@ async function build() {
   if (process.platform !== 'win32' && !anyPlatform) fail('Build the bundle on Windows (the server\'s kind of machine): its dependencies and node.exe are Windows\'.');
   const [maj, min] = process.versions.node.split('.').map(Number); if (maj < 22 || (maj === 22 && min < 13)) fail(`Node.js ${process.version} is too old: SITHUB needs 22.13 or later`);
   const git = (...a) => execFileSync('git', ['--git-dir', mirror, ...a], { encoding: 'utf8', maxBuffer: 64 << 20 }).trim();
-  const commit = git('rev-parse', 'main'); const date = git('log', '-1', '--format=%cI', 'main'); const subject = git('log', '-1', '--format=%s', 'main');
-  log(`Bundling main ${short(commit)} (${date.slice(0, 10)}) — ${subject}`);
+  const branch = opt('branch', 'server'); // the office server's branch: live (main) + what the server needs
+  const commit = git('rev-parse', branch); const date = git('log', '-1', '--format=%cI', branch); const subject = git('log', '-1', '--format=%s', branch);
+  log(`Bundling ${branch} ${short(commit)} (${date.slice(0, 10)}) — ${subject}`);
   // the dependencies, as the lock file has them, for this machine (production only)
   log('Installing the dependencies (npm ci)…');
   execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['ci', '--omit=dev', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: work, stdio: 'inherit', shell: process.platform === 'win32' });
   // the timeline's commits per day (the server has no git history)
-  const counts = {}; for (const d of git('log', 'main', '--format=%ad', '--date=short').split('\n').filter(Boolean)) counts[d] = (counts[d] || 0) + 1;
+  const counts = {}; for (const d of git('log', branch, '--format=%ad', '--date=short').split('\n').filter(Boolean)) counts[d] = (counts[d] || 0) + 1;
   const dataJs = path.join(work, 'docs', 'data.js');
   if (fs.existsSync(dataJs)) fs.writeFileSync(dataJs, fs.readFileSync(dataJs, 'utf8').replace(/\/\*activity\*\/[\s\S]*?\/\*end\*\//, `/*activity*/${JSON.stringify(Object.fromEntries(Object.keys(counts).sort().map((d) => [d, counts[d]])))}/*end*/`));
   // Node.js itself
   fs.mkdirSync(path.join(work, 'runtime'), { recursive: true });
   fs.copyFileSync(process.execPath, path.join(work, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node'));
-  const info = { commit, short: short(commit), date, subject, built: new Date().toISOString(), node: process.version, platform: process.platform, arch: process.arch };
+  const info = { branch, commit, short: short(commit), date, subject, built: new Date().toISOString(), node: process.version, platform: process.platform, arch: process.arch };
   fs.writeFileSync(path.join(work, 'BUILD.json'), JSON.stringify(info, null, 2));
   // zipped
   log('Packing…'); const files = walk(work); const buf = zip(files);

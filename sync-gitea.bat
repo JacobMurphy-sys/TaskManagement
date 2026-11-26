@@ -20,7 +20,8 @@ REM next to CIManager-Setup.bat before the first install (or, installed already,
 REM git remote set-url origin <the Gitea address>).
 REM
 REM An office server with NO internet, Git or Node.js runs a ready-to-run BUNDLE instead: this machine
-REM (with Node.js 22.13+ installed) builds one each time main changes - the app, its dependencies for
+REM (with Node.js 22.13+ installed) builds one each time the "server" branch changes (live, main, plus what
+REM the office server needs: it takes each release from main) - the app, its dependencies for
 REM Windows and its own node.exe - and publishes it as a release on Gitea, for the server to update from.
 REM For that, next to this file:
 REM   sithub-gitea-token.txt   a Gitea access token that may write to the repository (keep it private);
@@ -29,7 +30,9 @@ REM Without either, the bundle is still made, in %LOCALAPPDATA%\SITHUB-sync\bund
 setlocal EnableExtensions
 
 set "GITHUB=https://github.com/JacobMurphy-sys/TaskManagement.git"
-set "BRANCHES=main dev"
+set "BRANCHES=main dev server"
+REM the branch the offline server runs (its bundle is built from it)
+set "BUNDLE_BRANCH=server"
 if defined SITHUB_GITHUB set "GITHUB=%SITHUB_GITHUB%"
 set "GITEA=%SITHUB_GITEA%"
 if exist "%~dp0sithub-gitea.txt" for /f "usebackq delims=" %%R in ("%~dp0sithub-gitea.txt") do if not "%%R"=="" set "GITEA=%%R"
@@ -62,10 +65,10 @@ git -C "%MIRROR%" push "%GITEA%" %SPECS% "+refs/tags/*:refs/tags/*" >>"%LOG%" 2>
 for /f "delims=" %%H in ('git -C "%MIRROR%" log -1 --format^="%%h of %%cs" main 2^>nul') do set "LAST=%%H"
 call :log "Synced%SPECS% to %GITEA% - main is %LAST%"
 
-REM ---- the bundle for an offline server, when main has changed since the last one ------------------
+REM ---- the bundle for an offline server, when its branch has changed since the last one --------------
 set "LASTB=%HOME_DIR%\last-bundle.txt"
 set "MAINC="
-for /f %%C in ('git -C "%MIRROR%" rev-parse main 2^>nul') do set "MAINC=%%C"
+for /f %%C in ('git -C "%MIRROR%" rev-parse %BUNDLE_BRANCH% 2^>nul') do set "MAINC=%%C"
 if "%MAINC%"=="" exit /b 0
 set "PREV="
 if exist "%LASTB%" set /p PREV=<"%LASTB%"
@@ -74,16 +77,16 @@ where node >nul 2>&1 || (call :log "No Node.js on this machine - no bundle made 
 set "WORK=%HOME_DIR%\work"
 if exist "%WORK%\" rmdir /s /q "%WORK%"
 mkdir "%WORK%"
-git -C "%WORK%" --git-dir="%MIRROR%" --work-tree=. checkout -f main -- . >>"%LOG%" 2>&1 || (call :log "Couldn't check out main for the bundle - see above" & exit /b 1)
-set BARGS=--mirror "%MIRROR%" --work "%WORK%" --out "%HOME_DIR%\bundles"
+git -C "%WORK%" --git-dir="%MIRROR%" --work-tree=. checkout -f %BUNDLE_BRANCH% -- . >>"%LOG%" 2>&1 || (call :log "Couldn't check out %BUNDLE_BRANCH% for the bundle - see above" & exit /b 1)
+set BARGS=--mirror "%MIRROR%" --work "%WORK%" --out "%HOME_DIR%\bundles" --branch %BUNDLE_BRANCH%
 if exist "%~dp0sithub-gitea-token.txt" set BARGS=%BARGS% --gitea "%GITEA%" --token-file "%~dp0sithub-gitea-token.txt"
 set "SHARE="
 if exist "%~dp0sithub-bundle-share.txt" for /f "usebackq delims=" %%R in ("%~dp0sithub-bundle-share.txt") do if not "%%R"=="" set "SHARE=%%R"
 if defined SHARE set BARGS=%BARGS% --copy-to "%SHARE%"
-call :log "Building the bundle for an offline server (main %MAINC:~0,7%)"
+call :log "Building the bundle for an offline server (%BUNDLE_BRANCH% %MAINC:~0,7%)"
 node "%WORK%\scripts\bundle.js" build %BARGS% >>"%LOG%" 2>&1 || (call :log "The bundle failed - see above" & exit /b 1)
 >"%LASTB%" echo %MAINC%
-call :log "Bundle made for main %MAINC:~0,7%"
+call :log "Bundle made for %BUNDLE_BRANCH% %MAINC:~0,7%"
 exit /b 0
 
 REM ---- run it every N minutes (Task Scheduler) --------------------------------

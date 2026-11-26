@@ -829,6 +829,8 @@ The code is worked on as before (here → GitHub: `dev`, then `main` when releas
 
 ### An office server with no internet (no Node.js, no Git): the bundle
 
+This lives on the **`server`** branch: live (`main`) plus what hosting needs, so the local installs (`dev`, `main`) are untouched; it takes each release from `main`. The sync job carries `main`, `dev` and `server` to Gitea and builds the bundle from **`server`**.
+
 When the server can't reach the internet and nothing can be installed on it, it runs a **bundle**: the app with its dependencies already installed for Windows and its own Node.js (`runtime\node.exe`), so it needs neither Node.js nor Git — only the network to Gitea (or a shared folder).
 
 - **Made by the sync machine** (it also needs **Node.js 22.13+** installed): each time `main` changes, `sync-gitea.bat` checks it out, installs its dependencies (`npm ci`, production only), adds the timeline's commits per day, its own `node.exe` and `BUILD.json` (which commit, when), and zips it as `SITHUB-<commit>.zip` (`scripts/bundle.js build`). About 90 MB. It's **published as a release on Gitea** (tag `bundle-<commit>`; the newest 5 kept) when a **`sithub-gitea-token.txt`** next to the script holds a Gitea access token that may write to the repository — Gitea's attachment size limit (`[attachment] MAX_SIZE` in `app.ini`) must allow it — and/or **copied to a folder** the server can read, with `latest.json`, when **`sithub-bundle-share.txt`** names one. Either way the last few are kept in `%LOCALAPPDATA%\SITHUB-sync\bundles` too.
