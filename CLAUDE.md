@@ -40,6 +40,15 @@ expense, nothing company-internal.
   session was started on. Features are finished and tested there, then merged into `main` only when the user
   explicitly asks to merge into live (a pull request from `dev` to `main`, or a merge).
 
+### The `server` branch (the office server)
+
+- **`server`** is what the office server runs: **live (`main`) plus what hosting it needs** — the Gitea sync
+  (`sync-gitea.bat`), the offline bundle (`scripts/bundle.js`: its own Node.js, no internet), the timeline served
+  by SITHUB. Work on that goes to `server`, not `dev`, so local installs (`dev`, `main`) stay as they are.
+- **After each release to `main`, merge `main` into `server`** (a merge, never a rebase) and push it: the sync
+  machine builds the server's bundle from `server`.
+- Releasing to `main` never takes anything from `server`, unless the user asks for a piece of it.
+
 ## House rules
 
 - Don't commit company data or paths: `cimanager-defaults.json` and example files stay local.
