@@ -455,6 +455,18 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   const capAll = r; sh.set(capAll, 4, 'Capacity, all together', 'bold');
   H.forEach((_, i) => sh.f(capAll, hc(i), T.map((t) => `${L(hc(i))}${S[t].cap}`).join('+') || '0', 'intBold', T.reduce((a, t) => a + (d.tech[t].capacity[i] || 0), 0)));
   sh.f(capAll, hc(n), `SUM(${L(hc(0))}${capAll}:${L(hc(n - 1))}${capAll})`, 'intBold'); r += 2;
+  // 🚚 the shipment times, as the page draws them: a dashed line on each chart at the time (an input — change it, or
+  // clear it to take its line off); 'at' is where it falls on the hours (its hour's column + the minutes)
+  section(r, 'Shipment times — the cut-offs drawn on the charts (as on CPM Daily): type a time to move its line, clear it to take the line off'); r++;
+  ['', '', '', 'Shipment', '', 'Time', '', 'On the hours', '', 'line: x', '', 'line: y', ''].forEach((x, k) => sh.set(r, k + 1, x, k >= 5 ? 'headerNum' : 'header')); r++;
+  const clockRng = `$${L(hc(0))}$${clock}:$${L(hc(n - 1))}$${clock}`; const SHIP = [];
+  (d.cutoffs || []).forEach((c, k) => { const [hh, mm] = String(c).split(':').map(Number); if (!Number.isFinite(hh)) return; const i = H.indexOf(hh); if (i < 0) return;
+    const at = i + (mm || 0) / 60; const lab = `🚚 ${c}${d.cutoff_labels?.[k] ? ` ${d.cutoff_labels[k]}` : ''}`;
+    sh.set(r, 4, lab, 'inputText'); sh.set(r, 6, (hh + (mm || 0) / 60) / 24, 'inputTime');
+    sh.f(r, 8, `IF(F${r}="",NA(),MATCH(HOUR(F${r}),${clockRng},0)-1+MINUTE(F${r})/60)`, 'dec', at); sh.f(r, 10, `H${r}`, 'dec', at); sh.f(r, 11, `H${r}`, 'dec', at); sh.set(r, 12, 0, 'int'); sh.set(r, 13, 1, 'int');
+    SHIP.push({ name: lab, x: `${qs(sh.name)}!$J$${r}:$K$${r}`, y: `${qs(sh.name)}!$L$${r}:$M$${r}`, kind: 'vline', color: 'D97706', span: n }); r++; });
+  if (!SHIP.length) { sh.set(r, 4, 'None — set them in Configuration › CPM Daily › Shipment times', 'note'); r++; }
+  r++;
   // each row in its technology's colour, as the CPM workbook does
   for (const [a, b] of [[R0, R1], [C0 - shareRows.length - 1, C1]]) if (b >= a) sh.cf.push({ ref: `A${a}:${L(hc(n))}${b}`, rules: T.map((t) => ({ expr: `$E${a}="${t}"`, dxf: t })) });
   if (rows.length) pr.cf.push({ ref: `A${R0}:${L(hc(n))}${R1}`, rules: T.map((t) => ({ expr: `$E${R0}="${t}"`, dxf: t })) });
@@ -466,9 +478,9 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
   // all together, stacked: each one's daily work (its colour) and renewals (lighter) against the capacity of all
   ch.charts.push({ title: MX ? 'Matching — daily work and renewals (stacked) against capacity, as it comes in' : 'All technologies — daily work and renewals (stacked) against capacity, as it comes in', cats, stacked: true, fmt: '#,##0', from: [1, 4], to: [2 * W, 4 + HH - 1],
     series: [...T.flatMap((t) => [{ name: `${t} daily`, ref: rng(S[t].daily), kind: 'bar', color: TECH_COL[t] || '1F77B4' }, { name: `${t} renewals`, ref: rng(S[t].rnw), kind: 'bar', color: TECH_LIGHT[t] || '9AA7BD' }]),
-      { name: 'Capacity, all together', ref: rng(capAll), kind: 'line', color: '111827' }] });
+      { name: 'Capacity, all together', ref: rng(capAll), kind: 'line', color: '111827' }, ...SHIP] });
   const AT0 = 4 + HH; ch.charts.push({ title: MX ? 'Matching — load hour by hour' : 'All technologies — load hour by hour', cats, pct: true, from: [1, AT0], to: [2 * W, AT0 + HH - 1],
-    series: T.map((t) => ({ name: t, ref: rng(S[t].load), kind: 'line', color: TECH_COL[t] || '1F77B4', markers: true })) });
+    series: [...T.map((t) => ({ name: t, ref: rng(S[t].load), kind: 'line', color: TECH_COL[t] || '1F77B4', markers: true })), ...SHIP] });
   const anyAdded = T.some((t) => (d.tech[t].added || []).some((v) => v > 0.5) || (d.tech[t].added_rnw || []).some((v) => v > 0.5));
   // ⏩ the smoothed day (as on CPM Daily's Smoothed capacity): worked out by SITHUB — each piece of daily work moved to the
   // next hour with spare capacity, Urgent first, renewals in what's left — so its own sheet, as figures
@@ -544,20 +556,20 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
     const sRng = (row) => sm.full(row, sc(0), row, sc(n - 1));
     ch.charts.push({ title: MX ? 'Matching — daily work and renewals (stacked) against capacity, smoothed' : 'All technologies — daily work and renewals (stacked) against capacity, smoothed', cats: smCats, stacked: true, fmt: '#,##0', from: [2 * W + 1, 4], to: [4 * W, 4 + HH - 1],
       series: [...T.filter((t) => SM[t]).flatMap((t) => [{ name: `${t} daily`, ref: sRng(SM[t].daily), kind: 'bar', color: TECH_COL[t] || '1F77B4' }, { name: `${t} renewals`, ref: sRng(SM[t].rnw), kind: 'bar', color: TECH_LIGHT[t] || '9AA7BD' }]),
-        { name: 'Capacity, all together', ref: sRng(smCapAll), kind: 'line', color: '111827' }] });
+        { name: 'Capacity, all together', ref: sRng(smCapAll), kind: 'line', color: '111827' }, ...SHIP] });
     T.forEach((t, i) => { if (!SM[t]) return; const at = [1 + W, 4 + 2 * HH + i * HH];
       ch.charts.push({ title: `${t} — smoothed`, cats: smCats, stacked: true, fmt: '#,##0', from: at, to: [at[0] + W - 1, at[1] + HH - 1],
         series: [{ name: 'Daily, smoothed', ref: sRng(SM[t].daily), kind: 'bar', color: TECH_COL[t] || '1F77B4' }, { name: 'Renewals, smoothed', ref: sRng(SM[t].rnw), kind: 'bar', color: TECH_LIGHT[t] || '9AA7BD' },
           ...(S[t]?.cum || []).slice(0, -1).map((c) => ({ name: `up to ${c.name}`, ref: rng(c.row), kind: 'line', color: mCol(c.name) })),
           { name: capName(t), ref: sRng(SM[t].cap), kind: 'line', color: '111827' }, { name: 'As it comes in', ref: sRng(SM[t].arrive), kind: 'line', color: '6B7280', dash: true },
-          ...(SM[t].late ? [{ name: 'Late (after its cut-off)', ref: sRng(SM[t].late), kind: 'line', color: 'C0392B' }] : [])] }); });
+          ...(SM[t].late ? [{ name: 'Late (after its cut-off)', ref: sRng(SM[t].late), kind: 'line', color: 'C0392B' }] : []), ...SHIP] }); });
   }
   T.forEach((t, i) => { const at = [1, 4 + 2 * HH + i * HH];
     ch.charts.push({ title: `${t} — as it comes in, against capacity`, cats, stacked: true, fmt: '#,##0', from: at, to: [at[0] + W - 1, at[1] + HH - 1],
       series: [{ name: 'Daily', ref: rng(anyAdded ? S[t].own : S[t].daily), kind: 'bar', color: TECH_COL[t] || '1F77B4' }, ...(anyAdded ? [{ name: 'Added (campaigns, scenario)', ref: rng(S[t].added), kind: 'bar', color: 'FF7A1A' }] : []),
         { name: 'Renewals', ref: rng(anyAdded ? S[t].rnwOwn : S[t].rnw), kind: 'bar', color: TECH_LIGHT[t] || '9AA7BD' }, ...(anyAdded ? [{ name: 'Renewals added', ref: rng(S[t].addedRnw), kind: 'bar', color: 'FFBE8C' }] : []),
         ...S[t].cum.slice(0, -1).map((c) => ({ name: `up to ${c.name}`, ref: rng(c.row), kind: 'line', color: mCol(c.name) })),
-        { name: capName(t), ref: rng(S[t].cap), kind: 'line', color: '111827' }, { name: 'Carried over', ref: rng(S[t].carry), kind: 'line', color: 'C0392B', dash: true }] }); });
+        { name: capName(t), ref: rng(S[t].cap), kind: 'line', color: '111827' }, { name: 'Carried over', ref: rng(S[t].carry), kind: 'line', color: 'C0392B', dash: true }, ...SHIP] }); });
   if (MX) { // what's different on Matching, said once at the top
     sh.set(2, 1, `Forecast as read in ${d.forecast_as_of || '—'} · ${d.flex ? 'flex applied' : 'no flex'} · Matching: each customer's forecast cards × its share through Matching = items (Month); OEE = its Matching OEE ÷ its speed factor (its own Matching speed, metal cards at the metal machines' speed), so items ÷ OEE is machine time at the machines' usual speed; renewals = its Low priority Matching work orders, at the renewal OEE; each day spread as its Matching runs ended (Hour profile)`, 'note');
   }
@@ -583,7 +595,8 @@ function buildDayWorkbook(d, { scenario = null } = {}) {
     ['Hour profile', 'The share of each customer\'s daily work in each hour (when its work is typically done) — an input.'],
     ['Smoothed', 'The day as the floor catches up (CPM Daily › Smoothed capacity), as formulas over the day sheet: daily work fills each hour\'s capacity and the rest waits for the next; what\'s left at the end goes into the next day\'s first hours; renewals take what\'s left. Then what\'s late and what\'s pushed, line by line (SITHUB\'s figures).'],
     ['Shifts', 'On the day sheet, above the capacity: shifts a day, hours a shift and when the first shift starts (inputs) set the hours worked; type a 1 or 0 over any hour to set it by hand. Capacity, the day and the smoothed day follow.'],
-    ['Charts', 'All together (daily work and renewals stacked, against the total capacity) and each one on its own: the day as it comes in, and smoothed beside it, against its capacity — with a line per machine, each the ones before it plus its own; the load hour by hour.'],
+    ['Charts', 'All together (daily work and renewals stacked, against the total capacity) and each one on its own: the day as it comes in, and smoothed beside it, against its capacity — with a line per machine, each the ones before it plus its own; the load hour by hour. The dashed amber lines marked 🚚 are the shipment times.'],
+    ['Shipment times', 'On the day sheet, below the day per technology: each shipment time (the cut-offs, as on CPM Daily) — an input: type another time to move its line on the charts, clear it to take the line off.'],
     ['Capacity by machine', 'Each machine on each technology: its speed, availability, hours a day, capacity a day and its share of the technology\'s capacity, with a chart per technology of the machines\' capacity hour by hour, stacked.'],
   ]);
   return buildBook([sh, pr, sm, ch, mc, how]);

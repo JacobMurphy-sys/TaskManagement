@@ -20,6 +20,7 @@ const STYLES = {
   title: [0, 2, 0, 0], note: [0, 3, 0, 0], input: [3, 4, 3, 0], inputPct: [9, 4, 3, 0], section: [0, 6, 4, 0], fixed: [3, 0, 5, 0], dec: [164, 0, 0, 0], inputDec: [164, 4, 3, 0],
   headerNum: [0, 5, 2, 1, 'right'], wrap: [0, 0, 0, 0, 'wrap'], boldWrap: [0, 1, 0, 0, 'wrap'], pctSigned: [165, 0, 0, 0], date: [14, 0, 0, 0],
   money: [4, 0, 0, 0], moneyBold: [4, 6, 6, 2], inputMoney: [4, 4, 3, 0], inputText: [0, 4, 3, 0], inputDate: [14, 4, 3, 0], inputWrap: [0, 4, 3, 0, 'wrap'],
+  time: [20, 0, 0, 0], inputTime: [20, 4, 3, 0],
 };
 const STYLE_IDS = Object.fromEntries(Object.keys(STYLES).map((k, i) => [k, i]));
 const STYLES_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -101,13 +102,23 @@ function sheetXml(sh, drawingRel) {
 }
 
 // a chart: { title, cats: "'Sheet'!$B$2:$M$2", series: [{ name, ref, kind: 'bar'|'line', color: 'RRGGBB', dash }], from: [col, row], to: [col, row], y, fmt (the value axis' number format; default millions) }
+// a 'vline' series ({ name, x, y, color, dash, span }) is a vertical line across the whole chart — x: two cells, both the
+// position (0 = the first category's left edge, 1 = the next one's, …, up to span, the number of categories), y: two
+// cells 0 and 1 — drawn on hidden axes of their own, labelled with its name at the top (as a shipment time)
 function chartXml(ch) {
   const ser = (x, i) => `<c:ser><c:idx val="${i}"/><c:order val="${i}"/><c:tx><c:v>${xmlEsc(x.name)}</c:v></c:tx>`
     + `<c:spPr>${x.kind === 'line' ? `<a:ln w="28575" cap="rnd"><a:solidFill><a:srgbClr val="${x.color}"/></a:solidFill>${x.dash ? '<a:prstDash val="dash"/>' : ''}<a:round/></a:ln>` : `<a:solidFill><a:srgbClr val="${x.color}"/></a:solidFill>`}</c:spPr>`
     + (x.kind === 'line' ? `<c:marker><c:symbol val="${x.markers ? 'circle' : 'none'}"/>${x.markers ? `<c:size val="5"/><c:spPr><a:solidFill><a:srgbClr val="${x.color}"/></a:solidFill></c:spPr>` : ''}</c:marker>` : '<c:invertIfNegative val="0"/>')
     + (x.labels ? `<c:dLbls><c:numFmt formatCode="${x.pct ? '0%' : '#,##0,&quot;k&quot;'}" sourceLinked="0"/><c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr><c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="800"/></a:pPr><a:endParaRPr lang="en-GB"/></a:p></c:txPr><c:dLblPos val="${x.kind === 'line' ? 't' : 'outEnd'}"/><c:showLegendKey val="0"/><c:showVal val="1"/><c:showCatName val="0"/><c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/></c:dLbls>` : '')
     + `<c:cat><c:strRef><c:f>${xmlEsc(ch.cats)}</c:f></c:strRef></c:cat><c:val><c:numRef><c:f>${xmlEsc(x.ref)}</c:f></c:numRef></c:val>${x.kind === 'line' ? '<c:smooth val="0"/>' : ''}</c:ser>`;
-  const bars = ch.series.map((x, i) => [x, i]).filter(([x]) => x.kind !== 'line'); const lines = ch.series.map((x, i) => [x, i]).filter(([x]) => x.kind === 'line');
+  const bars = ch.series.map((x, i) => [x, i]).filter(([x]) => x.kind !== 'line' && x.kind !== 'vline'); const lines = ch.series.map((x, i) => [x, i]).filter(([x]) => x.kind === 'line');
+  const vls = ch.series.map((x, i) => [x, i]).filter(([x]) => x.kind === 'vline'); const span = vls.length ? vls[0][0].span || 24 : 0;
+  const off = '<c:showLegendKey val="0"/><c:showVal val="0"/><c:showCatName val="0"/><c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/>';
+  const vser = (x, i) => `<c:ser><c:idx val="${i}"/><c:order val="${i}"/><c:tx><c:v>${xmlEsc(x.name)}</c:v></c:tx>`
+    + `<c:spPr><a:ln w="19050"><a:solidFill><a:srgbClr val="${x.color}"/></a:solidFill>${x.dash === false ? '' : '<a:prstDash val="dash"/>'}</a:ln></c:spPr><c:marker><c:symbol val="none"/></c:marker>`
+    + `<c:dLbls><c:dLbl><c:idx val="1"/><c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr><c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="800" b="1"><a:solidFill><a:srgbClr val="${x.color}"/></a:solidFill></a:defRPr></a:pPr><a:endParaRPr lang="en-GB"/></a:p></c:txPr><c:dLblPos val="r"/><c:showLegendKey val="0"/><c:showVal val="0"/><c:showCatName val="0"/><c:showSerName val="1"/><c:showPercent val="0"/><c:showBubbleSize val="0"/></c:dLbl>${off}</c:dLbls>`
+    + `<c:xVal><c:numRef><c:f>${xmlEsc(x.x)}</c:f></c:numRef></c:xVal><c:yVal><c:numRef><c:f>${xmlEsc(x.y)}</c:f></c:numRef></c:yVal><c:smooth val="0"/></c:ser>`;
+  const hidden = (id, cross, pos, max) => `<c:valAx><c:axId val="${id}"/><c:scaling><c:orientation val="minMax"/><c:max val="${max}"/><c:min val="0"/></c:scaling><c:delete val="1"/><c:axPos val="${pos}"/><c:numFmt formatCode="General" sourceLinked="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="none"/><c:crossAx val="${cross}"/><c:crosses val="max"/><c:crossBetween val="midCat"/></c:valAx>`;
   const axes = '<c:axId val="5001"/><c:axId val="5002"/>';
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     + '<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
@@ -116,8 +127,10 @@ function chartXml(ch) {
     + '<c:autoTitleDeleted val="0"/><c:plotArea><c:layout/>'
     + (bars.length ? `<c:barChart><c:barDir val="col"/><c:grouping val="${ch.stacked ? 'stacked' : 'clustered'}"/><c:varyColors val="0"/>${bars.map(([x, i]) => ser(x, i)).join('')}<c:gapWidth val="60"/><c:overlap val="${ch.stacked ? 100 : -10}"/>${axes}</c:barChart>` : '')
     + (lines.length ? `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>${lines.map(([x, i]) => ser(x, i)).join('')}<c:marker val="1"/>${axes}</c:lineChart>` : '')
+    + (vls.length ? `<c:scatterChart><c:scatterStyle val="lineMarker"/><c:varyColors val="0"/>${vls.map(([x, i]) => vser(x, i)).join('')}<c:axId val="5003"/><c:axId val="5004"/></c:scatterChart>` : '')
     + '<c:catAx><c:axId val="5001"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:numFmt formatCode="General" sourceLinked="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:crossAx val="5002"/><c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/><c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>'
     + `<c:valAx><c:axId val="5002"/><c:scaling><c:orientation val="minMax"/><c:min val="0"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:majorGridlines><c:spPr><a:ln w="6350"><a:solidFill><a:srgbClr val="E5E7EB"/></a:solidFill></a:ln></c:spPr></c:majorGridlines><c:numFmt formatCode="${ch.pct ? '0%' : ch.fmt ? xmlEsc(ch.fmt) : '#,##0.00,,&quot;M&quot;'}" sourceLinked="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/><c:crossAx val="5001"/><c:crosses val="autoZero"/><c:crossBetween val="between"/>${ch.major ? `<c:majorUnit val="${ch.major}"/>` : ''}</c:valAx>`
+    + (vls.length ? hidden(5003, 5004, 't', span) + hidden(5004, 5003, 'r', 1) : '')
     + '</c:plotArea><c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend><c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart>'
     + '<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="900"/></a:pPr><a:endParaRPr lang="en-GB"/></a:p></c:txPr></c:chartSpace>';
 }
