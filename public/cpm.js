@@ -1439,6 +1439,137 @@ function cpmFcTotals(d) {
     ${ax[0] && ax.some((x) => x !== ax[0]) ? '<p class="small muted">SITHUB\'s Database adds January\'s Amex to every month (its lookup is fixed on 01/01/2026); the total here takes each month\'s own Amex figure, so February on differs by that.</p>' : ''}</div>`;
 }
 
+// ---- 🔎 Headcount drill-down: what makes up the hours (and so the people) — the year → a month → a customer ----
+// Each month's hours by part (each perso technology, each matching method, the other work, one-off hours), the
+// customers behind them, what moved from the month before (hours, or fewer working days) and, with a scenario, from
+// the base plan. A part picked (All, DOD, …) narrows the customers to it. Clicking a month, a part or a customer goes
+// in; ← Back steps back.
+let hcDr = null;
+function hcDrill(d, { month = null, cust = null, part = 'all', mark = null } = {}) {
+  hcDr = { d, s: { month, cust, part, mark }, hist: [] };
+  openModal('<div id="hcdr" class="cpmdr"></div>', { wide: true });
+  $('#hcdr').addEventListener('click', (e) => {
+    const el = e.target.closest('[data-hd]'); if (!el) return;
+    const k = el.dataset.hd; const v = el.dataset.v;
+    const go = (ch) => { hcDr.hist.push({ ...hcDr.s }); Object.assign(hcDr.s, ch); hcDrDraw(); };
+    if (k === 'back') { const p = hcDr.hist.pop(); if (p) { hcDr.s = p; hcDrDraw(); } return; }
+    if (k === 'part') { hcDr.s.part = v; hcDrDraw(); return; }
+    if (k === 'step') { hcDr.s.month = (hcDr.s.month + Number(v) + 12) % 12; hcDrDraw(); return; }
+    if (k === 'month') { const i = Number(v); if (hcDr.s.month !== null && !hcDr.s.cust) { hcDr.s.month = i; hcDrDraw(); return; } go({ month: i, cust: null, mark: hcDr.s.cust || null }); return; }
+    if (k === 'cust') { go({ cust: v, month: null, mark: null }); return; }
+    if (k === 'year') go({ month: null, cust: null, mark: null });
+  });
+  hcDrDraw();
+}
+function hcDrDraw() {
+  const { d, s } = hcDr; const M = d.months; const B = d.base; const BC = d.base_customers;
+  const h1 = (v) => cpmN(v, 0); const p1 = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '—' : Number(v).toLocaleString('en-GB', { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
+  const sg = (v, f) => (v === null || v === undefined || Math.abs(v) < 0.05 ? '<span class="muted">0</span>' : `<span class="${v > 0 ? 'pl-late' : 'pl-ok'}">${v > 0 ? '+' : '−'}${f(Math.abs(v))}</span>`); // more needed: red
+  // the parts: each perso technology, each matching method, other work, one-off hours
+  const PARTS = [...d.techs.map((t) => ({ k: t, label: `${t} perso`, col: cpmTc(t), kind: 'tech' })),
+    ...d.methods.map((k) => ({ k, label: `Matching: ${d.method_labels[k]}`, col: cpmTc(k === 'OTTO' ? 'OTTO' : 'Hand match'), kind: 'match' })),
+    { k: 'other', label: 'Other work', col: '#B08968', kind: 'other' }, { k: 'extra', label: 'One-off hours', col: '#FF7A1A', kind: 'other' }];
+  const custPart = (k) => d.techs.includes(k) || d.methods.includes(k);
+  const ph = (m, X = M) => { const x = X[m]; return x.per_head || M[m].per_head; }; // a person's hours that month
+  const partH = (m, k, X = M) => { const x = X?.[m]; if (!x) return null; if (d.techs.includes(k)) return x.perso?.[k] || 0; if (d.methods.includes(k)) return x.match?.[k] || 0; if (k === 'other') return (x.other_total || 0) - (x.extra || 0); if (k === 'extra') return x.extra || 0; return x.total || 0; };
+  const shown = s.part === 'all' ? PARTS : PARTS.filter((p) => p.k === s.part);
+  const custH = (c, m) => (s.part === 'all' ? c.hours[m] : custPart(s.part) ? (c.by?.[s.part]?.[m] || 0) : 0);
+  const baseCustH = (c, m) => { const b = BC?.[c.key]; if (!b) return BC ? 0 : null; return s.part === 'all' ? b.hours[m] : custPart(s.part) ? (b.by?.[s.part]?.[m] || 0) : 0; };
+  const cardsOf = (c, m) => (s.part === 'all' ? c.cards[m] : custPart(s.part) && d.rates[s.part] ? (c.by?.[s.part]?.[m] || 0) * d.rates[s.part] : 0);
+  const bar = (p, col) => `<div class="pllx-share"><div class="pll-track"><div style="height:100%;width:${Math.max(0, Math.min(100, p * 100)).toFixed(1)}%;background:${col}"></div></div><span>${cpmPct(p)}</span></div>`;
+  const tile = (l, v, sub = '') => `<div class="kdb-tile"><div class="kdb-tile-l">${l}</div><div class="kdb-tile-v">${v}</div>${sub ? `<div class="kdb-tile-s">${sub}</div>` : ''}</div>`;
+  const partSeg = `<span class="seg" role="group" aria-label="What to look at"><button type="button" data-hd="part" data-v="all" class="${s.part === 'all' ? 'on' : ''}">All</button>${PARTS.filter((p) => M.some((_, m) => partH(m, p.k) > 0.05)).map((p) => `<button type="button" data-hd="part" data-v="${esc(p.k)}" class="${s.part === p.k ? 'on' : ''}" title="${esc(p.label)}">${esc(p.kind === 'match' ? d.method_labels[p.k] : p.k === 'other' ? 'Other' : p.k === 'extra' ? 'One-off' : p.k)}</button>`).join('')}</span>`;
+  // the year as stacked bars (people needed, by part), the people there as a line; each month clickable
+  const chart = (series, sel, heads = true, H0 = 200) => {
+    const W = 1000; const L = 46; const Bt = 22; const T0 = 12; const slot = (W - L - 6) / 12; const bw = slot * 0.62;
+    const stack = M.map((_, m) => series.reduce((a, x) => a + (x.vals[m] || 0), 0));
+    const hd = heads ? M.map((m) => m.heads) : [];
+    const { max, ticks } = cpmScale(Math.max(0.5, ...stack, ...hd.filter((v) => v !== null)) * 1.1); const y = (v) => T0 + (H0 - T0 - Bt) * (1 - v / max);
+    const bars = M.map((_, m) => { let b0 = 0; return series.map((x) => { const v = x.vals[m] || 0; if (v <= 0) return ''; const r = `<rect x="${L + m * slot + (slot - bw) / 2}" y="${y(b0 + v)}" width="${bw}" height="${Math.max(0, y(b0) - y(b0 + v))}" style="fill:${x.col};opacity:.9"/>`; b0 += v; return r; }).join(''); }).join('');
+    const pts = hd.map((v, m) => (v === null ? null : `${L + (m + 0.5) * slot},${y(v)}`)).filter(Boolean);
+    return `<svg class="cpm-chart cpmdr-chart" viewBox="0 0 ${W} ${H0}" preserveAspectRatio="xMinYMin meet">
+      ${ticks.map((v) => `<line x1="${L}" x2="${W - 4}" y1="${y(v)}" y2="${y(v)}" class="cpm-grid"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="cpm-ax">${Number(v).toLocaleString('en-GB', { maximumFractionDigits: 1 })}</text>`).join('')}
+      ${sel !== null && sel !== undefined ? `<rect x="${L + sel * slot}" y="${T0}" width="${slot}" height="${H0 - T0 - Bt}" class="cpmdr-sel"/>` : ''}
+      ${bars}${pts.length > 1 ? `<polyline fill="none" stroke="var(--text)" stroke-width="2" points="${pts.join(' ')}"/>` : ''}
+      ${M.map((m, i) => `<text x="${L + (i + 0.5) * slot}" y="${H0 - 6}" text-anchor="middle" class="cpm-ax">${esc(m.label)}</text>`).join('')}
+      ${M.map((m, i) => `<rect x="${L + i * slot}" y="${T0}" width="${slot}" height="${H0 - T0}" class="cpmdr-hit" data-hd="month" data-v="${i}"><title>${esc(`${m.label} — ${p1(stack[i])} people needed${heads && m.heads !== null ? ` · ${p1(m.heads)} there` : ''} · click to see what makes it up`)}</title></rect>`).join('')}
+    </svg>`;
+  };
+  const partSeries = (X = M) => shown.map((p) => ({ col: p.col, vals: X.map((_, m) => (partH(m, p.k, X) || 0) / (ph(m) || 1)) }));
+  const legend = (heads = true) => `<div class="cpm-legend">${shown.filter((p) => M.some((_, m) => partH(m, p.k) > 0.05)).map((p) => `<span><i class="sw" style="background:${p.col}"></i>${esc(p.label)}</span>`).join('')}${heads ? '<span><i class="ln"></i>People there</span>' : ''}<span class="muted">people needed: hours ÷ a person's hours that month · click a month</span></div>`;
+  const custName = (c) => `<b>${esc(c.trigram || c.name)}</b>${c.trigram && c.name && c.name !== c.trigram ? ` <span class="muted">${esc(c.name)}</span>` : ''}`;
+  const pName = s.part === 'all' ? '' : ` — ${esc(PARTS.find((p) => p.k === s.part)?.label || s.part)}`;
+  let title; let html;
+  if (s.cust) {
+    // ---- a customer: its year, month by month, by part
+    const c = d.customers.find((x) => x.key === s.cust) || { key: s.cust, name: s.cust, hours: Array(12).fill(0), cards: Array(12).fill(0), by: {}, match: {} };
+    title = `${custName(c)}`;
+    const cp = PARTS.filter((p) => custPart(p.k) && c.by?.[p.k]?.some((v) => v > 0.05));
+    const yearH = c.hours.reduce((a, v) => a + v, 0); const allH = M.reduce((a, m) => a + m.total, 0);
+    const big = c.hours.reduce((b, v, i) => (v > c.hours[b] ? i : b), 0);
+    const ser = cp.map((p) => ({ col: p.col, vals: M.map((_, m) => (c.by[p.k][m] || 0) / (ph(m) || 1)) }));
+    html = `<div class="kdb-tiles pl-tiles">${tile(`Cards, ${d.year}`, cpmK(c.cards.reduce((a, v) => a + v, 0)), 'its forecast')}${tile('Hours', h1(yearH), `${allH ? cpmPct(yearH / allH) : '—'} of all the hours needed`)}${tile('People, a month', p1(avg12(M.map((_, m) => c.hours[m] / (ph(m) || 1)))), `on average · most ${p1(Math.max(...M.map((_, m) => c.hours[m] / (ph(m) || 1))))} (${esc(M[big].label)})`)}
+        ${tile('Matching', `${cpmPct(c.match?.OTTO || 0)} OTTO`, `${cpmPct(c.match?.HMT || 0)} by hand${c.match_set ? ' · set for it' : ' · the default'}`)}${BC ? tile(`vs the base plan`, sg(yearH - (BC[c.key]?.hours || []).reduce((a, v) => a + v, 0), h1), 'hours in the year') : ''}</div>
+      <h4 class="cpmdr-h">Its year <span class="muted small">— people needed for it, by part · click a month to see everyone in it</span></h4>
+      <div class="cpm-legend">${cp.map((p) => `<span><i class="sw" style="background:${p.col}"></i>${esc(p.label)}</span>`).join('')}</div>${chart(ser, null, false, 170)}
+      <div class="kdb-scroll"><table class="log small cpmdr-t"><thead><tr><th>Month</th><th class="num">Cards</th>${cp.map((p) => `<th class="num" style="color:${p.col}" title="${esc(`${p.label}: cards × its ${p.kind === 'match' ? 'matching' : p.k} share ÷ ${cpmN(d.rates[p.k])} cards an hour`)}">${esc(p.kind === 'match' ? d.method_labels[p.k] : p.k)} h</th>`).join('')}<th class="num">Hours</th><th class="num">People</th><th>Of the month's hours</th>${BC ? '<th class="num">vs base, h</th>' : ''}</tr></thead><tbody>
+      ${M.map((m, i) => `<tr class="cpmdr-row ${s.mark === i ? 'cpmdr-mark' : ''}" data-hd="month" data-v="${i}"><th>${esc(m.label)}</th><td class="num">${cpmK(c.cards[i])}</td>${cp.map((p) => `<td class="num">${h1(c.by[p.k][i])}</td>`).join('')}<td class="num"><b>${h1(c.hours[i])}</b></td><td class="num">${p1(c.hours[i] / (ph(i) || 1))}</td><td>${bar(m.total ? c.hours[i] / m.total : 0, 'var(--accent-2, #7382E6)')}</td>${BC ? `<td class="num">${sg(c.hours[i] - (BC[c.key]?.hours?.[i] || 0), h1)}</td>` : ''}</tr>`).join('')}
+      </tbody></table></div>
+      <p class="small muted">How it's worked out: each technology's hours = its cards × its share for that technology (Customers) ÷ a person's cards an hour (${d.techs.map((t) => `${esc(t)} ${cpmN(d.rates[t])}`).join(', ')}); matching = its cards × its OTTO / by-hand split ÷ ${d.methods.map((k) => `${esc(d.method_labels[k])} ${cpmN(d.rates[k])}`).join(', ')} an hour. People = hours ÷ (${p1(d.config.day_hours)} h × working days × ${cpmPct(d.config.efficiency)}).</p>`;
+  } else if (s.month !== null) {
+    // ---- a month: what makes it up, the customers, what moved since the month before (and from the base plan)
+    const i = s.month; const m = M[i]; const pv = i ? M[i - 1] : null; title = `${esc(m.label)} ${d.year}${pName}`;
+    const totF = s.part === 'all' ? m.total : partH(i, s.part); const fte = totF / (ph(i) || 1);
+    const pvF = pv ? (s.part === 'all' ? pv.total : partH(i - 1, s.part)) / (ph(i - 1) || 1) : null;
+    // why the people needed moved: the hours, or a person's hours (working days)
+    const why = pv ? (() => { const h0 = s.part === 'all' ? pv.total : partH(i - 1, s.part); const h1v = totF; const byH = (h1v - h0) / (ph(i) || 1); const byD = h0 / (ph(i) || 1) - h0 / (ph(i - 1) || 1);
+      return `From ${esc(pv.label)}: ${sg(fte - pvF, p1)} people — ${sg(byH, p1)} from the hours (${h1(h0)} → ${h1(h1v)})${Math.abs(byD) >= 0.05 ? `, ${sg(byD, p1)} from the working days (${cpmN(pv.workdays)} → ${cpmN(m.workdays)}: a person gives ${h1(ph(i - 1))} → ${h1(ph(i))} h)` : ''}.`; })() : '';
+    const custs = d.customers.map((c) => ({ c, h: custH(c, i), h0: i ? custH(c, i - 1) : null, b: baseCustH(c, i) })).filter((x) => x.h > 0.05 || (x.h0 || 0) > 0.05).sort((a, b) => b.h - a.h);
+    const custT = custs.reduce((a, x) => a + x.h, 0);
+    const movers = custs.filter((x) => x.h0 !== null).map((x) => ({ ...x, dv: x.h - x.h0 })).filter((x) => Math.abs(x.dv) > 0.5).sort((a, b) => Math.abs(b.dv) - Math.abs(a.dv)).slice(0, 5);
+    html = `<div class="row" style="gap:6px;margin-bottom:6px"><button type="button" class="small" data-hd="step" data-v="-1">‹ ${esc(M[(i + 11) % 12].label)}</button><button type="button" class="small" data-hd="step" data-v="1">${esc(M[(i + 1) % 12].label)} ›</button><div class="spacer"></div>${partSeg}</div>
+      <div class="kdb-tiles pl-tiles">${tile('Hours needed', h1(totF), s.part === 'all' ? `${h1(m.core)} perso & matching · ${h1(m.other_total)} other` : `${m.total ? cpmPct(totF / m.total) : '—'} of the month's`)}${tile('People needed', p1(fte), `${h1(ph(i))} h a person (${cpmN(m.workdays)} working days)`)}
+        ${s.part === 'all' ? tile('People there', m.heads === null ? '—' : p1(m.heads), m.heads === null ? 'none set' : `<span class="${m.gap_fte < -0.05 ? 'pl-late' : 'pl-ok'}">${m.gap_fte < 0 ? `${p1(-m.gap_fte)} short` : `${p1(m.gap_fte)} spare`}</span>`) : ''}
+        ${pv ? tile(`vs ${esc(pv.label)}`, sg(fte - pvF, p1), 'people needed') : ''}${B ? tile('vs the base plan', sg(fte - ((s.part === 'all' ? B[i].total : partH(i, s.part, B)) || 0) / (ph(i) || 1), p1), `people needed · ${esc(d.scenario?.name || 'scenario')}`) : ''}</div>
+      ${why ? `<p class="small" style="margin:6px 0">${why}${movers.length ? ` Most moved: ${movers.map((x) => `<a href="#" data-hd="cust" data-v="${esc(x.c.key)}" onclick="return false">${esc(x.c.trigram || x.c.name)}</a> ${sg(x.dv, h1)} h`).join(' · ')}.` : ''}</p>` : ''}
+      <h4 class="cpmdr-h">The year <span class="muted small">— click another month</span></h4>${legend(s.part === 'all')}${chart(partSeries(), i, s.part === 'all', 160)}
+      ${s.part === 'all' ? `<h4 class="cpmdr-h">What makes up ${esc(m.label)} <span class="muted small">— click a part to see its customers</span></h4>
+      <div class="kdb-scroll"><table class="log small cpmdr-t"><thead><tr><th>Part</th><th class="num">Cards</th><th class="num">Cards an hour</th><th class="num">Hours</th><th class="num">People</th><th>Of the month</th>${pv ? `<th class="num">vs ${esc(pv.label)}, h</th>` : ''}${B ? '<th class="num">vs base, h</th>' : ''}</tr></thead><tbody>
+      ${PARTS.map((p) => { const hh = partH(i, p.k); if (hh < 0.05 && !(pv && partH(i - 1, p.k) > 0.05)) return ''; const cards = custPart(p.k) && d.rates[p.k] ? hh * d.rates[p.k] : null;
+        return `<tr class="${custPart(p.k) ? 'cpmdr-row' : ''}" ${custPart(p.k) ? `data-hd="part" data-v="${esc(p.k)}"` : ''}><th><i class="sw" style="background:${p.col};display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px"></i>${esc(p.label)}</th><td class="num">${cards === null ? '' : cpmK(cards)}</td><td class="num">${custPart(p.k) ? cpmN(d.rates[p.k]) : ''}</td><td class="num"><b>${h1(hh)}</b></td><td class="num">${p1(hh / (ph(i) || 1))}</td><td>${bar(m.total ? hh / m.total : 0, p.col)}</td>${pv ? `<td class="num">${sg(hh - partH(i - 1, p.k), h1)}</td>` : ''}${B ? `<td class="num">${sg(hh - (partH(i, p.k, B) || 0), h1)}</td>` : ''}</tr>`; }).join('')}
+      </tbody></table></div>
+      ${d.config.other.length || m.extra ? `<p class="small muted">Other work: ${d.config.other.map((o) => `${esc(o.name)} ${p1(o.per_day)} h a day = ${h1(o.per_day * m.workdays)} h`).join(' · ') || 'none'}${m.extra ? ` · one-off hours typed for ${esc(m.label)}: ${h1(m.extra)} h` : ''}.</p>` : ''}` : ''}
+      ${custPart(s.part) || s.part === 'all' ? `<h4 class="cpmdr-h">The customers behind it <span class="muted small">— ${s.part === 'all' ? 'perso and matching' : esc(PARTS.find((p) => p.k === s.part).label)}; click one for its year</span></h4>
+      <div class="kdb-scroll"><table class="log small cpmdr-t"><thead><tr><th>Customer</th><th class="num">Cards</th><th class="num">Hours</th><th class="num">People</th><th>Of these hours</th>${pv ? `<th class="num">vs ${esc(pv.label)}, h</th>` : ''}${B ? '<th class="num">vs base, h</th>' : ''}</tr></thead><tbody>
+      ${custs.map((x) => `<tr class="cpmdr-row ${s.mark === x.c.key ? 'cpmdr-mark' : ''}" data-hd="cust" data-v="${esc(x.c.key)}"><td>${custName(x.c)}</td><td class="num">${cpmK(cardsOf(x.c, i))}</td><td class="num"><b>${h1(x.h)}</b></td><td class="num">${p1(x.h / (ph(i) || 1))}</td><td>${bar(custT ? x.h / custT : 0, s.part === 'all' ? 'var(--accent-2, #7382E6)' : PARTS.find((p) => p.k === s.part).col)}</td>${pv ? `<td class="num">${sg(x.h - (x.h0 || 0), h1)}</td>` : ''}${B ? `<td class="num">${x.b === null ? '' : sg(x.h - x.b, h1)}</td>` : ''}</tr>`).join('') || `<tr><td colspan="7" class="muted">No customer's work in ${esc(m.label)}.</td></tr>`}
+      </tbody></table></div>` : `<p class="small muted">${s.part === 'other' ? `Other work: ${d.config.other.map((o) => `${esc(o.name)} ${p1(o.per_day)} h a working day = ${h1(o.per_day * m.workdays)} h`).join(' · ') || 'none set'} (Rates and other work).` : `One-off hours typed for ${esc(m.label)}: ${h1(m.extra)} h (Month by month).`}</p>`}`;
+  } else {
+    // ---- the year: by part, and the customers over it
+    title = `${d.year}${d.scenario ? ` <span class="muted small">${esc(d.scenario.name)}</span>` : ''}${pName}`;
+    const yH = (k) => M.reduce((a, _, m) => a + (k === 'all' ? M[m].total : partH(m, k)), 0);
+    const avgP = (k) => avg12(M.map((_, m) => (k === 'all' ? M[m].total : partH(m, k)) / (ph(m) || 1)));
+    const custs = d.customers.map((c) => ({ c, h: M.reduce((a, _, m) => a + custH(c, m), 0), cards: M.reduce((a, _, m) => a + cardsOf(c, m), 0), b: BC ? M.reduce((a, _, m) => a + (baseCustH(c, m) || 0), 0) : null })).filter((x) => x.h > 0.05).sort((a, b) => b.h - a.h);
+    const custT = custs.reduce((a, x) => a + x.h, 0);
+    const top = PARTS.map((p) => [p, yH(p.k)]).sort((a, b) => b[1] - a[1])[0];
+    html = `<div class="row" style="gap:6px;margin-bottom:6px;justify-content:flex-end">${partSeg}</div>
+      <div class="kdb-tiles pl-tiles">${tile('Hours needed', h1(yH(s.part)), s.part === 'all' ? 'the year' : `${cpmPct(yH(s.part) / (yH('all') || 1))} of all`)}${tile('People needed, a month', p1(avgP(s.part)), 'on average')}
+        ${s.part === 'all' && top ? tile('Biggest part', esc(top[0].label), `${cpmPct(top[1] / (yH('all') || 1))} of the hours`) : ''}${custs[0] ? tile('Biggest customer', esc(custs[0].c.trigram || custs[0].c.name), `${cpmPct(custs[0].h / (custT || 1))} of ${s.part === 'all' ? 'perso and matching' : 'these hours'}`) : ''}
+        ${B ? tile('vs the base plan', sg(yH(s.part) - M.reduce((a, _, m) => a + ((s.part === 'all' ? B[m].total : partH(m, s.part, B)) || 0), 0), h1), `hours · ${esc(d.scenario?.name || '')}`) : ''}</div>
+      <h4 class="cpmdr-h">People needed, month by month${pName} <span class="muted small">— click a month to see what makes it up</span></h4>${legend(s.part === 'all')}${chart(partSeries(), null, s.part === 'all')}
+      ${s.part === 'all' ? `<h4 class="cpmdr-h">By part <span class="muted small">— click one to see only it</span></h4><div class="kdb-scroll"><table class="log small cpmdr-t"><thead><tr><th>Part</th><th class="num">Hours</th><th class="num">People, a month</th><th>Of the year</th>${B ? '<th class="num">vs base, h</th>' : ''}</tr></thead><tbody>
+      ${PARTS.filter((p) => yH(p.k) > 0.05).map((p) => `<tr class="cpmdr-row" data-hd="part" data-v="${esc(p.k)}"><th><i class="sw" style="background:${p.col};display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px"></i>${esc(p.label)}</th><td class="num"><b>${h1(yH(p.k))}</b></td><td class="num">${p1(avgP(p.k))}</td><td>${bar(yH(p.k) / (yH('all') || 1), p.col)}</td>${B ? `<td class="num">${sg(yH(p.k) - M.reduce((a, _, m) => a + (partH(m, p.k, B) || 0), 0), h1)}</td>` : ''}</tr>`).join('')}
+      </tbody></table></div>` : ''}
+      ${custPart(s.part) || s.part === 'all' ? `<h4 class="cpmdr-h">Customers over the year <span class="muted small">— click one for its year</span></h4>
+      <div class="kdb-scroll"><table class="log small cpmdr-t"><thead><tr><th>Customer</th><th class="num">Cards</th><th class="num">Hours</th><th class="num">People, a month</th><th>Of these hours</th><th>Through the year</th>${B ? '<th class="num">vs base, h</th>' : ''}</tr></thead><tbody>
+      ${custs.map((x) => { const per = M.map((_, m) => custH(x.c, m)); const mx = Math.max(1e-9, ...per);
+        return `<tr class="cpmdr-row" data-hd="cust" data-v="${esc(x.c.key)}"><td>${custName(x.c)}</td><td class="num">${cpmK(x.cards)}</td><td class="num"><b>${h1(x.h)}</b></td><td class="num">${p1(avg12(M.map((_, m) => custH(x.c, m) / (ph(m) || 1))))}</td><td>${bar(custT ? x.h / custT : 0, 'var(--accent-2, #7382E6)')}</td>
+          <td><span class="hc-spark" title="${esc(M.map((mm, m) => `${mm.label} ${h1(per[m])} h`).join(' · '))}">${per.map((v) => `<i style="height:${Math.max(1, Math.round((v / mx) * 16))}px"></i>`).join('')}</span></td>${B ? `<td class="num">${x.b === null ? '' : sg(x.h - x.b, h1)}</td>` : ''}</tr>`; }).join('') || '<tr><td colspan="7" class="muted">No customers.</td></tr>'}
+      </tbody></table></div>` : ''}`;
+  }
+  $('#hcdr').innerHTML = `<div class="row" style="gap:8px;align-items:center;margin-bottom:8px">${hcDr.hist.length ? '<button type="button" class="small" data-hd="back">← Back</button>' : ''}<h3 style="margin:0">👷 ${title}</h3><div class="spacer"></div>${s.month !== null || s.cust ? '<button type="button" class="small" data-hd="year">The year</button>' : ''}</div>${html}`;
+}
+const avg12 = (a) => (a.length ? a.reduce((x, v) => x + (v || 0), 0) / a.length : 0);
+
 // ---- Headcount: the forecast as working hours, and the people they take, against the people there are -----
 // (src/cpmhc.js does the sums, on this Capacity planning's forecast, flex, scenario, split and working days)
 async function cpmHeadcount(body) {
@@ -1464,7 +1595,8 @@ async function cpmHeadcount(body) {
     return `<svg class="cpm-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMin meet">
       ${ticks.map((v) => `<line x1="${L}" x2="${W - 4}" y1="${y(v)}" y2="${y(v)}" class="cpm-grid"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" class="cpm-ax">${v}</text>`).join('')}
       ${M.map((m, i) => { const coreF = m.per_head ? m.core / m.per_head : 0; const othF = m.per_head ? m.other_total / m.per_head : 0; const short = m.heads !== null && m.fte_needed > m.heads + 0.05;
-        return `<g><title>${esc(`${m.label}: ${p1(m.fte_needed)} people needed (${h1(m.total)} h: perso & matching ${h1(m.core)}, other ${h1(m.other_total)}) · ${m.heads === null ? 'no people set' : `${p1(m.heads)} there (${h1(m.available)} h)`}`)}</title>
+        return `<g class="hc-click" data-hc-dm="${i}"><title>${esc(`${m.label}: ${p1(m.fte_needed)} people needed (${h1(m.total)} h: perso & matching ${h1(m.core)}, other ${h1(m.other_total)}) · ${m.heads === null ? 'no people set' : `${p1(m.heads)} there (${h1(m.available)} h)`} · click to see what makes it up`)}</title>
+          <rect x="${x(i) - slot / 2}" y="${T}" width="${slot}" height="${H - T - B}" class="cpmdr-hit"/>
           <rect x="${x(i) - bw / 2}" y="${y(coreF)}" width="${bw}" height="${Math.max(0, y(0) - y(coreF))}" class="cpm-hc-core"/>
           <rect x="${x(i) - bw / 2}" y="${y(coreF + othF)}" width="${bw}" height="${Math.max(0, y(coreF) - y(coreF + othF))}" class="cpm-hc-other"/>
           <text x="${x(i)}" y="${y(Math.max(coreF + othF, m.heads || 0)) - 7}" text-anchor="middle" class="cpm-lbl ${short ? 'cpm-hc-short' : ''}">${p1(m.fte_needed)}${short ? ` (−${p1(m.fte_needed - m.heads)})` : ''}</text></g>`; }).join('')}
@@ -1476,24 +1608,24 @@ async function cpmHeadcount(body) {
     <div class="cpm-legend"><span><i class="sw cpm-hc-core-sw"></i>People needed for perso and matching</span><span><i class="sw cpm-hc-other-sw"></i>for the other work</span><span><i class="ln"></i>People there</span>${d.base ? '<span><i class="ln dash" style="border-color:#7a5cff"></i>Base plan, people needed</span>' : ''}<span class="muted">${p1(C.day_hours)} h a day × working days × ${cpmPct(C.efficiency)} efficiency a person</span></div>`;
   };
   // ---- month by month: the hours, the people (typed in), and the gap
-  const totRow = (label, f, fmt = h1, o = {}) => `<tr class="${o.cls || ''}"><th title="${esc(o.tip || '')}">${o.strong ? `<b>${label}</b>` : label}</th>${M.map((m) => `<td class="num">${o.strong ? `<b>${fmt(f(m))}</b>` : fmt(f(m))}</td>`).join('')}<td class="num"><b>${o.noTotal ? '' : fmt(sum(f))}</b></td></tr>`;
+  const totRow = (label, f, fmt = h1, o = {}) => `<tr class="${o.cls || ''}"><th title="${esc(o.tip || '')}">${o.strong ? `<b>${label}</b>` : label}</th>${M.map((m, i) => `<td class="num${o.part ? ' hc-click' : ''}"${o.part ? ` data-hc-dm="${i}" data-hc-dp="${o.part}" title="${esc(`${m.label}: click to see what's behind it`)}"` : ''}>${o.strong ? `<b>${fmt(f(m))}</b>` : fmt(f(m))}</td>`).join('')}<td class="num"><b>${o.noTotal ? '' : fmt(sum(f))}</b></td></tr>`;
   const staffIn = (k) => `<tr class="cpm-hc-staff"><th>${{ perm: 'Permanent', agency: 'Agency / temporary', sick: 'Long-term sick (−)' }[k]}</th>${M.map((m) => { const st = m.staff;
       return `<td class="num"><input type="number" min="0" step="0.5" class="cpm-hc-in ${st && !st.set ? 'carried' : ''}" data-hc-staff="${m.month}" data-k="${k}" value="${st ? st[k] ?? 0 : ''}" title="${st && !st.set ? `As set for ${esc(st.from)} — change it to set ${esc(m.label)}` : `${esc(m.label)}`}"></td>`; }).join('')}<td></td></tr>`;
-  const table = `<div class="kdb-scroll"><table class="log small cpm-hc-table"><thead><tr><th></th>${M.map((m) => `<th class="num">${esc(m.label)}</th>`).join('')}<th class="num">${year}</th></tr></thead><tbody>
+  const table = `<div class="kdb-scroll"><table class="log small cpm-hc-table"><thead><tr><th></th>${M.map((m, i) => `<th class="num hc-click" data-hc-dm="${i}" title="${esc(`${m.label}: what makes it up`)}">${esc(m.label)}</th>`).join('')}<th class="num">${year}</th></tr></thead><tbody>
       ${totRow('Working days', (m) => m.workdays, (v) => cpmN(v), { tip: 'Production\'s working days, less the holidays on Capacity' })}
       ${totRow('Cards (forecast)', (m) => m.cards, cpmK, { tip: `The forecast${flex ? ' × flex' : ''}${d.scenario ? `, with ${d.scenario.name}` : ''}` })}
       <tr class="cpm-hc-sec"><th colspan="14">Hours needed</th></tr>
-      ${d.techs.map((t) => totRow(`${CPM_TECH_ICON[t] || ''} ${esc(t)} perso`, (m) => m.perso[t], h1, { tip: `Cards × the customer's ${t} share ÷ ${cpmN(d.rates[t])} cards an hour` })).join('')}
-      ${d.methods.map((k) => totRow(`Matching: ${esc(d.method_labels[k])}`, (m) => m.match[k], h1, { tip: `Cards × the customer's ${d.method_labels[k]} share ÷ ${cpmN(d.rates[k])} cards an hour` })).join('')}
-      ${totRow('Other work', (m) => m.other_total - m.extra, h1, { tip: C.other.map((o) => `${o.name}: ${o.per_day} h a working day`).join('\n') || 'None set — add it under Rates and other work' })}
+      ${d.techs.map((t) => totRow(`${CPM_TECH_ICON[t] || ''} ${esc(t)} perso`, (m) => m.perso[t], h1, { part: t, tip: `Cards × the customer's ${t} share ÷ ${cpmN(d.rates[t])} cards an hour — click a month to see the customers` })).join('')}
+      ${d.methods.map((k) => totRow(`Matching: ${esc(d.method_labels[k])}`, (m) => m.match[k], h1, { part: k, tip: `Cards × the customer's ${d.method_labels[k]} share ÷ ${cpmN(d.rates[k])} cards an hour — click a month to see the customers` })).join('')}
+      ${totRow('Other work', (m) => m.other_total - m.extra, h1, { part: 'other', tip: C.other.map((o) => `${o.name}: ${o.per_day} h a working day`).join('\n') || 'None set — add it under Rates and other work' })}
       <tr><th title="Hours for a month only (a campaign, a project): typed in">One-off hours</th>${M.map((m) => `<td class="num"><input type="number" min="0" step="1" class="cpm-hc-in" data-hc-extra="${m.month}" value="${C.extra[m.month] || ''}"></td>`).join('')}<td class="num">${h1(sum((m) => m.extra))}</td></tr>
-      ${totRow('Hours needed', (m) => m.total, h1, { strong: true, cls: 'cpm-hc-tot' })}
+      ${totRow('Hours needed', (m) => m.total, h1, { strong: true, cls: 'cpm-hc-tot', part: 'all' })}
       <tr class="cpm-hc-sec"><th colspan="14">People there <span class="muted small">— type in; a month left as it is carries on from the one before (paler)</span></th></tr>
       ${['perm', 'agency', 'sick'].map(staffIn).join('')}
       ${totRow('People there', (m) => m.heads, p1, { noTotal: true, tip: 'Permanent + agency / temporary − long-term sick' })}
       ${totRow('Hours there', (m) => m.available, h1, { tip: `People × ${C.day_hours} h a day × working days × ${cpmPct(C.efficiency)}` })}
       <tr class="cpm-hc-sec"><th colspan="14">The gap</th></tr>
-      ${totRow('People needed', (m) => m.fte_needed, p1, { strong: true, noTotal: true, tip: 'Hours needed ÷ the hours a person gives that month' })}
+      ${totRow('People needed', (m) => m.fte_needed, p1, { strong: true, noTotal: true, part: 'all', tip: 'Hours needed ÷ the hours a person gives that month' })}
       ${d.base ? totRow('People needed, base plan', (m) => d.base.find((b) => b.month === m.month)?.fte_needed, p1, { noTotal: true }) : ''}
       <tr class="cpm-hc-tot"><th title="People there − people needed: + spare, − short"><b>People spare / short</b></th>${M.map((m) => `<td class="num"><b class="${gapCls(m.gap_fte)}">${gapTxt(m.gap_fte, p1)}</b></td>`).join('')}<td></td></tr>
       <tr><th title="Hours there − hours needed: + spare, − short">Hours spare / short</th>${M.map((m) => `<td class="num"><span class="${gapCls(m.gap_hours)}">${gapTxt(m.gap_hours, h1)}</span></td>`).join('')}<td class="num"><span class="${gapCls(withStaff.length ? sum((m) => m.gap_hours) : null)}">${withStaff.length ? gapTxt(sum((m) => m.gap_hours), h1) : ''}</span></td></tr>
@@ -1502,7 +1634,7 @@ async function cpmHeadcount(body) {
   // customer; Detailed: each customer's hours by technology (perso) and matching method, with its total
   const custView = store.get('cpmHcCustView', 'summary') === 'detail' ? 'detail' : 'summary';
   const matchIn = (c) => `<input type="number" min="0" max="100" step="1" class="cpm-hc-in ${c.match_set ? '' : 'carried'}" data-hc-match="${esc(c.trigram || c.key)}" value="${Math.round((c.match.OTTO || 0) * 100)}" title="${c.match_set ? '' : 'The default — type to set this customer\'s'}"> %`;
-  const custName = (c) => `${esc(c.trigram || c.name)}${c.trigram && c.name && c.name !== c.trigram ? ` <span class="muted">${esc(c.name)}</span>` : ''}`;
+  const custName = (c) => `<span class="hc-click hc-cust" data-hc-dc="${esc(c.key)}" title="Its year, month by month — click">${esc(c.trigram || c.name)}${c.trigram && c.name && c.name !== c.trigram ? ` <span class="muted">${esc(c.name)}</span>` : ''}</span>`;
   const cell = (h) => `<td class="num">${h ? h1(h) : '<span class="muted">–</span>'}</td>`;
   const parts = [...d.techs.map((t) => [t, `${CPM_TECH_ICON[t] || ''} ${esc(t)}`]), ...d.methods.map((k) => [k, `Matching: ${esc(d.method_labels[k])}`])];
   const custRows = custView === 'summary'
@@ -1543,10 +1675,17 @@ async function cpmHeadcount(body) {
         ${tile('People there, a month', withStaff.length ? p1(avg((m) => m.heads, withStaff)) : '—', withStaff.length ? `on average over ${withStaff.length} month${withStaff.length === 1 ? '' : 's'}` : 'none set yet')}
         ${worst ? tile('Tightest month', `${esc(worst.label)} ${gapTxt(worst.gap_fte, p1)}`, worst.gap_fte < 0 ? 'people short' : 'people spare', worst.gap_fte < -0.05 ? 'cpm-hc-bad' : '') : ''}
       </div></div>
-    <div class="card"><h3>People needed and there, month by month</h3>${chart()}</div>
+    <div id="hc-root"><div class="card"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h3 style="margin:0">People needed and there, month by month</h3><button type="button" class="small primary" data-hc-drill title="Open it up: what makes up each month's hours — by technology, matching and other work — the customers behind them and what moved from month to month${d.base ? ' and from the base plan' : ''}">🔎 Drill down</button></div>${chart()}<div class="small muted">Click a month (here, or a month or figure in the table below) or a customer to see what's behind it.</div></div>
     <div class="card"><h3>Month by month</h3>${table}</div>
     <div class="card"><h3>Per customer <span class="small muted">— hours a month for perso and matching${custView === 'detail' ? ', by technology and method' : ''}</span> ${custSeg}</h3>${custs}</div>
-    <div class="card"><h3>Rates and other work</h3>${setup}</div>`;
+    <div class="card"><h3>Rates and other work</h3>${setup}</div></div>`;
+  // 🔎 what's behind a figure: the drill-down (the year; a month, a part of it; a customer)
+  $('#hc-root').addEventListener('click', (e) => {
+    if (e.target.closest('input, select, textarea, .seg')) return;
+    if (e.target.closest('[data-hc-drill]')) { hcDrill(d); return; }
+    const c = e.target.closest('[data-hc-dc]'); if (c) { hcDrill(d, { cust: c.dataset.hcDc }); return; }
+    const m = e.target.closest('[data-hc-dm]'); if (m) hcDrill(d, { month: Number(m.dataset.hcDm), part: m.dataset.hcDp || 'all' });
+  });
   // ---- edits are kept until Save (one save, then the tab is worked out again); Undo changes drops them
   const pend = { staff: {}, extra: {}, match: {}, rates: {} }; let dirty = false;
   const touch = (el) => { el?.classList.add('cpm-hc-edited'); dirty = true; $('#hc-save').disabled = false; $('#hc-undo').disabled = false; $('#hc-dirty').hidden = false; };

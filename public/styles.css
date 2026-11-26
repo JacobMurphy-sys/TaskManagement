@@ -2929,6 +2929,10 @@ a.button:not(.primary) { display: inline-block; background: var(--panel); border
 .cpmdr-row:hover td, .cpmdr-row:hover th { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .cpmdr-mark td { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .cpmdr-t .pllx-share { min-width: 160px; }
+/* Headcount: figures that open the drill-down */
+.hc-click { cursor: pointer; } td.hc-click:hover, th.hc-click:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.hc-cust:hover { text-decoration: underline; }
+.hc-spark { display: inline-flex; align-items: flex-end; gap: 1px; height: 16px; } .hc-spark i { display: block; width: 5px; background: var(--accent-2, #7382E6); border-radius: 1px 1px 0 0; }
 .cpm-capt { stroke-width: 2.2; }
 .cpm-all-load th, .cpm-all-load td { border-bottom: 2px solid var(--border); }
 .cpm-rnwt input.cpm-manual { font-weight: 600; }

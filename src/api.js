@@ -4067,8 +4067,11 @@ router.get('/cpm/headcount', h((req, res) => {
     const year = Number(req.query.year) || new Date().getFullYear(); const useFlex = req.query.flex !== '0'; const cards = cpmCards();
     const plan = cpmHc.headcount({ year, useFlex, cards, changes: sc?.changes || [] });
     // with a scenario: the base plan's people needed beside it
-    const base = sc ? cpmHc.headcount({ year, useFlex, cards }).months.map((m) => ({ month: m.month, total: m.total, fte_needed: m.fte_needed })) : null;
-    return { ...plan, scenario: sc ? { id: sc.id, name: sc.name } : null, base };
+    // (and its make-up: each technology's and matching method's hours, the other work, and each customer's hours — for the drill-down)
+    const B = sc ? cpmHc.headcount({ year, useFlex, cards }) : null;
+    const base = B ? B.months.map((m) => ({ month: m.month, total: m.total, fte_needed: m.fte_needed, perso: m.perso, match: m.match, other_total: m.other_total, extra: m.extra })) : null;
+    const baseCustomers = B ? Object.fromEntries(B.customers.map((c) => [c.key, { hours: c.hours, by: c.by, cards: c.cards }])) : null;
+    return { ...plan, scenario: sc ? { id: sc.id, name: sc.name } : null, base, base_customers: baseCustomers };
   }));
 }));
 router.put('/cpm/headcount/config', h((req, res) => res.json(hcErr(() => cpmHc.save(req.body || {})))));
