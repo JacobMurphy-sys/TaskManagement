@@ -184,6 +184,15 @@ function prios() {
   return { of: (tri) => { const o = tri ? pm.get(tri) : null; const p = o && o.days >= 3 ? o : all && all.days ? all : null;
     return { mix: p ? { urgent: p.urgent, high: p.high, normal: p.normal, low: p.low } : { urgent: 0, high: 0, normal: 1, low: 0 }, from: p === o && o ? 'learned' : p ? 'everyone' : 'none', days: o ? o.days : 0 }; }, all: all || null, map: pm };
 }
+// each customer's Matching shares as Configuration › Customers (Matching picked) sets them — the share of its cards
+// through Matching, and of those the part matched by hand (typed, else learned; a customer kept to OTTO or to hand
+// match for its daily work and / or renewals counts so, weighed by its renewal share) — for Headcount
+function matchShares(M = machines()) {
+  const R = ratios(); const HS = handShares(M); const FL = lineForce(); const PR = prios(); const rt = json(setting('cpm_match_rnw_share', '{}'), {});
+  const rnwLow = (tri, learned) => { for (const k of [`${tri}|OTTO`, `${tri}|Hand match`]) { const v = rt[k]; if (v !== undefined && v !== null && v !== '') return Math.min(1, Math.max(0, Number(v) || 0)); } return learned || 0; };
+  return { of: (tri) => { const t = String(tri || '').toUpperCase(); const r = R.of(t); const hs0 = HS.of(t); const fs = FL.split(t, rnwLow(t, PR.of(t).mix.low), hs0.share);
+    const hs = fs.forced ? { share: fs.all, from: 'set' } : hs0; return { ratio: r.ratio, ratio_from: r.from, hand: hs.share, hand_from: hs.from, forced: FL.of(t) }; } };
+}
 function customersOf(plan, m, R, M, OE = oees(M), PR = prios(), MS = metalShares(null), HS = handShares(M)) {
   // the renewal share it's planned with (typed on Configuration › CPM Daily for its OTTO line, else hand match's, else learned)
   const FL = lineForce(); const rt = json(setting('cpm_match_rnw_share', '{}'), {});
@@ -383,4 +392,4 @@ function config(cards = null) {
     rnw_hours: json(setting('cpm_rnw_hours', '{}'), {}), window: (json(setting('cpm_rnw_hours', '{}'), {}).Matching || []).map(Number), hours: Array.from({ length: 24 }, (_, i) => (Math.floor(hm(setting('plan_day_start', '06:00'), 360) / 60) + i) % 24) };
 }
 
-module.exports = { handShares, LINES, metalShares, monthly, day, config, learnedRatios, profiles, machines, oee, measuredOee, oees };
+module.exports = { matchShares, handShares, LINES, metalShares, monthly, day, config, learnedRatios, profiles, machines, oee, measuredOee, oees };

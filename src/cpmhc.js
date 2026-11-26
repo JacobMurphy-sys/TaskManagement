@@ -4,7 +4,8 @@
 // forecast (with its flex and scenarios, its customers' split across DOD / Emboss / Laser and its working days).
 //
 //   perso hours    = Σ technologies: cards × the customer's share for it ÷ cards an hour (a person's rate)
-//   matching hours = cards × Σ methods (OTTO, hand): the customer's share for it ÷ cards an hour
+//   matching hours = cards × its share through Matching × Σ methods (OTTO, by hand): its share for it ÷ cards an hour
+//                    (the shares as Configuration › Customers, Matching picked, sets them — as CPM Monthly and Daily)
 //   other work     = Σ activities: hours a working day × working days (+ one-off hours that month)
 //   hours there    = (permanent + agency + temporary − long-term sick) × hours a day × working days × efficiency
 //   people needed  = hours needed ÷ (hours a day × working days × efficiency)
@@ -80,7 +81,13 @@ function headcount({ year, changes = [], useFlex = true, cards = null }) {
     const key = D.trigram || D.name; const C = byCust.get(key) || byCust.set(key, { key, trigram: D.trigram || null, name: D.name, months: {} }).get(key);
     for (const [m, x] of Object.entries(D.months)) { const M = C.months[m] || (C.months[m] = { cards: x.fc, raw: x.raw, split: {} }); M.split[D.tech] = (M.split[D.tech] || 0) + x.split; }
   }
-  const matchOf = (C) => c.match[C.trigram || C.key] || c.match_default || DEFAULT.match_default;
+  // its Matching: as Configuration › Customers (Matching picked) has it — the share of its cards through Matching and of
+  // those the part by hand (typed there, else learned; kept to OTTO / hand match there counts) — so changing it there
+  // changes the hours here. (The split once typed on this tab, or read from the HC Forecast workbook, isn't used.)
+  let MS = null; try { MS = require('./cpmmatch').matchShares(); } catch (e) { warnings.push(`Matching's shares couldn't be read (${e.message}) — all cards counted on OTTO`); }
+  const msMemo = new Map();
+  const shareOf = (C) => { const k = C.trigram || C.key; if (!msMemo.has(k)) msMemo.set(k, MS ? MS.of(C.trigram || '') : { ratio: 1, ratio_from: 'none', hand: 0, hand_from: 'none' }); return msMemo.get(k); };
+  const matchOf = (C) => { const s = shareOf(C); return { OTTO: s.ratio * (1 - s.hand), HMT: s.ratio * s.hand }; };
   const missMatch = MATCH.filter((k) => !rate[k] && [...byCust.values()].some((C) => (matchOf(C)[k] || 0) > 0));
   if (missMatch.length) warnings.push(`No cards an hour for matching ${missMatch.map((k) => MATCH_LABEL[k]).join(' and ')} — set it under Rates, or matching isn't counted`);
   const customers = [...byCust.values()].map((C) => {
@@ -94,7 +101,8 @@ function headcount({ year, changes = [], useFlex = true, cards = null }) {
       for (const k of MATCH) if (rate[k] && mx[k]) { const x = (q * mx[k]) / rate[k]; h += x; by[k][m - 1] += x; }
       hours[m - 1] = h; cardsBy[m - 1] = q;
     }
-    return { key: C.key, trigram: C.trigram, name: C.name, match: mx, match_set: !!c.match[C.trigram || C.key], hours, cards: cardsBy, by, total: hours.reduce((a, b) => a + b, 0) };
+    const sh = shareOf(C);
+    return { key: C.key, trigram: C.trigram, name: C.name, match: mx, match_ratio: sh.ratio, match_ratio_from: sh.ratio_from, match_hand: sh.hand, match_hand_from: sh.hand_from, match_forced: sh.forced || null, hours, cards: cardsBy, by, total: hours.reduce((a, b) => a + b, 0) };
   }).filter((x) => x.total > 0 || x.cards.some((q) => q > 0)).sort((a, b) => b.total - a.total);
   const otherPerDay = c.other.reduce((a, x) => a + (x.per_day || 0), 0);
   const months = plan.periods.map((P, i) => {

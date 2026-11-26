@@ -268,11 +268,15 @@ async function waitForServer() {
       raw.prepare("INSERT INTO cpm_customers (trigram, name, fc_names, split) VALUES ('HCT', 'Headcount test', 'Headcount test', '{\"DOD\":0.6,\"Laser\":0.4}')").run();
       raw.prepare("INSERT INTO cpm_forecast (as_of, source, year, month, trigram, name, tech, qty, read_at) VALUES ('2031-01', 'benelux', 2031, 1, 'HCT', 'Headcount test', NULL, 15000, '2031-01-01T00:00:00Z'), ('2031-01', 'benelux', 2031, 3, 'HCT', 'Headcount test', NULL, 30000, '2031-01-01T00:00:00Z')").run();
       raw.close();
-      await call('PUT', '/cpm/headcount/config', { match: { HCT: { OTTO: 0.5 } } });
+      // its Matching comes from Configuration › Customers (Matching picked), as CPM Monthly and Daily: all its cards
+      // through Matching, half of them by hand — Headcount's own (old) split is no longer used
+      await call('PUT', '/cpm/headcount/config', { match: { HCT: { OTTO: 0.9 } } });
+      await call('PUT', '/cpm/settings', { cpm_match_ratio: JSON.stringify({ HCT: 1 }), cpm_match_hand: JSON.stringify({ HCT: 0.5 }) });
       const hc = await call('GET', '/cpm/headcount?year=2031&flex=0&regen=1');
       const c = hc.customers.find((x) => x.trigram === 'HCT');
       // Jan: 15000 × 0.6 ÷ 1500 + 15000 × 0.4 ÷ 500 = 18 h perso; matching 15000 × (0.5 ÷ 3000 + 0.5 ÷ 400) = 21.25 h
       assert.ok(Math.abs(c.hours[0] - 39.25) < 0.01, `customer hours ${c.hours[0]}`);
+      assert.ok(c.match_ratio === 1 && c.match_hand === 0.5 && c.match_hand_from === 'typed', 'its Matching shares from Configuration');
       assert.deepStrictEqual(['DOD', 'Emboss', 'Laser', 'OTTO', 'HMT'].map((k) => Math.round(c.by[k][0] * 100) / 100), [6, 0, 12, 2.5, 18.75], 'its hours by technology and matching method');
       const jan = hc.months[0]; const mar = hc.months[2];
       assert.ok(Math.abs(jan.perso.DOD - 6) < 0.01 && Math.abs(jan.perso.Laser - 12) < 0.01 && Math.abs(jan.match.HMT - 18.75) < 0.01);

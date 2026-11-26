@@ -50,6 +50,8 @@ window.TIMELINE = {
   { id: 'headcount-drill', date: '2026-11-26', area: 'capacity', title: 'Headcount: drill down',
     text: 'The Headcount tab opens up: click a month, a figure or a customer to see what makes up the hours and the people needed — by technology, matching and other work, the customers behind them, and what moved from the month before or from the base plan.',
     points: ['The year, a month or a customer, with a filter by technology or matching method', 'Why a month moved: more hours, or fewer working days', 'With a scenario: what it changes, part by part and customer by customer'] },
+  { id: 'headcount-matching', date: '2026-11-26', area: 'capacity', title: 'Headcount follows the Matching settings',
+    text: 'Headcount\'s matching hours now come from each customer\'s Matching settings in Configuration — its share through Matching and its split between OTTO and hand match — so changing them there changes the people needed.' },
   { id: 'day-export-ship', date: '2026-11-26', area: 'capacity', title: 'Shipment times in the daily Excel',
     text: 'The daily capacity workbooks, perso and Matching, now draw the shipment times on their charts as the page does: a dashed line at each cut-off, labelled, which you can move by changing the time in the sheet.' },
   { id: 'day-export-formulas', date: '2026-11-25', area: 'capacity', title: 'Daily Excel: smoothing and shifts as formulas',
@@ -351,6 +353,7 @@ window.TIMELINE = {
 
   // 🎬 The blooper reel: the hidden easter egg (click the logo five times, type "oops", or find the 🐞)
   BLOOPERS: [
+    { date: '2026-11-26', title: 'Two places, one setting', text: 'The OTTO and hand-match split was adjusted again and again in Configuration while Headcount quietly kept using its own copy, typed on its own tab, and never moved.', lesson: 'One number, one home: everything else reads it from there.' },
   { date: '2026-11-25', title: 'The timeline missed its own update', text: 'A release went out, but the page that records every release was told by GitHub to "try again later", and it didn\'t. Nobody noticed until someone went looking for the new pins.', lesson: 'If at first you don\'t succeed, wait a minute and try once more, automatically.' },
   { date: '2026-11-25', title: 'The metal was in the wrong drawer', text: 'Adding two new columns to the matching customers table showed that the metal figures had always sat under the hand-match heading, and the hand figures under metal.', lesson: 'Put the cells in the same order as the headings.' },
   { date: '2026-11-23', title: 'Names, again', text: 'Overview became CPM Monthly, Day by hour became CPM Daily and Forecast vs actual became Flex — the names the team had been using for them all along.', lesson: 'Ask what people call a thing before naming it.' },

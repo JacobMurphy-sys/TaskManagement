@@ -1509,7 +1509,7 @@ function hcDrDraw() {
     const big = c.hours.reduce((b, v, i) => (v > c.hours[b] ? i : b), 0);
     const ser = cp.map((p) => ({ col: p.col, vals: M.map((_, m) => (c.by[p.k][m] || 0) / (ph(m) || 1)) }));
     html = `<div class="kdb-tiles pl-tiles">${tile(`Cards, ${d.year}`, cpmK(c.cards.reduce((a, v) => a + v, 0)), 'its forecast')}${tile('Hours', h1(yearH), `${allH ? cpmPct(yearH / allH) : '—'} of all the hours needed`)}${tile('People, a month', p1(avg12(M.map((_, m) => c.hours[m] / (ph(m) || 1)))), `on average · most ${p1(Math.max(...M.map((_, m) => c.hours[m] / (ph(m) || 1))))} (${esc(M[big].label)})`)}
-        ${tile('Matching', `${cpmPct(c.match?.OTTO || 0)} OTTO`, `${cpmPct(c.match?.HMT || 0)} by hand${c.match_set ? ' · set for it' : ' · the default'}`)}${BC ? tile(`vs the base plan`, sg(yearH - (BC[c.key]?.hours || []).reduce((a, v) => a + v, 0), h1), 'hours in the year') : ''}</div>
+        ${tile('Matching', `${cpmPct(c.match_ratio ?? 0)} of its cards`, `of those ${cpmPct(c.match_hand ?? 0)} by hand, ${cpmPct(1 - (c.match_hand ?? 0))} on OTTO · from Configuration`)}${BC ? tile(`vs the base plan`, sg(yearH - (BC[c.key]?.hours || []).reduce((a, v) => a + v, 0), h1), 'hours in the year') : ''}</div>
       <h4 class="cpmdr-h">Its year <span class="muted small">— people needed for it, by part · click a month to see everyone in it</span></h4>
       <div class="cpm-legend">${cp.map((p) => `<span><i class="sw" style="background:${p.col}"></i>${esc(p.label)}</span>`).join('')}</div>${chart(ser, null, false, 170)}
       <div class="kdb-scroll"><table class="log small cpmdr-t"><thead><tr><th>Month</th><th class="num">Cards</th>${cp.map((p) => `<th class="num" style="color:${p.col}" title="${esc(`${p.label}: cards × its ${p.kind === 'match' ? 'matching' : p.k} share ÷ ${cpmN(d.rates[p.k])} cards an hour`)}">${esc(p.kind === 'match' ? d.method_labels[p.k] : p.k)} h</th>`).join('')}<th class="num">Hours</th><th class="num">People</th><th>Of the month's hours</th>${BC ? '<th class="num">vs base, h</th>' : ''}</tr></thead><tbody>
@@ -1633,7 +1633,9 @@ async function cpmHeadcount(body) {
   // ---- per customer: the hours a month, and its matching split (OTTO % typed in; the rest by hand). Summary: a row a
   // customer; Detailed: each customer's hours by technology (perso) and matching method, with its total
   const custView = store.get('cpmHcCustView', 'summary') === 'detail' ? 'detail' : 'summary';
-  const matchIn = (c) => `<input type="number" min="0" max="100" step="1" class="cpm-hc-in ${c.match_set ? '' : 'carried'}" data-hc-match="${esc(c.trigram || c.key)}" value="${Math.round((c.match.OTTO || 0) * 100)}" title="${c.match_set ? '' : 'The default — type to set this customer\'s'}"> %`;
+  // its Matching, as Configuration › Customers (Matching picked) has it: the share of its cards through Matching, and of those by hand
+  const MFROM = { typed: 'set there', learned: 'learned', everyone: 'everyone\'s', set: 'kept to a line there', none: 'none' };
+  const matchIn = (c) => `<span class="hc-mshare" title="${esc(`Through Matching: ${cpmPct(c.match_ratio ?? 0)} of its cards (${MFROM[c.match_ratio_from] || c.match_ratio_from || '—'}) · of those by hand: ${cpmPct(c.match_hand ?? 0)} (${MFROM[c.match_hand_from] || c.match_hand_from || '—'})${c.match_forced ? ` · kept to ${[c.match_forced.daily && `${c.match_forced.daily === 'hand' ? 'hand match' : 'OTTO'} for its daily work`, c.match_forced.rnw && `${c.match_forced.rnw === 'hand' ? 'hand match' : 'OTTO'} for its renewals`].filter(Boolean).join(', ')}` : ''} — set in Configuration › Customers, Matching picked`)}">${cpmPct(c.match_ratio ?? 0)} <span class="muted">· ${cpmPct(c.match_hand ?? 0)} hand</span></span>`;
   const custName = (c) => `<span class="hc-click hc-cust" data-hc-dc="${esc(c.key)}" title="Its year, month by month — click">${esc(c.trigram || c.name)}${c.trigram && c.name && c.name !== c.trigram ? ` <span class="muted">${esc(c.name)}</span>` : ''}</span>`;
   const cell = (h) => `<td class="num">${h ? h1(h) : '<span class="muted">–</span>'}</td>`;
   const parts = [...d.techs.map((t) => [t, `${CPM_TECH_ICON[t] || ''} ${esc(t)}`]), ...d.methods.map((k) => [k, `Matching: ${esc(d.method_labels[k])}`])];
@@ -1642,7 +1644,7 @@ async function cpmHeadcount(body) {
     : d.customers.map((c) => { const rows = parts.filter(([k]) => c.by?.[k]?.some((v) => v > 0));
       return `<tr class="cpm-hc-cust"><th>${custName(c)}</th><td class="num">${matchIn(c)}</td>${c.hours.map((h) => `<td class="num"><b>${h ? h1(h) : '–'}</b></td>`).join('')}<td class="num"><b>${h1(c.total)}</b></td></tr>
         ${rows.map(([k, label]) => `<tr class="cpm-hc-part"><th>${label}</th><td></td>${c.by[k].map(cell).join('')}<td class="num">${h1(c.by[k].reduce((a, v) => a + v, 0))}</td></tr>`).join('')}`; }).join('');
-  const custs = `<div class="kdb-scroll"><table class="log small cpm-hc-table"><thead><tr><th>Customer</th><th class="num" title="Its cards matched on OTTO; the rest by hand">Matching on OTTO</th>${M.map((m) => `<th class="num">${esc(m.label)}</th>`).join('')}<th class="num">${year}</th></tr></thead><tbody>
+  const custs = `<div class="kdb-scroll"><table class="log small cpm-hc-table"><thead><tr><th>Customer</th><th class="num" title="As set in Configuration › Customers with Matching picked: the share of its cards through Matching · of those, the share matched by hand (the rest on OTTO)">Matching <span class="muted">· by hand</span></th>${M.map((m) => `<th class="num">${esc(m.label)}</th>`).join('')}<th class="num">${year}</th></tr></thead><tbody>
       ${custRows}
     </tbody></table></div>${d.customers.length ? '' : '<p class="muted small">No forecast for this year yet (Reporting › Sources: the BeNeLux and Amex forecasts).</p>'}`;
   const custSeg = `<span class="seg" role="group" aria-label="Per customer view"><button type="button" data-hc-cview="summary" class="${custView === 'summary' ? 'on' : ''}" title="A row a customer: its hours for perso and matching">Summary</button><button type="button" data-hc-cview="detail" class="${custView === 'detail' ? 'on' : ''}" title="Each customer's hours by technology and matching method">Detailed</button></span>`;
@@ -1654,7 +1656,7 @@ async function cpmHeadcount(body) {
         <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:8px">
           <label class="f">Hours a day<input type="number" min="1" max="24" step="0.25" data-hc-day value="${C.day_hours}" style="max-width:90px"></label>
           <label class="f">Efficiency<span class="row" style="gap:6px"><input type="number" min="1" max="100" step="1" data-hc-eff value="${Math.round(C.efficiency * 100)}" style="max-width:80px"> %</span></label>
-          <label class="f" title="For customers without a split of their own">Matching on OTTO, by default<span class="row" style="gap:6px"><input type="number" min="0" max="100" step="1" data-hc-mdef value="${Math.round((C.match_default?.OTTO ?? 1) * 100)}" style="max-width:80px"> %</span></label></div></div>
+          <span class="small muted" style="align-self:flex-end">Matching — each customer's share through Matching and by hand — comes from <a href="#/cpm/customers">Configuration › Customers</a> with Matching picked, as CPM Monthly and Daily use it.</span></div></div>
       <div><h4>Other work <span class="small muted">— hours a working day</span></h4>
         <table class="log small"><tbody id="hc-orows">${C.other.map((o) => `<tr data-hc-orow><td><input type="text" data-hc-oname value="${esc(o.name)}"></td><td class="num"><input type="number" min="0" step="0.5" data-hc-oday value="${o.per_day}" style="max-width:90px"> h</td><td><button type="button" class="icon" data-hc-odel title="Remove">✕</button></td></tr>`).join('')}
           <tr><td><input type="text" id="hc-onew-name" placeholder="＋ e.g. Quality checks"></td><td class="num"><input type="number" min="0" step="0.5" id="hc-onew-day" placeholder="h a day" style="max-width:90px"></td><td><button type="button" class="small" id="hc-onew">Add</button></td></tr></tbody></table>
@@ -1697,11 +1699,9 @@ async function cpmHeadcount(body) {
   $('#hc-scen').onchange = (e) => { if (!leave()) { e.target.value = String(scId); return; } dirty = false; store.set('cpmHcScenario', Number(e.target.value)); renderCpm('headcount'); };
   $$('[data-hc-staff]').forEach((i) => { i.oninput = () => { const mo = i.dataset.hcStaff; pend.staff[mo] = Object.fromEntries($$(`[data-hc-staff="${mo}"]`).map((x) => [x.dataset.k, x.value === '' ? 0 : Number(x.value)])); i.classList.remove('carried'); touch(i); }; });
   $$('[data-hc-extra]').forEach((i) => { i.oninput = () => { pend.extra[i.dataset.hcExtra] = i.value === '' ? 0 : Number(i.value); touch(i); }; });
-  $$('[data-hc-match]').forEach((i) => { i.oninput = () => { pend.match[i.dataset.hcMatch] = i.value === '' ? null : { OTTO: Number(i.value) / 100 }; i.classList.remove('carried'); touch(i); }; });
   $$('[data-hc-rate]').forEach((i) => { i.oninput = () => { pend.rates[i.dataset.hcRate] = i.value === '' ? null : Number(i.value); touch(i); }; });
   $('[data-hc-day]').oninput = (e) => { pend.day_hours = Number(e.target.value); touch(e.target); };
   $('[data-hc-eff]').oninput = (e) => { pend.efficiency = Number(e.target.value) / 100; touch(e.target); };
-  $('[data-hc-mdef]').oninput = (e) => { pend.match_default = { OTTO: Number(e.target.value) / 100 }; touch(e.target); };
   // other work: rows changed, removed or added here; the whole list is saved
   const others = () => $$('#hc-orows [data-hc-orow]').filter((r) => !r.hidden).map((r) => ({ name: r.querySelector('[data-hc-oname]').value.trim(), per_day: Number(r.querySelector('[data-hc-oday]').value) || 0 }));
   const wireO = (r) => {
@@ -1718,7 +1718,7 @@ async function cpmHeadcount(body) {
   $('#hc-undo').onclick = () => { dirty = false; renderCpm('headcount'); };
   $('#hc-save').onclick = async (e) => {
     const b = { ...pend }; if (pend.other) b.other = others(); else delete b.other;
-    for (const k of ['staff', 'extra', 'match', 'rates']) if (!Object.keys(b[k]).length) delete b[k];
+    for (const k of ['staff', 'extra', 'match', 'rates']) if (!Object.keys(b[k] || {}).length) delete b[k];
     e.target.disabled = true; e.target.textContent = '⏳ Saving…';
     try { await api.put('/cpm/headcount/config', b); dirty = false; toast('Saved'); renderCpm('headcount'); }
     catch (err) { toast(err.message, 'error'); e.target.disabled = false; e.target.textContent = '💾 Save'; }
