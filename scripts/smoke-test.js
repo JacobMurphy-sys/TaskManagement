@@ -4068,7 +4068,17 @@ async function waitForServer() {
           let fc = (await admin('GET', '/forecasts')).data;
           assert.deepEqual([fc.link.on, fc.link.path, fc.link.can_edit], [false, null, true], 'the link starts off');
           assert.equal((await look('anything')).status, 404, 'off: no link works');
-          assert.equal((await sam('PUT', '/forecasts/link', { on: true })).status, 403, 'only the setup right switches it on (and Sam has no Forecast)');
+          assert.equal((await sam('PUT', '/forecasts/link', { on: true })).status, 403, 'not without the Forecast module (Sam has the setup right)');
+          { // its own right: the Forecast module alone doesn't do it, the Forecast upload link right does — the setup right doesn't
+            const before = (await admin('GET', `/accounts`)).data.find((x) => x.id === samId);
+            await admin('PATCH', `/accounts/${samId}`, { modules: ['forecast'] });
+            assert.equal((await sam('PUT', '/forecasts/link', { on: false })).status, 403, 'the setup right alone no longer does it');
+            assert.equal((await sam('GET', '/forecasts')).data.link.can_edit, false);
+            await admin('PATCH', `/accounts/${samId}`, { rights: [...before.rights, 'fc_link'] });
+            assert.equal((await sam('GET', '/forecasts')).data.link.can_edit, true, 'the Forecast upload link right');
+            assert.equal((await sam('PUT', '/forecasts/link', { on: false })).status, 200);
+            await admin('PATCH', `/accounts/${samId}`, { rights: before.rights, modules: before.modules_set ? before.modules : null });
+          }
           const on = (await admin('PUT', '/forecasts/link', { on: true })).data;
           const token = on.path.split('/').pop();
           assert.ok(on.on && token.length >= 20, 'on: a long random link');

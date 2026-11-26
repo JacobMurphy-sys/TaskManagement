@@ -100,11 +100,12 @@ publicRouter.post('/:token', express.raw({ type: () => true, limit: MAX_BYTES })
 
 // ---- the 📈 Forecast tab (the Forecast module; accounts.js's MODULE_API) -------------------------------
 const router = express.Router();
+// the upload link (on / off, a new one) and removing a forecast: the Forecast upload link right (admins have it)
 function needSetup(req) {
   const accounts = require('./accounts');
-  if (accounts.enabled() && !accounts.hasRight(req, 'setup')) throw bad('Changing the link needs the “Change the setup” right — ask an admin', 403);
+  if (accounts.enabled() && !accounts.hasRight(req, 'fc_link')) throw bad('That needs the “Forecast upload link” right — ask the host', 403);
 }
-const canSetup = (req) => { const accounts = require('./accounts'); return !accounts.enabled() || accounts.hasRight(req, 'setup'); };
+const canSetup = (req) => { const accounts = require('./accounts'); return !accounts.enabled() || accounts.hasRight(req, 'fc_link'); };
 router.get('/forecasts', h((req, res) => {
   const list = db.all(`SELECT ${LIST_COLS} FROM forecast_uploads ORDER BY created_at DESC, id DESC LIMIT 300`).map(shape);
   const newest = {}; for (const k of Object.keys(KINDS)) newest[k] = list.find((x) => x.kind === k)?.id ?? null;

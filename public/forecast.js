@@ -1,6 +1,6 @@
 // Forecast (the Forecast module): the customer forecasts sent in — through the upload link (no account needed) or
 // from here — who sent which and when, what each held month by month, and which one Capacity planning reads.
-// An admin (the setup right) switches the link on or off and makes a new one (src/forecasts.js).
+// The Forecast upload link right (admins have it) switches the link on or off and makes a new one (src/forecasts.js).
 
 const fcQty = (n) => (Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : Math.abs(n) >= 1e3 ? `${Math.round(n / 1e3)}k` : String(Math.round(n)));
 const fcMonth = (k) => { const [y, m] = k.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'short', year: '2-digit' }); };
@@ -41,7 +41,7 @@ async function renderForecast() {
         ${d.link.can_edit ? `<button type="button" data-fc-link="${d.link.on ? 'off' : 'on'}">${d.link.on ? 'Switch off' : 'Switch on'}</button>${d.link.on ? '<button type="button" data-fc-renew title="Make a new link: the old one stops working">↻ New link</button>' : ''}` : ''}</div>
       <p class="small muted">For the people who send forecasts but have no SITHUB account: the link opens a page that only sends a forecast (they give their name) and shows what was sent from that browser before. Nothing else of SITHUB. Anyone with the link can send one, so share it only with them; make a new link if it goes further.</p>
       ${d.link.on && url ? `<div class="row"><input type="text" readonly value="${esc(url)}" id="fc-url" style="flex:1;min-width:0"><button type="button" class="primary" data-fc-copy>📋 Copy</button><a class="button" href="${esc(d.link.path)}" target="_blank" rel="noopener">Open ↗</a></div>${/^(localhost|127\.|\[?::1)/.test(location.hostname) ? '<div class="small pl-late" style="margin-top:6px">⚠ This link uses this PC\'s own address, so it only works here. Copy it from another PC (opening SITHUB by the server\'s name) to share it.</div>' : ''}`
-    : `<div class="empty small">${d.link.can_edit ? 'Switch the link on to get it.' : 'The link is off: an admin switches it on.'}</div>`}
+    : `<div class="empty small">${d.link.can_edit ? 'Switch the link on to get it.' : 'The link is off: someone with the Forecast upload link right switches it on.'}</div>`}
     </div>
     <div class="card"><h2>Sent in <span class="small muted">${list.length}</span></h2>
       ${list.length ? `<div class="kdb-scroll"><table class="log"><thead><tr><th>When</th><th>From</th><th>Forecast</th><th>Months · total</th><th>File</th><th>Note</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table></div>`

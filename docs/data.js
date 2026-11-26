@@ -47,6 +47,8 @@ window.TIMELINE = {
     text: 'In a task list, a click on a task\'s due date or owner now changes it right there: a calendar with quick picks for the date, and the usual owner picker.' },
   { id: 'match-export-compare', date: '2026-11-25', area: 'capacity', title: 'Matching scenarios compared in Excel',
     text: 'The monthly matching workbook for a scenario now has the base plan\'s sheets beside the scenario\'s, a comparison sheet month by month and charts with both, as perso\'s does.' },
+  { id: 'forecast-link-right', date: '2026-11-26', area: 'capacity', title: 'Forecast upload link: its own right',
+    text: 'Looking after the public forecast upload link — switching it on or off, making a new one — is now a right of its own, so the person who handles forecasts can do it without full setup rights. The link itself still needs no account.' },
   { id: 'proxy-subpath', date: '2026-11-26', area: 'platform', title: 'Works behind a reverse proxy',
     text: 'SITHUB can now be published under a sub-path of another web address (as the office server is), with every page, download and upload link following it.' },
   { id: 'headcount-drill', date: '2026-11-26', area: 'capacity', title: 'Headcount: drill down',
