@@ -115,8 +115,8 @@ function renderCharterTab(root, p) {
       <span>Charter <b>${c.pct}%</b> complete</span> ${charterMeter(c)}
       ${c.missing.length ? `<span class="small muted">To do: ${esc(c.missing.join(', '))}</span>` : '<span class="small muted">✓ Every section is filled in</span>'}
       <div class="spacer"></div>
-      <a class="button" href="/api/projects/${p.id}/charter.xlsx" title="Your standard template filled in (set it up under Settings)">⬇ Charter (Excel)</a>
-      <a class="button" href="/api/projects/${p.id}/charter.pdf" download title="The charter on one page, to send or print">📄 Summary (PDF)</a>
+      <a class="button" href="api/projects/${p.id}/charter.xlsx" title="Your standard template filled in (set it up under Settings)">⬇ Charter (Excel)</a>
+      <a class="button" href="api/projects/${p.id}/charter.pdf" download title="The charter on one page, to send or print">📄 Summary (PDF)</a>
       <button data-action="print-charter">🖨 Print</button>
     </div>
     <div class="charter card" id="charter-form">
@@ -418,7 +418,7 @@ async function renderCharterSettings(root) {
   $('#tpl-file', root)?.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const res = await fetch('/api/charter-template', { method: 'POST', body: file,
+    const res = await fetch('api/charter-template', { method: 'POST', body: file,
       headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(file.name) } });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { toast(data.error || 'Upload failed', 'error'); return; }

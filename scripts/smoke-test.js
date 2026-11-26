@@ -851,7 +851,7 @@ async function waitForServer() {
     const page = await call('GET', `/library/docs/${lock.id}`);
     assert.match(page.html, /class="callout callout-warning"/, 'callout');
     assert.match(page.html, new RegExp(`href="#/library/${iso.id}/main-valve"[^>]*>the valve<`), 'wikilink to a heading, with alias');
-    assert.match(page.html, /<img class="md-img" src="\/api\/library\/file\?p=attachments%2Fdiagram\.png"[^>]*width="200"/, 'embedded image by name');
+    assert.match(page.html, /<img class="md-img" src="api\/library\/file\?p=attachments%2Fdiagram\.png"[^>]*width="200"/, 'embedded image by name');
     assert.match(page.html, /<input type="checkbox" disabled checked>/, 'read-only checklist');
     assert.ok(!page.html.includes('<script'), 'raw script escaped');
     assert.deepEqual(page.backlinks.map((b) => b.title), ['Isolation points'], 'backlink via alias');
@@ -3202,8 +3202,8 @@ async function waitForServer() {
       const pagesOf = (buf) => (buf.toString('latin1').match(/\/Type \/Page[^s]/g) || []).length;
       const gen = async (model) => {
         const r = await call('POST', '/plan/sheet', { stamp: 'Thursday 8 October at 09:30', running_legend: true, file_label: 'Production plan', ...model });
-        assert.match(r.url, /^\/api\/plan\/sheet\/\w+\/Production%20plan%20\d{4}-\d{2}-\d{2}%20\d{4}\.pdf$/);
-        const res = await fetch(`http://127.0.0.1:${PORT}${r.url}`);
+        assert.match(r.url, /^api\/plan\/sheet\/\w+\/Production%20plan%20\d{4}-\d{2}-\d{2}%20\d{4}\.pdf$/);
+        const res = await fetch(`http://127.0.0.1:${PORT}/${r.url}`); // (relative to the page: api/…)
         assert.equal(res.headers.get('content-type'), 'application/pdf');
         assert.match(res.headers.get('content-disposition'), /^inline; filename="Production plan \d{4}-\d{2}-\d{2} \d{4}\.pdf"$/);
         const buf = Buffer.from(await res.arrayBuffer());

@@ -30,14 +30,14 @@ async function renderCapex(openId) {
       <td class="nowrap small" title="${esc(fmtDate(x.planned_date))}">${esc(capexQuarter(x.planned_date))}</td>
       <td class="num nowrap"><b>${money(x.amount, x.currency || cur)}</b>${x.actual_cost !== null && x.actual_cost !== undefined ? `<div class="small ${x.actual_cost > x.amount ? 'pl-late' : 'muted'}">actual ${money(x.actual_cost, x.currency || cur)}</div>` : ''}</td>
       <td>${capexPill(x.status, S[x.status])}</td><td>${prioPill(x.priority)}</td>
-      <td><a class="icon" href="/api/capex/${x.id}/onepager.pdf" title="One-pager (PDF)" download>📄</a></td></tr>`;
+      <td><a class="icon" href="api/capex/${x.id}/onepager.pdf" title="One-pager (PDF)" download>📄</a></td></tr>`;
   const qs = new URLSearchParams({ ...(f.status !== 'all' ? { status: f.status } : {}), ...(list.length !== d.items.length ? { ids: list.map((x) => x.id).join(',') } : {}) }).toString();
   main().innerHTML = `
     <div class="kanban-tools"><h1 style="margin:0">CAPEX</h1>
       <div class="seg">${[['open', 'Open'], ['all', 'All'], ...Object.entries(S).filter(([k]) => !CAPEX_OPEN.includes(k))].map(([k, l]) => `<button type="button" data-cx-status="${k}" class="${f.status === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div class="spacer"></div>
       <button class="primary" id="cx-new">＋ New investment</button>
-      ${ddMenu('⋯', `<a href="/api/capex/export.xlsx?${qs}" download>⬇ Excel — the register to edit and examine</a><a href="/api/capex/overview.pdf?${qs}" download>📄 The plan on a page (PDF)</a><hr><button type="button" id="cx-irtpl">📑 IR templates…</button>`, { title: 'Excel export, PDF one-pager, IR templates' })}
+      ${ddMenu('⋯', `<a href="api/capex/export.xlsx?${qs}" download>⬇ Excel — the register to edit and examine</a><a href="api/capex/overview.pdf?${qs}" download>📄 The plan on a page (PDF)</a><hr><button type="button" id="cx-irtpl">📑 IR templates…</button>`, { title: 'Excel export, PDF one-pager, IR templates' })}
     </div>
     ${typeof ACCT !== 'undefined' && ACCT.enabled ? `<div class="small muted" style="margin:-4px 0 8px">🔒 ${ACCT.account?.manages?.length ? 'As a manager (someone reports to you) you see every investment.' : 'You see the investments you raised, requested or sponsor.'} Each is seen by whoever raised it, its requester and sponsor, and every manager (anyone with someone below them in the 🌳 management tree).</div>` : ''}
     <div class="kdb-tiles pl-tiles">
@@ -76,8 +76,8 @@ function capexForm(x, d) {
   const names = [...new Set([...state.projects.flatMap((p) => [p.leader, p.sponsor, p.team_names, p.task_owners].flatMap(splitOwners)), ...d.items.flatMap((y) => [y.owner, y.sponsor].filter(Boolean))])].sort((a, b) => a.localeCompare(b));
   const v = (k) => esc(x[k] ?? '');
   openModal(`
-    <div class="modal-head"><h2 style="margin:0">${isNew ? 'New investment' : `${esc(x.ref)} — ${esc(x.title)}`}</h2>${isNew ? '' : `<a class="button small" href="/api/capex/${x.id}/onepager.pdf" download>📄 One-pager</a>
-      ${ddMenu('⬇ IR pack', `<a href="/api/capex/${x.id}/ir/deck.pptx" data-cx-dl>IR deck (PowerPoint)</a><a href="/api/capex/${x.id}/ir/model.xlsx" data-cx-dl>Financial model (Excel)</a>`, { title: 'The corporate IR deck and financial model, filled in from this investment (saved first)' })}`}<button class="icon" data-action="close-modal">✕</button></div>
+    <div class="modal-head"><h2 style="margin:0">${isNew ? 'New investment' : `${esc(x.ref)} — ${esc(x.title)}`}</h2>${isNew ? '' : `<a class="button small" href="api/capex/${x.id}/onepager.pdf" download>📄 One-pager</a>
+      ${ddMenu('⬇ IR pack', `<a href="api/capex/${x.id}/ir/deck.pptx" data-cx-dl>IR deck (PowerPoint)</a><a href="api/capex/${x.id}/ir/model.xlsx" data-cx-dl>Financial model (Excel)</a>`, { title: 'The corporate IR deck and financial model, filled in from this investment (saved first)' })}`}<button class="icon" data-action="close-modal">✕</button></div>
     <div class="seg cx-maintabs"><button type="button" data-cx-main="ess" class="on">The investment</button><button type="button" data-cx-main="ir">📑 IR pack</button></div>
     <form id="cx-form">
       <div class="cx-main form-grid" data-cx-pane="ess">

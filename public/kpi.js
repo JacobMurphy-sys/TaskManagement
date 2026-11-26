@@ -56,7 +56,7 @@ async function renderKpi(arg, tab) {
           <button data-kpi="download">⬇ Download the A3 (values, charts as pictures)</button><hr>` : ''}
         ${settings.kpi_workbook_path ? '<button data-kpi="load-path">📥 Load the week from Excel</button>' : ''}
         <label>Load the workbook from a file…<input type="file" accept=".xlsm,.xlsx" hidden id="kpi-file"></label>
-        <hr><a href="/api/kpi/history" download title="Every week's report, what was typed on them, notes, figures typed in or adjusted, logged late deliveries and the A3 template — one file, to move them to another install (e.g. the server)">⬇ Export all weeks</a>
+        <hr><a href="api/kpi/history" download title="Every week's report, what was typed on them, notes, figures typed in or adjusted, logged late deliveries and the A3 template — one file, to move them to another install (e.g. the server)">⬇ Export all weeks</a>
         ${acctAdmin() ? '<label title="Add the weeks from a file exported on another install. Weeks here are kept; where both have a week, the one changed last wins. Nothing is removed.">⬆ Import weeks from another install…<input type="file" accept=".json" hidden id="kpi-hist-file"></label>' : ''}
         ${snap ? '<hr><button class="danger" data-kpi="delete">🗑 Remove this week</button>' : ''}`, { title: 'Save or download the A3, load from Excel, remove the week' })}
     </div>
@@ -93,7 +93,7 @@ async function renderKpi(arg, tab) {
   });
   $('#kpi-file').addEventListener('change', async (e) => {
     const f = e.target.files[0];
-    if (f) await kpiLoad(() => fetch('/api/kpi/load', { method: 'POST', body: f,
+    if (f) await kpiLoad(() => fetch('api/kpi/load', { method: 'POST', body: f,
       headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(f.name), 'X-File-Modified': new Date(f.lastModified).toISOString() } }));
     e.target.value = '';
   });
@@ -103,7 +103,7 @@ async function renderKpi(arg, tab) {
     if (!confirm(`Add the Reporting weeks in ${f.name} to this SITHUB?\n\nWeeks this one doesn't have are added. Where both have a week, the copy changed last is kept. Nothing is removed.`)) return;
     toast('Importing…');
     try {
-      const res = await fetch('/api/kpi/history', { method: 'POST', body: f, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } });
+      const res = await fetch('api/kpi/history', { method: 'POST', body: f, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } });
       const r = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(r.error || `Import failed (${res.status})`);
       toast(`Imported: ${r.weeks_added} week${r.weeks_added === 1 ? '' : 's'} added, ${r.weeks_updated} updated${r.weeks_kept ? `, ${r.weeks_kept} kept as they were here` : ''} · ${r.rows} edits, notes and figures · ${r.otd} late deliveries${r.template ? ' · the A3 template' : ''}`);
@@ -137,7 +137,7 @@ async function renderKpi(arg, tab) {
     const b = e.target.closest('[data-kpi]');
     if (!b) return;
     const what = b.dataset.kpi;
-    if (what === 'load-path') return kpiLoad(() => fetch('/api/kpi/load-path', { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } }), b);
+    if (what === 'load-path') return kpiLoad(() => fetch('api/kpi/load-path', { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } }), b);
     if (what === 'fit') { kpiState.zoom = null; store.set('kpiZoom', null); applyZoom(); return; }
     if (!snap) return;
     if (what === 'edit') { kpiState.editing = !kpiState.editing; await route(); return; }
@@ -274,7 +274,7 @@ async function kpiExport(snap, save, btn) {
       drawChart(canvas, c.spec, c.w, c.h, 2);
       charts[c.index] = canvas.toDataURL('image/png');
     }
-    const res = await fetch(`/api/kpi/snapshots/${snap.id}/export`, { method: 'POST', body: JSON.stringify({ save, charts }),
+    const res = await fetch(`api/kpi/snapshots/${snap.id}/export`, { method: 'POST', body: JSON.stringify({ save, charts }),
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' } });
     if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || res.statusText); }
     const blob = await res.blob();
@@ -605,7 +605,7 @@ async function renderKpiSources() {
           <td><input type="text" name="kpi_fc_${esc(f.key)}" value="${esc(f.path || '')}" placeholder="Blank: the workbook's ${esc(f.workbook_sheet)} sheet, as Excel last refreshed it" title="Full path, e.g. S:\\public\\Forecast Central\\${esc(f.default_file)}"></td>
           <td class="small">${f.from === 'sent_in' ? `<a href="#/forecast" title="Sent in on the Forecast tab after this file was saved: the A3, the Database and Capacity planning read it instead">📈 sent in by ${esc(f.sent_in.submitter)}</a><div class="muted">${esc(fmtDateTime(f.sent_in.created_at))} · ${esc(f.sent_in.file_name)}</div>` : f.path ? (f.found ? esc(fmtDateTime(f.modified)) : '<span style="color:var(--danger)">⚠ can\'t find this file</span>') : '<span class="muted">the workbook\'s copy</span>'}</td></tr>`).join('')}</tbody></table>
       <p class="small muted">A forecast sent in on Forecast (or through its upload link) after the file here was saved is read in its place, by the A3 and everything else using the forecast.
-        <a href="/api/kpi/forecast-trace.csv" download title="Every formula in the CI workbook that reads a forecast, the Database's Top 10 and forecast rows, and SITHUB's reading of the Amex file: to check where the forecast figures come from">⬇ Forecast formulas (CSV)</a></p>
+        <a href="api/kpi/forecast-trace.csv" download title="Every formula in the CI workbook that reads a forecast, the Database's Top 10 and forecast rows, and SITHUB's reading of the Amex file: to check where the forecast figures come from">⬇ Forecast formulas (CSV)</a></p>
     </div>
     ${kpiSharedHtml(shared)}
     ${calc.otd_uncounted?.length || calc.otd_checks?.length ? `<div class="card" style="margin-top:12px"><h2 style="margin-top:0">OTD report checks <span class="muted small">— rows to fix in Production's OTD report</span></h2>${kpiOtdChecksHtml(calc)}</div>` : ''}
@@ -668,7 +668,7 @@ function kpiSharedHtml(sh) {
       Put it next to <b>CIManager-Setup.bat</b> on the share as <code>cimanager-defaults.json</code>: every install made from there reads it each time it starts,
       so a path changed in the file reaches everyone. It only fills in paths that are blank or still as the file last set them — a path someone changed for themselves is kept.</p>
     <div class="row" style="gap:8px;flex-wrap:wrap">
-      <a class="button" href="/api/settings/shared/export" download="cimanager-defaults.json" title="The paths set on this computer, as a file for everyone else">⬇ Export these paths for everyone</a>
+      <a class="button" href="api/settings/shared/export" download="cimanager-defaults.json" title="The paths set on this computer, as a file for everyone else">⬇ Export these paths for everyone</a>
       <label class="button" title="Fill in the paths from a cimanager-defaults.json file">📂 Use a paths file…<input type="file" accept=".json" hidden id="ksh-file"></label>
       ${sh.file && sh.file_found ? '<button data-ksh="apply" title="Read the shared file again now">🔄 Read the shared file now</button>' : ''}
     </div></div>`;

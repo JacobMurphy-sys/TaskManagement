@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
 <title>Send a forecast · SITHUB</title>
-<link rel="icon" href="/favicon.svg">
+<link rel="icon" href="../favicon.svg">
 <!-- The forecast upload link: no account. It sends a forecast workbook (BeNeLux or Amex) and lists what this browser
      sent before; nothing else of SITHUB (src/forecasts.js). -->
 <style>
@@ -65,7 +65,7 @@
 <script>
 (() => {
   const token = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || '');
-  const api = `/api/fc-submit/${encodeURIComponent(token)}`;
+  const api = `../api/fc-submit/${encodeURIComponent(token)}`; // (relative: it's served at …/forecast-submit/<token>, under a proxy's sub-path too)
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const when = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });

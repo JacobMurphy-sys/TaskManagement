@@ -348,7 +348,7 @@ async function renderPlanning() {
     ].filter(Boolean).join('');
     return `<div class="card pl-backlog"><h3 class="pl-h">Backlog</h3>
       <div class="pl-bl-blocks">${blocks}</div>
-      ${b.hidden_jobs ? `<p class="small muted" style="margin:8px 0 0">${n(b.hidden_jobs)} job${b.hidden_jobs === 1 ? '' : 's'} (${n(b.hidden_qty)} ${unit}) due more than ${b.max_age} days ago ${b.hidden_jobs === 1 ? 'isn\'t' : 'aren\'t'} shown or counted — likely errors. <a class="button small" href="/api/plan/hidden.xlsx" download title="Each hidden work order, with when it first appeared, whether it ran and how much, and columns for the investigation">⬇ Export them to Excel</a> <button class="link small admin-only" data-pl="setup">⚙ Change</button></p>` : ''}</div>`;
+      ${b.hidden_jobs ? `<p class="small muted" style="margin:8px 0 0">${n(b.hidden_jobs)} job${b.hidden_jobs === 1 ? '' : 's'} (${n(b.hidden_qty)} ${unit}) due more than ${b.max_age} days ago ${b.hidden_jobs === 1 ? 'isn\'t' : 'aren\'t'} shown or counted — likely errors. <a class="button small" href="api/plan/hidden.xlsx" download title="Each hidden work order, with when it first appeared, whether it ran and how much, and columns for the investigation">⬇ Export them to Excel</a> <button class="link small admin-only" data-pl="setup">⚙ Change</button></p>` : ''}</div>`;
   };
   // Modifiers: each module on or off; the deadline numbers; rule lists; the shift table; card tags
   const md = p.modifiers || { rules: [], shifts: [], tags: [], lists: [], off: [], shift_starts: {}, deadline: {} };
@@ -569,7 +569,7 @@ async function renderPlanning() {
       </div></div>
       ${viewsRow()}
       ${view === 'load' ? dLoad() : view === 'history' ? historyHtml() : view === 'delays' ? dDelays() : `
-      ${dp.hidden ? `<p class="small muted">${n(dp.hidden)} dispatch job${dp.hidden === 1 ? '' : 's'} (${n(dp.hidden_qty)} pieces) due more than ${dp.max_age} days ago ${dp.hidden === 1 ? 'isn\'t' : 'aren\'t'} shown — likely errors. <a class="button small" href="/api/plan/hidden.xlsx" download>⬇ Export them to Excel</a></p>` : ''}
+      ${dp.hidden ? `<p class="small muted">${n(dp.hidden)} dispatch job${dp.hidden === 1 ? '' : 's'} (${n(dp.hidden_qty)} pieces) due more than ${dp.max_age} days ago ${dp.hidden === 1 ? 'isn\'t' : 'aren\'t'} shown — likely errors. <a class="button small" href="api/plan/hidden.xlsx" download>⬇ Export them to Excel</a></p>` : ''}
       <div class="row pl-filters">
         <input type="search" id="pld-q" placeholder="Search WO, customer, group, status…" value="${esc(df.q || '')}">
         ${custPickHtml('pld-customer', dCust, plCusts(df))}
@@ -655,7 +655,7 @@ async function renderPlanning() {
     ${half === 'perso' ? modsHtml() : ''}
     ${src.status === 'ok' ? '' : '<div class="card only-not-admin"><p>Planning isn\'t set up yet: an admin links the open work orders export in Setup.</p></div>'}
     <div class="card pl-setup admin-only" id="pl-setup" ${src.status === 'ok' && !store.get('planSetupOpen', false) ? 'hidden' : ''}>
-      <div class="row"><h2 style="margin:0">Setup</h2><div class="spacer"></div>${ddMenu('⋯', `<a href="/api/plan/setup" download title="Machines, speeds, OEE, modifiers, card tags, pins and these settings — to move them to the shared planner (or back)">⬇ Export setup</a><a href="/api/plan/setup?history=1" download title="The setup plus the history built up from the exports (the pace, catch-up and on-time figures) and the Production runs — so a new install starts where this one is">⬇ Export setup + history</a><label title="Replace this setup with one exported before">⬆ Import setup…<input type="file" accept=".json" hidden id="pl-setup-file"></label>`, { title: 'Export or import the setup' })}</div>
+      <div class="row"><h2 style="margin:0">Setup</h2><div class="spacer"></div>${ddMenu('⋯', `<a href="api/plan/setup" download title="Machines, speeds, OEE, modifiers, card tags, pins and these settings — to move them to the shared planner (or back)">⬇ Export setup</a><a href="api/plan/setup?history=1" download title="The setup plus the history built up from the exports (the pace, catch-up and on-time figures) and the Production runs — so a new install starts where this one is">⬇ Export setup + history</a><label title="Replace this setup with one exported before">⬆ Import setup…<input type="file" accept=".json" hidden id="pl-setup-file"></label>`, { title: 'Export or import the setup' })}</div>
       ${p.shared_setup ? `<p class="small muted" style="margin:6px 0 0">From the network: <span title="${esc(p.shared_setup.file)}">${esc(p.shared_setup.file.split(/[\\/]/).pop())}</span>, ${esc(fmtDateTime(p.shared_setup.at))} —
         ${p.shared_setup.setup ? 'setup applied' : 'this install\'s own setup kept'}${p.shared_setup.history ? `; history added: ${n(p.shared_setup.history.reads)} exports, ${n(p.shared_setup.history.jobs + p.shared_setup.history.jobs_updated)} jobs, ${n(p.shared_setup.history.prod_runs)} production runs` : ''}.
         A newer planning-setup file next to CIManager-Setup.bat is picked up by itself.</p>` : ''}
@@ -791,7 +791,7 @@ ${half === 'otto' ? ottoSetup() : `
   $('#pld-import')?.addEventListener('change', async (e) => {
     const file = e.target.files[0]; if (!file) return;
     const send = async (apply) => {
-      const r = await fetch(`/api/plan/disp/delays/import${apply ? '?apply=1' : ''}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
+      const r = await fetch(`api/plan/disp/delays/import${apply ? '?apply=1' : ''}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
       const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || r.statusText); return d;
     };
     try {
@@ -828,7 +828,7 @@ ${half === 'otto' ? ottoSetup() : `
   $('#pl-file').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const res = await fetch(`/api/plan/upload${half !== 'perso' ? `?half=${half}` : ''}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
+    const res = await fetch(`api/plan/upload${half !== 'perso' ? `?half=${half}` : ''}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) toast(d.error || res.statusText, 'error'); else toast(`${file.name} loaded${({ otto: settings.plan_otto_src, disp: settings.plan_disp_src }[half] ?? settings.plan_src) ? ' — the linked export is still used; clear its path to use this copy' : ''}`);
     renderPlanning();
@@ -909,7 +909,7 @@ ${half === 'otto' ? ottoSetup() : `
   }));
   $('#pl-mods-file')?.addEventListener('change', async (e) => {
     const file = e.target.files[0]; if (!file) return;
-    const res = await fetch('/api/plan/modifiers/import', { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
+    const res = await fetch('api/plan/modifiers/import', { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager' } });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) toast(d.error || res.statusText, 'error');
     else toast(`Imported: ${Object.entries(d.lists).map(([k, v]) => `${k} ${v}`).join(', ')}${d.shifts ? `, shifts for ${d.shifts} customers` : ''}${d.tags ? `, ${d.tags} card tags` : ''}`);
@@ -999,7 +999,7 @@ ${half === 'otto' ? ottoSetup() : `
         ev.preventDefault();
         const some = form.querySelector('[name=who][value=some]').checked; const picked = [...form.querySelectorAll('[name=cust]:checked')].map((x) => x.value);
         if (some && !picked.length) { toast('Choose at least one customer', 'error'); return; }
-        const a = document.createElement('a'); a.href = `/api/plan/disp/delays.xlsx${some ? `?customers=${encodeURIComponent(picked.join(','))}` : ''}`; a.download = ''; document.body.append(a); a.click(); a.remove();
+        const a = document.createElement('a'); a.href = `api/plan/disp/delays.xlsx${some ? `?customers=${encodeURIComponent(picked.join(','))}` : ''}`; a.download = ''; document.body.append(a); a.click(); a.remove();
         closeModal();
       });
       return;
@@ -1181,7 +1181,7 @@ function printDialog(p, mode, settings = {}, half = 'perso') {
     closeModal();
     if (opts.output === 'html') { w.document.open(); w.document.write(planSheetHtml(model)); w.document.close(); w.focus(); setTimeout(() => w.print(), 300); return; }
     w.document.write('<p style="font:16px Arial,sans-serif;margin:40px">Making the plan…</p>');
-    try { const r = await api.post('/plan/sheet', model); w.location.href = r.url; } catch (err) { w.close(); toast(err.message, 'error'); }
+    try { const r = await api.post('/plan/sheet', model); w.location.href = new URL(r.url, document.baseURI).href; } catch (err) { w.close(); toast(err.message, 'error'); }
   });
 }
 

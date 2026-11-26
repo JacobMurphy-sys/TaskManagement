@@ -154,7 +154,7 @@ async function planLearnClick(e, L, rerender) {
     await run(async () => { state.settings = await api.patch('/settings', { plan_learned_times: what === 'learned-on' ? '1' : '0' }); }, what === 'learned-on' ? 'Planning now times each card line from its history' : 'Planning uses the speeds and OEE again');
     return true;
   }
-  if (what === 'xlsx') { location.href = `/api/plan/learn.xlsx?days=${L.days}`; return true; }
+  if (what === 'xlsx') { location.href = `api/plan/learn.xlsx?days=${L.days}`; return true; }
   return false;
 }
 

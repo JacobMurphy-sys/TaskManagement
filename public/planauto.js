@@ -22,7 +22,7 @@ function planAutoDraw() {
     const lists = otto ? PA_OTTO_LISTS : [...new Set([...paState.cells, ...s.cells])];
     const last = s.last;
     const status = !last ? '<span class="muted">Not made yet.</span>'
-      : last.ok ? `<span class="pa-ok">✔ Made ${esc(paWhen(last.at))}</span> · ${n0(last.rows)} rows · <a href="/api/plan/auto/${esc(s.id)}/file" target="_blank" rel="noopener">📄 open it</a>`
+      : last.ok ? `<span class="pa-ok">✔ Made ${esc(paWhen(last.at))}</span> · ${n0(last.rows)} rows · <a href="api/plan/auto/${esc(s.id)}/file" target="_blank" rel="noopener">📄 open it</a>`
         : `<span class="pa-bad">⚠ ${esc(paWhen(last.at))}: ${esc(last.error || 'failed')}</span>`;
     return `<div class="pa-item${s.enabled ? '' : ' off'}" data-pa="${i}">
       <div class="pa-head">

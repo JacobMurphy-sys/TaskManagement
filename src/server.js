@@ -172,7 +172,7 @@ app.use('/api', api);
     } catch { /* not a git copy, or no git: the file's own */ }
     act = { at: Date.now(), v }; return v;
   };
-  app.get('/timeline', (req, res, next) => (req.originalUrl.split('?')[0] === '/timeline' ? res.redirect('/timeline/') : next())); // (the page's own links are relative)
+  app.get('/timeline', (req, res, next) => (req.originalUrl.split('?')[0] === '/timeline' ? res.redirect('timeline/') : next())); // (the page's own links are relative)
   app.get('/timeline/data.js', (req, res, next) => {
     let src; try { src = require('fs').readFileSync(path.join(DOCS, 'data.js'), 'utf8'); } catch { return next(); }
     const v = activity(); res.type('application/javascript').set('Cache-Control', 'no-cache');

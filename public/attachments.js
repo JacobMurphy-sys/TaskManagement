@@ -8,7 +8,7 @@ const attExt = (name) => (String(name).match(/\.([a-z0-9]{1,8})$/i) || [])[1]?.t
 const attIcon = (name) => ({ pdf: '📕', xlsx: '📊', xlsm: '📊', xls: '📊', csv: '📊', docx: '📘', doc: '📘', pptx: '📙', ppt: '📙',
   msg: '✉️', eml: '✉️', zip: '🗜', txt: '📄', log: '📄', mp4: '🎬', mov: '🎬', mp3: '🎵' }[attExt(name)] || '📎');
 const attSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
-const attUrl = (a, download) => `/api/attachments/${a.id}/file${download ? '?download=1' : ''}`;
+const attUrl = (a, download) => `api/attachments/${a.id}/file${download ? '?download=1' : ''}`;
 
 // owner: { kind: 'tasks' | 'meetings', id }
 function attachmentsHtml(list, owner) {
@@ -40,7 +40,7 @@ async function uploadAttachments(owner, files) {
   let done = 0;
   for (const f of list.filter((x) => !big.includes(x))) {
     if (list.length > 1) toast(`Uploading ${done + 1} of ${list.length}…`);
-    const res = await fetch(`/api/${owner.kind}/${owner.id}/attachments`, { method: 'POST', body: f,
+    const res = await fetch(`api/${owner.kind}/${owner.id}/attachments`, { method: 'POST', body: f,
       headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(f.name) } });
     if (!res.ok) { const d = await res.json().catch(() => ({})); toast(`${f.name}: ${d.error || res.statusText}`, 'error'); continue; }
     done++;

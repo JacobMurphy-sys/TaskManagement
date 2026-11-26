@@ -48,10 +48,12 @@ const editBase = (() => {
     },
   };
 })();
+// (every address the browser code asks for is relative to the page — api/…, not /api/… — so SITHUB works as well
+// at the root of its own address as published under a reverse proxy's sub-path, e.g. https://server/sithub/)
 async function request(method, url, body) {
   const edit = (method === 'PATCH' || method === 'PUT') ? editBase.take(body) : null;
   const sent = edit ? { ...body, _base: { [edit.field]: edit.base } } : body;
-  const res = await fetch(`/api${url}`, {
+  const res = await fetch(`api${url}`, {
     method,
     headers: { 'X-Requested-With': 'TaskManager', 'X-Client-Id': me.id, ...(me.name ? { 'X-User-Name': encodeURIComponent(me.name) } : {}), ...(sent ? { 'Content-Type': 'application/json' } : {}) },
     body: sent ? JSON.stringify(sent) : undefined,
@@ -704,7 +706,7 @@ async function renderDashboard() {
         ${modOk('ideas') ? chip('', '💡', d.ideas.open, 'ideas', 'ideas', d.ideas.cost ? `Open ideas — ${money(d.ideas.cost)} total cost` : 'Open ideas') : ''}
       </div>
       <span class="ck-date">${esc(fmtDate(new Date()))}</span>
-      ${modOk('report') || modOk('projects') ? ddMenu('⋯', `${modOk('report') ? '<a href="#/report">Status report</a>' : ''}${modOk('projects') ? '<a href="/api/export.xlsx">⬇ Everything as an Excel workbook</a>' : ''}`, { title: 'Status report, Excel export', right: true }) : ''}
+      ${modOk('report') || modOk('projects') ? ddMenu('⋯', `${modOk('report') ? '<a href="#/report">Status report</a>' : ''}${modOk('projects') ? '<a href="api/export.xlsx">⬇ Everything as an Excel workbook</a>' : ''}`, { title: 'Status report, Excel export', right: true }) : ''}
     </div>
     <div class="ck-grid">
       <div class="ck-col ck-col1">${focusPanel}</div>
@@ -1219,7 +1221,7 @@ async function renderProject(id, tab) {
           <button data-action="set-baseline">📌 ${p.baseline_set_at ? 'Re-baseline' : 'Set the baseline'}</button>
           <hr>
           <a href="#/report/${p.id}">Status report</a>
-          <a href="/api/projects/${p.id}/charter.xlsx" title="The charter: your standard template filled in (set it up under Settings)">⬇ Charter (Excel)</a><a href="/api/export.xlsx?scope=project&id=${p.id}" title="Everything in the project: tasks, notes, costs, phases, team…">⬇ All the project's data (Excel)</a>`, { title: 'More: history, reminder, costs, phases, baseline, report, Excel' })}
+          <a href="api/projects/${p.id}/charter.xlsx" title="The charter: your standard template filled in (set it up under Settings)">⬇ Charter (Excel)</a><a href="api/export.xlsx?scope=project&id=${p.id}" title="Everything in the project: tasks, notes, costs, phases, team…">⬇ All the project's data (Excel)</a>`, { title: 'More: history, reminder, costs, phases, baseline, report, Excel' })}
       </div>
     </div>
     <label class="na-line" title="The talking point for this project's next review — one line, shown on Home, the board and People. Empty: its most pressing open task, worked out (type to set your own)">▶ <input type="text" id="proj-next" maxlength="300" value="${esc(p.next_action || '')}" placeholder="${esc(autoPlaceholder(p.next_auto, 'Next action — the talking point for the next review'))}"></label>
@@ -1654,7 +1656,7 @@ async function renderIdeas() {
         <button data-action="ideas-view" data-view="list" class="${f.view === 'matrix' ? '' : 'on'}">List</button>
         <button data-action="ideas-view" data-view="matrix" class="${f.view === 'matrix' ? 'on' : ''}" title="Impact vs effort">Quick wins</button>
       </div>
-      <a class="button" href="/api/export.xlsx?scope=ideas" title="Download all ideas as an Excel workbook">⬇ Excel</a>
+      <a class="button" href="api/export.xlsx?scope=ideas" title="Download all ideas as an Excel workbook">⬇ Excel</a>
       <button class="primary" data-action="new-idea">+ New idea</button></div>
     <div class="kanban-tools">
       <input type="search" id="idea-q" placeholder="Filter by name, ref or submitter… (Enter)" value="${esc(f.q)}" style="max-width:300px">
@@ -1961,7 +1963,7 @@ async function renderSettings() {
           each install picks up the newest one by itself (at start-up and every 30 minutes) and <b>adds</b> what it doesn't have yet — nothing is removed or overwritten,
           and a person's role or department is only filled in where it's blank.</p>
         <div class="row" style="gap:8px;flex-wrap:wrap">
-          <a class="button" href="/api/team-pack" download>⬇ Export team pack</a>
+          <a class="button" href="api/team-pack" download>⬇ Export team pack</a>
           <label class="button">⬆ Add from a team pack…<input type="file" accept=".json" hidden id="team-file"></label></div>
         ${ta ? `<p class="small muted" style="margin:8px 0 0">From the network: <span title="${esc(ta.file)}">${esc(ta.file.split(/[\\/]/).pop())}</span>, ${esc(fmtDateTime(ta.at))} — added ${ta.added.lists} list${ta.added.lists === 1 ? '' : 's'}, ${ta.added.names} name${ta.added.names === 1 ? '' : 's'}${ta.added.filled ? ` (${ta.added.filled} filled in)` : ''}, ${ta.added.lookups} project list entr${ta.added.lookups === 1 ? 'y' : 'ies'}.</p>` : ''}
       </div>
@@ -2056,7 +2058,7 @@ async function renderBackups() {
       <thead><tr><th>Created</th><th>Type</th><th>File</th><th>Size</th><th></th></tr></thead>
       <tbody>${list.map((b) => `<tr><td class="nowrap">${esc(fmtDateTime(b.created_at))}</td><td>${b.kind}${b.compressed ? ' <span class="muted small" title="Compressed; ⬇ gives the plain file">🗜</span>' : ''}</td>
         <td>${esc(b.file)}</td><td>${size(b.size)}</td>
-        <td class="nowrap"><a class="button small" href="/api/backups/${encodeURIComponent(b.kind)}/${encodeURIComponent(b.file)}/download" download title="Download it as a plain ${b.kind === 'db' ? '.db (opens in DBeaver)' : '.json'} file">⬇</a>
+        <td class="nowrap"><a class="button small" href="api/backups/${encodeURIComponent(b.kind)}/${encodeURIComponent(b.file)}/download" download title="Download it as a plain ${b.kind === 'db' ? '.db (opens in DBeaver)' : '.json'} file">⬇</a>
           <button class="small" data-action="restore-listed" data-kind="${esc(b.kind)}" data-file="${esc(b.file)}">⤺ Restore</button></td></tr>`).join('')}</tbody></table>
       ${list.length ? '' : '<div class="empty">No backups yet.</div>'}</div>`;
 }
@@ -2097,7 +2099,7 @@ async function restoreFlow(label, send) {
 
 async function restoreUpload(file) {
   await restoreFlow(file.name, async (check) => {
-    const res = await fetch(`/api/backups/restore${check ? '?check=1' : ''}`, { method: 'POST', body: file,
+    const res = await fetch(`api/backups/restore${check ? '?check=1' : ''}`, { method: 'POST', body: file,
       headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(file.name) } });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `${res.status} ${res.statusText}`);
