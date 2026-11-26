@@ -347,7 +347,7 @@ async function serverRestart() {
   const started = Date.now();
   await new Promise((r) => setTimeout(r, 4000));
   for (;;) {
-    try { const r = await fetch('/api/health', { cache: 'no-store' }); if (r.ok) { location.reload(); return; } } catch { /* not back yet */ }
+    try { const r = await fetch('api/health', { cache: 'no-store' }); if (r.ok) { location.reload(); return; } } catch { /* not back yet */ }
     if (Date.now() - started > 5 * 60000) { toast('It hasn\'t come back after 5 minutes — check the server', 'error'); return; }
     await new Promise((r) => setTimeout(r, 3000));
   }

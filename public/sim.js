@@ -69,7 +69,7 @@ async function renderSim(dayArg) {
       <div class="seg"><button type="button" data-sim-go="${simDayAdd(d.day, -1)}" title="The day before">◀</button><button type="button" data-sim-go="${simDayAdd(d.day, 1)}" title="The day after" ${d.day >= d.today ? 'disabled' : ''}>▶</button></div>
       <input type="date" id="sim-day" value="${d.day}" max="${d.today}" style="width:auto">
       <b>${esc(d.label)}</b>${isDefault ? '<span class="pill">last working day</span>' : `<button type="button" class="link small" data-sim-go="">Back to the last working day</button>`}${d.worked ? '' : '<span class="pill" title="Not a working day in Production\'s calendar">not a working day</span>'}
-      <div class="spacer"></div><button type="button" id="sim-read" title="Read the reports SIM is fed from again (cards shipped and persoed, scrap, OTD, complaints, safety forms) — the ones that changed">⟳ Read the reports</button>${ddMenu('⋯', `<button type="button" id="sim-bands">🎯 Targets and colours…</button><a href="/api/sim/picture.png?day=${d.day}&download=1" download>🖼 Download as a picture</a><button type="button" id="sim-auto">⏱ Automatic picture…</button>`, { title: 'Targets, colours and the picture' })}</div>
+      <div class="spacer"></div><button type="button" id="sim-read" title="Read the reports SIM is fed from again (cards shipped and persoed, scrap, OTD, complaints, safety forms) — the ones that changed">⟳ Read the reports</button>${ddMenu('⋯', `<button type="button" id="sim-bands">🎯 Targets and colours…</button><a href="api/sim/picture.png?day=${d.day}&download=1" download>🖼 Download as a picture</a><button type="button" id="sim-auto">⏱ Automatic picture…</button>`, { title: 'Targets, colours and the picture' })}</div>
     <div class="sim-grid">${quality}${safety}${scrap}${otd}</div>`;
 
   // the line charts, drawn to their boxes
@@ -161,7 +161,7 @@ async function simAutoDialog() {
     const b = e.currentTarget; b.disabled = true; b.textContent = '⏳ Making it…';
     try {
       await api.put('/sim/auto', body());
-      const r = await fetch('/api/sim/auto/run', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' }, body: '{}' }).then((x) => x.json());
+      const r = await fetch('api/sim/auto/run', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'TaskManager' }, body: '{}' }).then((x) => x.json());
       $('#sim-auto-st').innerHTML = `<span>${lastLine(r)}</span><span class="muted">${nextLine(r)}</span>`;
       if (r.error) toast(r.error, 'error'); else toast(`Saved ${r.last.file}`);
     } catch (err) { toast(err.message, 'error'); }

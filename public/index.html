@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SITHUB</title>
+  <!-- published under a sub-path (…/sithub) and opened without its trailing /, the relative addresses would miss a level -->
+  <script>if (!/\/$|\.html?$/.test(location.pathname)) location.replace(location.pathname + '/' + location.search + location.hash);</script>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <!-- lets Edge / Chrome install it as an app: its own window and taskbar icon -->
   <link rel="manifest" href="manifest.webmanifest">

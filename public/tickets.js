@@ -83,7 +83,7 @@ async function renderTickets() {
         ${canHandle ? `<select class="tk-status" title="Status">${Object.entries(TICKET_STATUS).map(([k, l]) => `<option value="${k}" ${k === t.status ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ticketPill(t.status)}</div>
       <div class="small muted">${t.reporter ? `${personDot(t.reporter)} ${esc(t.reporter)} · ` : ''}${esc(fmtDateTime(t.created_at))}${t.page ? ` · from <a href="${esc(t.page)}">${esc(ticketPageName(t.page))}</a>` : ''}</div>
       ${t.description ? `<div class="pre tk-desc">${linkify(t.description)}</div>` : ''}
-      ${t.has_screenshot ? `<a href="/api/tickets/${t.id}/screenshot" data-tk-shot="${t.id}" data-tk-alt="${esc(`${t.ref} · ${t.title}`)}" target="_blank" rel="noopener" title="View the screenshot"><img class="tk-thumb" src="/api/tickets/${t.id}/screenshot" alt="Screenshot" loading="lazy"></a>` : ''}
+      ${t.has_screenshot ? `<a href="api/tickets/${t.id}/screenshot" data-tk-shot="${t.id}" data-tk-alt="${esc(`${t.ref} · ${t.title}`)}" target="_blank" rel="noopener" title="View the screenshot"><img class="tk-thumb" src="api/tickets/${t.id}/screenshot" alt="Screenshot" loading="lazy"></a>` : ''}
       ${canHandle ? `<label class="na-line tk-reply-line" title="An answer for whoever sent it — saved as you type">↩ <input type="text" class="tk-reply" maxlength="2000" value="${esc(t.reply || '')}" placeholder="Answer (e.g. fixed in the next update, or a question back)"></label>`
         : t.reply ? `<div class="tk-reply-show">↩ ${linkify(t.reply)}</div>` : ''}
       <details class="small muted tk-ctx"><summary>Details sent with it</summary>${esc(t.context.version ? `Version ${t.context.version}` : '')}${t.context.screen ? ` · window ${esc(t.context.screen)}` : ''}${t.context.computer ? ` · ${esc(t.context.computer)}` : ''}
@@ -96,7 +96,7 @@ async function renderTickets() {
       <select id="tk-filter-kind" style="width:auto"><option value="">Every kind</option>${Object.entries(TICKET_KIND).map(([k, [i, l]]) => `<option value="${k}" ${f.kind === k ? 'selected' : ''}>${i} ${l} (${count(k)} open)</option>`).join('')}</select>
       ${me ? `<label class="small muted row"><input type="checkbox" id="tk-mine" ${f.mine ? 'checked' : ''}> only mine</label>` : ''}
       <div class="spacer"></div>
-      ${ddMenu('⋯', '<a href="/api/tickets/export.xlsx" download>⬇ All tickets to Excel</a>', { title: 'Export' })}
+      ${ddMenu('⋯', '<a href="api/tickets/export.xlsx" download>⬇ All tickets to Excel</a>', { title: 'Export' })}
       <button class="primary" data-action="ticket">💬 New ticket</button></div>
     ${canHandle ? '' : '<p class="small muted">Send a bug report, a feature request or a question with 💬 in the top bar. The answers show here.</p>'}
     <div class="tk-list">${shown.map(row).join('') || `<div class="card empty">${tickets.length ? 'Nothing here with these filters.' : 'No tickets yet. Found a bug, or missing something? Click 💬 in the top bar.'}</div>`}</div>`;
@@ -139,7 +139,7 @@ async function ticketPopout(id) {
       ${t.reply ? `<div class="tk-pop-answer"><b>↩ The answer</b><div class="pre">${linkify(t.reply)}</div></div>`
         : `<div class="tk-pop-answer none small muted">No answer yet${t.status === 'new' ? ': it hasn\'t been looked at yet.' : '.'}</div>`}
       ${t.description ? `<div><b class="small muted">What was sent</b><div class="pre tk-desc">${linkify(t.description)}</div></div>` : ''}
-      ${t.has_screenshot ? `<a href="/api/tickets/${t.id}/screenshot" data-tk-pop-shot target="_blank" rel="noopener" title="View the screenshot"><img class="tk-thumb" src="/api/tickets/${t.id}/screenshot" alt="Screenshot"></a>` : ''}
+      ${t.has_screenshot ? `<a href="api/tickets/${t.id}/screenshot" data-tk-pop-shot target="_blank" rel="noopener" title="View the screenshot"><img class="tk-thumb" src="api/tickets/${t.id}/screenshot" alt="Screenshot"></a>` : ''}
     </div>
     <div class="modal-foot row" style="gap:8px;margin-top:14px"><div class="spacer"></div>
       ${t.can_handle ? `<a class="button" href="#/tickets" data-tk-pop-page>Open on the Tickets page</a>` : ''}<button class="primary" data-action="close-modal">Close</button></div>`, { cls: 'tk-pop-modal' });

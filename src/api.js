@@ -3340,7 +3340,7 @@ router.post('/plan/sheet', express.json({ limit: '10mb' }), h(async (req, res) =
   const d = new Date();
   const name = `${String(m.file_label || 'Plan').replace(/[^\w .-]/g, '').trim() || 'Plan'} ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}.pdf`;
   planPdfs.set(id, { buf, name, at: now });
-  res.status(201).json({ url: `/api/plan/sheet/${id}/${encodeURIComponent(name)}`, name, bytes: buf.length });
+  res.status(201).json({ url: `api/plan/sheet/${id}/${encodeURIComponent(name)}`, name, bytes: buf.length });
 }));
 // 📄 Automatic plans (Production › Setup): the plan made on a schedule into a set file, overwritten each time
 const planAuto = require('./planauto');
@@ -5379,7 +5379,7 @@ function libraryResolver(visible = null) {
     const t = String(target || '').replace(/\\/g, '/').replace(/^\.?\//, '').trim();
     if (!t) return null;
     const rel = byPath.get(t.toLowerCase()) || byPath.get(joinRel(from, t).toLowerCase()) || byName.get(t.split('/').pop().toLowerCase());
-    return rel ? { url: `/api/library/file?p=${encodeURIComponent(rel)}`, name: rel.split('/').pop(), path: rel } : null;
+    return rel ? { url: `api/library/file?p=${encodeURIComponent(rel)}`, name: rel.split('/').pop(), path: rel } : null;
   };
   const bodies = new Map();
   const loadDoc = (id) => {

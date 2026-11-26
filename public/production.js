@@ -169,7 +169,7 @@ async function renderKpiProduction() {
     let added = 0; let rows = 0; const bad = [];
     for (const f of files) {
       try {
-        const r = await fetch(`/api/prod/upload?source=${source}`, { method: 'POST', body: f, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(f.name) } }).then(async (x) => { const j = await x.json(); if (!x.ok) throw new Error(j.error || x.statusText); return j; });
+        const r = await fetch(`api/prod/upload?source=${source}`, { method: 'POST', body: f, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(f.name) } }).then(async (x) => { const j = await x.json(); if (!x.ok) throw new Error(j.error || x.statusText); return j; });
         added += r.added; rows += r.rows;
       } catch (err) { bad.push(err.message); }
     }
@@ -254,7 +254,7 @@ function anomExportDialog() {
     if (e.submitter?.value === 'cancel') return;
     e.preventDefault();
     const f = new FormData(e.target);
-    location.href = `/api/prod/anomalies.xlsx?from=${f.get('from')}&to=${f.get('to')}&sensitivity=${f.get('sensitivity')}`;
+    location.href = `api/prod/anomalies.xlsx?from=${f.get('from')}&to=${f.get('to')}&sensitivity=${f.get('sensitivity')}`;
     toast('Making the workbook — it downloads in a moment'); d.close();
   });
 }

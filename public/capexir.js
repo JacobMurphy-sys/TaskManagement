@@ -133,7 +133,7 @@ function cxIrPanes(root, x, getX) {
     const pick = (label) => `<label class="button small cx-file">${label}<input type="file" data-cxq accept="image/png,image/jpeg,application/pdf,.pdf" hidden></label>`;
     if (!x?.id) return '<div class="small muted">Save the investment first, then add the chosen supplier\'s quote here.</div>';
     const qt = status?.quote;
-    return `<div class="cx-quote">${qt ? `<a href="/api/capex/${x.id}/ir/quote?v=${quoteV}" target="_blank" title="Open it full size"><img src="/api/capex/${x.id}/ir/quote?v=${quoteV}" alt="The quote"></a>
+    return `<div class="cx-quote">${qt ? `<a href="api/capex/${x.id}/ir/quote?v=${quoteV}" target="_blank" title="Open it full size"><img src="api/capex/${x.id}/ir/quote?v=${quoteV}" alt="The quote"></a>
       <div><b>${esc(qt.file_name)}</b><div class="small muted">On the supplier selection slide, in the quotation box.</div><div class="row" style="gap:6px;margin-top:6px">${pick('Replace…')}<button type="button" class="small" data-cxir="quote-del">Remove</button></div></div>`
       : `<div>${pick('📎 Add the quote (a picture or a PDF)')}<div class="small muted" style="margin-top:4px">A screenshot (PNG, JPEG) or the quote's PDF: it goes on the supplier selection slide. For a PDF, SITHUB uses its first page (or the page you choose).</div></div>`}</div>`;
   };
@@ -454,7 +454,7 @@ function cxIrPanes(root, x, getX) {
           }
           body = shot.blob; name = `${file.name.replace(/\.pdf$/i, '')}.png`;
         } else if (!/^image\/(png|jpeg)$/.test(file.type)) { toast('A quote is a PNG or JPEG picture, or a PDF', 'error'); return; }
-        const r = await fetch(`/api/capex/${x.id}/ir/quote`, { method: 'POST', body, headers: { 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(name) } });
+        const r = await fetch(`api/capex/${x.id}/ir/quote`, { method: 'POST', body, headers: { 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(name) } });
         const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Couldn't add it (${r.status})`);
         status = { ...(status || {}), quote: j }; quoteV = Date.now(); toast('Quote added'); render();
       } catch (err) { toast(/vendor\/pdfjs|import/i.test(err.message) ? 'The PDF can\'t be read here (the app\'s PDF reader is missing: run the update), add a screenshot instead' : err.message, 'error'); }

@@ -7,7 +7,7 @@ const fcMonth = (k) => { const [y, m] = k.split('-').map(Number); return new Dat
 
 async function renderForecast() {
   const d = await api.get('/forecasts');
-  const url = d.link.path ? `${location.origin}${d.link.path}` : '';
+  const url = d.link.path ? new URL(d.link.path.replace(/^\//, ''), document.baseURI).href : ''; // (under a proxy's sub-path too)
   const kind = store.get('fcKind', '');
   const list = d.uploads.filter((u) => !kind || u.kind === kind);
   // what Capacity planning reads now, per kind
@@ -25,7 +25,7 @@ async function renderForecast() {
       <td>${personChip(u.submitter)} <span class="small muted">${u.via === 'link' ? '🔗 by the link' : '👤 signed in'}</span></td>
       <td class="small">${esc(u.kind_label)}${d.newest[u.kind] === u.id ? ' <span class="cx-pill" style="--sc:#238446" title="The newest of its kind: what Capacity planning reads, unless the linked file is newer">newest</span>' : ''}</td>
       <td class="small">${months(u)}</td>
-      <td class="small"><a href="/api/forecasts/${u.id}/file" download>⬇ ${esc(u.file_name)}</a> <span class="muted">${Math.max(1, Math.round(u.size / 1024))} KB</span></td>
+      <td class="small"><a href="api/forecasts/${u.id}/file" download>⬇ ${esc(u.file_name)}</a> <span class="muted">${Math.max(1, Math.round(u.size / 1024))} KB</span></td>
       <td class="small">${esc(u.note || '')}</td>
       <td>${d.link.can_edit ? `<button type="button" class="icon" data-fc-del="${u.id}" title="Remove this forecast">✕</button>` : ''}</td></tr>`;
   main().innerHTML = `
@@ -51,7 +51,7 @@ async function renderForecast() {
   $('#fc-file')?.addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
     try {
-      const r = await fetch('/api/forecasts/upload', { method: 'POST', body: f, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(f.name) } });
+      const r = await fetch('api/forecasts/upload', { method: 'POST', body: f, headers: { 'Content-Type': 'application/octet-stream', 'X-Requested-With': 'TaskManager', 'X-File-Name': encodeURIComponent(f.name) } });
       const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.statusText);
       toast(`${j.kind_label} received (${j.rows} rows) — the A3 and Capacity planning read it from now on`);
     } catch (err) { toast(err.message, 'error'); }

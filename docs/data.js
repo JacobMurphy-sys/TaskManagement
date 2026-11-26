@@ -47,6 +47,8 @@ window.TIMELINE = {
     text: 'In a task list, a click on a task\'s due date or owner now changes it right there: a calendar with quick picks for the date, and the usual owner picker.' },
   { id: 'match-export-compare', date: '2026-11-25', area: 'capacity', title: 'Matching scenarios compared in Excel',
     text: 'The monthly matching workbook for a scenario now has the base plan\'s sheets beside the scenario\'s, a comparison sheet month by month and charts with both, as perso\'s does.' },
+  { id: 'proxy-subpath', date: '2026-11-26', area: 'platform', title: 'Works behind a reverse proxy',
+    text: 'SITHUB can now be published under a sub-path of another web address (as the office server is), with every page, download and upload link following it.' },
   { id: 'headcount-drill', date: '2026-11-26', area: 'capacity', title: 'Headcount: drill down',
     text: 'The Headcount tab opens up: click a month, a figure or a customer to see what makes up the hours and the people needed — by technology, matching and other work, the customers behind them, and what moved from the month before or from the base plan.',
     points: ['The year, a month or a customer, with a filter by technology or matching method', 'Why a month moved: more hours, or fewer working days', 'With a scenario: what it changes, part by part and customer by customer'] },
