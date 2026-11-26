@@ -25,6 +25,8 @@ set "CIM_SERVER=1"
 REM the bundle's own Node.js, when there is one (an offline server); else the one installed
 set "NODE=node"
 if exist "runtime\node.exe" set "NODE=%CD%\runtime\node.exe"
+REM trust the certificates Windows trusts, for the update check (Gitea's HTTPS may use the company's own)
+"%NODE%" --use-system-ca -e "" >nul 2>&1 && set "NODE_OPTIONS=%NODE_OPTIONS% --use-system-ca"
 call :log "Server runner started"
 
 :loop

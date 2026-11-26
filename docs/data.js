@@ -47,7 +47,7 @@ window.TIMELINE = {
     text: 'SITHUB can now be published under a sub-path of another web address (as the office server is), with every page, download and upload link following it.' },
   { id: 'offline-bundle', date: '2026-11-25', area: 'platform', title: 'Runs on a server with no internet',
     text: 'SITHUB can now run on an office server with no internet and nothing installed: a ready-to-run bundle brings its own Node.js and dependencies, is built automatically for each release, and the server updates itself from it each night.',
-    points: ['Built and published by the sync machine for each release', 'No Node.js, Git or downloads needed on the server', 'Nightly updates swap the bundle in, keeping settings and data', 'Can run as the computer itself (SYSTEM), with no password to keep up to date'] },
+    points: ['Built and published by the sync machine for each release', 'No Node.js, Git or downloads needed on the server', 'Nightly updates swap the bundle in, keeping settings and data', 'Can run as the computer itself (SYSTEM), with no password to keep up to date', 'Update by hand on the server too, seeing each step; Restart (and update) takes the newest from Gitea'] },
   { id: 'gitea-hosting', date: '2026-11-25', area: 'platform', title: 'Ready for hosting from the office Gitea',
     text: 'SITHUB can now be installed and updated from the office Gitea, kept in step with the main repository by a small sync job, and serves this timeline itself.',
     points: ['A sync job copies the live and development branches to Gitea on a schedule', 'The setup installs from whichever repository it is pointed at', 'The timeline at /timeline/ in SITHUB'] },

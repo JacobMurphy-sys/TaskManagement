@@ -12,6 +12,8 @@
 //         and BUILD.json; then it's zipped as SITHUB-<commit>.zip in --out, published as a release on
 //         Gitea (when --gitea is given) and/or copied, with latest.json, to a folder (--copy-to).
 // check   (on the server, run with the bundled node.exe): exit 10 when a newer bundle is published, else 0.
+// status  (on the server): what's installed, where it looks, the newest published — or why it can't tell.
+//         Exit 10: a newer one is there, 0: up to date, 1: couldn't tell (update-server.bat uses it).
 // fetch   --to <folder>: downloads the newest bundle and unpacks it there, ready to be copied over the app
 //         (server-run.bat does that while the app is stopped).
 // Where the server looks: UPDATE_FROM in .env — the Gitea repository's address (its releases) or a folder
@@ -149,6 +151,25 @@ async function check() {
   try { const n = await newest(); const me = installed(); process.exit(n && me && short(n.commit) !== short(me.commit) ? 10 : 0); } catch { process.exit(0); } // offline: never in the way
 }
 
+async function status() {
+  const E = env(); const me = installed();
+  log(`      Installed:   ${me ? `${me.short} of ${String(me.date).slice(0, 10)}${me.branch ? ` (${me.branch})` : ''}` : 'unknown (no BUILD.json)'}`);
+  log(`      Looking in:  ${E.UPDATE_FROM || '— UPDATE_FROM isn\'t set in .env'}${E.UPDATE_FROM && isUrl(E.UPDATE_FROM) ? (E.UPDATE_TOKEN ? ' (with UPDATE_TOKEN)' : ' (no UPDATE_TOKEN: only a public repository can be read)') : ''}`);
+  if (!E.UPDATE_FROM) process.exit(1);
+  try {
+    const n = await newest(); if (!n) { log('      Newest:      none published there yet (a release tagged bundle-<code>, with its SITHUB-<code>.zip attached)'); process.exit(1); }
+    log(`      Newest:      ${short(n.commit)} (${n.name})`);
+    const newer = !me || short(n.commit) !== short(me.commit); log(newer ? '      → a newer version is there' : '      → up to date'); process.exit(newer ? 10 : 0);
+  } catch (err) {
+    const why = `${err.cause?.code || ''} ${err.cause?.message || err.message}`.trim();
+    log(`      Couldn't read it: ${why}`);
+    if (/CERT|certificate|self.signed|issuer/i.test(why)) log('      (Gitea\'s HTTPS certificate isn\'t trusted: Node.js 22.15 or later is needed to use the certificates Windows trusts —\n       or put the company\'s CA certificate, as a .pem file, in NODE_EXTRA_CA_CERTS for the task)');
+    else if (/401|403/.test(why)) log(E.UPDATE_TOKEN ? '      (Gitea refused the token: check UPDATE_TOKEN — a token of an account that can read the repository)' : '      (Gitea wants a token: put UPDATE_TOKEN=<a token with repository: read> in .env)');
+    else if (/404/.test(why)) log('      (Gitea says not found: check UPDATE_FROM — the repository\'s address, e.g. https://server/gitea/owner/repo)');
+    process.exit(1);
+  }
+}
+
 async function fetchTo() {
   const to = path.resolve(opt('to', path.join(ROOT, '..', 'SITHUB-update')));
   const n = await newest(); if (!n) fail('No bundle published (UPDATE_FROM in .env: the Gitea repository, or the folder with latest.json)');
@@ -165,6 +186,7 @@ async function fetchTo() {
     if (cmd === 'build') await build();
     else if (cmd === 'check') await check();
     else if (cmd === 'fetch') await fetchTo();
-    else fail('node scripts/bundle.js build | check | fetch — see the top of the file');
+    else if (cmd === 'status') await status();
+    else fail('node scripts/bundle.js build | check | status | fetch — see the top of the file');
   } catch (err) { fail(err.message); }
 })();
