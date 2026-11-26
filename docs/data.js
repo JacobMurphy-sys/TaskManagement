@@ -47,6 +47,8 @@ window.TIMELINE = {
     text: 'In a task list, a click on a task\'s due date or owner now changes it right there: a calendar with quick picks for the date, and the usual owner picker.' },
   { id: 'match-export-compare', date: '2026-11-25', area: 'capacity', title: 'Matching scenarios compared in Excel',
     text: 'The monthly matching workbook for a scenario now has the base plan\'s sheets beside the scenario\'s, a comparison sheet month by month and charts with both, as perso\'s does.' },
+  { id: 'team-tasks-people-only', date: '2026-11-26', area: 'projects', title: 'Your team\'s tasks on People only',
+    text: 'A manager\'s Tasks tab and Home now show only their own work; the tasks of the people reporting to them are on the People tab, where they still open as before.' },
   { id: 'forecast-link-right', date: '2026-11-26', area: 'capacity', title: 'Forecast upload link: its own right',
     text: 'Looking after the public forecast upload link — switching it on or off, making a new one — is now a right of its own, so the person who handles forecasts can do it without full setup rights. The link itself still needs no account.' },
   { id: 'proxy-subpath', date: '2026-11-26', area: 'platform', title: 'Works behind a reverse proxy',

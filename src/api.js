@@ -625,6 +625,9 @@ router.put('/me/see-all', h((req, res) => {
   res.json({ see_all: on });
 }));
 
+// 🌳 a manager's lists (the Tasks tab, Home, the due-task alerts) leave out the tasks it sees only as the owner's
+// manager — those are on the People tab; opening one still works (visibility.js's team set)
+const ownWork = (list) => { const v = db.visibleNow(); return v?.team?.size ? list.filter((t) => !v.team.has(t.id)) : list; };
 router.get('/tasks', h((req, res) => {
   const where = ["(p.id IS NULL OR p.status <> 'archived')"];
   const params = [];
@@ -632,8 +635,9 @@ router.get('/tasks', h((req, res) => {
   if (req.query.standalone === '1') where.push('t.project_id IS NULL');
   if (req.query.top_level === '1') where.push('t.parent_id IS NULL');
   if (req.query.open === '1') where.push("t.status <> 'done'");
-  res.json(tasks(`WHERE ${where.join(' AND ')}
-    ORDER BY t.priority DESC, t.due_at IS NULL, t.due_at, t.sort_order, t.id`, params));
+  const list = tasks(`WHERE ${where.join(' AND ')}
+    ORDER BY t.priority DESC, t.due_at IS NULL, t.due_at, t.sort_order, t.id`, params);
+  res.json(req.query.team === '1' ? list : ownWork(list)); // (?team=1: with the team's)
 }));
 
 // Keeps waiting_since in step with waiting_on, and start <= due.
@@ -1797,8 +1801,8 @@ router.get('/alerts', h((req, res) => {
   res.json({
     now,
     reminders: db.all(`${REMINDER_SELECT} WHERE r.status = 'pending' AND r.remind_at <= ? ORDER BY r.remind_at`, [now]),
-    due_tasks: tasks(`WHERE t.status <> 'done' AND (p.id IS NULL OR p.status IN ('active', 'on_hold'))
-      AND t.due_at IS NOT NULL AND t.due_at <= ? ORDER BY t.due_at`, [nowIso(24 * 3600 * 1000)]),
+    due_tasks: ownWork(tasks(`WHERE t.status <> 'done' AND (p.id IS NULL OR p.status IN ('active', 'on_hold'))
+      AND t.due_at IS NOT NULL AND t.due_at <= ? ORDER BY t.due_at`, [nowIso(24 * 3600 * 1000)])),
   });
 }));
 
@@ -1811,12 +1815,12 @@ router.get('/dashboard', h((req, res) => {
   const now = nowIso();
   const base = "WHERE t.status <> 'done' AND (p.id IS NULL OR p.status IN ('active', 'on_hold'))";
   res.json({
-    overdue: tasks(`${base} AND t.due_at < ? ORDER BY t.due_at`, [now]),
-    today: tasks(`${base} AND t.due_at >= ? AND t.due_at < ? ORDER BY t.due_at`, [now, dayStart(1)]),
-    week: tasks(`${base} AND t.due_at >= ? AND t.due_at < ? ORDER BY t.due_at`, [dayStart(1), dayStart(8)]),
-    high_priority: tasks(`${base} AND t.priority >= 3 ORDER BY t.priority DESC, t.due_at IS NULL, t.due_at`),
-    blocked: tasks(`${base} AND t.status = 'blocked' ORDER BY t.priority DESC, t.due_at IS NULL, t.due_at`),
-    waiting: tasks(`${base} AND t.waiting_on IS NOT NULL ORDER BY t.waiting_on COLLATE NOCASE, t.waiting_since`),
+    overdue: ownWork(tasks(`${base} AND t.due_at < ? ORDER BY t.due_at`, [now])),
+    today: ownWork(tasks(`${base} AND t.due_at >= ? AND t.due_at < ? ORDER BY t.due_at`, [now, dayStart(1)])),
+    week: ownWork(tasks(`${base} AND t.due_at >= ? AND t.due_at < ? ORDER BY t.due_at`, [dayStart(1), dayStart(8)])),
+    high_priority: ownWork(tasks(`${base} AND t.priority >= 3 ORDER BY t.priority DESC, t.due_at IS NULL, t.due_at`)),
+    blocked: ownWork(tasks(`${base} AND t.status = 'blocked' ORDER BY t.priority DESC, t.due_at IS NULL, t.due_at`)),
+    waiting: ownWork(tasks(`${base} AND t.waiting_on IS NOT NULL ORDER BY t.waiting_on COLLATE NOCASE, t.waiting_since`)),
     ideas: db.get(`SELECT count(*) AS open, coalesce(sum(cost), 0) AS cost FROM ideas
       WHERE status IN ('new', 'reviewing', 'approved')`),
     meetings: meetingList(`m.held_at >= ? AND m.held_at < ? AND (p.id IS NULL OR p.status <> 'archived')`,

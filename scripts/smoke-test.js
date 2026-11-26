@@ -4161,7 +4161,7 @@ async function waitForServer() {
         const wDone = (await admin('POST', '/tasks', { title: 'Wendy\'s finished job', owner: 'Wendy Worker', status: 'done' })).data;
         const tTask = (await admin('POST', '/tasks', { title: 'Tim\'s job', owner: 'Tim Lead' })).data;
         const oTask = (await admin('POST', '/tasks', { title: 'Oscar\'s job', owner: 'Oscar Outsider' })).data;
-        const ids = async () => (await sam('GET', '/tasks')).data.map((t) => t.id);
+        const ids = async () => (await sam('GET', '/tasks?team=1')).data.map((t) => t.id); // (with the team's: all they can see)
         assert.equal((await ids()).includes(wTask.id), false, 'no one below Sam: not seen');
         assert.equal((await sam('PUT', `/org/${encodeURIComponent('Tim Lead')}`, { manager: 'Sam Smoke' })).status, 403, 'only an admin changes the tree');
         // Sam › Tim › Wendy (Sam comes in at the top by being someone's manager)
@@ -4175,6 +4175,12 @@ async function waitForServer() {
         const me = (await sam('GET', '/auth/me')).data.account;
         const pp = (await sam('GET', '/people/overview')).data.find((p) => p.name === 'Wendy Worker');
         assert.deepEqual([me.manages, !!pp?.tasks.some((t) => t.id === wTask.id)], [['Tim Lead'], false], 'in 👥 People too: their direct reports');
+        { // 🌳 a report's task shows on 👥 People and opens, but stays out of the manager's own lists: Tasks, Home, the alerts
+          const tp = (await sam('GET', '/people/overview')).data.find((p) => p.name === 'Tim Lead');
+          const dash = (await sam('GET', '/dashboard')).data; const inDash = ['overdue', 'today', 'week', 'high_priority', 'blocked', 'waiting'].some((k) => (dash[k] || []).some((t) => t.id === tTask.id));
+          assert.deepEqual([!!tp?.tasks.some((t) => t.id === tTask.id), (await sam('GET', `/tasks/${tTask.id}`)).status, (await sam('GET', '/tasks')).data.some((t) => t.id === tTask.id), inDash,
+            (await sam('GET', '/alerts')).data.due_tasks.some((t) => t.id === tTask.id)], [true, 200, false, false, false], 'a direct report\'s task: on People and opens; not in Tasks, Home or the alerts');
+        }
         assert.deepEqual((await admin('GET', `/access/task/${wTask.id}`)).data.auto.filter((a) => /manager of/.test(a.why)).map((a) => a.person), ['Tim Lead'], 'and who sees it says so: the direct manager');
         // 💶 CAPEX: someone below you makes you a manager: all of it
         const cx = (await admin('POST', '/capex', { title: 'Boss forklift', category: 'Capacity / growth', owner: 'Oscar Outsider', amount: 50000, planned_date: '2027-02-01', justification: 'Old one worn out' })).data;

@@ -7,7 +7,8 @@
 //    subtask: each with all its subtasks. A subtask its person owns, it sees on its own (not the task it's under,
 //    nor that task's other subtasks) unless invited to the task above.
 //  - 🌳 a manager in the management tree: also the open tasks owned by the people reporting straight to them (not
-//    further down), each on its own; done ones drop off.
+//    further down), each on its own; done ones drop off. Those show on the People tab (and open from there), not in
+//    the manager's own lists — the Tasks tab, Home, the due-task alerts (the team set: api.js leaves them out).
 //  - quick notes and reminders: only its own (db.js's views, by created_by).
 //  - 📅 meetings (the calendar): one it made, one its person is an attendee of, or one on a task or project it sees.
 //  - 💶 CAPEX: one it made, requested (its owner) or sponsors; every manager (anyone with someone below them) sees all.
@@ -40,16 +41,16 @@ function compute(c, viewer) {
   const inMyTeam = (owner) => below.size > 0 && namesIn(owner).some((n) => below.has(n));
   const rows = q('SELECT id, parent_id, project_id, owner, status, created_by FROM main.tasks');
   const kids = new Map(); for (const t of rows) if (t.parent_id) { if (!kids.has(t.parent_id)) kids.set(t.parent_id, []); kids.get(t.parent_id).push(t.id); }
-  const full = new Set(); const visible = new Set();
+  const full = new Set(); const visible = new Set(); const teamOnly = new Set(); // seen only as the owner's manager
   for (const t of rows) {
     if (madeByMe(t.created_by) || shared.task.has(t.id) || (t.project_id && projects.has(t.project_id)) || (!t.parent_id && mine(t.owner))) full.add(t.id);
     else if (mine(t.owner)) visible.add(t.id); // a subtask of theirs: on its own
-    else if (t.status !== 'done' && inMyTeam(t.owner)) visible.add(t.id); // 🌳 open, and someone below them owns it
+    else if (t.status !== 'done' && inMyTeam(t.owner)) { visible.add(t.id); teamOnly.add(t.id); } // 🌳 open, and someone below them owns it
   }
   // a task seen in full brings all its subtasks, however deep
   const stack = [...full];
   while (stack.length) { const id = stack.pop(); for (const k of kids.get(id) || []) if (!full.has(k)) { full.add(k); stack.push(k); } }
-  for (const id of full) visible.add(id);
+  for (const id of full) { visible.add(id); teamOnly.delete(id); }
   // 💶 CAPEX: one it made, one its person requested or sponsors; a manager (of any department): all of them
   const isManager = below.size > 0; // anyone with someone reporting to them
   const capex = new Set();
@@ -59,7 +60,7 @@ function compute(c, viewer) {
   for (const m of q('SELECT id, task_id, project_id, attendees, created_by FROM main.meetings')) {
     if (madeByMe(m.created_by) || mine(m.attendees) || (m.task_id && visible.has(m.task_id)) || (m.project_id && projects.has(m.project_id))) meetings.add(m.id);
   }
-  return { projects, tasks: visible, full, capex, meetings, manager: isManager };
+  return { projects, tasks: visible, full, team: teamOnly, capex, meetings, manager: isManager };
 }
 
 // Work from before accounts (no creator): credited to the account of the person the history says added it, where
