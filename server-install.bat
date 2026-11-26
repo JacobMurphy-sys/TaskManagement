@@ -5,7 +5,9 @@ REM the app here. It:
 REM   1. sets the app to answer the network (HOST=0.0.0.0 in .env) and where its data lives;
 REM   2. opens its port in Windows Firewall (domain and private networks only);
 REM   3. makes a scheduled task, "SITHUB server", that runs server-run.bat at start-up under a
-REM      Windows account of your choice (it needs access to the network folders the app reads);
+REM      Windows account of your choice (it needs access to the network folders the app reads) -
+REM      or as SYSTEM (type SYSTEM: no password; network folders are then reached as the computer
+REM      itself, DOMAIN\COMPUTERNAME$, so they must allow that computer);
 REM   4. writes, in a "for-the-share" folder, cimanager-server.json and the icon: put both next to
 REM      CIManager-Setup.bat on the share, and running that setup then just gives people a SITHUB
 REM      shortcut to the server instead of installing a copy of their own.
@@ -88,13 +90,24 @@ if errorlevel 1 (echo       WARNING: couldn't add the firewall rule.) else (echo
 
 echo.
 echo [3/5] Starting it with Windows
-echo       The account needs read access to the network folders the app reads (KPI workbook and
-echo       sources, planning exports, card database, timing reports) and write access to the A3 folder.
+echo       The account needs read access to the app folder and the network folders the app reads (KPI
+echo       workbook and sources, planning exports, card database, timing reports) and write access to the
+echo       A3 folder. Type SYSTEM to run it as the computer itself: no password, full access to this
+echo       computer's folders, and network folders reached as %USERDOMAIN%\%COMPUTERNAME%$ (they must allow it).
 set "ACCT=%USERDOMAIN%\%USERNAME%"
-set /p "NEWACCT=      Windows account to run it as [%ACCT%]: "
+set /p "NEWACCT=      Windows account to run it as, or SYSTEM [%ACCT%]: "
 if defined NEWACCT set "ACCT=%NEWACCT%"
+if /i "%ACCT%"=="SYSTEM" set "ACCT=SYSTEM"
+if /i "%ACCT%"=="NT AUTHORITY\SYSTEM" set "ACCT=SYSTEM"
+REM (jumps, not a ( ) block: an app folder with brackets in its path, e.g. Program Files (x86), would end one)
+if "%ACCT%"=="SYSTEM" goto :task_system
 echo       Windows asks for that account's password, so it can run when nobody is logged on:
 schtasks /Create /TN "SITHUB server" /TR "\"%APP%\server-run.bat\"" /SC ONSTART /DELAY 0001:00 /RU "%ACCT%" /RP * /RL HIGHEST /F
+goto :task_made
+:task_system
+echo       Running it as SYSTEM - no password needed.
+schtasks /Create /TN "SITHUB server" /TR "\"%APP%\server-run.bat\"" /SC ONSTART /DELAY 0001:00 /RU SYSTEM /RL HIGHEST /F
+:task_made
 if errorlevel 1 (
   echo       WARNING: couldn't make the scheduled task - see the message above.
   set "FAILED=1"
