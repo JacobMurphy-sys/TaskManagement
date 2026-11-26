@@ -604,7 +604,7 @@ Instead of a copy on each PC, one computer runs SITHUB and everyone opens it in 
 **Setting up the server** (an always-on Windows PC or VM with Node.js and Git):
 1. Run `CIManager-Setup.bat` on the server as usual. Run it from the server's own disk, not from the share, so it installs there.
 2. In the app folder, right-click **`server-install.bat`** › *Run as administrator*. It asks for:
-   - **port** and **data folder**: keep the data folder on the server's own disk (default `%ProgramData%\CIManager`);
+   - **port** and **SITHUB's data folder** — its own database, logs and backups, on the server's own disk (default `%ProgramData%\CIManager`); not the folder of source files it reads (those are set in the app, Settings › Sources). A `\\server\share` path is refused;
    - **whether to start from the database already on that PC**, if there is one, for example yours. The database is copied and the original is kept;
    - **the Windows account to run it as**: it needs to read the network folders the app reads (the KPI workbook and sources, planning exports, card database and timing reports) and write to the A3 folder. In the app, use `\\server\share\…` paths, because the account has no mapped drives. Or type **`SYSTEM`** to run it as the computer itself: no password (so no password to keep up to date), full access to the server's own folders, and the network folders reached as the computer's domain account (`DOMAIN\SERVERNAME$`), so those shares must allow that computer — useful when the logged-on user can't read the app folder or the shares but the computer can;
    - **the address people will open**, e.g. `http://cimanager:3000`.

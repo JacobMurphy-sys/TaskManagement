@@ -50,8 +50,20 @@ echo.
 echo [1/5] Port and data folder
 set /p "NEWPORT=      Port [%PORT%]: "
 if defined NEWPORT set "PORT=%NEWPORT%"
-set /p "NEWDATA=      Data folder, on this computer's own disk [%DATA%]: "
+REM SITHUB's OWN data (its database, logs and backups) - not the source files it reads (those are set in the
+REM app, Settings > Sources): it must be on this computer's own disk, never a \\server\share path
+if "%DATA:~0,2%"=="\\" set "DATA=%ProgramData%\CIManager"
+echo       SITHUB's own data folder holds its database, logs and backups - on this computer's own disk.
+echo       Not the folder of source files it reads: those are set in the app, Settings - Sources.
+:ask_data
+set "NEWDATA="
+set /p "NEWDATA=      SITHUB's data folder [%DATA%]: "
 if defined NEWDATA set "DATA=%NEWDATA%"
+if not "%DATA:~0,2%"=="\\" goto :data_ok
+echo       That's a network share - SITHUB's data must be on this computer's own disk, e.g. %ProgramData%\CIManager.
+set "DATA=%ProgramData%\CIManager"
+goto :ask_data
+:data_ok
 if not exist "%DATA%\" mkdir "%DATA%"
 if not exist "%DATA%\" (
   echo       Couldn't make %DATA% - pick a folder you can write to.
