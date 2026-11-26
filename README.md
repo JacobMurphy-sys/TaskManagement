@@ -829,23 +829,11 @@ start.bat            launcher that keeps a console window with the log
 
 `npm test` runs an end-to-end smoke test using a temporary database, so your real data is never touched.
 
-## Hosting from the office Gitea
-
-The code is worked on as before (here → GitHub: `dev`, then `main` when released). For the office server, a machine in between copies GitHub to the office Gitea, and the server updates from Gitea:
-
-**GitHub → sync machine (`sync-gitea.bat`) → Gitea → office server (`git pull`, nightly)**
-
-1. **On Gitea:** make an empty repository (e.g. `IT/SITHUB`), its default branch **`main`**.
-2. **On the sync machine** (Git installed): put `sync-gitea.bat` anywhere; write the Gitea repository's address in `sithub-gitea.txt` next to it (one line). Run it once by hand: Git asks to sign in to GitHub and to Gitea (Git Credential Manager keeps both: a read-only GitHub token and a Gitea account that may push). Then `sync-gitea.bat --install` has Windows run it every 30 minutes (`--install 60` for hourly; Task Scheduler, *SITHUB GitHub to Gitea*). Each run fetches GitHub into a local mirror (`%LOCALAPPDATA%\SITHUB-sync`) and pushes **`main`**, **`dev`** and the tags to Gitea exactly as they are on GitHub — GitHub is the source, so anything pushed straight to those branches on Gitea is overwritten. Each run is logged to `sync.log` there.
-3. **On the office server:** a new install — put the Gitea address in `sithub-repo.txt` next to `CIManager-Setup.bat` (or set `SITHUB_REPO`) before running it: it installs **`main`** from there. An install made already — in its `app` folder: `git remote set-url origin <the Gitea address>`. Updates (`update.bat`, the nightly update, the shortcut's check) then come from Gitea.
-4. **The timeline** is served by SITHUB itself at **`/timeline/`** (⋯ › *Project timeline*), with the commits per day from the server's own git history — no GitHub Pages needed.
-
-## Project timeline (GitHub Pages, and in SITHUB)
+## Project timeline (GitHub Pages)
 
 `docs/` holds an interactive timeline of how SITHUB was built, from the first commit to today: development periods as bands on a date axis, commits per day, and pins for the main updates. Click a pin or a period for the details, filter by area, step through with ← →, zoom, and link straight to one (`…/#cpm`). The story is also written out period by period below it.
 
 - **Publish it:** on GitHub, **Settings › Pages › Build and deployment › Source: GitHub Actions**. The *Timeline on GitHub Pages* workflow (`.github/workflows/timeline-pages.yml`) then publishes `docs/` on every push to `main` or the development branch, with the commits per day worked out from the full git history at that moment, so nothing is committed back. It appears at `https://<owner>.github.io/<repo>/`. If the deploy step says the branch isn't allowed, add it under **Settings › Environments › github-pages › Deployment branches**. The page also opens straight from the folder.
 - **It keeps itself current:** `CLAUDE.md` asks that every user-visible change adds a pin to `docs/data.js` in the same commit, so pins arrive with the work. Add or edit one by hand any time.
-- **In SITHUB:** every install also serves it at `/timeline/` (⋯ menu › *Project timeline*), its commits per day worked out from that copy's git history (refreshed every 10 minutes) — so the office server shows it with no GitHub Pages.
 - **Commit counts locally:** `node scripts/timeline-activity.js` (in a full clone: run `git fetch --unshallow` first in a shallow one).
 - There's something hidden on the page, too.

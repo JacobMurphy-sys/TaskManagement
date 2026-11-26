@@ -67,7 +67,7 @@ node scripts\backup.js >nul 2>&1
 if errorlevel 1 (echo       WARNING: backup failed - continuing anyway.) else (echo       Done ^(see the backups folder^).)
 
 echo.
-echo [3/5] Pulling the latest version (from where this copy came from)...
+echo [3/5] Pulling the latest version from GitHub...
 rem package-lock.json is rewritten by npm install on this PC - drop that so the pull isn't blocked
 git checkout -- package-lock.json >nul 2>&1
 for /f %%r in ('git rev-parse HEAD') do set "OLDREV=%%r"

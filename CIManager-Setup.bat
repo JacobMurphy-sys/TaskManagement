@@ -4,7 +4,7 @@ REM
 REM Put this file in the folder you want SITHUB in (e.g. C:\CIManager) and
 REM double-click it. Needs Node.js 22.13+ and Git. It:
 REM   1. checks Node.js and Git;
-REM   2. first run: downloads the code (from GitHub, or the repository named below) into the "app" folder next to this file;
+REM   2. first run: downloads the code from GitHub into the "app" folder next to this file;
 REM      later runs: stops the app, backs up your data and pulls the latest version;
 REM   3. installs the dependencies;
 REM   4. refreshes itself, makes a "SITHUB" shortcut with SITHUB icon next to this
@@ -12,7 +12,7 @@ REM      file (and on the desktop), and writes "READ ME - where things are" (.tx
 REM      .md for Obsidian);
 REM   5. starts the app (and, on the first install, asks whether to start it at log-in).
 REM Updating happens by itself: each time SITHUB shortcut starts the app, it checks
-REM the repository it came from and, if there's a newer version, runs this file to update first. Run it by hand to
+REM GitHub and, if there's a newer version, runs this file to update first. Run it by hand to
 REM update straight away. Your data is kept outside the app folder
 REM (%LOCALAPPDATA%\CIManager), so installing or updating never touches it.
 REM
@@ -25,11 +25,7 @@ REM
 REM Run from inside a clone of the repository it updates that clone in place instead.
 setlocal EnableExtensions
 
-REM Where the code comes from: GitHub by default. To install from another copy of the repository (e.g. the
-REM office Gitea), put its address in a file "sithub-repo.txt" next to this one, or set SITHUB_REPO.
-REM (An install already made keeps updating from where it came from: "git remote set-url origin ADDRESS" in its app folder changes it.)
 set "REPO=https://github.com/JacobMurphy-sys/TaskManagement.git"
-if defined SITHUB_REPO set "REPO=%SITHUB_REPO%"
 
 REM This file can be replaced by the update, and cmd reads batch files as it
 REM goes, so run the rest from a temporary copy.
@@ -42,7 +38,6 @@ title SITHUB - setup
 set "SELF=%~2"
 for %%F in ("%SELF%") do set "BASEDIR=%%~dpF"
 set "BASEDIR=%BASEDIR:~0,-1%"
-if exist "%BASEDIR%\sithub-repo.txt" for /f "usebackq delims=" %%R in ("%BASEDIR%\sithub-repo.txt") do if not "%%R"=="" set "REPO=%%R"
 set "SRCDIR=%BASEDIR%"
 set "INPLACE="
 set "FAILED="
@@ -98,11 +93,11 @@ echo.
 if exist "%APP%\.git\" goto :update
 
 REM ---- first run: download the code ---------------------------------------
-echo [2/6] Downloading SITHUB from %REPO% ...
+echo [2/6] Downloading SITHUB from GitHub...
 if exist "%APP%\" (
   dir /b /a "%APP%" | findstr . >nul && goto :app_not_empty
 )
-git clone -b main "%REPO%" "%APP%"
+git clone "%REPO%" "%APP%"
 if errorlevel 1 goto :clone_failed
 set "FRESH=1"
 cd /d "%APP%"
@@ -262,13 +257,13 @@ echo Git was not found. Install it from https://git-scm.com and run this again.
 pause
 exit /b 1
 :app_not_empty
-echo "%APP%" already exists but is not a copy of SITHUB.
+echo "%APP%" already exists but is not a copy of SITHUB from GitHub.
 echo Move or rename it, then run this again.
 pause
 exit /b 1
 :clone_failed
-echo Downloading failed - see the message above.
-echo Check you can reach %REPO% and are signed in with access to it.
+echo Downloading from GitHub failed - see the message above.
+echo Check you are signed in to GitHub with access to %REPO%.
 pause
 exit /b 1
 
