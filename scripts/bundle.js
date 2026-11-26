@@ -18,6 +18,9 @@
 //         (server-run.bat does that while the app is stopped).
 // Where the server looks: UPDATE_FROM in .env — the Gitea repository's address (its releases) or a folder
 // (a share with latest.json); UPDATE_TOKEN — a Gitea access token, when the repository isn't public.
+// UPDATE_BRANCH (e.g. main) as well: no bundles — the server takes that branch's newest files straight from the
+// Gitea repository (pushed there as they are, no build) and keeps its own node_modules and runtime\node.exe; when
+// the packages changed (package-lock.json), that one isn't installed: it needs a full bundle.
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
@@ -54,10 +57,11 @@ function walk(dir, base = dir, out = {}) {
   }
   return out;
 }
-function unpack(buf, to) {
+function unpack(buf, to, strip = 0) {
   const files = readZip(buf); let n = 0;
-  for (const [name, data] of Object.entries(files)) {
-    if (name.endsWith('/')) continue;
+  for (const [name0, data] of Object.entries(files)) {
+    if (name0.endsWith('/')) continue;
+    const name = name0.split('/').slice(strip).join('/'); if (!name) continue; // (strip: a Gitea archive's top folder)
     const dest = path.resolve(to, ...name.split('/'));
     if (!dest.startsWith(path.resolve(to) + path.sep)) throw new Error(`a file outside the folder: ${name}`); // never outside it
     fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.writeFileSync(dest, data); n++;
@@ -137,6 +141,15 @@ async function newest() {
     const L = JSON.parse(fs.readFileSync(f, 'utf8')); return { commit: L.commit, name: L.file, get: async () => fs.readFileSync(path.join(from, L.file)) };
   }
   const api = giteaApi(from); const h = headers(E.UPDATE_TOKEN);
+  // a branch's newest files, as pushed (no bundle): its head commit, and the repository's archive of it
+  const br = String(E.UPDATE_BRANCH || '').trim();
+  if (br) {
+    const r = await fetch(`${api}/branches/${encodeURIComponent(br)}`, { headers: h, signal: AbortSignal.timeout(20000) }); if (!r.ok) throw new Error(`Gitea said ${r.status}${r.status === 404 ? ` (no branch ${br}?)` : ''}`);
+    const c = (await r.json()).commit || {}; if (!c.id) throw new Error(`branch ${br}: no commit`);
+    const subject = String(c.message || '').split('\n')[0].trim();
+    return { kind: 'source', branch: br, commit: c.id, date: c.timestamp || null, subject, name: `branch ${br}: ${subject.slice(0, 70)}`,
+      get: async () => { const d = await fetch(`${api}/archive/${encodeURIComponent(br)}.zip`, { headers: h, signal: AbortSignal.timeout(600000) }); if (!d.ok) throw new Error(`download: ${d.status}`); return Buffer.from(await d.arrayBuffer()); } };
+  }
   const r = await fetch(`${api}/releases?limit=20`, { headers: h, signal: AbortSignal.timeout(20000) }); if (!r.ok) throw new Error(`Gitea said ${r.status}`);
   const rel = (await r.json()).filter((x) => /^bundle-[0-9a-f]{7}$/.test(x.tag_name) && !x.draft && (x.assets || []).some((a) => /\.zip$/.test(a.name)))
     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
@@ -154,7 +167,7 @@ async function check() {
 async function status() {
   const E = env(); const me = installed();
   log(`      Installed:   ${me ? `${me.short} of ${String(me.date).slice(0, 10)}${me.branch ? ` (${me.branch})` : ''}` : 'unknown (no BUILD.json)'}`);
-  log(`      Looking in:  ${E.UPDATE_FROM || '— UPDATE_FROM isn\'t set in .env'}${E.UPDATE_FROM && isUrl(E.UPDATE_FROM) ? (E.UPDATE_TOKEN ? ' (with UPDATE_TOKEN)' : ' (no UPDATE_TOKEN: only a public repository can be read)') : ''}`);
+  log(`      Looking in:  ${E.UPDATE_FROM || '— UPDATE_FROM isn\'t set in .env'}${E.UPDATE_BRANCH ? `, branch ${String(E.UPDATE_BRANCH).trim()} (its files as pushed, no bundle)` : ''}${E.UPDATE_FROM && isUrl(E.UPDATE_FROM) ? (E.UPDATE_TOKEN ? ' (with UPDATE_TOKEN)' : ' (no UPDATE_TOKEN: only a public repository can be read)') : ''}`);
   if (!E.UPDATE_FROM) process.exit(1);
   try {
     const n = await newest(); if (!n) { log('      Newest:      none published there yet (a release tagged bundle-<code>, with its SITHUB-<code>.zip attached)'); process.exit(1); }
@@ -165,7 +178,7 @@ async function status() {
     log(`      Couldn't read it: ${why}`);
     if (/CERT|certificate|self.signed|issuer/i.test(why)) log('      (Gitea\'s HTTPS certificate isn\'t trusted: Node.js 22.15 or later is needed to use the certificates Windows trusts —\n       or put the company\'s CA certificate, as a .pem file, in NODE_EXTRA_CA_CERTS for the task)');
     else if (/401|403/.test(why)) log(E.UPDATE_TOKEN ? '      (Gitea refused the token: check UPDATE_TOKEN — a token of an account that can read the repository)' : '      (Gitea wants a token: put UPDATE_TOKEN=<a token with repository: read> in .env)');
-    else if (/404/.test(why)) log('      (Gitea says not found: check UPDATE_FROM — the repository\'s address, e.g. https://server/gitea/owner/repo)');
+    else if (/404/.test(why)) log(`      (Gitea says not found: check UPDATE_FROM — the repository's address, e.g. https://server/gitea/owner/repo${E.UPDATE_BRANCH ? ' — and UPDATE_BRANCH, a branch it has' : ''})`);
     process.exit(1);
   }
 }
@@ -175,10 +188,25 @@ async function fetchTo() {
   const n = await newest(); if (!n) fail('No bundle published (UPDATE_FROM in .env: the Gitea repository, or the folder with latest.json)');
   log(`Downloading ${n.name}…`); const buf = await n.get();
   fs.rmSync(to, { recursive: true, force: true }); fs.mkdirSync(to, { recursive: true });
+  if (n.kind === 'source') return fromSource(n, buf, to);
   const count = unpack(buf, to);
   const B = JSON.parse(fs.readFileSync(path.join(to, 'BUILD.json'), 'utf8'));
   if (!fs.existsSync(path.join(to, 'src', 'server.js')) || !fs.existsSync(path.join(to, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node'))) fail('The bundle is incomplete — not installed');
   log(`Unpacked ${count} files of ${B.short} (${String(B.date).slice(0, 10)}) to ${to}`);
+}
+
+// a branch's files as pushed: unpacked next to the app; the packages must be the ones installed here (the server has
+// no internet to fetch others), so it's refused when package-lock.json changed; BUILD.json says what it is now
+function fromSource(n, buf, to) {
+  const count = unpack(buf, to, 1);
+  if (!fs.existsSync(path.join(to, 'src', 'server.js'))) { fs.rmSync(to, { recursive: true, force: true }); fail(`branch ${n.branch} doesn't hold SITHUB (no src\\server.js at its top) — not installed`); }
+  const pk = (dir) => { try { const { '': _root, ...rest } = JSON.parse(fs.readFileSync(path.join(dir, 'package-lock.json'), 'utf8')).packages || {}; return JSON.stringify(rest); } catch { return null; } };
+  if (pk(to) !== pk(ROOT)) { fs.rmSync(to, { recursive: true, force: true }); fail('This version changes the packages (package-lock.json), and this server can\'t fetch them: install a full bundle for it (scripts\\bundle.js build on the build PC) — kept the current version'); }
+  // the timeline's commits per day: kept from the version installed (no git history here)
+  try { const cur = fs.readFileSync(path.join(ROOT, 'docs', 'data.js'), 'utf8').match(/\/\*activity\*\/[\s\S]*?\/\*end\*\//); const f = path.join(to, 'docs', 'data.js'); if (cur && fs.existsSync(f)) fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/\/\*activity\*\/[\s\S]*?\/\*end\*\//, () => cur[0])); } catch { /* none */ }
+  const me = installed() || {};
+  fs.writeFileSync(path.join(to, 'BUILD.json'), JSON.stringify({ ...me, kind: 'source', branch: n.branch, commit: n.commit, short: short(n.commit), date: n.date, subject: n.subject, built: new Date().toISOString() }, null, 2));
+  log(`Unpacked ${count} files of branch ${n.branch} ${short(n.commit)} to ${to} (this server's node_modules and Node.js are kept)`);
 }
 
 (async () => {

@@ -71,7 +71,10 @@ if errorlevel 1 (
 )
 REM (the app is stopped and node.exe isn't running: everything can be replaced; what's local stays - the folders
 REM  kept are named by their full path, as a bare name would also skip e.g. node_modules\pdfkit\js\data)
-robocopy "%STAGE%" "%CD%" /MIR /R:2 /W:2 /NFL /NDL /NJH /NP /XD "%CD%\logs" "%CD%\data" "%CD%\backups" "%CD%\for-the-share" "%STAGE%\logs" "%STAGE%\data" /XF .env cimanager-defaults.json "READ ME - where things are.txt" "READ ME - where things are.md" *.lnk >>"%LOG%" 2>&1
+REM a branch's files (no bundle): this server's own packages and Node.js stay
+set "KEEP="
+if not exist "%STAGE%\node_modules\" set KEEP="%CD%\node_modules" "%CD%\runtime"
+robocopy "%STAGE%" "%CD%" /MIR /R:2 /W:2 /NFL /NDL /NJH /NP /XD "%CD%\logs" "%CD%\data" "%CD%\backups" "%CD%\for-the-share" "%STAGE%\logs" "%STAGE%\data" %KEEP% /XF .env cimanager-defaults.json "READ ME - where things are.txt" "READ ME - where things are.md" *.lnk >>"%LOG%" 2>&1
 if errorlevel 8 (
   call :log "Copying the new version failed - see above; check the app folder"
   exit /b 0

@@ -8,6 +8,8 @@ REM   2. downloads and unpacks it next to the app (..\SITHUB-update), while SITH
 REM   3. stops the "SITHUB server" task and SITHUB;
 REM   4. backs up the data;
 REM   5. copies the new version over the app (.env, logs, data and backups kept) and starts the task again.
+REM With UPDATE_BRANCH in .env (e.g. main), the newest is that branch's files as pushed to Gitea - no bundle; the
+REM server's own node_modules and runtime\node.exe stay (refused when the packages changed: that needs a bundle).
 REM update-server.bat --force installs the newest bundle even if it's the one installed already.
 setlocal EnableExtensions
 REM This file is replaced by the update, and cmd reads batch files as it goes: run from a copy.
@@ -84,7 +86,10 @@ echo.
 echo [5/5] Copying the new version over the app, and starting it
 REM (what's local stays - the folders kept are named by their full path, as a bare name would also skip
 REM  e.g. node_modules\pdfkit\js\data)
-robocopy "%STAGE%" "%CD%" /MIR /R:2 /W:2 /NFL /NDL /NJH /NP /XD "%CD%\logs" "%CD%\data" "%CD%\backups" "%CD%\for-the-share" "%STAGE%\logs" "%STAGE%\data" /XF .env cimanager-defaults.json "READ ME - where things are.txt" "READ ME - where things are.md" *.lnk >nul
+REM a branch's files (no bundle): this server's own packages and Node.js stay
+set "KEEP="
+if not exist "%STAGE%\node_modules\" set KEEP="%CD%\node_modules" "%CD%\runtime"
+robocopy "%STAGE%" "%CD%" /MIR /R:2 /W:2 /NFL /NDL /NJH /NP /XD "%CD%\logs" "%CD%\data" "%CD%\backups" "%CD%\for-the-share" "%STAGE%\logs" "%STAGE%\data" %KEEP% /XF .env cimanager-defaults.json "READ ME - where things are.txt" "READ ME - where things are.md" *.lnk >nul
 if errorlevel 8 (
   echo       Copying the new version failed - check the app folder. Starting what's there.
   set "FAILED=1"
