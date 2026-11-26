@@ -15,17 +15,9 @@ REM Each run: fetches GitHub into a local mirror (%LOCALAPPDATA%\SITHUB-sync), t
 REM branches below (and the tags) to Gitea exactly as they are on GitHub - GitHub is the source,
 REM so anything pushed to those branches on Gitea directly is overwritten. Logged to sync.log there.
 REM
-REM An office server WITH Git and Node.js installs from Gitea: put the Gitea address in "sithub-repo.txt"
-REM next to CIManager-Setup.bat before the first install (or, installed already, in its app folder:
-REM git remote set-url origin <the Gitea address>).
-REM
-REM An office server with NO internet, Git or Node.js runs a ready-to-run BUNDLE instead: this machine
-REM (with Node.js 22.13+ installed) builds one each time main changes - the app, its dependencies for
-REM Windows and its own node.exe - and publishes it as a release on Gitea, for the server to update from.
-REM For that, next to this file:
-REM   sithub-gitea-token.txt   a Gitea access token that may write to the repository (keep it private);
-REM   sithub-bundle-share.txt  (or as well) a folder the server can read, to copy the bundles to.
-REM Without either, the bundle is still made, in %LOCALAPPDATA%\SITHUB-sync\bundles, to copy by hand.
+REM The office server then installs from Gitea: put the Gitea address in "sithub-repo.txt" next to
+REM CIManager-Setup.bat before the first install, or, for one installed already, in its app folder:
+REM   git remote set-url origin <the Gitea address>
 setlocal EnableExtensions
 
 set "GITHUB=https://github.com/JacobMurphy-sys/TaskManagement.git"
@@ -61,29 +53,6 @@ if "%SPECS%"=="" (call :log "None of the branches (%BRANCHES%) is on GitHub - no
 git -C "%MIRROR%" push "%GITEA%" %SPECS% "+refs/tags/*:refs/tags/*" >>"%LOG%" 2>&1 || (call :log "Couldn't push to Gitea (%GITEA%) - see above" & exit /b 1)
 for /f "delims=" %%H in ('git -C "%MIRROR%" log -1 --format^="%%h of %%cs" main 2^>nul') do set "LAST=%%H"
 call :log "Synced%SPECS% to %GITEA% - main is %LAST%"
-
-REM ---- the bundle for an offline server, when main has changed since the last one ------------------
-set "LASTB=%HOME_DIR%\last-bundle.txt"
-set "MAINC="
-for /f %%C in ('git -C "%MIRROR%" rev-parse main 2^>nul') do set "MAINC=%%C"
-if "%MAINC%"=="" exit /b 0
-set "PREV="
-if exist "%LASTB%" set /p PREV=<"%LASTB%"
-if "%MAINC%"=="%PREV%" exit /b 0
-where node >nul 2>&1 || (call :log "No Node.js on this machine - no bundle made for an offline server" & exit /b 0)
-set "WORK=%HOME_DIR%\work"
-if exist "%WORK%\" rmdir /s /q "%WORK%"
-mkdir "%WORK%"
-git -C "%WORK%" --git-dir="%MIRROR%" --work-tree=. checkout -f main -- . >>"%LOG%" 2>&1 || (call :log "Couldn't check out main for the bundle - see above" & exit /b 1)
-set BARGS=--mirror "%MIRROR%" --work "%WORK%" --out "%HOME_DIR%\bundles"
-if exist "%~dp0sithub-gitea-token.txt" set BARGS=%BARGS% --gitea "%GITEA%" --token-file "%~dp0sithub-gitea-token.txt"
-set "SHARE="
-if exist "%~dp0sithub-bundle-share.txt" for /f "usebackq delims=" %%R in ("%~dp0sithub-bundle-share.txt") do if not "%%R"=="" set "SHARE=%%R"
-if defined SHARE set BARGS=%BARGS% --copy-to "%SHARE%"
-call :log "Building the bundle for an offline server (main %MAINC:~0,7%)"
-node "%WORK%\scripts\bundle.js" build %BARGS% >>"%LOG%" 2>&1 || (call :log "The bundle failed - see above" & exit /b 1)
->"%LASTB%" echo %MAINC%
-call :log "Bundle made for main %MAINC:~0,7%"
 exit /b 0
 
 REM ---- run it every N minutes (Task Scheduler) --------------------------------

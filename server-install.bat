@@ -21,13 +21,9 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-REM a bundle (an offline server) brings its own Node.js in runtime\; else it must be installed
-set "NODE_OK="
-if exist "%APP%\runtime\node.exe" set "NODE_OK=1"
-if not defined NODE_OK where node >nul 2>&1 && set "NODE_OK=1"
-if not defined NODE_OK (
-  echo Node.js was not found. Install it from https://nodejs.org first - or use the SITHUB bundle,
-  echo which brings its own ^(runtime\node.exe^).
+where node >nul 2>&1
+if errorlevel 1 (
+  echo Node.js was not found. Install it from https://nodejs.org first.
   pause
   exit /b 1
 )
