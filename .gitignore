@@ -11,3 +11,6 @@ cimanager-defaults.json
 # shortcuts CIManager-Setup.bat makes when run inside a clone
 *.lnk
 for-the-share/
+# a bundle's own Node.js and what it was built from (scripts/bundle.js) - never pushed
+runtime/
+BUILD.json
